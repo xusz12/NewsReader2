@@ -1,0 +1,29 @@
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+__pycache__/
+.pytest_cache/
+.DS_Store
+app_settings.json
+
+# Local design and experiment artifacts
+.impeccable/
+tmp/
+scripts/experiment_*.py
+PRODUCT.md
+DESIGN.md
+
+# OAR / Pi SDK dependencies
+node_modules/
+
+# Browser test output
+.ui-artifacts/
+test-results/
+playwright-report/
+
+# Project-local environments, caches and runtime data
+.venv/
+media-cache/
+*.db
+*.db-wal
+*.db-shm

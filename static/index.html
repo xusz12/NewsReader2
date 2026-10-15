@@ -1,0 +1,1144 @@
+<!doctype html>
+
+<html data-theme="system" lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+      name="viewport"
+    />
+    <meta content="yes" name="apple-mobile-web-app-capable" />
+    <meta content="default" name="apple-mobile-web-app-status-bar-style" />
+    <meta
+      content="#fcfbfa"
+      media="(prefers-color-scheme: light)"
+      name="theme-color"
+    />
+    <meta
+      content="#18191c"
+      media="(prefers-color-scheme: dark)"
+      name="theme-color"
+    />
+    <title>News Reader v0.0.1</title>
+    <script>
+      try {
+        const m =
+          new URLSearchParams(location.search).get("theme") ||
+          localStorage.getItem("newsreader_workbench_theme_mode") ||
+          "system";
+        document.documentElement.dataset.theme = [
+          "system",
+          "light",
+          "dark",
+          "eink",
+        ].includes(m)
+          ? m
+          : "system";
+      } catch {}
+    </script>
+    <link
+      href="/static/style.css?v=0.0.1&amp;build=workbench1"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="app-root">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            aria-label="打开信源与分类导航"
+            class="mobile-menu-btn"
+            id="openNavBtn"
+            type="button"
+          >
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <line x1="3" x2="21" y1="12" y2="12"></line>
+              <line x1="3" x2="21" y1="6" y2="6"></line>
+              <line x1="3" x2="21" y1="18" y2="18"></line>
+            </svg>
+          </button>
+          <div class="brand-mark">
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"
+              ></path>
+              <path d="M6 6h10M6 10h10M6 14h6"></path>
+            </svg>
+            <span>News Reader</span>
+            <span class="brand-version">v0.0.1</span>
+          </div>
+        </div>
+        <div class="topbar-center">
+          <div class="pipeline-status" id="pipelineStatus">
+            <span class="pipeline-dot"></span>
+            <span>正在连接新闻库…</span>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button
+            class="topbar-tool-btn"
+            id="openShortcutsBtn"
+            title="快捷键速查表 (?)"
+            type="button"
+          >
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" x2="12.01" y1="17" y2="17"></line>
+            </svg>
+          </button>
+          <select aria-label="外观主题" class="theme-select" id="themeSelect">
+            <option value="system">跟随系统</option>
+            <option value="light">经典浅色 (暖纸)</option>
+            <option value="dark">专业深色 (低眩光)</option>
+            <option value="eink">墨水屏 (E-Ink)</option>
+          </select>
+        </div>
+      </header>
+      <div class="workspace-view">
+        <main class="view-container active" id="feedView">
+          <div class="drawer-backdrop" id="navDrawerBackdrop"></div>
+          <aside
+            aria-label="新闻工作台导航"
+            class="left-nav"
+            id="leftNavDrawer"
+          >
+            <div class="left-nav-drawer-header">
+              <div class="drawer-header-title">
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  style="width: 16px; height: 16px; color: var(--accent)"
+                  viewBox="0 0 24 24"
+                >
+                  <polygon
+                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                  ></polygon>
+                </svg>
+                <span>信源与工作流导航</span>
+              </div>
+              <button
+                aria-label="关闭导航抽屉"
+                class="drawer-close-btn"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <line x1="18" x2="6" y1="6" y2="18"></line>
+                  <line x1="6" x2="18" y1="6" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div class="nav-scroll">
+              <section class="nav-section">
+                <div class="nav-title">阅读</div>
+                <button
+                  class="nav-item active"
+                  data-collection="feed"
+                  id="navFeedBtn"
+                  type="button"
+                >
+                  <div class="nav-item-left">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M4 6h16M4 12h16M4 18h16"></path>
+                    </svg>
+                    <span>新闻流</span>
+                  </div>
+                  <span class="nav-badge accent" id="unreadBadge"></span>
+                </button>
+                <button
+                  class="nav-item"
+                  data-collection="read_later"
+                  id="navReadLaterBtn"
+                  type="button"
+                >
+                  <div class="nav-item-left">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
+                      ></path>
+                    </svg>
+                    <span>稍后再看</span>
+                  </div>
+                  <span class="nav-badge" id="readLaterNavBadge"></span>
+                </button>
+                <button
+                  class="nav-item"
+                  data-collection="important"
+                  id="navImportantBtn"
+                  type="button"
+                >
+                  <div class="nav-item-left">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <polygon
+                        points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+                      ></polygon>
+                    </svg>
+                    <span>重要新闻</span>
+                  </div>
+                </button>
+                <button
+                  class="nav-item"
+                  data-collection="favorites"
+                  id="navFavoritesBtn"
+                  type="button"
+                >
+                  <div class="nav-item-left">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <polygon
+                        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                      ></polygon>
+                    </svg>
+                    <span>收藏</span>
+                  </div>
+                  <span class="nav-badge" id="starredNavBadge"></span>
+                </button>
+                <button
+                  class="nav-item"
+                  data-collection="notes"
+                  id="navNotesBtn"
+                  type="button"
+                >
+                  <div class="nav-item-left">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path d="M12 20h9"></path>
+                      <path
+                        d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+                      ></path>
+                    </svg>
+                    <span>想法</span>
+                  </div>
+                  <span class="nav-badge"></span>
+                </button>
+              </section>
+              <section class="nav-section">
+                <div class="nav-title">来源筛选</div>
+                <div class="source-list" id="sourceFilters"></div>
+              </section>
+            </div>
+            <div class="left-nav-footer">
+              <button
+                class="nav-settings-btn"
+                id="leftNavSettingsBtn"
+                title="系统与模型设置 (,)"
+                type="button"
+              >
+                <div class="nav-settings-btn-inner">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                    ></path>
+                  </svg>
+                  <span>设置</span>
+                </div>
+                <span class="nav-settings-shortcut" title="快捷键: 逗号键 ,"
+                  >,</span
+                >
+              </button>
+            </div>
+          </aside>
+          <section
+            aria-label="新闻条目流"
+            class="feed-column active"
+            id="feedColFeed"
+          >
+            <div class="feed-header">
+              <div class="feed-search-row">
+                <div class="feed-search-box">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+                  </svg>
+                  <input
+                    aria-label="搜索新闻"
+                    class="feed-search-input"
+                    id="feedSearchInput"
+                    placeholder="搜索新闻标题、全文、想法或来源…"
+                    type="text"
+                  />
+                  <span class="search-shortcut-hint">/</span>
+                </div>
+              </div>
+              <div class="feed-filter-chips"></div>
+            </div>
+            <div class="batch-action-bar" id="batchActionBar"></div>
+            <ul class="news-list" id="feedCardList" role="feed"></ul>
+          </section>
+          <section
+            aria-label="想法与灵感沉淀列表"
+            class="feed-column"
+            id="feedColIdeas"
+          >
+            <div class="feed-header">
+              <div class="feed-search-row">
+                <div class="feed-search-box">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+                  </svg>
+                  <input
+                    aria-label="搜索想法"
+                    class="feed-search-input"
+                    id="ideasSearchInput"
+                    placeholder="搜索想法与灵感笔记…"
+                    type="text"
+                  />
+                  <span class="search-shortcut-hint">/</span>
+                </div>
+              </div>
+              <div class="feed-filter-chips"></div>
+            </div>
+            <ul class="news-list" id="ideasCardList"></ul>
+          </section>
+          <section
+            aria-label="新闻详情与研究阅读区"
+            class="detail-panel active"
+            id="detailPanelFeed"
+          >
+            <div class="detail-toolbar">
+              <div class="detail-toolbar-left">
+                <button
+                  aria-label="返回新闻列表"
+                  class="mobile-back-btn"
+                  id="mobileReaderBackBtn"
+                  type="button"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                  <span>新闻列表</span>
+                </button>
+                <div class="reader-cache-status" title="正文抓取状态">
+                  <span aria-hidden="true" class="cache-pulse-dot"></span>
+                  <span class="cache-label">选择一篇新闻</span>
+                  <span class="cache-time"></span>
+                </div>
+              </div>
+              <div class="detail-toolbar-right">
+                <a
+                  class="reader-source-link"
+                  href="#"
+                  id="articleSourceLink"
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  title="在新标签页查看原文"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+                    ></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" x2="21" y1="14" y2="3"></line>
+                  </svg>
+                  <span>查看原文</span>
+                </a>
+                <span aria-hidden="true" class="toolbar-v-divider"></span>
+                <div
+                  aria-label="文章操作与队列管理"
+                  class="reader-action-toolbar"
+                  role="toolbar"
+                >
+                  <button
+                    class="reader-tool-btn"
+                    data-state="read"
+                    disabled=""
+                    id="btnToggleRead"
+                    title="标记已读 / 未读 (快捷键: m)"
+                    type="button"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    <span id="readBtnLabel">标记已读</span>
+                    <kbd class="reader-btn-kbd">M</kbd>
+                  </button>
+                  <button
+                    class="reader-tool-btn"
+                    data-state="important"
+                    disabled=""
+                    id="btnToggleImportant"
+                    title="标记为重要新闻 (快捷键: i)"
+                    type="button"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"
+                      ></path>
+                      <line x1="4" x2="4" y1="22" y2="15"></line>
+                    </svg>
+                    <span id="importantBtnLabel">重要</span>
+                    <kbd class="reader-btn-kbd">I</kbd>
+                  </button>
+                  <button
+                    class="reader-tool-btn"
+                    data-state="read_later"
+                    disabled=""
+                    id="btnToggleLater"
+                    title="存入稍后再看队列 (快捷键: s)"
+                    type="button"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span id="laterBtnLabel">稍后再看</span>
+                    <kbd class="reader-btn-kbd">S</kbd>
+                  </button>
+                  <button
+                    class="reader-tool-btn"
+                    data-state="favorite"
+                    disabled=""
+                    id="btnToggleStar"
+                    title="收藏高光新闻 (快捷键: f)"
+                    type="button"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <polygon
+                        points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                      ></polygon>
+                    </svg>
+                    <span id="starBtnLabel">收藏</span>
+                    <kbd class="reader-btn-kbd">F</kbd>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="detail-scroll-area" id="detailScrollArea"></div>
+            <section
+              aria-label="新闻研究 Agent 对话窗口"
+              class="agent-dock minimized"
+              id="agentDock"
+            >
+              <div class="mobile-sheet-handle-bar">
+                <div class="mobile-sheet-handle"></div>
+              </div>
+              <div
+                class="agent-header"
+                id="agentHeader"
+                title="点击展开 / 收起对话 (快捷键: A)"
+              >
+                <div class="agent-title-info">
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    style="width: 15px; height: 15px; color: var(--accent)"
+                    viewBox="0 0 24 24"
+                  >
+                    <polygon
+                      points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                    ></polygon>
+                  </svg>
+                  <strong style="font-size: 12.5px">新闻研究 Agent</strong>
+                  <span class="agent-runtime-badge" id="agentRuntimeBadge"
+                    >尚未开启</span
+                  >
+                </div>
+                <div class="agent-minimized-hint">
+                  <span>点击展开</span>
+                  <kbd class="reader-btn-kbd">A</kbd>
+                </div>
+                <div class="agent-actions">
+                  <button
+                    class="agent-btn expanded-only"
+                    id="archiveAgentBtn"
+                    title="提炼结论并沉淀到想法"
+                    type="button"
+                  >
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      style="width: 13px; height: 13px"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+                      ></path>
+                      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    </svg>
+                  </button>
+                  <button
+                    class="agent-btn expanded-only"
+                    id="agentExpandToggleBtn"
+                    title="扩大窗口"
+                    type="button"
+                  >
+                    <svg
+                      class="icon-expand"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      style="width: 13px; height: 13px"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <polyline points="9 21 3 21 3 15"></polyline>
+                      <line x1="21" x2="14" y1="3" y2="10"></line>
+                      <line x1="3" x2="10" y1="21" y2="14"></line>
+                    </svg>
+                    <svg
+                      class="icon-shrink"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      style="width: 13px; height: 13px; display: none"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="4 14 10 14 10 20"></polyline>
+                      <polyline points="20 10 14 10 14 4"></polyline>
+                      <line x1="14" x2="21" y1="10" y2="3"></line>
+                      <line x1="3" x2="10" y1="21" y2="14"></line>
+                    </svg>
+                  </button>
+                  <button
+                    class="agent-btn agent-toggle-btn"
+                    id="agentDockToggleBtn"
+                    title="展开 / 收起窗口 (快捷键: A)"
+                    type="button"
+                  >
+                    <svg
+                      class="agent-toggle-icon-expand"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      style="width: 13px; height: 13px"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                    <svg
+                      class="agent-toggle-icon-collapse"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      style="width: 13px; height: 13px"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="agent-body">
+                <div class="agent-session-tools">
+                  <button
+                    class="reader-action-btn"
+                    id="agentNewBtn"
+                    type="button"
+                  >
+                    新会话</button
+                  ><button
+                    class="reader-action-btn"
+                    hidden=""
+                    id="agentStopBtn"
+                    type="button"
+                  >
+                    停止</button
+                  ><span id="agentStatus" role="status"></span>
+                </div>
+                <blockquote hidden="" id="agentQuote"></blockquote>
+                <div class="agent-chat-stream" id="agentChatStream"></div>
+                <div class="agent-suggestions">
+                  <button
+                    class="suggestion-chip"
+                    data-prompt="解释关键背景"
+                    type="button"
+                  >
+                    解释关键背景</button
+                  ><button
+                    class="suggestion-chip"
+                    data-prompt="核对核心证据"
+                    type="button"
+                  >
+                    核对核心证据</button
+                  ><button
+                    class="suggestion-chip"
+                    data-prompt="分析潜在影响"
+                    type="button"
+                  >
+                    分析潜在影响
+                  </button>
+                </div>
+                <div class="agent-input-row">
+                  <input
+                    aria-label="向新闻研究 Agent 提问"
+                    class="agent-input"
+                    id="agentPromptInput"
+                    placeholder="基于本文原文提问…"
+                    type="text"
+                  />
+                  <button
+                    class="agent-send-btn"
+                    id="agentSendBtn"
+                    type="button"
+                  >
+                    发送
+                  </button>
+                </div>
+              </div>
+            </section>
+          </section>
+          <section
+            aria-label="想法沉淀与深度推演工作台"
+            class="detail-panel"
+            id="detailPanelIdeas"
+          >
+            <div class="detail-toolbar">
+              <div class="detail-toolbar-left">
+                <button
+                  aria-label="返回想法列表"
+                  class="mobile-back-btn"
+                  type="button"
+                >
+                  <svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                  <span>想法列表</span>
+                </button>
+                <div class="reader-cache-status">
+                  <span
+                    class="cache-pulse-dot"
+                    style="background: var(--accent)"
+                  ></span>
+                  <span class="cache-label" id="ideaToolbarTag"
+                    >想法与灵感</span
+                  >
+                  <span class="toolbar-v-divider"></span>
+                  <span class="cache-time" id="ideaToolbarTime"></span>
+                </div>
+              </div>
+              <div class="detail-toolbar-right">
+                <button
+                  class="reader-action-btn"
+                  id="copyIdeaBtn"
+                  type="button"
+                >
+                  复制想法</button
+                ><button class="btn-primary" id="saveIdeaBtn" type="button">
+                  保存想法
+                </button>
+              </div>
+            </div>
+            <div class="reader-scroll" id="ideaScrollArea">
+              <div class="workbench-detail-body" id="ideaDetailBody"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+      <div class="settings-drawer-backdrop" id="settingsDrawerBackdrop"></div>
+      <aside
+        aria-label="系统与模型设置右侧栏"
+        aria-modal="true"
+        class="settings-right-drawer"
+        id="settingsRightDrawer"
+        inert=""
+        role="dialog"
+      >
+        <div class="settings-drawer-header">
+          <div class="settings-drawer-title-group">
+            <div class="settings-drawer-title">
+              <svg
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                style="width: 17px; height: 17px; color: var(--accent)"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="12" cy="12" r="3"></circle>
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                ></path>
+              </svg>
+              <span>系统与模型设置</span>
+              <span
+                class="nav-badge accent"
+                style="font-size: 11px; padding: 1px 6px"
+              ></span>
+            </div>
+            <span class="settings-drawer-sub">模型、信源与本地存储</span>
+          </div>
+          <div class="settings-drawer-actions">
+            <button class="btn-primary" id="settingsSaveBtn" type="button">
+              保存设置
+            </button>
+            <button
+              aria-label="关闭设置右侧栏 (Esc)"
+              class="settings-drawer-close-btn"
+              id="closeSettingsBtn"
+              title="关闭设置 (Esc)"
+              type="button"
+            >
+              <svg
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+              >
+                <line x1="18" x2="6" y1="6" y2="18"></line>
+                <line x1="6" x2="18" y1="6" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="settings-status" id="settingsStatus" role="status"></div>
+        <div class="settings-drawer-body" id="settingsView">
+          <div class="settings-container">
+            <aside class="settings-sidebar">
+              <button
+                class="settings-tab-btn active"
+                data-settings-tab="models"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  ></path>
+                </svg>
+                <span>模型与 Agent (Pi / Codex)</span>
+              </button>
+              <button
+                class="settings-tab-btn"
+                data-settings-tab="deepseek"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                  ></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                <span>DeepSeek 摘要与精翻</span>
+              </button>
+              <button
+                class="settings-tab-btn"
+                data-settings-tab="pipeline"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                <span>信源管线与 opencli</span>
+              </button>
+              <button
+                class="settings-tab-btn"
+                data-settings-tab="storage"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                </svg>
+                <span>数据库与存储路径</span>
+              </button>
+              <button
+                class="settings-tab-btn"
+                data-settings-tab="system"
+                type="button"
+              >
+                <svg
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <rect height="14" rx="2" ry="2" width="20" x="2" y="3"></rect>
+                  <line x1="8" x2="16" y1="21" y2="21"></line>
+                  <line x1="12" x2="12" y1="17" y2="21"></line>
+                </svg>
+                <span>系统状态与版本升级</span>
+              </button>
+            </aside>
+            <section class="settings-main">
+              <div class="settings-sheet" id="settingsContent"></div>
+            </section>
+          </div>
+        </div>
+      </aside>
+      <nav
+        aria-label="移动端核心主视图导航"
+        class="mobile-bottom-nav"
+        id="mobileBottomNav"
+      >
+        <button
+          class="mobile-nav-btn active"
+          data-collection="feed"
+          id="mobNavFeed"
+          type="button"
+        >
+          <div class="mob-icon-wrap">
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path d="M4 6h16M4 12h16M4 18h10"></path>
+            </svg>
+            <span class="mob-badge" id="mobUnreadBadge"></span>
+          </div>
+          <span>新闻流</span>
+        </button>
+        <button
+          class="mobile-nav-btn"
+          data-collection="read_later"
+          type="button"
+        >
+          <svg
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path
+              d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
+            ></path></svg
+          ><span>稍后再看</span></button
+        ><button class="mobile-nav-btn" data-collection="notes" type="button">
+          <svg
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 20h9"></path>
+            <path
+              d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+            ></path></svg
+          ><span>想法</span></button
+        ><button class="mobile-nav-btn" id="mobNavSettings" type="button">
+          <div class="mob-icon-wrap">
+            <svg
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <circle cx="12" cy="12" r="3"></circle>
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+              ></path>
+            </svg>
+          </div>
+          <span>系统设置</span>
+        </button>
+      </nav>
+      <footer class="keyboard-bar">
+        <div class="kbd-group">
+          <span class="kbd-item"><kbd>j</kbd>/<kbd>k</kbd> 上下移动</span>
+          <span class="kbd-item"><kbd>i</kbd> 标记重要</span>
+          <span class="kbd-item"><kbd>s</kbd> 稍后再读</span>
+          <span class="kbd-item"><kbd>f</kbd> 收藏高光</span>
+          <span class="kbd-item"><kbd>m</kbd> 标为已读</span>
+          <span class="kbd-item"><kbd>a</kbd> 展开/收起 Agent</span>
+          <span class="kbd-item"><kbd>/</kbd> 搜索</span>
+          <span class="kbd-item"><kbd>,</kbd> 设置</span>
+        </div>
+        <div class="kbd-group">
+          <span class="kbd-item"><kbd>?</kbd> 查看全部快捷键</span>
+          <span>按 <kbd>Esc</kbd> 退出弹窗</span>
+        </div>
+      </footer>
+      <div
+        aria-label="键盘快捷键"
+        aria-modal="true"
+        class="modal-backdrop"
+        id="shortcutsModal"
+        inert=""
+        role="dialog"
+      >
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3 class="modal-title">键盘快捷键速查 (Keyboard Shortcuts)</h3>
+            <button
+              class="modal-close-btn"
+              data-close-shortcuts=""
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="modal-body">
+            <div
+              style="
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+                font-size: 12.5px;
+              "
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>向下移动新闻聚焦</span>
+                <kbd>j</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>向上移动新闻聚焦</span>
+                <kbd>k</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>标记重要新闻切换</span>
+                <kbd>i</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>稍后再读切换</span>
+                <kbd>s</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>收藏高光切换</span>
+                <kbd>f</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>标记已读 / 未读</span>
+                <kbd>m</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>展开 / 折叠 Agent</span>
+                <kbd>a</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>打开 / 关闭设置右侧栏</span>
+                <kbd>,</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>聚焦搜索框</span>
+                <kbd>/</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>关闭弹窗 / 浮层</span>
+                <kbd>Esc</kbd>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  padding: 6px 0;
+                  border-bottom: 1px solid var(--border);
+                "
+              >
+                <span>打开快捷键帮助</span>
+                <kbd>?</kbd>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-primary" data-close-shortcuts="" type="button">
+              我知道了
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div aria-live="polite" class="app-toast" id="toast" role="status"></div>
+    <div class="selection-popover" id="selectionPopover">
+      <button class="selection-pop-btn accent" id="quoteAgentBtn" type="button">
+        引用提问 Agent</button
+      ><button class="selection-pop-btn" id="quoteNoteBtn" type="button">
+        记为想法
+      </button>
+    </div>
+    <script src="/static/error_ui.js?v=0.0.1"></script>
+    <script
+      src="/static/app.js?v=0.0.1&amp;build=workbench1"
+      type="module"
+    ></script>
+  </body>
+</html>
