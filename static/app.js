@@ -328,9 +328,9 @@ async function refreshBadges() {
   try {
     const [data] = await Promise.all([api("/api/nav-summary"), loadSources()]);
     if (sequence !== badgesSequence) return;
-    $("#unreadBadge").textContent = data.summary.feed_unread || "0";
-    $("#readLaterNavBadge").textContent = data.summary.read_later_unread || "0";
-    $("#starredNavBadge").textContent = data.summary.favorites ?? "0";
+    $("#unreadBadge").textContent = data.summary.feed_unread || "";
+    $("#readLaterNavBadge").textContent = data.summary.read_later_unread || "";
+    $("#starredNavBadge").textContent = data.summary.favorites || "";
     $("#mobUnreadBadge").textContent = data.summary.feed_unread || "0";
   } catch {
     /* Feed and settings report connectivity separately. */
@@ -355,7 +355,7 @@ function renderSources() {
   const groups = settings.saved?.feed_source_subkeys?.groups || [];
   const sourceCounts = sourceCountsByCollection.get(state.collection) || [];
   const showCount = ["feed", "read_later", "favorites"].includes(state.collection) && sourceCountsByCollection.has(state.collection);
-  const badge = count => showCount ? `<span class="nav-badge">${count}</span>` : "";
+  const badge = count => showCount && count > 0 ? `<span class="nav-badge">${count}</span>` : "";
   const counts = new Map(sourceCounts.map(source => [source.key, source]));
   const sources = groups.map(group => counts.get(group.source_key) || { key: group.source_key, label: group.label, count: 0 });
   for (const source of counts.values())
@@ -456,7 +456,7 @@ async function selectNews(item, mobile = true, userInitiated = false) {
       }).catch(() => {});
   } catch (error) {
     if (sequence !== state.detailSequence) return;
-    $("#detailScrollArea").innerHTML =
+    $("#detailContent").innerHTML =
       `<div class="list-message error-state">${e(errorText(error))}<button class="btn-secondary" id="retryReaderBtn" type="button">重新加载</button></div>`;
     $("#retryReaderBtn").onclick = () => selectNews(item, false);
   }
@@ -527,7 +527,7 @@ function renderReader() {
     payload = state.detail;
   if (!item) {
     readerHighlights.mount(null, {});
-    $("#detailScrollArea").innerHTML =
+    $("#detailContent").innerHTML =
       '<div class="reader-empty"><span class="empty-book">▤</span><h2>从一篇新闻开始</h2><p>选择左侧新闻，阅读正文、查看分析。</p></div>';
     $("#agentDock").hidden = true;
     return;
@@ -566,7 +566,7 @@ function renderReader() {
   }).join("");
   const savedNotes = payload?.notes || (payload?.note ? [{ ...payload.note, id: "legacy" }] : []);
   const thoughts = '<div id="researchNotesMount"></div>';
-  $("#detailScrollArea").innerHTML =
+  $("#detailContent").innerHTML =
     `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasContent && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
     ${hasContent ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}

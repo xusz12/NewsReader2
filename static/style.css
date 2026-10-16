@@ -524,7 +524,8 @@ a {
   font-weight: 500;
 }
 
-.nav-badge.accent {
+.nav-item.active .nav-badge,
+.source-filter-button.selected .nav-badge {
   background: var(--accent);
   color: #fff;
   font-weight: 600;
@@ -1439,11 +1440,15 @@ a {
 
 .detail-scroll-area {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-8) var(--space-6) 72px;
-  max-width: calc(var(--reading-width) + 2 * var(--space-6));
-  margin: 0 auto;
   width: 100%;
+}
+
+.detail-content {
+  max-width: var(--reading-width);
+  margin-inline: auto;
 }
 
 /* 正文头部 */

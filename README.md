@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.0.2`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.0.3`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 本项目独立维护，使用新的 Git 历史，不绑定原项目远程仓库或更新源。内部包名为 `newsreader-workbench`，界面名称保留 News Reader。
 
@@ -80,7 +80,7 @@ Agent 会话默认保留 72 小时，可在设置中改为 24 小时；运行中
 
 ## 版本与更新
 
-版本统一为 `v0.0.2`；npm 包版本按规范为 `0.0.2`。`version.json` 的 `repository` 留空，因此检查更新不会访问原仓库，确认更新接口也不会启动更新进程。
+版本统一为 `v0.0.3`；npm 包版本按规范为 `0.0.3`。`version.json` 的 `repository` 留空，因此检查更新不会访问原仓库，确认更新接口也不会启动更新进程。
 
 后续建立本项目的新仓库后，可显式配置 `version.json.repository` 为新 GitHub 仓库的 HTTPS 地址，并重启服务。Git 远程地址需单独配置。受控更新只读取该仓库的稳定版本 tag，验证目标提交和 manifest 后快进更新，拒绝脏工作树、分叉和 detached HEAD。
 

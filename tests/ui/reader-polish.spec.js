@@ -225,8 +225,12 @@ test('sidebar counts follow the collection and ignore late responses from the pr
   await ready(page);
   async function counts(collection, filter) {
     const sources = (await (await request.get(`/api/sources?collection=${collection}&read_filter=${filter}`)).json()).sources;
-    for (const source of sources) await expect(page.locator(`[data-source="${source.key}"] .nav-badge`)).toHaveText(String(source.count));
-    await expect(page.locator('[data-source="all"] .nav-badge')).toHaveText(String(sources.reduce((sum, source) => sum + source.count, 0)));
+    const total = sources.reduce((sum, source) => sum + source.count, 0);
+    for (const source of [...sources, { key: 'all', count: total }]) {
+      const badge = page.locator(`[data-source="${source.key}"] .nav-badge`);
+      if (source.count > 0) await expect(badge).toHaveText(String(source.count));
+      else await expect(badge).toHaveCount(0);
+    }
   }
   await counts('feed', 'unread');
   await page.locator('#navReadLaterBtn').click();

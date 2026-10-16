@@ -216,8 +216,12 @@ test('key update/cancel, model discovery and custom selection preserve settings 
 test('source badges count unread news and update after marking read', async ({ page, request }) => {
   await start(page);
   const sources = (await (await request.get('/api/sources?collection=feed&read_filter=unread')).json()).sources;
-  for (const source of sources) await expect(page.locator(`[data-source="${source.key}"] .nav-badge`)).toHaveText(String(source.count));
+  for (const source of sources) {
+    const badge = page.locator(`[data-source="${source.key}"] .nav-badge`);
+    if (source.count > 0) await expect(badge).toHaveText(String(source.count));
+    else await expect(badge).toHaveCount(0);
+  }
   await page.locator('[data-source="reuters"]').click();
   await page.locator('#markAllReadBtn').click();
-  await expect(page.locator('[data-source="reuters"] .nav-badge')).toHaveText('0');
+  await expect(page.locator('[data-source="reuters"] .nav-badge')).toHaveCount(0);
 });

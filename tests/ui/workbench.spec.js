@@ -32,8 +32,8 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.2");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.2");
+  await expect(page).toHaveTitle("News Reader v0.0.3");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.3");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();

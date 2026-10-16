@@ -43,7 +43,7 @@ test('read-later defaults to pending and opening full text only completes that q
   expect(completed.read_later_done_at).toBeTruthy();
   expect(completed.read_at).toBeNull();
   expect(patches).toEqual([{ read_later: false }, { read_later: false }]);
-  await expect(page.locator('#readLaterNavBadge')).toHaveText('0');
+  await expect(page.locator('#readLaterNavBadge')).toBeHidden();
   await page.locator('#feedColFeed [data-filter="read"]').click();
   await expect(card(page, 'ui-063')).toBeVisible();
   await expect(page.locator('#feedCardList .news-card.read')).toHaveCount(0);

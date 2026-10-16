@@ -19,7 +19,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.2</title>
+    <title>News Reader v0.0.3</title>
     <script>
       try {
         const m =
@@ -37,7 +37,7 @@
       } catch {}
     </script>
     <link
-      href="/static/style.css?v=0.0.2&amp;build=workbench2"
+      href="/static/style.css?v=0.0.3&amp;build=workbench2"
       rel="stylesheet"
     />
   </head>
@@ -75,7 +75,7 @@
               <path d="M6 6h10M6 10h10M6 14h6"></path>
             </svg>
             <span>News Reader</span>
-            <span class="brand-version">v0.0.2</span>
+            <span class="brand-version">v0.0.3</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -169,7 +169,7 @@
                     </svg>
                     <span>新闻流</span>
                   </div>
-                  <span class="nav-badge accent" id="unreadBadge"></span>
+                  <span class="nav-badge" id="unreadBadge"></span>
                 </button>
                 <button
                   class="nav-item"
@@ -454,7 +454,9 @@
                 </div>
               </div>
             </div>
-            <div class="detail-scroll-area" id="detailScrollArea"></div>
+            <div class="detail-scroll-area" id="detailScrollArea">
+              <div class="detail-content" id="detailContent"></div>
+            </div>
             <section
               aria-label="新闻研究 Agent 对话窗口"
               class="agent-dock minimized"
@@ -1230,9 +1232,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.2"></script>
+    <script src="/static/error_ui.js?v=0.0.3"></script>
     <script
-      src="/static/app.js?v=0.0.2&amp;build=workbench2"
+      src="/static/app.js?v=0.0.3&amp;build=workbench2"
       type="module"
     ></script>
   </body>
