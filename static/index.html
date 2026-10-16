@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.6</title>
+    <title>News Reader v0.0.7</title>
     <script>
       try {
         const m =
@@ -41,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.6" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.7" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.6&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.7&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -51,6 +51,16 @@
     <div class="app-root">
       <header class="topbar">
         <div class="topbar-left">
+          <button
+            aria-label="返回新闻列表"
+            class="mobile-back-btn"
+            id="mobileReaderBackBtn"
+            type="button"
+          >
+            <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
           <button
             aria-label="打开信源与分类导航"
             class="mobile-menu-btn"
@@ -77,7 +87,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.6</span>
+            <span class="brand-version">v0.0.7</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -88,9 +98,10 @@
         </div>
         <div class="topbar-right">
           <button
+            aria-label="刷新新闻索引"
             class="topbar-tool-btn"
-            id="openShortcutsBtn"
-            title="快捷键速查表 (?)"
+            id="refreshIndexBtn"
+            title="刷新新闻索引"
             type="button"
           >
             <svg
@@ -99,9 +110,8 @@
               stroke-width="2"
               viewBox="0 0 24 24"
             >
-              <circle cx="12" cy="12" r="10"></circle>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-              <line x1="12" x2="12.01" y1="17" y2="17"></line>
+              <path d="M20 7v5h-5M4 17v-5h5"></path>
+              <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"></path>
             </svg>
           </button>
           <select aria-label="外观主题" class="theme-select" id="themeSelect">
@@ -357,22 +367,6 @@
           >
             <div class="detail-toolbar">
               <div class="detail-toolbar-left">
-                <button
-                  aria-label="返回新闻列表"
-                  class="mobile-back-btn"
-                  id="mobileReaderBackBtn"
-                  type="button"
-                >
-                  <svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                  </svg>
-                  <span>新闻列表</span>
-                </button>
                 <div class="reader-cache-status" title="正文抓取状态">
                   <span aria-hidden="true" class="cache-pulse-dot"></span>
                   <span class="cache-label">选择一篇新闻</span>
@@ -609,21 +603,6 @@
           >
             <div class="detail-toolbar">
               <div class="detail-toolbar-left">
-                <button
-                  aria-label="返回想法列表"
-                  class="mobile-back-btn"
-                  type="button"
-                >
-                  <svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                  </svg>
-                  <span>想法列表</span>
-                </button>
                 <div class="reader-cache-status">
                   <span
                     class="cache-pulse-dot"
@@ -1231,9 +1210,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.6"></script>
+    <script src="/static/error_ui.js?v=0.0.7"></script>
     <script
-      src="/static/app.js?v=0.0.6&amp;build=workbench2"
+      src="/static/app.js?v=0.0.7&amp;build=workbench2"
       type="module"
     ></script>
   </body>

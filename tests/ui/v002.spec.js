@@ -6,15 +6,14 @@ async function start(page) {
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
 }
 
-test('default unread ascending, collection filters and scrolling dates', async ({ page }) => {
+test('default unread ascending, collection filters and full card dates', async ({ page }) => {
   await start(page);
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#sortNewsBtn')).toHaveAttribute('aria-label', '排序：旧到新，点击切换');
   await expect(page.locator('#feedColFeed [data-filter]')).toHaveCount(2);
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', 'ui-064');
-  await page.locator('#feedCardList').evaluate(node => node.scrollTop = 180);
-  const top = await page.locator('#feedCardList').evaluate(node => node.getBoundingClientRect().top);
-  expect((await page.locator('.feed-date-heading').first().boundingBox()).y).toBeLessThan(top);
+  await expect(page.locator('.feed-date-heading')).toHaveCount(0);
+  await expect(page.locator('#feedCardList .news-card .meta-time-row').first()).toHaveText('2026-10-10 10:02');
   const row = await page.locator('.feed-filter-row').boundingBox();
   for (const control of await page.locator('.feed-filter-row button').all()) { const box = await control.boundingBox(); expect(box.y).toBeCloseTo(row.y, 0); }
   await page.locator('#navImportantBtn').click();

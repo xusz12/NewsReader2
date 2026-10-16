@@ -12,7 +12,7 @@ for (const width of [1440, 390]) {
     const theme = page.getByRole('combobox', { name: '外观主题', exact: true });
     await expect(theme).toBeVisible();
     await expect(page.locator('#themeSelect-native')).toBeHidden();
-    const heights = await page.locator('#refreshIndexBtn, #openShortcutsBtn, #themeSelect').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.getBoundingClientRect().height));
+    const heights = await page.locator('#refreshIndexBtn, #themeSelect').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
     expect(heights[0]).toBe(width <= 920 ? 36 : 32);
     await theme.click();

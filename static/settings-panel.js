@@ -24,8 +24,9 @@ function select(label, path, value, options, placeholder = "沿用默认") {
   return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label"><option value="">${placeholder}</option>${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen, selects }) {
+  constructor({ onSaved, onSources, onOpen, onViewChange, selects }) {
     this.onOpen = onOpen;
+    this.onViewChange = onViewChange;
     this.onSaved = onSaved;
     this.onSources = onSources;
     this.open = false;
@@ -108,6 +109,7 @@ export class SettingsPanel {
       $(id).classList.add("active");
       $(id).setAttribute("aria-current", "page");
     });
+    this.onViewChange?.();
     this.selectSection(this.section, { reveal: false });
     $("#settingsListTitle").focus();
     if (this.saved) this.render();
@@ -140,6 +142,7 @@ export class SettingsPanel {
       $(id).classList.remove("active");
       $(id).removeAttribute("aria-current");
     });
+    this.onViewChange?.();
     if (restoreFocus) {
       const target = this.lastFocus?.getClientRects().length && !this.lastFocus.closest('[inert]')
         ? this.lastFocus
@@ -234,15 +237,17 @@ export class SettingsPanel {
     if (section === "system" && $("#updateResult")) this.updater.restore();
     if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
+      this.onViewChange?.();
       $("#settingsDetailTitle").focus();
     }
   }
   showCategories(focus = true) {
     this.selects.close(false);
     $("#feedView").classList.remove("settings-detail-active");
+    this.onViewChange?.();
     if (focus) {
       const selected = $(`[data-settings-tab="${this.section}"]`);
-      (selected.hidden ? $("#settingsSearchInput") : selected).focus();
+      (selected.hidden ? $("#settingsSearchInput") : selected).focus({ preventScroll: true });
     }
   }
   resetDraft() {

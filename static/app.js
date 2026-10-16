@@ -71,10 +71,15 @@ const settings = new SettingsPanel({
   selects,
   onOpen: () => {
     stashNote();
+    resetDetailSwipe();
     closeNav();
     $("#selectionPopover").classList.remove("show");
     clearTimeout(feedEndTimer);
     feedEndTimer = null;
+  },
+  onViewChange: () => {
+    resetDetailSwipe();
+    syncMobileLayers();
   },
   onSaved: () => {
     loadSources();
@@ -166,13 +171,18 @@ function renderFilters() {
       .join("") +
     '<button class="filter-chip" id="newIdeaBtn" type="button">＋ 新想法</button>';
 }
+function cardTimestamp(item) {
+  const date = item.published_at?.slice(0, 10) || item.date || item.date_key || "日期未知";
+  const time = item.published_at?.slice(11, 16) || item.time;
+  return [date, time].filter(Boolean).join(" ");
+}
 function card(item) {
   const active = item.id === state.selected?.id;
   const dimReadCard = state.collection === "feed" && item.read_at;
   const showUnreadDot = state.collection !== "read_later" && !item.read_at;
   const text = item.summary || item.note_preview || "";
   return `<li class="news-card ${active ? "active is-active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
-    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(item.time || item.published_at?.slice(11, 16) || "")}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
+    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTimestamp(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet">${e(text)}</p>` : ""}
     <div class="news-card-footer"><div class="card-footer-left">${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
@@ -187,23 +197,8 @@ function card(item) {
 function renderFeed() {
   const list = $("#feedCardList");
   const scroll = list.scrollTop;
-  let lastDate = "";
   list.innerHTML =
-    state.items
-      .map((item) => {
-        const date =
-          item.date_key ||
-          item.date ||
-          item.published_at?.slice(0, 10) ||
-          "日期未知";
-        const heading =
-          date !== lastDate
-            ? `<li class="feed-date-heading">${e(date)}</li>`
-            : "";
-        lastDate = date;
-        return heading + card(item);
-      })
-      .join("") +
+    state.items.map(card).join("") +
     (state.loading
       ? '<li class="list-message" role="status">正在读取新闻…</li>'
       : !state.items.length
@@ -398,6 +393,7 @@ function switchCollection(collection) {
   $("#detailPanelFeed").classList.toggle("active", !ideas);
   $("#feedColIdeas").classList.toggle("active", ideas);
   $("#detailPanelIdeas").classList.toggle("active", ideas);
+  syncMobileLayers();
   $$("[data-collection]").forEach((button) => {
     const active = button.dataset.collection === collection;
     button.classList.toggle("active", active);
@@ -503,7 +499,8 @@ function pollDetail(item, sequence) {
 async function completeOpenedReadLater(item, payload, sequence) {
   if (state.collection !== "read_later" || state.openedReadLaterId !== item.id ||
       state.selected?.id !== item.id || sequence !== state.detailSequence ||
-      settings.open || document.hidden || !$("#detailPanelFeed").getClientRects().length || !item.read_later_at ||
+      settings.open || document.hidden || (singlePane.matches && !mobileReaderOpen()) ||
+      !$("#detailPanelFeed").getClientRects().length || !item.read_later_at ||
       !(payload.detail?.content?.trim() || payload.ai?.body_zh?.trim())) return;
   await toggleState(item, "read_later", false, true);
   if (!item.read_later_at && state.openedReadLaterId === item.id) state.openedReadLaterId = null;
@@ -665,7 +662,8 @@ const enteredCards = new Set();
 const queuedReadIds = new Set();
 let lastFeedScroll = 0, feedEndTimer, autoReadBusy = false;
 function feedVisible() {
-  return state.collection === "feed" && !settings.open && !document.hidden && $("#feedCardList").getBoundingClientRect().width > 0;
+  return state.collection === "feed" && !settings.open && !mobileReaderOpen() &&
+    !document.hidden && $("#feedCardList").getBoundingClientRect().width > 0;
 }
 async function markReadIds(ids) {
   for (const id of ids) queuedReadIds.add(id);
@@ -826,12 +824,94 @@ async function saveIdea() {
   await loadIdeas();
 }
 function enterReader() {
+  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
   if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
+  syncMobileLayers();
+  trackFeedReading();
 }
 function exitReader() {
+  resetDetailSwipe();
   $("#feedView").classList.remove("mobile-reader-active");
+  syncMobileLayers();
+  requestAnimationFrame(trackFeedReading);
 }
+function mobileReaderOpen() {
+  return singlePane.matches && $("#feedView").classList.contains("mobile-reader-active");
+}
+function syncMobileLayers() {
+  const open = mobileReaderOpen() && !settings.open;
+  for (const list of $$("#feedColFeed, #feedColIdeas")) list.inert = open;
+  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas"))
+    panel.inert = singlePane.matches && (!open || !panel.classList.contains("active"));
+  const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
+  $("#feedColSettings").inert = singlePane.matches && settingsDetail;
+  $("#detailPanelSettings").inert = singlePane.matches && !settingsDetail;
+}
+let detailSwipe = null;
+function resetDetailSwipe() {
+  if (!detailSwipe) return;
+  detailSwipe.panel.style.transition = "";
+  detailSwipe.panel.style.transform = "";
+  detailSwipe = null;
+}
+function canSwipeDetail(panel) {
+  if (!singlePane.matches || !panel.classList.contains("active") || getSelection()?.toString()) return false;
+  if (panel.id === "detailPanelSettings")
+    return settings.open && $("#feedView").classList.contains("settings-detail-active");
+  return !settings.open &&
+    $("#feedView").classList.contains("mobile-reader-active") &&
+    !(state.collection !== "notes" && agent.open);
+}
+for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSettings")) {
+  panel.addEventListener("touchstart", event => {
+    resetDetailSwipe();
+    if (!canSwipeDetail(panel) || event.touches.length !== 1 ||
+        event.target.closest('input,textarea,select,button,a,[contenteditable="true"],#agentDock')) return;
+    const touch = event.touches[0];
+    if (touch.clientX > 40) return;
+    detailSwipe = { panel, id: touch.identifier, x: touch.clientX, y: touch.clientY, dx: 0, dy: 0, horizontal: false };
+  }, { passive: true });
+  panel.addEventListener("touchmove", event => {
+    if (!detailSwipe) return;
+    const touch = event.touches[0];
+    if (!canSwipeDetail(panel) || event.touches.length !== 1 || touch.identifier !== detailSwipe.id) {
+      resetDetailSwipe();
+      return;
+    }
+    const dx = touch.clientX - detailSwipe.x, dy = touch.clientY - detailSwipe.y;
+    if (!detailSwipe.horizontal) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 6) return;
+      if (dx <= 0 || Math.abs(dx) <= Math.abs(dy) * 1.5) {
+        resetDetailSwipe();
+        return;
+      }
+      detailSwipe.horizontal = true;
+    }
+    if (!event.cancelable) { resetDetailSwipe(); return; }
+    event.preventDefault();
+    detailSwipe.dx = dx;
+    detailSwipe.dy = dy;
+    const offset = Math.max(0, Math.min(dx, innerWidth * 0.9));
+    panel.style.transition = "none";
+    panel.style.transform = `translateX(${offset}px)`;
+  }, { passive: false });
+  panel.addEventListener("touchend", () => {
+    if (!detailSwipe) return;
+    const close = canSwipeDetail(panel) && detailSwipe.horizontal &&
+      detailSwipe.dx > 72 && detailSwipe.dx > Math.abs(detailSwipe.dy) * 1.5;
+    resetDetailSwipe();
+    if (close) {
+      if (panel.id === "detailPanelSettings") settings.showCategories();
+      else exitReader();
+    }
+  }, { passive: true });
+  panel.addEventListener("touchcancel", resetDetailSwipe, { passive: true });
+}
+singlePane.addEventListener("change", () => {
+  resetDetailSwipe();
+  syncMobileLayers();
+});
 function openNav() {
   $("#leftNavDrawer").inert = false;
   $("#leftNavDrawer").classList.add("drawer-open");
@@ -952,7 +1032,6 @@ $("#openNavBtn").onclick = openNav;
 $(".drawer-close-btn").onclick = closeNav;
 $("#navDrawerBackdrop").onclick = closeNav;
 $$(".mobile-back-btn").forEach((button) => (button.onclick = exitReader));
-$("#openShortcutsBtn").onclick = () => shortcutsDialog(true);
 $("#shortcutsModal").onclick = (event) => {
   if (event.target.id === "shortcutsModal") shortcutsDialog(false);
 };
@@ -962,21 +1041,25 @@ $("#copyIdeaBtn").onclick = (event) =>
     await navigator.clipboard.writeText($("#ideaNote")?.value || "");
     toast("想法已复制");
   });
-const refreshButton = document.createElement("button");
-refreshButton.id = "refreshIndexBtn";
-refreshButton.className = "topbar-tool-btn";
-refreshButton.type = "button";
-refreshButton.title = "刷新新闻索引";
-refreshButton.setAttribute("aria-label", "刷新新闻索引");
-refreshButton.innerHTML = icon("refresh");
-$("#openShortcutsBtn").before(refreshButton);
-refreshButton.onclick = () =>
-  busy(refreshButton, async () => {
+const refreshButton = $("#refreshIndexBtn");
+function refreshIndex(notify = false) {
+  return busy(refreshButton, async () => {
     setIndexStatus("正在扫描 DailyNews…");
-    await api("/api/reindex", { method: "POST" });
-    await Promise.all([loadFeed(), loadSources(), refreshBadges()]);
-    toast("新闻索引已刷新");
+    let scanError;
+    try {
+      await api("/api/reindex", { method: "POST" });
+    } catch (error) {
+      scanError = error;
+    }
+    await Promise.all([loadFeed(), refreshBadges()]);
+    if (scanError) {
+      setIndexStatus("索引刷新失败，可点击刷新重试", true);
+      throw scanError;
+    }
+    if (notify) toast("新闻索引已刷新");
   });
+}
+refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
   if ($("#shortcutsModal").classList.contains("show")) {
@@ -1072,6 +1155,7 @@ window.addEventListener("beforeunload", (event) => {
 });
 $("#navFeedBtn").setAttribute("aria-current", "page");
 closeNav();
+syncMobileLayers();
 drawerNavigation.addEventListener("change", closeNav);
 singlePane.addEventListener("change", () => {
   if (singlePane.matches || settings.open) return;
@@ -1079,12 +1163,11 @@ singlePane.addEventListener("change", () => {
     if (!state.idea && state.ideas.length) selectIdea(state.ideas[0]);
   } else if (!state.selected && state.items.length) selectNews(state.items[0], false);
 });
-renderFilters();
+state.loading = true;
+renderFeed();
 renderReader();
-setIndexStatus("正在连接新闻库…");
 Promise.allSettled([
-  loadFeed(),
-  refreshBadges(),
+  refreshIndex(),
   settings.load(false),
 ]).then(() => renderSources());
 api("/api/version")

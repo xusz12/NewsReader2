@@ -73,7 +73,7 @@ for (const width of [920, 921, 1279, 1280]) {
     await page.locator('#feedCardList .news-card-title').first().click();
     await expect(page.locator('#articleBodyContent')).toBeVisible();
     if (mobile) {
-      await expect(page.locator('#feedColFeed')).toBeHidden();
+      await expect(page.locator('#feedColFeed')).toHaveJSProperty('inert', true);
       await page.locator('#mobileReaderBackBtn').click();
       await page.locator('#mobNavSettings').click();
       await expect(page.locator('#detailPanelSettings')).toBeHidden();
