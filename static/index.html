@@ -9,6 +9,11 @@
     />
     <meta content="yes" name="apple-mobile-web-app-capable" />
     <meta content="default" name="apple-mobile-web-app-status-bar-style" />
+    <meta content="newsreader" name="apple-mobile-web-app-title" />
+    <link href="/static/brand/favicon.ico" rel="icon" sizes="16x16 32x32 48x48" />
+    <link href="/static/brand/favicon.svg" rel="icon" type="image/svg+xml" sizes="any" />
+    <link href="/static/brand/apple-touch-icon.png" rel="apple-touch-icon" sizes="180x180" />
+    <link href="/static/manifest.webmanifest" rel="manifest" />
     <meta
       content="#fcfbfa"
       media="(prefers-color-scheme: light)"
@@ -19,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.4</title>
+    <title>News Reader v0.0.5</title>
     <script>
       try {
         const m =
@@ -36,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.4" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.5" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.4&amp;build=workbench2"
+      href="/static/style.css?v=0.0.5&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -64,19 +69,15 @@
             </svg>
           </button>
           <div class="brand-mark">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"
-              ></path>
-              <path d="M6 6h10M6 10h10M6 14h6"></path>
-            </svg>
-            <span>News Reader</span>
-            <span class="brand-version">v0.0.4</span>
+            <span class="brand-logo" role="img" aria-label="newsreader">
+              <svg class="brand-symbol" width="24" height="24" viewBox="0 0 128 128" aria-hidden="true" focusable="false">
+                <use href="/static/brand/header-symbols.svg#mark-small"></use>
+              </svg>
+              <svg class="brand-wordmark" width="124" height="19" viewBox="0 -1600 11184 1680" aria-hidden="true" focusable="false">
+                <use href="/static/brand/header-symbols.svg#wordmark"></use>
+              </svg>
+            </span>
+            <span class="brand-version">v0.0.5</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -1230,9 +1231,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.4"></script>
+    <script src="/static/error_ui.js?v=0.0.5"></script>
     <script
-      src="/static/app.js?v=0.0.4&amp;build=workbench2"
+      src="/static/app.js?v=0.0.5&amp;build=workbench2"
       type="module"
     ></script>
   </body>

@@ -106,12 +106,47 @@ a {
   font-size: 17px;
   letter-spacing: -0.01em;
   color: var(--fg);
+  flex-shrink: 0;
 }
 
-.brand-mark svg {
-  width: 18px;
-  height: 18px;
-  color: var(--accent);
+.brand-logo {
+  --brand-symbol-color: #c96442;
+  --brand-wordmark-color: #141413;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.brand-symbol {
+  width: 24px;
+  height: 24px;
+  color: var(--brand-symbol-color);
+  flex-shrink: 0;
+}
+
+.brand-wordmark {
+  width: 124px;
+  height: 19px;
+  color: var(--brand-wordmark-color);
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .brand-logo {
+  --brand-symbol-color: #faf9f5;
+  --brand-wordmark-color: #faf9f5;
+}
+
+[data-theme="eink"] .brand-logo {
+  --brand-symbol-color: #000000;
+  --brand-wordmark-color: #000000;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] .brand-logo {
+    --brand-symbol-color: #faf9f5;
+    --brand-wordmark-color: #faf9f5;
+  }
 }
 
 .brand-version {
