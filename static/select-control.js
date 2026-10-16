@@ -1,6 +1,7 @@
 import { escapeHTML as e } from "./ui.js";
 
 let nextMenuId = 0;
+let nextSelectId = 0;
 
 // Keep the native select as the form value, but render every visible interaction
 // ourselves so the popup follows the application's theme on every platform.
@@ -46,10 +47,10 @@ export class SelectControls {
   }
   refresh(scope = this.root) {
     if (this.button && !this.button.isConnected) this.close(false);
-    for (const select of scope.querySelectorAll("select.field-select")) {
+    for (const select of scope.querySelectorAll("select")) {
       let button = select.nextElementSibling;
       if (!button?.hasAttribute("data-select-trigger")) {
-        const id = select.id;
+        const id = select.id || `select-control-${++nextSelectId}`;
         select.id = `${id}-native`;
         select.hidden = true;
         select.tabIndex = -1;
@@ -57,13 +58,14 @@ export class SelectControls {
         button = document.createElement("button");
         button.type = "button";
         button.id = id;
-        button.className = "field-select select-trigger";
-        button.dataset.selectTrigger = select.name;
+        button.className = `${select.className} select-trigger`.trim();
+        button.dataset.selectTrigger = select.name || id;
         button.setAttribute("role", "combobox");
         button.setAttribute("aria-haspopup", "listbox");
         button.setAttribute("aria-controls", this.menu.id);
         button.setAttribute("aria-expanded", "false");
-        button.setAttribute("aria-labelledby", `${id}-label`);
+        if (select.hasAttribute("aria-labelledby")) button.setAttribute("aria-labelledby", select.getAttribute("aria-labelledby"));
+        else if (select.hasAttribute("aria-label")) button.setAttribute("aria-label", select.getAttribute("aria-label"));
         button.innerHTML = '<span class="select-value"></span><svg class="select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
         select.after(button);
       }
@@ -78,7 +80,10 @@ export class SelectControls {
     this.select = select;
     this.button = button;
     this.options = [...select.options].filter(option => !option.hidden);
-    this.menu.setAttribute("aria-labelledby", button.getAttribute("aria-labelledby"));
+    this.menu.removeAttribute("aria-label");
+    this.menu.removeAttribute("aria-labelledby");
+    if (button.hasAttribute("aria-labelledby")) this.menu.setAttribute("aria-labelledby", button.getAttribute("aria-labelledby"));
+    else if (button.hasAttribute("aria-label")) this.menu.setAttribute("aria-label", button.getAttribute("aria-label"));
     this.menu.innerHTML = this.options.map((option, index) =>
       `<div class="select-option" id="${this.menu.id}-${index}" role="option" data-index="${index}" aria-selected="${option.selected}" aria-disabled="${option.disabled}"><span>${e(option.label)}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div>`,
     ).join("");
@@ -118,13 +123,13 @@ export class SelectControls {
   choose(index) {
     const option = this.options?.[index];
     if (!option || option.disabled) return;
-    const select = this.select, name = select.name;
+    const select = this.select, buttonId = this.button.id;
     const changed = select.value !== option.value;
     select.value = option.value;
     this.close(false);
     if (changed) select.dispatchEvent(new Event("change", { bubbles: true }));
     this.refresh();
-    this.root.querySelector(`[data-select-trigger="${CSS.escape(name)}"]`)?.focus({ preventScroll: true });
+    this.root.querySelector(`#${CSS.escape(buttonId)}`)?.focus({ preventScroll: true });
   }
   close(focus = true) {
     if (this.button) {

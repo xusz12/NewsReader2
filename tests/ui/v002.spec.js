@@ -90,7 +90,7 @@ for (const width of [1440, 390]) {
       await route.fulfill({ json: { ok: true } });
     });
     await start(page);
-    if (width < 768) await page.locator('#feedCardList .news-card-title').first().click();
+    if (width <= 920) await page.locator('#feedCardList .news-card-title').first().click();
     await expect(page.locator('#detailPanelFeed .cache-label')).toHaveText('尚未抓取正文');
     await expect(page.locator('#articleMainTitle')).toBeVisible();
     await expect(page.locator('#fetchArticleBtn')).toBeEnabled();

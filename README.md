@@ -1,21 +1,21 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.0.3`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.0.4`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 本项目独立维护，使用新的 Git 历史，不绑定原项目远程仓库或更新源。内部包名为 `newsreader-workbench`，界面名称保留 News Reader。
 
 ## 界面与功能
 
-前端依据 `news-reader-workbench.html` 原型与 [v2.3.7 设计规范](docs/DESIGN_SPEC_AND_TOKENS.md)，使用原生 HTML/CSS/JavaScript，由 Flask 直接提供，无需构建。
+前端依据 [v2.3.7 修订设计规范](DESIGN_SPEC_AND_TOKENS_Fix.md)（其基准原型为 `news-reader-workbench.html`），使用原生 HTML/CSS/JavaScript，由 Flask 直接提供，无需构建。
 
-- 桌面采用 230px 导航、380–420px 新闻列表和正文最大 760px 的阅读区；768–1023px 使用导航抽屉与列表／正文双栏，768px 以下采用列表／阅读器切换及底部导航。
+- 顶栏高 52px；1280px 起采用 248px 导航、430px 新闻列表和正文最大 760px 的阅读区；921–1279px 使用导航抽屉与列表／正文双栏，920px 及以下采用列表／阅读器切换及底部导航。
 - 保留新闻流、稍后再看、重要新闻、收藏、想法，以及单篇新闻中文精读和研究 Agent。
 - 新闻总结、日报、提醒、复盘、跟踪、板块已从前端移除；原有后端 API 与数据库结构保持兼容。
 - 支持搜索、信源筛选、日期分组、排序与分页、全部标读、划词引用及融入精读区的多条想法。新闻流默认未读、旧到新；卡片滑出顶部自动标读，列表末尾停留 5 秒标读当前加载范围。
 - 支持浅色、深色、跟随系统、墨水屏主题；设置采用同页三栏工作台：左栏导航、中栏五类设置及搜索、右栏配置表单。
 - 快捷键：`j/k` 浏览、`m` 标读、`i` 重要、`s` 稍后、`f` 收藏、`a` Agent、`/` 搜索、`,` 设置、`?` 帮助。
 
-实现说明见 [docs/ui-refactor.md](docs/ui-refactor.md)。生产页面使用真实 API；设计示例新闻仅用于测试预览。
+实现说明见 [docs/ui-refactor.md](docs/ui-refactor.md)，设计落地与保留差异见 [Token 与组件映射](docs/design-token-mapping.md)。生产页面使用真实 API；设计示例新闻仅用于测试预览。
 
 ## 安装与启动
 
@@ -80,7 +80,7 @@ Agent 会话默认保留 72 小时，可在设置中改为 24 小时；运行中
 
 ## 版本与更新
 
-版本统一为 `v0.0.3`；npm 包版本按规范为 `0.0.3`。`version.json` 的 `repository` 留空，因此检查更新不会访问原仓库，确认更新接口也不会启动更新进程。
+版本统一为 `v0.0.4`；npm 包版本按规范为 `0.0.4`。`version.json` 的 `repository` 留空，因此检查更新不会访问原仓库，确认更新接口也不会启动更新进程。
 
 后续建立本项目的新仓库后，可显式配置 `version.json.repository` 为新 GitHub 仓库的 HTTPS 地址，并重启服务。Git 远程地址需单独配置。受控更新只读取该仓库的稳定版本 tag，验证目标提交和 manifest 后快进更新，拒绝脏工作树、分叉和 detached HEAD。
 

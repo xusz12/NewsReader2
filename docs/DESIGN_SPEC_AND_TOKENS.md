@@ -1,3 +1,5 @@
+> **历史文档，已废弃**：本文件包含已确认的数值、命名与组件偏差。v0.0.4 起以 [修订设计规范](../DESIGN_SPEC_AND_TOKENS_Fix.md) 和 [生产映射](design-token-mapping.md) 为准；保留原文仅供历史对照。
+
 # News Reader 2.0 设计规范与 Design Tokens 映射交付文档
 # (Design System Specification & Tokens Reference)
 

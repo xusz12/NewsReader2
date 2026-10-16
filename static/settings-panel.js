@@ -1,5 +1,4 @@
-import { $, $$, api, escapeHTML as e, errorText, toast, busy } from "./ui.js";
-import { SelectControls } from "./select-control.js";
+import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
 const clone = (value) => structuredClone(value);
 const get = (object, path) =>
@@ -23,7 +22,7 @@ function select(label, path, value, options, placeholder = "沿用默认") {
   return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label"><option value="">${placeholder}</option>${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen }) {
+  constructor({ onSaved, onSources, onOpen, selects }) {
     this.onOpen = onOpen;
     this.onSaved = onSaved;
     this.onSources = onSources;
@@ -33,7 +32,7 @@ export class SettingsPanel {
     this.connectionSequence = 0;
     this.catalogSequence = 0;
     this.catalogs = new Map();
-    this.selects = new SelectControls($("#settingsContent"));
+    this.selects = selects;
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
@@ -139,12 +138,10 @@ export class SettingsPanel {
       $(id).removeAttribute("aria-current");
     });
     if (restoreFocus) {
-      const target = this.lastFocus?.getClientRects().length
+      const target = this.lastFocus?.getClientRects().length && !this.lastFocus.closest('[inert]')
         ? this.lastFocus
         : $(
-            window.innerWidth < 768
-              ? "#mobNavSettings"
-              : "#leftNavSettingsBtn",
+            singlePane.matches ? "#mobNavSettings" : drawerNavigation.matches ? "#openNavBtn" : "#leftNavSettingsBtn",
           );
       target.focus({ preventScroll: true });
     }
@@ -231,7 +228,7 @@ export class SettingsPanel {
     $("#settingsDetailTitle").textContent = selected.dataset.title;
     $("#settingsDetailDescription").textContent = selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
-    if (reveal && window.innerWidth < 768) {
+    if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
       $("#settingsDetailTitle").focus();
     }

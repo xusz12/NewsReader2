@@ -1,3 +1,4 @@
+import { chooseTheme } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 async function settings(page, request, { model = 'catalog-a', many = false } = {}) {
@@ -17,7 +18,7 @@ async function settings(page, request, { model = 'catalog-a', many = false } = {
   });
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await page.locator(page.viewportSize().width < 768 ? '#mobNavSettings' : '#leftNavSettingsBtn').click();
+  await page.locator(page.viewportSize().width <= 920 ? '#mobNavSettings' : '#leftNavSettingsBtn').click();
   await page.locator('[data-settings-tab="models"]').click();
   await expect(page.locator('#modelSettings')).toBeVisible();
   return { saved, submitted: () => submitted };
@@ -192,7 +193,7 @@ for (const [width, height, theme] of [[1440, 900, 'light'], [390, 844, 'dark']])
   test(`menu fits ${width}px viewport, scrolls independently and follows ${theme} theme`, async ({ page, request }) => {
     await page.setViewportSize({ width, height });
     await settings(page, request, { model: 'model-05', many: true });
-    await page.locator('#themeSelect').selectOption(theme);
+    await chooseTheme(page, theme);
     await modelBox(page).click();
     const menu = page.getByRole('listbox');
     await expect(menu).toBeVisible();

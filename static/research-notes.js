@@ -97,6 +97,7 @@ export class ResearchNotes {
     return button?.getClientRects().length ? button : $("#writeArticleThoughtBtn");
   }
   render(focus = this.captureFocus()) {
+    const previousCount = Number($(".thoughts-count", this.element)?.dataset.count || 0);
     const draft = this.draft(), pending = this.publishing.has(this.itemId);
     $("#writeArticleThoughtBtn")?.setAttribute("aria-expanded", String(draft.open));
     const empty = !this.entries.length;
@@ -106,7 +107,7 @@ export class ResearchNotes {
     if (notesOnly) notesOnly.hidden = compact;
     this.element.innerHTML = `
       <header class="thoughts-heading">
-        ${empty ? "" : `<h3>${icon("lightbulb")}<span>研读想法 <span class="thoughts-heading-en">(Research Notes)</span></span><span class="thoughts-count">${this.entries.length} 条</span></h3>`}
+        ${empty ? "" : `<h3>${icon("lightbulb")}<span>研读想法 <span class="thoughts-heading-en">(Research Notes)</span></span><span class="thoughts-count" data-count="${this.entries.length}">${this.entries.length} 条</span></h3>`}
         <button class="thoughts-write-btn" type="button" data-note-action="write" aria-expanded="${draft.open}" aria-controls="researchNoteComposer"><span aria-hidden="true">${draft.open ? "−" : "＋"}</span> 写想法</button>
       </header>
       <ol class="thoughts-timeline">${this.entries.map(entry => this.card(entry)).join("")}</ol>
@@ -119,6 +120,11 @@ export class ResearchNotes {
           <div class="research-note-actions"><span id="researchNoteHint">⌘ / Ctrl + Enter 发布 · Esc 取消</span><button class="thoughts-write-btn" type="button" data-note-action="cancel">取消</button><button class="thoughts-publish-btn" id="publishResearchNoteBtn" type="button" data-note-action="publish" ${pending || !draft.text.trim() ? "disabled" : ""} aria-busy="${pending}">${pending ? "发布中…" : "发布想法"}</button></div>
         </div>
       </div>`;
+    if (previousCount !== this.entries.length && this.motionEnabled())
+      $(".thoughts-count", this.element)?.animate(
+        [{ transform: "scale(1)" }, { transform: "scale(1.12)" }, { transform: "scale(1)" }],
+        { duration: 200, easing: "ease-out" },
+      );
     if (focus?.id === this.itemId && focus.type === "input" && draft.open) {
       const input = $("#researchNoteInput", this.element);
       input.focus({ preventScroll: true });
@@ -130,14 +136,17 @@ export class ResearchNotes {
       (target?.getClientRects().length && !target.disabled ? target : this.writeButton())?.focus({ preventScroll: true });
     }
   }
+  motionEnabled() {
+    return document.documentElement.dataset.theme !== "eink" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
   card(entry) {
     const agent = entry.author === "agent";
     const stamp = entry.created_at || "";
     const shortDate = stamp.replace("T", " ").slice(5, 16);
     return `<li class="thought-timeline-entry">
-      <span class="thought-avatar ${agent ? "agent-avatar" : ""}" aria-hidden="true">${agent ? icon("favorite") : "我"}</span>
+      <span class="thought-avatar ${agent ? "agent-avatar" : ""}" aria-hidden="true">${agent ? icon("spark") : "我"}</span>
       <article class="saved-note ${agent ? "agent-note" : ""}" data-note-id="${e(entry.id)}">
-        <header class="saved-note-header"><div class="thought-author"><strong>${agent ? "新闻研究 Agent" : "我（研究员）"}</strong>${agent ? `<span class="thought-agent-badge">${icon("favorite")} AI 研读归档</span>` : ""}</div><div class="saved-note-meta"><time datetime="${e(stamp.replace(" ", "T"))}" title="${e(stamp)}">${e(shortDate)}</time><button class="note-delete-btn" type="button" data-note-action="delete" data-delete-note="${e(entry.id)}" aria-label="删除想法" title="删除想法" ${this.deleting.has(entry.id) ? "disabled" : ""}>${icon("trash")}</button></div></header>
+        <header class="saved-note-header"><div class="thought-author"><strong>${agent ? "新闻研究 Agent" : "我（研究员）"}</strong>${agent ? `<span class="thought-agent-badge">${icon("spark")} AI 研读归档</span>` : ""}</div><div class="saved-note-meta"><time datetime="${e(stamp.replace(" ", "T"))}" title="${e(stamp)}">${e(shortDate)}</time><button class="note-delete-btn" type="button" data-note-action="delete" data-delete-note="${e(entry.id)}" aria-label="删除想法" title="删除想法" ${this.deleting.has(entry.id) ? "disabled" : ""}>${icon("trash")}</button></div></header>
         <div class="saved-note-content">${markdown(agent ? entry.archive_summary || entry.note : entry.note)}</div>
         ${entry.quote_text ? `<blockquote class="thought-quote"><strong>${e(quoteLabel(entry.quote_source, entry.quote_paragraph))}</strong><p>${e(entry.quote_text)}</p></blockquote>` : ""}
       </article>
@@ -172,7 +181,12 @@ export class ResearchNotes {
     this.render();
     try {
       const result = await api(`/api/news/${encodeURIComponent(id)}/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
+      if (this.itemId === id && this.motionEnabled()) {
+        const card = $(`[data-note-id="${CSS.escape(noteId)}"]`, this.element)?.closest(".thought-timeline-entry");
+        await card?.animate([{ opacity: 1, transform: "translateY(0)" }, { opacity: 0, transform: "translateY(-6px)" }], { duration: 150, easing: "ease-out" }).finished.catch(() => {});
+      }
       this.onUpdate(id, result);
+      toast("想法已删除");
       if (this.itemId === id && !this.captureFocus()) this.writeButton()?.focus({ preventScroll: true });
     } catch (error) {
       toast(errorText(error));

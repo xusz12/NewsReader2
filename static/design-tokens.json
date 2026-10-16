@@ -1,0 +1,60 @@
+{
+  "layout": {
+    "headerHeight": { "value": "52px", "type": "dimension" },
+    "sidebarWidth": { "value": "248px", "type": "dimension" },
+    "feedWidth": { "value": "430px", "type": "dimension" }
+  },
+  "typography": {
+    "fontFamilies": {
+      "display": {
+        "value": "Iowan Old Style, Charter, Source Serif Pro, Georgia, serif",
+        "type": "fontFamilies"
+      },
+      "body": {
+        "value": "-apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif",
+        "type": "fontFamilies"
+      },
+      "mono": {
+        "value": "ui-monospace, JetBrains Mono, SF Mono, Menlo, monospace",
+        "type": "fontFamilies"
+      }
+    },
+    "fontSizes": {
+      "h1": { "value": "clamp(24px, 2.6vw, 34px)", "type": "fontSizes" },
+      "h2": { "value": "clamp(18px, 2.0vw, 24px)", "type": "fontSizes" },
+      "h3": { "value": "16px", "type": "fontSizes" },
+      "body": { "value": "14px", "type": "fontSizes" },
+      "small": { "value": "13px", "type": "fontSizes" },
+      "meta": { "value": "12px", "type": "fontSizes" }
+    }
+  },
+  "color": {
+    "light": {
+      "bg": { "value": "oklch(98.5% 0.003 95)", "type": "color" },
+      "surface": { "value": "oklch(100% 0 0)", "type": "color" },
+      "surfaceSubtle": { "value": "oklch(96.8% 0.005 95)", "type": "color" },
+      "surfaceRaised": { "value": "oklch(100% 0 0)", "type": "color" },
+      "fg": { "value": "oklch(20% 0.015 65)", "type": "color" },
+      "muted": { "value": "oklch(48% 0.012 65)", "type": "color" },
+      "border": { "value": "oklch(91% 0.006 90)", "type": "color" },
+      "borderStrong": { "value": "oklch(80% 0.012 90)", "type": "color" },
+      "accent": { "value": "oklch(50% 0.14 32)", "type": "color" }
+    },
+    "dark": {
+      "bg": { "value": "oklch(16% 0.01 250)", "type": "color" },
+      "surface": { "value": "oklch(20% 0.012 250)", "type": "color" },
+      "surfaceSubtle": { "value": "oklch(23% 0.012 250)", "type": "color" },
+      "surfaceRaised": { "value": "oklch(25% 0.015 250)", "type": "color" },
+      "fg": { "value": "oklch(93% 0.005 250)", "type": "color" },
+      "muted": { "value": "oklch(66% 0.01 250)", "type": "color" },
+      "border": { "value": "oklch(27% 0.012 250)", "type": "color" },
+      "borderStrong": { "value": "oklch(38% 0.015 250)", "type": "color" },
+      "accent": { "value": "oklch(66% 0.16 35)", "type": "color" }
+    }
+  },
+  "radii": {
+    "sm": { "value": "6px", "type": "borderRadius" },
+    "md": { "value": "8px", "type": "borderRadius" },
+    "lg": { "value": "12px", "type": "borderRadius" }
+  }
+}

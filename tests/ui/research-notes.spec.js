@@ -7,7 +7,7 @@ const input = page => page.getByRole('textbox', { name: '写下研读想法' });
 async function start(page, width = 1440) {
   await page.setViewportSize({ width, height: 1000 });
   await page.goto('/');
-  if (width < 768) await page.locator('#feedCardList .news-card-title').first().click();
+  if (width <= 920) await page.locator('#feedCardList .news-card-title').first().click();
   await expect(page.locator('#articleMainTitle')).toBeVisible();
   await expect(write(page)).toBeVisible();
 }
@@ -53,7 +53,7 @@ test('collapsed composer, multiple thoughts, keyboard publish, hover deletion an
   const remove = first.getByRole('button', { name: '删除想法' });
   await expect(remove).toHaveCSS('opacity', '0');
   await first.hover();
-  await expect(remove).toHaveCSS('opacity', '1');
+  await expect(remove).toHaveCSS('opacity', '0.65');
   await remove.click();
   await expect(page.locator('.saved-note')).toHaveCount(1);
   await expect(page.locator('.saved-note')).toContainText('第二个时间点 <script>不可执行</script>');

@@ -1,3 +1,6 @@
+// Keep these boundaries aligned with the responsive rules in style.css.
+export const singlePane = matchMedia("(max-width: 920px)");
+export const drawerNavigation = matchMedia("(max-width: 1279px)");
 // Shared presentation helpers. News, notes and model output are untrusted text.
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [
@@ -85,6 +88,7 @@ export function persist(key, value) {
   }
 }
 const paths = {
+  spark: '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7Z" fill="currentColor" stroke="none"/>',
   lightbulb: '<path d="M9 18h6m-6 3h6M8 15c0-2-3-3-3-7a7 7 0 0 1 14 0c0 4-3 5-3 7v1H8z"/>',
   comment: '<path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/>',
   sortAsc: '<path d="M4 4v16m-3-3 3 3 3-3M11 5h4m-4 7h7m-7 7h10"/>',

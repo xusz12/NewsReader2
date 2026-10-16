@@ -1,3 +1,4 @@
+import { chooseTheme } from "./helpers.js";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 test.beforeEach(async ({ request }) => {
@@ -32,8 +33,8 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.3");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.3");
+  await expect(page).toHaveTitle("News Reader v0.0.4");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.4");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();
@@ -55,8 +56,8 @@ test("three-column shell, real data and retired feature removal", async ({
   page.on("pageerror", (error) => errors.push(error.message));
   await ready(page);
   await expect(page.locator("#leftNavDrawer")).toBeVisible();
-  await expect(page.locator("#feedColFeed")).toHaveCSS("width", "420px");
-  await expect(page.locator("#leftNavDrawer")).toHaveCSS("width", "230px");
+  await expect(page.locator("#feedColFeed")).toHaveCSS("width", "430px");
+  await expect(page.locator("#leftNavDrawer")).toHaveCSS("width", "248px");
   await expect(page.locator("#navFeedBtn")).toHaveAttribute(
     "aria-current",
     "page",
@@ -365,7 +366,7 @@ test("theme persistence, keyboard shortcuts and modal focus", async ({
   page,
 }) => {
   await ready(page);
-  await page.locator("#themeSelect").selectOption("dark");
+  await chooseTheme(page, "dark");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.keyboard.press("/");
@@ -375,7 +376,7 @@ test("theme persistence, keyboard shortcuts and modal focus", async ({
   await expect(page.locator("#shortcutsModal")).toHaveClass(/show/);
   await page.keyboard.press("Escape");
   await expect(page.locator("#shortcutsModal")).not.toHaveClass(/show/);
-  await page.locator("#themeSelect").selectOption("eink");
+  await chooseTheme(page, "eink");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "eink");
 });
 const viewports = [
@@ -400,7 +401,7 @@ for (const [width, height] of viewports)
     await expect(
       page.locator("#feedCardList .news-card").first(),
     ).toBeVisible();
-    if (width < 768)
+    if (width <= 920)
       await expect(page.locator("#detailPanelFeed")).not.toBeVisible();
     const overflow = () =>
       page.evaluate(() => {
@@ -432,7 +433,7 @@ for (const [width, height] of viewports)
       animations: "disabled",
       path: `.ui-artifacts/reader-${width}.png`,
     });
-    if (width < 768) {
+    if (width <= 920) {
       await page.locator("#agentDockToggleBtn").click();
       await expect(page.locator("#agentDock")).toHaveClass(/mobile-sheet-open/);
       await page.locator("#agentDockToggleBtn").click();
@@ -440,10 +441,10 @@ for (const [width, height] of viewports)
       await expect(page.locator("#feedColFeed")).toBeVisible();
       await page.locator("#mobNavSettings").click();
     } else {
-      if (width < 1024) await page.locator("#openNavBtn").click();
+      if (width < 1280) await page.locator("#openNavBtn").click();
       await page.locator("#leftNavSettingsBtn").click();
     }
-    if (width < 768) {
+    if (width <= 920) {
       await expect(page.locator("#feedColSettings")).toBeVisible();
       await expect(page.locator("#detailPanelSettings")).not.toBeVisible();
       await page.screenshot({
@@ -452,7 +453,7 @@ for (const [width, height] of viewports)
       });
       await page.locator('[data-settings-tab="models"]').click();
     } else {
-      if (width >= 1024) await expect(page.locator("#leftNavDrawer")).toBeVisible();
+      if (width >= 1280) await expect(page.locator("#leftNavDrawer")).toBeVisible();
       await expect(page.locator("#feedColSettings")).toBeVisible();
     }
     await expect(page.locator("#modelSettings")).toBeVisible();
@@ -650,8 +651,8 @@ test("settings is an inline three-column workspace with searchable categories", 
   const navigation = await page.locator("#leftNavDrawer").boundingBox();
   const categories = await page.locator("#feedColSettings").boundingBox();
   const detail = await page.locator("#detailPanelSettings").boundingBox();
-  expect(navigation.width).toBe(230);
-  expect(categories.width).toBe(420);
+  expect(navigation.width).toBe(248);
+  expect(categories.width).toBe(430);
   expect(categories.x).toBe(navigation.x + navigation.width);
   expect(detail.x).toBe(categories.x + categories.width);
   expect(detail.y).toBe(categories.y);
@@ -684,7 +685,7 @@ test("settings is an inline three-column workspace with searchable categories", 
       page.locator("#settingsContent > [data-section]:visible"),
     ).toHaveCount(1);
   }
-  await page.locator("#themeSelect").selectOption("dark");
+  await chooseTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.screenshot({
     path: ".ui-artifacts/settings-workspace-dark.png",

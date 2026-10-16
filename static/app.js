@@ -1,4 +1,6 @@
 import {
+  singlePane,
+  drawerNavigation,
   $,
   $$,
   api,
@@ -17,6 +19,7 @@ import {
   focusTrap,
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js";
+import { SelectControls } from "./select-control.js";
 import { AgentPanel } from "./agent-panel.js";
 import { ResearchNotes } from "./research-notes.js";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
@@ -63,7 +66,9 @@ let requestController,
   detailTimer,
   searchTimer,
   lastFocus;
+const selects = new SelectControls(document.body);
 const settings = new SettingsPanel({
+  selects,
   onOpen: () => {
     stashNote();
     closeNav();
@@ -166,7 +171,7 @@ function card(item) {
   const dimReadCard = state.collection === "feed" && item.read_at;
   const showUnreadDot = state.collection !== "read_later" && !item.read_at;
   const text = item.summary || item.note_preview || "";
-  return `<li class="news-card ${active ? "active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
+  return `<li class="news-card ${active ? "active is-active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
     <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(item.time || item.published_at?.slice(11, 16) || "")}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet">${e(text)}</p>` : ""}
@@ -255,7 +260,7 @@ async function loadFeed(append = false) {
         state.selected;
     renderFeed();
     readerActions();
-    if (!state.selected && state.items.length && window.innerWidth >= 768)
+    if (!state.selected && state.items.length && !singlePane.matches)
       selectNews(state.items[0], false);
     setIndexStatus(`新闻库已连接 · ${data.total} 篇`);
   } catch (error) {
@@ -751,7 +756,7 @@ async function loadIdeas() {
       .flat()
       .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
     renderIdeas();
-    if (!state.idea && state.ideas.length && window.innerWidth >= 768)
+    if (!state.idea && state.ideas.length && !singlePane.matches)
       selectIdea(state.ideas[0], false);
     else if (!state.idea)
       $("#ideaDetailBody").innerHTML =
@@ -771,7 +776,7 @@ function renderIdeas() {
     ideas
       .map(
         (idea) =>
-          `<li class="news-card ${state.idea?.idea_id === idea.idea_id ? "active" : ""}" data-idea-id="${e(idea.idea_id)}" tabindex="0"><div class="news-card-meta"><div class="meta-source-box"><span class="source-icon-badge idea">想</span>${e(idea.idea_context_label)}</div><span>${e(idea.updated_at?.slice(0, 16) || "")}</span></div><h3 class="news-card-title">${e(idea.idea_type === "standalone_note" ? idea.note?.split("\n")[0] : idea.title)}</h3><p class="news-card-snippet">${e(idea.note)}</p><div class="news-card-footer"><span class="card-tag">${e(idea.source || "独立想法")}</span></div></li>`,
+          `<li class="news-card ${state.idea?.idea_id === idea.idea_id ? "active is-active" : ""}" data-idea-id="${e(idea.idea_id)}" tabindex="0"><div class="news-card-meta"><div class="meta-source-box"><span class="source-icon-badge idea">想</span>${e(idea.idea_context_label)}</div><span>${e(idea.updated_at?.slice(0, 16) || "")}</span></div><h3 class="news-card-title">${e(idea.idea_type === "standalone_note" ? idea.note?.split("\n")[0] : idea.title)}</h3><p class="news-card-snippet">${e(idea.note)}</p><div class="news-card-footer"><span class="card-tag">${e(idea.source || "独立想法")}</span></div></li>`,
       )
       .join("") ||
     '<li class="list-message">暂无想法。点击“新想法”开始记录。</li>';
@@ -821,7 +826,7 @@ async function saveIdea() {
   await loadIdeas();
 }
 function enterReader() {
-  if (window.innerWidth < 768)
+  if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
 }
 function exitReader() {
@@ -833,7 +838,7 @@ function openNav() {
   $("#navDrawerBackdrop").classList.add("active");
 }
 function closeNav() {
-  $("#leftNavDrawer").inert = window.innerWidth < 1024;
+  $("#leftNavDrawer").inert = drawerNavigation.matches;
   $("#leftNavDrawer").classList.remove("drawer-open");
   $("#navDrawerBackdrop").classList.remove("active");
 }
@@ -940,6 +945,7 @@ $("#themeSelect").onchange = (event) => {
   document.documentElement.dataset.theme = event.target.value;
   persist("newsreader_workbench_theme_mode", event.target.value);
 };
+selects.refresh();
 $("#leftNavSettingsBtn").onclick = () => settings.toggle();
 $("#mobNavSettings").onclick = () => settings.toggle();
 $("#openNavBtn").onclick = openNav;
@@ -1004,7 +1010,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (
-    event.target.closest('input,textarea,select,[contenteditable="true"]') ||
+    event.target.closest('input,textarea,select,[role="combobox"],[contenteditable="true"]') ||
     event.metaKey ||
     event.ctrlKey ||
     event.altKey ||
@@ -1066,7 +1072,13 @@ window.addEventListener("beforeunload", (event) => {
 });
 $("#navFeedBtn").setAttribute("aria-current", "page");
 closeNav();
-matchMedia("(max-width: 1023px)").addEventListener("change", closeNav);
+drawerNavigation.addEventListener("change", closeNav);
+singlePane.addEventListener("change", () => {
+  if (singlePane.matches || settings.open) return;
+  if (state.collection === "notes") {
+    if (!state.idea && state.ideas.length) selectIdea(state.ideas[0]);
+  } else if (!state.selected && state.items.length) selectNews(state.items[0], false);
+});
 renderFilters();
 renderReader();
 setIndexStatus("正在连接新闻库…");
