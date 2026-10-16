@@ -18,7 +18,7 @@ import time
 from urllib.request import urlopen
 import uuid
 
-from updater import local_health_url
+from updater import local_health_url, _write_state as write_update_state
 
 ROOT = Path(__file__).resolve().parent
 ACTIVE_UPDATE_STATES = {
@@ -433,6 +433,16 @@ class Supervisor:
             return
         code = self.update_process.returncode
         state = self._update_state()
+        if state.get("run_id") != self.update_run_id or state.get("status") not in {
+            "healthy", "failed", "rolled_back", "rollback_failed",
+        }:
+            state = {**(state if state.get("run_id") == self.update_run_id else {}),
+                     "run_id": self.update_run_id, "status": "failed",
+                     "error": "update_interrupted", "updated_at": int(time.time())}
+            try:
+                write_update_state(state, Path(self.base_env["NEWS_READER_UPDATER_DIR"]) / "news-reader-updater-state.json")
+            except OSError as exc:
+                print(f"无法记录更新退出状态：{exc}", file=sys.stderr)
         if self.child is None or self.child.poll() is not None:
             print(f"更新进程已退出（代码 {code}），服务未恢复：{state.get('status', 'unknown')}", file=sys.stderr)
             self.exit_code = 1

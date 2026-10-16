@@ -1,6 +1,6 @@
 {
-  "version": "v0.0.5",
-  "repository": "",
+  "version": "v0.0.6",
+  "repository": "https://github.com/xusz12/NewsReader2.git",
   "stable_tag_pattern": "vN.N.N or vN.N.N.N",
   "health_path": "/api/version"
 }

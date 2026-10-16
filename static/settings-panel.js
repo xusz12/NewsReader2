@@ -1,5 +1,7 @@
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
+import { UpdatePanel } from "./update-panel.js";
+
 const clone = (value) => structuredClone(value);
 const get = (object, path) =>
   path.split(".").reduce((v, key) => v?.[key], object);
@@ -33,6 +35,7 @@ export class SettingsPanel {
     this.catalogSequence = 0;
     this.catalogs = new Map();
     this.selects = selects;
+    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || !!this.secretDraft });
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
@@ -228,6 +231,7 @@ export class SettingsPanel {
     $("#settingsDetailTitle").textContent = selected.dataset.title;
     $("#settingsDetailDescription").textContent = selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
+    if (section === "system" && $("#updateResult")) this.updater.restore();
     if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
       $("#settingsDetailTitle").focus();
@@ -385,10 +389,10 @@ export class SettingsPanel {
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
       ${field("下次启动使用的数据库", "database.configured_path", d.database.configured_path, d.database.environment_override ? "disabled" : 'placeholder="已有 SQLite 文件的完整路径"')}
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
-      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong>News Reader ${e($(".brand-version").textContent)}</strong><p class="muted">独立项目版本；配置本项目更新仓库后可检查稳定版本。</p></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button></div><div id="updateResult" role="status"></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
+      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" role="status" aria-live="polite"></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
     this.renderTranslation();
-    this.renderUpdate();
+    this.updater.render();
     this.selectSection(this.section, { reveal: false });
     $("#settingsContent details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
@@ -520,10 +524,14 @@ export class SettingsPanel {
           toast("临时会话已清空");
         }
       },
-      checkUpdateBtn: () => this.checkUpdate(),
-      applyUpdateBtn: () => this.applyUpdate(),
+      checkUpdateBtn: () => this.updater.check(),
+      applyUpdateBtn: () => this.updater.apply(),
+      refreshUpdateBtn: () => this.updater.refresh(),
+      resumeUpdateBtn: () => this.updater.poll(),
     };
-    if (actions[button.id]) busy(button, actions[button.id]);
+    if (["checkUpdateBtn", "applyUpdateBtn", "refreshUpdateBtn", "resumeUpdateBtn"].includes(button.id)) {
+      actions[button.id]();
+    } else if (actions[button.id]) busy(button, actions[button.id]);
   }
   async save() {
     if (!this.draft) return;
@@ -705,58 +713,6 @@ export class SettingsPanel {
       this.onSources();
       throw error;
     }
-  }
-  async checkUpdate() {
-    this.update = await api("/api/update/check");
-    this.renderUpdate();
-  }
-  renderUpdate() {
-    if (!$("#updateResult")) return;
-    const data = this.update;
-    if (!data) return;
-    if (data.enabled === false) {
-      $("#updateResult").textContent =
-        `当前 ${data.current_version}。${data.message}`;
-      $("#applyUpdateBtn").hidden = true;
-      return;
-    }
-    $("#updateResult").textContent = data.available
-      ? `发现 ${data.latest.version} · ${data.latest.commit.slice(0, 8)}。${data.managed_launcher ? "确认后更新并重启。" : "请通过受控启动器启动后更新。"}`
-      : `当前 ${data.current_version}，没有更高稳定版本。`;
-    $("#applyUpdateBtn").hidden = !(data.available && data.managed_launcher);
-  }
-  async applyUpdate() {
-    const d = this.update;
-    if (
-      !d?.available ||
-      !confirm(
-        `确认更新到 ${d.latest.version}（${d.latest.commit.slice(0, 8)}）并重启？`,
-      )
-    )
-      return;
-    const result = await api("/api/update/apply", {
-      method: "POST",
-      body: { check_token: d.check_token, ...d.latest },
-    });
-    $("#applyUpdateBtn").hidden = true;
-    for (let i = 0; i < 90; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      try {
-        const status = await api("/api/update/status");
-        if (status.run_id !== result.run_id) continue;
-        $("#updateResult").textContent =
-          `更新状态：${status.status}${status.error ? " · " + status.error : ""}`;
-        if (
-          ["healthy", "failed", "rolled_back", "rollback_failed"].includes(
-            status.status,
-          )
-        )
-          return;
-      } catch {
-        /* Server can be restarting. */
-      }
-    }
-    $("#updateResult").textContent = "仍未确认重启结果，请检查服务状态。";
   }
   async loadReleaseNotes() {
     try {

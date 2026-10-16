@@ -99,12 +99,15 @@ def is_stable_tag(tag: str) -> bool:
 
 
 def _run(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            text=True, capture_output=True, check=False,
+            timeout=60 if args[0] == "fetch" else 15,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("git_timeout") from exc
     if check and result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "git_failed").strip()[:500])
     return result.stdout.strip()
@@ -117,11 +120,12 @@ def git_state(repo: Path) -> dict[str, str | bool]:
     return {"clean": not status, "head": head, "branch": branch, "detached": not bool(branch)}
 
 
-def _write_state(payload: dict) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = STATE_PATH.with_suffix(".tmp")
+def _write_state(payload: dict, path: Path | None = None) -> None:
+    path = path or STATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, STATE_PATH)
+    os.replace(temporary, path)
 
 
 def _wait_for_pid(pid: int, timeout: float = 20.0) -> None:
@@ -217,9 +221,7 @@ def apply_update(
         except BlockingIOError as exc:
             raise RuntimeError("update_in_progress") from exc
 
-        state = git_state(repo)
-        old_head = str(state["head"])
-        progress = {"tag": tag, "version": version, "commit": commit, "old_head": old_head, "run_id": run_id}
+        progress = {"tag": tag, "version": version, "commit": commit, "run_id": run_id}
         old_stopped = False
         new_child = None
         new_instance_id = None
@@ -228,6 +230,9 @@ def apply_update(
             _write_state({**progress, "status": status, "updated_at": int(time.time()), **extra})
         report("validating")
         try:
+            state = git_state(repo)
+            old_head = str(state["head"])
+            progress["old_head"] = old_head
             if not state["clean"]:
                 raise RuntimeError("dirty_worktree")
             if state["detached"]:
@@ -272,7 +277,7 @@ def apply_update(
                     _wait_for_pid(old_pid)
                 old_stopped = True
             report("merging")
-            _run(repo, "merge", "--ff-only", commit)
+            _run(repo, "merge", "--ff-only", "--no-overwrite-ignore", commit)
             merged = True
             if _run(repo, "rev-parse", "HEAD") != commit:
                 raise RuntimeError("post_merge_commit_mismatch")

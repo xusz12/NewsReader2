@@ -14,6 +14,7 @@ for name, path in {
     'APP_SETTINGS_PATH': RUNTIME / 'settings.json',
     'AGENT_DB_PATH': RUNTIME / 'agent.sqlite3',
     'AGENT_RUNTIME_DIR': RUNTIME / 'agent',
+    'UPDATER_DIR': RUNTIME / 'updater',
     'MEDIA_CACHE_DIR': RUNTIME / 'media',
     'DAILY_NEWS_DIR': RUNTIME / 'daily',
     'DAILY_BRIEFING_DIR': RUNTIME / 'briefings',

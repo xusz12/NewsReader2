@@ -11,6 +11,7 @@ import selectors
 import signal
 import shutil
 import sqlite3
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
+import certifi
 
 from daily_briefings import list_daily_briefing_files, parse_daily_briefing_date, parse_daily_briefing_file
 from llm_client import (
@@ -7697,47 +7699,85 @@ def _stable_version(tag: object) -> tuple[int, ...] | None:
     return tuple(int(part) for part in tag[1:].split("."))
 
 
-def _fetch_update_check() -> dict:
+def _update_preflight() -> dict:
+    """Re-read local conditions on every check; never cache worktree readiness."""
+    blockers = []
+    state = None
+    try:
+        state = update_git_state(BASE_DIR)
+        if not state["clean"]:
+            blockers.append("dirty_worktree")
+        if state["detached"]:
+            blockers.append("detached_head")
+    except (OSError, RuntimeError):
+        blockers.append("git_state_unavailable")
+    managed = os.getenv("NEWS_READER_MANAGED") == "1"
+    if not managed:
+        blockers.append("managed_launcher_required")
+    return {"managed_launcher": managed, "can_update": not blockers,
+            "blockers": blockers, "worktree": state}
+
+
+def _fetch_update_check(*, force: bool = False) -> dict:
     global UPDATE_CHECK_CACHE
     now = time.time()
+    current = _version_manifest()["version"]
+    current_commit = _current_commit()
     if not UPDATE_CHECK_URL:
         return {
             "ok": True, "enabled": False, "status": "not_configured",
-            "current_version": _version_manifest()["version"], "current_commit": _current_commit(),
+            "current_version": current, "current_commit": current_commit,
             "latest": None, "available": False, "repository": UPDATE_REPOSITORY_URL,
             "message": "独立项目尚未配置更新仓库，在线更新未启用。",
         }
     with UPDATE_CHECK_LOCK:
-        if UPDATE_CHECK_CACHE and now - UPDATE_CHECK_CACHE.get("checked_at", 0) < UPDATE_CHECK_TTL:
-            return dict(UPDATE_CHECK_CACHE["payload"])
-        req = Request(UPDATE_CHECK_URL, headers={"Accept": "application/vnd.github+json", "User-Agent": "news-reader-updater"})
-        with urlopen(req, timeout=8) as response:
-            tags = json.loads(response.read().decode("utf-8"))
-        if not isinstance(tags, list):
-            raise ValueError("invalid_update_manifest")
-        stable = []
-        for item in tags:
-            if not isinstance(item, dict):
-                continue
-            tag = item.get("name")
-            parsed = _stable_version(tag)
-            commit = ((item.get("commit") or {}).get("sha") if isinstance(item.get("commit"), dict) else "")
-            if parsed and isinstance(commit, str) and re.fullmatch(r"[0-9a-fA-F]{40}", commit):
-                stable.append({"tag": tag, "version": tag, "commit": commit.lower(), "numeric": parsed})
-        stable.sort(key=lambda x: x["numeric"], reverse=True)
-        manifest = _version_manifest()
-        current = manifest["version"]
-        current_commit = _current_commit()
-        latest = stable[0] if stable else None
+        cached = (not force and UPDATE_CHECK_CACHE
+                  and UPDATE_CHECK_CACHE.get("repository") == UPDATE_REPOSITORY_URL
+                  and now - UPDATE_CHECK_CACHE.get("checked_at", 0) < UPDATE_CHECK_TTL)
+        if not cached:
+            stable = []
+            # Some macOS Python installs have no default CA bundle. Add trusted
+            # public roots while retaining system / SSL_CERT_FILE certificates.
+            context = ssl.create_default_context()
+            context.load_verify_locations(cafile=certifi.where())
+            # Do not assume the API order matches numeric versions. Read all pages.
+            for page in range(1, 11):
+                req = Request(UPDATE_CHECK_URL + f"&page={page}", headers={
+                    "Accept": "application/vnd.github+json", "User-Agent": "news-reader-updater"})
+                with urlopen(req, timeout=8, context=context) as response:
+                    tags = json.loads(response.read().decode("utf-8"))
+                if not isinstance(tags, list):
+                    raise ValueError("invalid_update_manifest")
+                for item in tags:
+                    if not isinstance(item, dict):
+                        continue
+                    tag = item.get("name")
+                    parsed = _stable_version(tag)
+                    commit = ((item.get("commit") or {}).get("sha") if isinstance(item.get("commit"), dict) else "")
+                    if parsed and isinstance(commit, str) and re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+                        stable.append({"tag": tag, "version": tag, "commit": commit.lower(),
+                                       "numeric": parsed + (0,) * (4 - len(parsed))})
+                if len(tags) < 100:
+                    break
+            else:
+                raise ValueError("too_many_update_tags")
+            latest = max(stable, key=lambda item: item["numeric"], default=None)
+            UPDATE_CHECK_CACHE = {"checked_at": time.time(), "repository": UPDATE_REPOSITORY_URL,
+                                  "latest": latest}
+        latest = UPDATE_CHECK_CACHE["latest"]
+        current_numeric = _stable_version(current) or (0,)
+        current_numeric += (0,) * (4 - len(current_numeric))
+        available = bool(latest and latest["numeric"] > current_numeric)
+        status = ("no_releases" if latest is None else "update_available" if available
+                  else "ahead" if latest["numeric"] < current_numeric else "up_to_date")
         payload = {
-            "ok": True, "enabled": True, "current_version": current, "current_commit": current_commit,
+            "ok": True, "enabled": True, "status": status,
+            "current_version": current, "current_commit": current_commit,
             "latest": {k: v for k, v in latest.items() if k != "numeric"} if latest else None,
-            "available": bool(latest and latest["numeric"] > (_stable_version(current) or (0,))),
-            "checked_at": int(now), "repository": UPDATE_REPOSITORY_URL,
-            "managed_launcher": os.getenv("NEWS_READER_MANAGED") == "1",
+            "available": available, "checked_at": int(UPDATE_CHECK_CACHE["checked_at"]),
+            "repository": UPDATE_REPOSITORY_URL,
         }
-        UPDATE_CHECK_CACHE = {"checked_at": now, "payload": payload}
-        return dict(payload)
+    return {**payload, **_update_preflight()}
 
 
 @app.get("/api/version")
@@ -7753,13 +7793,20 @@ def api_version():
 @app.get("/api/update/check")
 def api_update_check():
     try:
-        payload = _fetch_update_check()
+        payload = _fetch_update_check(force=request.args.get("force") == "1")
     except (OSError, ValueError, HTTPError, URLError, TimeoutError) as exc:
         return jsonify({"ok": False, "error": "update_check_failed", "detail": trim_settings_error(exc)}), 502
-    if not payload.get("enabled"):
+    if not payload.get("enabled") or not payload.get("available") or not payload.get("can_update"):
         return jsonify(payload)
     token = uuid.uuid4().hex
-    UPDATE_TOKENS[token] = {"expires_at": time.time() + UPDATE_TOKEN_TTL, "payload": payload}
+    with UPDATE_CHECK_LOCK:
+        now = time.time()
+        for expired in [key for key, value in UPDATE_TOKENS.items() if value["expires_at"] <= now]:
+            UPDATE_TOKENS.pop(expired, None)
+        # Bound memory even if checks are repeated without applying an update.
+        while len(UPDATE_TOKENS) >= 128:
+            UPDATE_TOKENS.pop(next(iter(UPDATE_TOKENS)))
+        UPDATE_TOKENS[token] = {"expires_at": now + UPDATE_TOKEN_TTL, "payload": payload}
     return jsonify({**payload, "check_token": token, "token_expires_in": UPDATE_TOKEN_TTL})
 
 
@@ -7781,10 +7828,13 @@ def api_update_apply():
     if not UPDATE_REPOSITORY_URL:
         return jsonify({"ok": False, "error": "update_repository_not_configured"}), 409
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "invalid_payload"}), 400
     token = body.get("check_token")
     if not isinstance(token, str):
         return jsonify({"ok": False, "error": "missing_check_token"}), 400
-    record = UPDATE_TOKENS.pop(token, None)
+    with UPDATE_CHECK_LOCK:
+        record = UPDATE_TOKENS.pop(token, None)
     if not record or record["expires_at"] < time.time():
         return jsonify({"ok": False, "error": "expired_check_token"}), 409
     payload = record["payload"]
@@ -7797,6 +7847,9 @@ def api_update_apply():
         return jsonify({"ok": False, "error": "current_commit_changed"}), 409
     if any(body.get(key) != latest.get(key) for key in ("tag", "version", "commit")):
         return jsonify({"ok": False, "error": "update_target_mismatch"}), 409
+    preflight = _update_preflight()
+    if preflight["blockers"]:
+        return jsonify({"ok": False, "error": preflight["blockers"][0]}), 409
     run_id = uuid.uuid4().hex
     try:
         port = int((os.getenv("NEWS_READER_PORT") or "8080").strip())

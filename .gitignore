@@ -28,3 +28,18 @@ media-cache/
 *.db
 *.db-wal
 *.db-shm
+
+# Generated assets and local development output
+/output/
+*.py[cod]
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.log
+.env
+.env.*
+!.env.example
+.venv-*/
+.idea/
+.vscode/

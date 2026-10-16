@@ -3100,6 +3100,13 @@ button:disabled {
   justify-content: flex-start;
   padding: 5px 0;
 }
+#updateResult {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+#updateRepository {
+  overflow-wrap: anywhere;
+}
 #releaseNotes {
   white-space: pre-wrap;
   margin-top: 12px;

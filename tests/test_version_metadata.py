@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "v0.0.5"
+RELEASE_VERSION = "v0.0.6"
 ASSET_VERSION = RELEASE_VERSION.removeprefix("v")
 
 
@@ -28,6 +28,6 @@ def test_independent_package_and_update_metadata():
     manifest = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
-    assert manifest["repository"] == ""
+    assert manifest["repository"] == "https://github.com/xusz12/NewsReader2.git"
     assert package["name"] == lock["name"] == lock["packages"][""]["name"] == "newsreader-workbench"
     assert package["version"] == lock["version"] == lock["packages"][""]["version"] == ASSET_VERSION
