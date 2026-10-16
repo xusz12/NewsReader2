@@ -354,3 +354,34 @@ test('lost old session rebuild pins saved model after native defaults change and
   assert.equal(available.calls.length, 1);assert.equal(available.calls[0].model, undefined);
   assert.equal(available.calls[0].resume, 'old-session');
 });
+
+
+test('research budget deduplicates tool calls and asks for a sourced conclusion once', async t => {
+  const { researchBudget } = await import('../scripts/oar_bridge.mjs');
+  const prompts = [], events = [];
+  const budget = researchBudget({ steer: async text => { prompts.push(text); } }, { research_budget_ms: 1000, max_tool_calls: 2 }, event => events.push(event));
+  t.after(() => budget.close());
+  budget.event({ kind: 'tool_call_started', callId: 'one' });
+  budget.event({ kind: 'tool_call_started', callId: 'one' });
+  assert.equal(prompts.length, 0);
+  budget.event({ kind: 'tool_call_started', callId: 'two' });
+  budget.event({ kind: 'tool_call_started', callId: 'three' });
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /无法核实/);
+  assert.deepEqual(events, [{ type: 'oar_progress', phase: 'summarizing' }]);
+  assert.equal(events.some(event => event.type === 'oar_result'), false);
+});
+
+test('research timer steers a running turn and cleanup prevents a late steer', async () => {
+  const { researchBudget } = await import('../scripts/oar_bridge.mjs');
+  let count = 0;
+  const session = { steer: async () => { count++; } };
+  const first = researchBudget(session, { research_budget_ms: 10 }, () => {});
+  await new Promise(resolve => setTimeout(resolve, 30));
+  first.close();
+  assert.equal(count, 1);
+  const second = researchBudget(session, { research_budget_ms: 10 }, () => {});
+  second.close();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(count, 1);
+});

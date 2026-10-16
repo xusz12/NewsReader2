@@ -18,14 +18,18 @@ import {
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js";
 import { AgentPanel } from "./agent-panel.js";
+import { ResearchNotes } from "./research-notes.js";
+import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
 
 const state = {
   collection: "feed",
-  filter: "all",
+  filter: "unread",
+  sortOrder: "default",
   source: "all",
   query: "",
   items: [],
   selected: null,
+  openedReadLaterId: null,
   detail: null,
   page: 0,
   cursor: null,
@@ -34,7 +38,6 @@ const state = {
   loading: false,
   sequence: 0,
   detailSequence: 0,
-  selectedIds: new Set(),
   pendingStates: new Set(),
   ideaType: "all",
   ideas: [],
@@ -59,42 +62,51 @@ const shortcuts = { m: "read", i: "important", s: "read_later", f: "favorite" };
 let requestController,
   detailTimer,
   searchTimer,
-  selectionText = "",
   lastFocus;
 const settings = new SettingsPanel({
+  onOpen: () => {
+    stashNote();
+    closeNav();
+    $("#selectionPopover").classList.remove("show");
+    clearTimeout(feedEndTimer);
+    feedEndTimer = null;
+  },
   onSaved: () => {
     loadSources();
     loadFeed();
     refreshBadges();
+    if (agent.open) agent.refresh();
   },
   onSources: renderSources,
 });
+const researchNotes = new ResearchNotes({ onUpdate: updateResearchNotes });
+function updateResearchNotes(id, result) {
+  const item = state.items.find(x => x.id === id);
+  const notes = result.notes || (result.note ? [{ ...result.note, id: "legacy", author: "user" }] : []);
+  const patch = { has_note: result.has_note, note_preview: result.note_preview, note_count: notes.length };
+  if (item) Object.assign(item, patch);
+  if (state.selected?.id === id) {
+    Object.assign(state.selected, patch);
+    state.detail = { ...state.detail, ...patch, note: result.note, notes };
+  }
+  researchNotes.update(id, { ...result, notes });
+  renderFeed();
+  refreshBadges();
+}
 const agent = new AgentPanel({
   onArchive: (id, result) => {
-    const item = state.items.find((x) => x.id === id);
-    if (item) Object.assign(item, result);
-    if (state.selected?.id === id) {
-      const draft = state.noteDrafts.get(id);
-      if (draft !== undefined && draft !== (state.detail?.note?.note || "")) {
-        toast("归档已保存；编辑中的想法草稿已保留，请合并后再保存。");
-      } else {
-        state.noteDrafts.delete(id);
-        state.detail = { ...state.detail, note: result.note };
-        const input = $("#articleNote");
-        if (input) input.value = result.note?.note || "";
-      }
-    }
-    renderFeed();
+    updateResearchNotes(id, result);
   },
+});
+const readerHighlights = new ReaderHighlights({
+  onQuote: (target, quote) => target === "note" ? researchNotes.open(quote) : agent.quote(quote.text),
+  onUpdate: (id, result) => { if (state.selected?.id === id) state.detail = { ...state.detail, ...result }; },
 });
 
 function feedParams() {
-  const collection =
-    { important: "important", later: "read_later", notes: "notes" }[
-      state.filter
-    ] || state.collection;
   return {
-    collection,
+    collection: state.collection,
+    has_note: state.filter === "notes" ? "1" : "0",
     read_filter:
       state.filter === "unread"
         ? "unread"
@@ -103,7 +115,7 @@ function feedParams() {
           : "all",
     source_filter: state.source,
     q: state.query,
-    sort_order: "reverse",
+    sort_order: state.sortOrder,
     per: "30",
   };
 }
@@ -115,13 +127,21 @@ function renderFilters() {
           ["unread", "待阅读"],
           ["read", "已读"],
         ]
-      : [
-          ["all", "全部"],
-          ["unread", "未读"],
-          ["important", "高价值焦点"],
-          ["later", "稍后再读"],
-          ["notes", "含想法"],
-        ];
+      : state.collection === "feed"
+        ? [["all", "全部"], ["unread", "未读"]]
+        : state.collection === "important"
+          ? [["all", "全部"], ["notes", "含想法"]]
+          : [["all", "全部"]];
+  const ascending = ["feed", "read_later"].includes(state.collection) === (state.sortOrder === "default");
+  const sortLabel = `排序：${ascending ? "旧到新" : "新到旧"}，点击切换`;
+  $("#sortNewsBtn").innerHTML = icon(ascending ? "sortAsc" : "sortDesc");
+  $("#sortNewsBtn").setAttribute("aria-label", sortLabel);
+  $("#sortNewsBtn").title = sortLabel;
+  $("#markAllReadBtn").hidden = !["feed", "read_later"].includes(state.collection);
+  const markLabel = state.collection === "read_later" ? "全部看完" : "全部已读";
+  $("#markAllReadBtn").innerHTML = icon("checkAll");
+  $("#markAllReadBtn").setAttribute("aria-label", markLabel);
+  $("#markAllReadBtn").title = markLabel;
   $("#feedColFeed .feed-filter-chips").innerHTML = filters
     .map(
       ([key, label]) =>
@@ -143,14 +163,21 @@ function renderFilters() {
 }
 function card(item) {
   const active = item.id === state.selected?.id;
-  const checked = state.selectedIds.has(item.id);
+  const dimReadCard = state.collection === "feed" && item.read_at;
+  const showUnreadDot = state.collection !== "read_later" && !item.read_at;
   const text = item.summary || item.note_preview || "";
-  return `<li class="news-card ${active ? "active" : ""} ${item.read_at ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
-    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(item.time || item.published_at?.slice(11, 16) || "")}</span>${item.read_at ? "" : '<span class="unread-dot" title="未读"></span>'}</div></div>
+  return `<li class="news-card ${active ? "active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
+    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(item.time || item.published_at?.slice(11, 16) || "")}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet">${e(text)}</p>` : ""}
-    <div class="news-card-footer"><div class="card-footer-left"><label class="card-selection" title="选择条目"><input type="checkbox" data-select="${e(item.id)}" aria-label="选择 ${e(item.title)}" ${checked ? "checked" : ""}></label><div class="card-status-badges">${item.has_note ? `<span class="card-icon-indicator" title="含想法">${icon("note")}</span>` : ""}${item.detail_ready ? `<span class="card-icon-indicator">${icon("read")} opencli</span>` : ""}</div></div>
-    <div class="card-actions">${["important", "read_later", "favorite"].map((flag) => `<button class="card-action-btn ${item[`${flag}_at`] ? "active" : ""}" type="button" data-state="${flag}" aria-pressed="${!!item[`${flag}_at`]}" title="${stateLabels[flag]}" ${state.pendingStates.has(item.id) ? "disabled" : ""}>${icon(flag)}<span>${stateLabels[flag]}</span></button>`).join("")}</div></div></li>`;
+    <div class="news-card-footer"><div class="card-footer-left">${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
+    <div class="card-actions">${["important", "read_later", "favorite"].map((flag) => {
+      const later = flag === "read_later";
+      const completed = later && !item.read_later_at && (item.detail_ready || item.read_later_done_at);
+      const fetching = later && ["pending", "running"].includes(item.detail_status);
+      const label = !later ? stateLabels[flag] : fetching ? "抓取中" : item.detail_status === "failed" && item.read_later_at ? "抓取失败" : completed ? "已看完" : item.read_later_at && item.detail_ready ? "全文待看" : item.read_later_at ? "待抓取" : "稍后再看";
+      return `<button class="card-action-btn ${item[`${flag}_at`] ? "active" : ""} ${completed ? "completed" : ""} ${fetching ? "fetching" : ""}" type="button" data-state="${flag}" aria-pressed="${!!item[`${flag}_at`]}" title="${label}${later ? (item.read_later_at ? " · 点击标记看完" : " · 点击加入待看并抓取全文") : ""}" ${state.pendingStates.has(item.id) ? "disabled" : ""}>${icon(flag)}<span>${label}</span></button>`;
+    }).join("")}</div></div></li>`;
 }
 function renderFeed() {
   const list = $("#feedCardList");
@@ -181,7 +208,7 @@ function renderFeed() {
           : '<li class="list-message feed-end">已读到列表末尾</li>');
   list.scrollTop = scroll;
   renderFilters();
-  renderBatch();
+  requestAnimationFrame(trackFeedReading);
 }
 async function loadFeed(append = false) {
   if (state.collection === "notes") return loadIdeas();
@@ -193,7 +220,10 @@ async function loadFeed(append = false) {
     state.items = [];
     state.page = 0;
     state.cursor = null;
-    state.selectedIds.clear();
+    enteredCards.clear();
+    clearTimeout(feedEndTimer);
+    feedEndTimer = null;
+    lastFeedScroll = 0;
     $("#feedCardList").scrollTop = 0;
   }
   state.loading = true;
@@ -225,7 +255,7 @@ async function loadFeed(append = false) {
         state.selected;
     renderFeed();
     readerActions();
-    if (!state.selected && state.items.length && window.innerWidth > 920)
+    if (!state.selected && state.items.length && window.innerWidth >= 768)
       selectNews(state.items[0], false);
     setIndexStatus(`新闻库已连接 · ${data.total} 篇`);
   } catch (error) {
@@ -266,7 +296,7 @@ async function searchNews(sequence, signal) {
       return false;
     if (params.collection === "favorites" && !item.favorite_at) return false;
     if (params.collection === "important" && !item.important_at) return false;
-    if (params.collection === "notes" && !item.has_note) return false;
+    if (params.has_note === "1" && !item.has_note) return false;
     if (params.collection === "read_later") {
       if (params.read_filter === "unread") return !!item.read_later_at;
       if (params.read_filter === "read")
@@ -278,6 +308,8 @@ async function searchNews(sequence, signal) {
       (params.read_filter === "unread" ? !item.read_at : !!item.read_at)
     );
   });
+  const ascending = ["feed", "read_later"].includes(state.collection) === (state.sortOrder === "default");
+  items.sort((a, b) => (ascending ? 1 : -1) * `${a.date_key || a.date || ""} ${a.published_at || ""} ${a.id}`.localeCompare(`${b.date_key || b.date || ""} ${b.published_at || ""} ${b.id}`));
   return {
     items,
     total: items.length,
@@ -290,49 +322,64 @@ function setIndexStatus(message, failed = false) {
   $("#pipelineStatus").innerHTML =
     `<span class="pipeline-dot ${failed ? "failed" : ""}"></span><span>${e(message)}</span>`;
 }
+let badgesSequence = 0;
 async function refreshBadges() {
+  const sequence = ++badgesSequence;
   try {
-    const data = await api("/api/nav-summary");
+    const [data] = await Promise.all([api("/api/nav-summary"), loadSources()]);
+    if (sequence !== badgesSequence) return;
     $("#unreadBadge").textContent = data.summary.feed_unread || "0";
     $("#readLaterNavBadge").textContent = data.summary.read_later_unread || "0";
+    $("#starredNavBadge").textContent = data.summary.favorites ?? "0";
     $("#mobUnreadBadge").textContent = data.summary.feed_unread || "0";
   } catch {
     /* Feed and settings report connectivity separately. */
   }
 }
+let sourcesSequence = 0;
+const sourceCountsByCollection = new Map();
 async function loadSources() {
+  const collection = state.collection, sequence = ++sourcesSequence;
+  const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   try {
-    const data = await api("/api/sources?collection=feed&read_filter=all");
-    settings.sourceCounts = data.sources;
+    const data = await api(`/api/sources?collection=${collection}&read_filter=${readFilter}`);
+    if (sequence !== sourcesSequence || collection !== state.collection) return;
+    sourceCountsByCollection.set(collection, data.sources);
     renderSources();
   } catch (error) {
+    if (sequence !== sourcesSequence || collection !== state.collection) return;
     $("#sourceFilters").textContent = errorText(error);
   }
 }
 function renderSources() {
   const groups = settings.saved?.feed_source_subkeys?.groups || [];
-  const hidden = new Set(settings.saved?.feed?.hidden_source_subkeys || []);
-  const sources = [...(settings.sourceCounts || [])];
-  for (const group of groups)
-    if (!sources.some((source) => source.key === group.source_key))
-      sources.push({ key: group.source_key, label: group.label, count: 0 });
+  const sourceCounts = sourceCountsByCollection.get(state.collection) || [];
+  const showCount = ["feed", "read_later", "favorites"].includes(state.collection) && sourceCountsByCollection.has(state.collection);
+  const badge = count => showCount ? `<span class="nav-badge">${count}</span>` : "";
+  const counts = new Map(sourceCounts.map(source => [source.key, source]));
+  const sources = groups.map(group => counts.get(group.source_key) || { key: group.source_key, label: group.label, count: 0 });
+  for (const source of counts.values())
+    if (!sources.some(item => item.key === source.key)) sources.push(source);
   $("#sourceFilters").innerHTML =
-    `<button class="source-row source-filter-button ${state.source === "all" ? "selected" : ""}" type="button" data-source="all"><span>全部来源</span><span class="nav-badge">${(settings.sourceCounts || []).reduce((n, s) => n + s.count, 0)}</span></button>` +
+    `<div class="source-row"><button class="source-filter-button ${state.source === "all" ? "selected" : ""}" type="button" data-source="all"><span class="source-row-info"><span class="source-icon-badge all-sources">${icon("sources")}</span><span>全部来源</span></span>${badge(sourceCounts.reduce((n, s) => n + s.count, 0))}</button></div>` +
     sources
       .map((source) => {
-        const group = groups.find((g) => g.source_key === source.key);
-        const allHidden =
-          group?.items?.length &&
-          group.items.every((item) => hidden.has(item.key));
-        return `<div class="source-group"><div class="source-row"><button class="source-filter-button ${state.source === source.key ? "selected" : ""}" type="button" data-source="${e(source.key)}"><span class="source-row-info">${sourceBadge(source.key)}<span>${e(source.label)}</span></span></button>${group?.items?.length ? `<button class="source-switch ${allHidden ? "" : "active"}" type="button" role="switch" aria-checked="${!allHidden}" aria-label="显示 ${e(source.label)}" data-source-toggle="${e(source.key)}"></button>` : `<span class="nav-badge">${source.count}</span>`}</div>${group?.items?.length > 1 ? `<details class="source-subgroup"><summary>二级栏目 (${group.items.length})</summary><div class="sub-sources-drawer show">${group.items.map((item) => `<label class="sub-source-item"><input type="checkbox" data-source-key="${e(item.key)}" ${hidden.has(item.key) ? "" : "checked"}><span>${e(item.label)}</span></label>`).join("")}</div></details>` : ""}</div>`;
+        return `<div class="source-row"><button class="source-filter-button ${state.source === source.key ? "selected" : ""}" type="button" data-source="${e(source.key)}"><span class="source-row-info">${sourceBadge(source.key)}<span>${e(source.label)}</span></span>${badge(source.count)}</button></div>`;
       })
       .join("");
 }
 function switchCollection(collection) {
   if (!labels[collection]) return;
+  settings.close({ restoreFocus: false });
   stashNote();
+  clearTimeout(feedEndTimer);
+  feedEndTimer = null;
   state.collection = collection;
-  state.filter = "all";
+  renderSources();
+  loadSources();
+  state.openedReadLaterId = null;
+  state.filter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
+  state.sortOrder = "default";
   state.query = "";
   $("#feedSearchInput").value = "";
   $("#ideasSearchInput").value = "";
@@ -362,12 +409,6 @@ function switchCollection(collection) {
   renderFilters();
 }
 function stashNote() {
-  const input = $("#articleNote");
-  if (input && state.selected && state.detail) {
-    if (input.value === (state.detail.note?.note || ""))
-      state.noteDrafts.delete(state.selected.id);
-    else state.noteDrafts.set(state.selected.id, input.value);
-  }
   const idea = $("#ideaNote");
   if (idea && state.idea) {
     if (idea.value === (state.idea.note || ""))
@@ -375,8 +416,10 @@ function stashNote() {
     else state.noteDrafts.set(state.idea.idea_id, idea.value);
   }
 }
-async function selectNews(item, mobile = true) {
+async function selectNews(item, mobile = true, userInitiated = false) {
   if (!item) return;
+  if (userInitiated && state.collection === "read_later") state.openedReadLaterId = item.id;
+  else if (state.selected?.id !== item.id) state.openedReadLaterId = null;
   stashNote();
   clearTimeout(detailTimer);
   state.selected = item;
@@ -391,13 +434,16 @@ async function selectNews(item, mobile = true) {
   try {
     const data = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
     if (sequence !== state.detailSequence) return;
+    stashNote();
     state.detail = data;
-    for (const flag of ["read", "important", "read_later", "favorite"])
+    for (const flag of ["read", "important", "read_later", "read_later_done", "favorite"])
       item[`${flag}_at`] = data[`${flag}_at`];
+    updateDetailItem(item, data);
     renderReader();
     renderFeed();
     agent.select(item, data.agent);
     pollDetail(item, sequence);
+    await completeOpenedReadLater(item, data, sequence);
     if (state.collection === "feed" && item.url)
       api("/api/reading-checkpoint", {
         method: "PUT",
@@ -416,6 +462,7 @@ async function selectNews(item, mobile = true) {
   }
 }
 function pollDetail(item, sequence) {
+  if (sequence !== state.detailSequence || state.selected?.id !== item.id) return;
   clearTimeout(detailTimer);
   if (
     !["pending", "running"].includes(state.detail?.detail_status) &&
@@ -428,19 +475,33 @@ function pollDetail(item, sequence) {
       if (sequence !== state.detailSequence) return;
       const changed =
         data.detail_status !== state.detail.detail_status ||
-        data.ai_status !== state.detail.ai_status;
+        data.ai_status !== state.detail.ai_status ||
+        data.detail?.content !== state.detail.detail?.content ||
+        data.ai?.body_zh !== state.detail.ai?.body_zh;
+      stashNote();
       state.detail = data;
+      updateDetailItem(item, data);
       if (changed) {
         stashNote();
         renderReader();
         agent.select(item, data.agent);
+        renderFeed();
       }
+      await completeOpenedReadLater(item, data, sequence);
       pollDetail(item, sequence);
     } catch {
       if (sequence === state.detailSequence)
         toast("正文状态刷新失败，可点击重新加载。");
     }
   }, 3000);
+}
+async function completeOpenedReadLater(item, payload, sequence) {
+  if (state.collection !== "read_later" || state.openedReadLaterId !== item.id ||
+      state.selected?.id !== item.id || sequence !== state.detailSequence ||
+      settings.open || document.hidden || !$("#detailPanelFeed").getClientRects().length || !item.read_later_at ||
+      !(payload.detail?.content?.trim() || payload.ai?.body_zh?.trim())) return;
+  await toggleState(item, "read_later", false, true);
+  if (!item.read_later_at && state.openedReadLaterId === item.id) state.openedReadLaterId = null;
 }
 function readerActions() {
   const item = state.selected;
@@ -454,44 +515,39 @@ function readerActions() {
       );
     },
   );
-  $("#readBtnLabel").textContent = item?.read_at ? "标记未读" : "标记已读";
   const url = safeURL(item?.url || "");
   $("#articleSourceLink").href = url || "#";
   $("#articleSourceLink").hidden = !item?.url || !url;
 }
 function renderReader() {
+  const notesFocus = researchNotes.captureFocus();
+  $("#selectionPopover").classList.remove("show");
   readerActions();
   const item = state.selected,
     payload = state.detail;
   if (!item) {
+    readerHighlights.mount(null, {});
     $("#detailScrollArea").innerHTML =
-      '<div class="reader-empty"><span class="empty-book">▤</span><h2>从一篇新闻开始</h2><p>选择左侧新闻，阅读正文、记录想法。</p></div>';
+      '<div class="reader-empty"><span class="empty-book">▤</span><h2>从一篇新闻开始</h2><p>选择左侧新闻，阅读正文、查看分析。</p></div>';
     $("#agentDock").hidden = true;
     return;
   }
   const detail = payload?.detail;
   $("#agentDock").hidden = false;
-  $("#detailPanelFeed .cache-label").textContent = !payload
-    ? "正在读取正文…"
-    : detail?.content
-      ? "opencli 全文就绪"
-      : ["pending", "running"].includes(payload.detail_status)
-        ? "正文抓取中…"
-        : payload.detail_status === "failed"
-          ? "正文抓取失败"
-          : "尚未抓取正文";
+  $("#detailPanelFeed .cache-label").textContent = pipelineLabel(payload);
+  $("#detailPanelFeed .cache-label").title = $("#detailPanelFeed .cache-label").textContent;
   $("#detailPanelFeed .cache-time").textContent = detail?.fetched_at
     ? `${detail.fetched_at.slice(11, 16)} 抓取`
     : "";
   $("#detailPanelFeed .cache-pulse-dot").classList.toggle(
     "waiting",
-    !detail?.content,
+    ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) || !detail?.content,
   );
   const ai = payload?.ai;
   let points = [];
   try {
     const value = JSON.parse(ai?.key_points_zh || "[]");
-    points = Array.isArray(value) ? value : [];
+    points = Array.isArray(value) ? value.filter(point => typeof point === "string" && point.trim()) : [];
   } catch {
     points = (ai?.key_points_zh || "").split("\n").filter(Boolean);
   }
@@ -499,14 +555,30 @@ function renderReader() {
     state.bodyMode === "original"
       ? detail?.content
       : ai?.body_zh || detail?.content;
-  const note = state.noteDrafts.get(item.id) ?? payload?.note?.note ?? "";
+  const hasContent = !!(detail?.content?.trim() || ai?.body_zh?.trim());
+  const hasInsights = !!(ai?.conclusion_zh || points.length);
+  const bodyKind = state.bodyMode === "translated" && ai?.body_zh ? "ai_zh" : sourceKey(item) === "x" ? "twitter_detail" : "original";
+  let pointOffset = 0;
+  const pointsHTML = points.map((point, i) => {
+    const html = `<li class="digest-point-item" data-quote-paragraph="${i + 1}"><span class="point-index">${i + 1}</span><span>${readerInline(point, pointOffset)}</span></li>`;
+    pointOffset += point.length;
+    return html;
+  }).join("");
+  const savedNotes = payload?.notes || (payload?.note ? [{ ...payload.note, id: "legacy" }] : []);
+  const thoughts = '<div id="researchNotesMount"></div>';
   $("#detailScrollArea").innerHTML =
-    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button></div></article>
-    ${ai && (ai.conclusion_zh || points.length) ? `<section class="digest-box" aria-label="本篇结构化精读"><div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai.conclusion_zh ? `<p class="digest-lead">${inlineMarkdown(ai.conclusion_zh)}</p>` : ""}<ul class="digest-points">${points.map((point, i) => `<li class="digest-point-item"><span class="point-index">${i + 1}</span><span>${inlineMarkdown(String(point))}</span></li>`).join("")}</ul></section>` : ""}
-    <div class="article-body" id="articleBodyContent">${body ? markdown(body) : `<p>${e(item.summary || "暂无正文。点击“抓取全文”获取，或查看原文。")}</p>`}</div>
+    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasContent && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
+    ${hasContent ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
+    ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}
-    ${payload?.job?.last_error || payload?.ai_job?.last_error ? `<div class="inline-error">${e(errorText({ error: payload.job?.last_error || payload.ai_job.last_error }))}</div>` : ""}
-    <section class="research-workspace-box" aria-label="我的想法"><div class="research-box-title"><span>本篇研究沉淀 · 我的想法</span><span class="note-save-status" id="noteSaveStatus"></span></div><textarea class="note-textarea" id="articleNote" aria-label="我的想法" placeholder="记录你的理解、判断与问题…">${e(note)}</textarea><div class="note-actions"><span class="muted">仅保存在本地新闻库</span><button class="btn-primary" id="saveArticleNoteBtn" type="button" ${!payload || !item.url ? "disabled" : ""}>保存想法</button></div></section>`;
+    ${payload?.job?.last_error || payload?.ai_job?.last_error ? `<div class="inline-error">${e(errorText({ error: payload.job?.last_error || payload.ai_job.last_error }))}</div>` : ""}`;
+  researchNotes.mount($("#researchNotesMount"), item.id, savedNotes, notesFocus);
+  readerHighlights.mount(item.id, { [bodyKind]: body || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
+  const writeThought = $("#writeArticleThoughtBtn");
+  if (writeThought) {
+    writeThought.setAttribute("aria-controls", "researchNoteComposer");
+    writeThought.onclick = () => researchNotes.toggle();
+  }
   $("#fetchArticleBtn").onclick = (event) =>
     busy(event.currentTarget, async () => {
       await api(`/api/news/${encodeURIComponent(item.id)}/detail/retry`, {
@@ -517,33 +589,8 @@ function renderReader() {
       stashNote();
       await selectNews(item, false);
     });
-  $("#saveArticleNoteBtn").onclick = (event) =>
-    busy(event.currentTarget, () => saveArticleNote(item));
-  $("#articleNote").oninput = (event) => {
-    state.noteDrafts.set(item.id, event.target.value);
-    $("#noteSaveStatus").textContent = "尚未保存";
-  };
 }
-async function saveArticleNote(item) {
-  const value = $("#articleNote").value;
-  const data = await api(`/api/news/${encodeURIComponent(item.id)}/note`, {
-    method: "PUT",
-    body: { note: value },
-  });
-  Object.assign(item, {
-    has_note: data.has_note,
-    note_preview: data.note_preview,
-  });
-  if (state.noteDrafts.get(item.id) === value) state.noteDrafts.delete(item.id);
-  if (state.selected?.id === item.id) {
-    state.detail.note = data.note;
-    $("#noteSaveStatus").textContent =
-      $("#articleNote").value === value ? "已保存" : "尚未保存";
-  }
-  renderFeed();
-  toast("想法已保存");
-}
-async function toggleState(item, flag, force) {
+async function toggleState(item, flag, force, silent = false) {
   if (!item || state.pendingStates.has(item.id)) return;
   state.pendingStates.add(item.id);
   readerActions();
@@ -561,8 +608,20 @@ async function toggleState(item, flag, force) {
       item[`${flag}_at`] = value ? new Date().toISOString() : null;
     if (state.detail && state.selected?.id === item.id)
       state.detail[`${flag}_at`] = item[`${flag}_at`];
-    toast(`${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
+    if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : "已看完") : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
     refreshBadges();
+    if (flag === "read_later") {
+      if (value && state.openedReadLaterId === item.id) state.openedReadLaterId = null;
+      const payload = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
+      updateDetailItem(item, payload);
+      if (state.selected?.id === item.id) {
+        stashNote();
+        state.detail = payload;
+        renderReader();
+        agent.select(item, payload.agent);
+        pollDetail(item, state.detailSequence);
+      }
+    }
   } catch (error) {
     toast(errorText(error));
   } finally {
@@ -571,45 +630,97 @@ async function toggleState(item, flag, force) {
     readerActions();
   }
 }
-function renderBatch() {
-  const bar = $("#batchActionBar");
-  const count = state.selectedIds.size;
-  bar.classList.toggle("show", count > 0);
-  bar.innerHTML = `<span>已选中 ${count} 篇</span><div class="batch-btn-group"><button class="batch-btn" data-batch="read" type="button">标为已读</button><button class="batch-btn" data-batch="read_later" type="button">稍后读</button><button class="batch-btn" data-batch="cancel" type="button">取消</button></div>`;
+function updateDetailItem(item, payload) {
+  Object.assign(item, { detail_ready: !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, has_note: payload.has_note, note_count: payload.notes?.length || 0 });
 }
-async function batchAction(flag, button) {
-  if (flag === "cancel") {
-    state.selectedIds.clear();
-    renderFeed();
-    return;
-  }
-  await busy(button, async () => {
-    const ids = [...state.selectedIds];
-    let failed = 0;
-    for (const id of ids) {
-      try {
-        const data = await api(`/api/news/${encodeURIComponent(id)}/state`, {
-          method: "PATCH",
-          body: { [flag]: true },
-        });
-        Object.assign(
-          state.items.find((x) => x.id === id) || {},
-          data.state || data,
-        );
-        state.selectedIds.delete(id);
-      } catch {
-        failed++;
-      }
+let statusRefreshing = false;
+setInterval(async () => {
+  if (statusRefreshing || document.hidden || settings.open) return;
+  const ids = state.items.filter(item => ["pending", "running"].includes(item.detail_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
+  if (!ids.length) return;
+  statusRefreshing = true;
+  try {
+    const data = await api(`/api/news/status?${new URLSearchParams({ ids: ids.join(",") })}`);
+    for (const row of data.items) {
+      const item = state.items.find(item => item.id === row.id);
+      if (item) Object.assign(item, row);
     }
     renderFeed();
-    readerActions();
+  } catch { /* The reader reports detailed fetch failures. Retry on the next tick. */ }
+  finally { statusRefreshing = false; }
+}, 3000);
+function pipelineLabel(payload) {
+  if (!payload) return "正在读取正文…";
+  const fetchLabels = { pending: "等待抓取正文", running: "正文抓取中…", failed: "正文抓取失败", canceled: "正文抓取已取消", skipped: "正文抓取已跳过" };
+  if (fetchLabels[payload.detail_status]) return fetchLabels[payload.detail_status];
+  if (!payload.detail?.content) return "尚未抓取正文";
+  return ({ pending: "全文就绪 · 等待翻译", running: "全文就绪 · 正文翻译中…", failed: "全文就绪 · 翻译失败", canceled: "全文就绪 · 翻译已取消", skipped: "全文就绪 · 翻译已跳过" })[payload.ai_status] || (payload.ai?.body_zh ? "全文就绪 · 翻译完成" : "全文就绪 · 尚未翻译");
+}
+const enteredCards = new Set();
+const queuedReadIds = new Set();
+let lastFeedScroll = 0, feedEndTimer, autoReadBusy = false;
+function feedVisible() {
+  return state.collection === "feed" && !settings.open && !document.hidden && $("#feedCardList").getBoundingClientRect().width > 0;
+}
+async function markReadIds(ids) {
+  for (const id of ids) queuedReadIds.add(id);
+  if (!queuedReadIds.size || autoReadBusy) return;
+  autoReadBusy = true;
+  try {
+    while (queuedReadIds.size) {
+      const batch = [...queuedReadIds];
+      queuedReadIds.clear();
+      await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: batch } });
+      for (const item of state.items) if (batch.includes(item.id)) item.read_at ||= new Date().toISOString();
+      for (const id of batch) {
+        if (state.collection === "read_later") continue;
+        const card = $(`#feedCardList [data-id="${CSS.escape(id)}"]`);
+        card?.classList.toggle("read", state.collection === "feed");
+        if (card) $(".unread-dot", card)?.remove();
+      }
+    }
     refreshBadges();
-    toast(
-      failed
-        ? `${ids.length - failed} 篇已保存，${failed} 篇失败，可重试`
-        : `${ids.length} 篇已保存`,
-    );
-  });
+  } catch (error) { queuedReadIds.clear(); toast(errorText(error)); }
+  finally { autoReadBusy = false; }
+}
+function trackFeedReading() {
+  if (!feedVisible()) { clearTimeout(feedEndTimer); feedEndTimer = null; return; }
+  const list = $("#feedCardList"), bounds = list.getBoundingClientRect();
+  const down = list.scrollTop > lastFeedScroll;
+  const ids = [];
+  for (const node of $$(".news-card", list)) {
+    const rect = node.getBoundingClientRect(), id = node.dataset.id;
+    if (rect.bottom > bounds.top && rect.top < bounds.bottom) enteredCards.add(id);
+    if (down && enteredCards.has(id) && rect.bottom <= bounds.top && !state.items.find(item => item.id === id)?.read_at) ids.push(id);
+  }
+  lastFeedScroll = list.scrollTop;
+  if (ids.length) markReadIds(ids);
+  const end = $(".feed-end", list)?.getBoundingClientRect();
+  const atEnd = !state.loading && !state.more && end && end.top < bounds.bottom && end.bottom > bounds.top;
+  if (!atEnd) { clearTimeout(feedEndTimer); feedEndTimer = null; }
+  else if (!feedEndTimer && state.items.some(item => !item.read_at)) {
+    const sequence = state.sequence;
+    feedEndTimer = setTimeout(() => {
+      feedEndTimer = null;
+      if (sequence === state.sequence && feedVisible() && !state.more) {
+        const rect = $(".feed-end", list)?.getBoundingClientRect();
+        if (rect && rect.top < list.getBoundingClientRect().bottom) markReadIds(state.items.filter(item => !item.read_at).map(item => item.id));
+      }
+    }, 5000);
+  }
+}
+async function markAllRead() {
+  const later = state.collection === "read_later";
+  if (state.query) {
+    const items = [...state.items];
+    if (later) {
+      for (const item of items.filter(item => item.read_later_at)) await api(`/api/news/${encodeURIComponent(item.id)}/state`, { method: "PATCH", body: { read_later: false } });
+    } else await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: items.map(item => item.id) } });
+  } else await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: feedParams() });
+  await loadFeed();
+  if (state.selected) await selectNews(state.selected, false);
+  refreshBadges();
+  toast(later ? "当前范围已全部看完" : "当前范围已全部标为已读");
 }
 async function loadIdeas() {
   const sequence = ++state.sequence;
@@ -640,7 +751,7 @@ async function loadIdeas() {
       .flat()
       .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
     renderIdeas();
-    if (!state.idea && state.ideas.length && window.innerWidth > 920)
+    if (!state.idea && state.ideas.length && window.innerWidth >= 768)
       selectIdea(state.ideas[0], false);
     else if (!state.idea)
       $("#ideaDetailBody").innerHTML =
@@ -710,7 +821,7 @@ async function saveIdea() {
   await loadIdeas();
 }
 function enterReader() {
-  if (window.innerWidth <= 920)
+  if (window.innerWidth < 768)
     $("#feedView").classList.add("mobile-reader-active");
 }
 function exitReader() {
@@ -722,7 +833,7 @@ function openNav() {
   $("#navDrawerBackdrop").classList.add("active");
 }
 function closeNav() {
-  $("#leftNavDrawer").inert = window.innerWidth <= 920;
+  $("#leftNavDrawer").inert = window.innerWidth < 1024;
   $("#leftNavDrawer").classList.remove("drawer-open");
   $("#navDrawerBackdrop").classList.remove("active");
 }
@@ -750,6 +861,7 @@ document.addEventListener("click", (event) => {
     loadIdeas();
   }
   if (button?.dataset.source) {
+    if (settings.open) switchCollection("feed");
     state.source = button.dataset.source;
     renderSources();
     closeNav();
@@ -764,7 +876,6 @@ document.addEventListener("click", (event) => {
       button.dataset.state,
     );
   }
-  if (button?.dataset.batch) batchAction(button.dataset.batch, button);
   if (button?.dataset.bodyMode) {
     stashNote();
     state.bodyMode = button.dataset.bodyMode;
@@ -792,7 +903,7 @@ document.addEventListener("click", (event) => {
     });
   const card = event.target.closest("#feedCardList [data-id]");
   if (card && !button)
-    selectNews(state.items.find((item) => item.id === card.dataset.id));
+    selectNews(state.items.find((item) => item.id === card.dataset.id), true, true);
   const ideaCard = event.target.closest("[data-idea-id]");
   if (ideaCard)
     selectIdea(
@@ -801,11 +912,6 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("change", (event) => {
   const input = event.target;
-  if (input.dataset.select) {
-    if (input.checked) state.selectedIds.add(input.dataset.select);
-    else state.selectedIds.delete(input.dataset.select);
-    renderBatch();
-  }
   if (input.dataset.sourceKey)
     busy(null, () =>
       settings.toggleSource(input.dataset.sourceKey, input.checked),
@@ -818,6 +924,7 @@ $("#feedSearchInput").addEventListener("input", (event) => {
 });
 $("#ideasSearchInput").addEventListener("input", renderIdeas);
 $("#feedCardList").addEventListener("scroll", () => {
+  trackFeedReading();
   const list = $("#feedCardList");
   if (
     list.scrollTop + list.clientHeight >= list.scrollHeight - 250 &&
@@ -825,6 +932,9 @@ $("#feedCardList").addEventListener("scroll", () => {
   )
     loadFeed(true);
 });
+$("#sortNewsBtn").onclick = () => { state.sortOrder = state.sortOrder === "default" ? "reverse" : "default"; loadFeed(); };
+$("#markAllReadBtn").onclick = event => busy(event.currentTarget, markAllRead);
+document.addEventListener("visibilitychange", trackFeedReading);
 $("#themeSelect").value = document.documentElement.dataset.theme || "system";
 $("#themeSelect").onchange = (event) => {
   document.documentElement.dataset.theme = event.target.value;
@@ -863,10 +973,6 @@ refreshButton.onclick = () =>
   });
 
 document.addEventListener("keydown", (event) => {
-  if (settings.open) {
-    settings.handleKey(event);
-    return;
-  }
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));
@@ -877,6 +983,17 @@ document.addEventListener("keydown", (event) => {
     event.key === "Tab"
   ) {
     focusTrap(event, $("#leftNavDrawer"));
+    return;
+  }
+  if (
+    $("#leftNavDrawer").classList.contains("drawer-open") &&
+    event.key === "Escape"
+  ) {
+    closeNav();
+    return;
+  }
+  if (settings.open) {
+    settings.handleKey(event);
     return;
   }
   if (event.key === "Escape") {
@@ -912,7 +1029,8 @@ document.addEventListener("keydown", (event) => {
     agent.toggle();
   } else if (shortcuts[key] && state.collection !== "notes") {
     event.preventDefault();
-    toggleState(state.selected, shortcuts[key]);
+    if (key === "m" && state.collection === "read_later") toggleState(state.selected, "read_later", false);
+    else toggleState(state.selected, shortcuts[key]);
   } else if (["j", "k"].includes(key) && state.collection !== "notes") {
     event.preventDefault();
     const index = state.items.findIndex(
@@ -926,56 +1044,21 @@ document.addEventListener("keydown", (event) => {
         )
       ];
     if (next) {
-      selectNews(next, false);
+      selectNews(next, false, true);
       $(`[data-id="${CSS.escape(next.id)}"]`)?.scrollIntoView({
         block: "nearest",
       });
     }
   } else if (key === "enter" && event.target.matches("[data-id]"))
-    selectNews(state.items.find((item) => item.id === event.target.dataset.id));
+    selectNews(state.items.find((item) => item.id === event.target.dataset.id), true, true);
   else if (key === "enter" && event.target.matches("[data-idea-id]"))
     selectIdea(
       state.ideas.find((idea) => idea.idea_id === event.target.dataset.ideaId),
     );
 });
-$("#detailScrollArea").addEventListener("mouseup", () => {
-  const selection = window.getSelection();
-  const text = selection?.toString().trim();
-  if (
-    !text ||
-    !selection.rangeCount ||
-    !$("#articleBodyContent")?.contains(selection.anchorNode)
-  )
-    return;
-  selectionText = text.slice(0, 6000);
-  const rect = selection.getRangeAt(0).getBoundingClientRect();
-  const popover = $("#selectionPopover");
-  popover.classList.add("show");
-  popover.style.position = "fixed";
-  popover.style.left = `${Math.max(8, Math.min(window.innerWidth - 280, rect.left))}px`;
-  popover.style.top = `${Math.max(8, rect.top - 44)}px`;
-});
-$("#quoteAgentBtn").onclick = () => {
-  agent.quote(selectionText);
-  $("#selectionPopover").classList.remove("show");
-};
-$("#quoteNoteBtn").onclick = () => {
-  const input = $("#articleNote");
-  if (input) {
-    input.value += (input.value ? "\n\n" : "") + "> " + selectionText;
-    input.dispatchEvent(new Event("input"));
-    input.focus();
-    input.scrollIntoView({ block: "center" });
-  }
-  $("#selectionPopover").classList.remove("show");
-};
-document.addEventListener("pointerdown", (event) => {
-  if (!event.target.closest("#selectionPopover"))
-    $("#selectionPopover").classList.remove("show");
-});
 window.addEventListener("beforeunload", (event) => {
   stashNote();
-  const dirty = state.noteDrafts.size > 0;
+  const dirty = state.noteDrafts.size > 0 || researchNotes.dirty;
   if (dirty || settings.dirty) {
     event.preventDefault();
     event.returnValue = "";
@@ -983,13 +1066,12 @@ window.addEventListener("beforeunload", (event) => {
 });
 $("#navFeedBtn").setAttribute("aria-current", "page");
 closeNav();
-matchMedia("(max-width: 920px)").addEventListener("change", closeNav);
+matchMedia("(max-width: 1023px)").addEventListener("change", closeNav);
 renderFilters();
 renderReader();
 setIndexStatus("正在连接新闻库…");
 Promise.allSettled([
   loadFeed(),
-  loadSources(),
   refreshBadges(),
   settings.load(false),
 ]).then(() => renderSources());

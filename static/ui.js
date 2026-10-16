@@ -85,6 +85,15 @@ export function persist(key, value) {
   }
 }
 const paths = {
+  lightbulb: '<path d="M9 18h6m-6 3h6M8 15c0-2-3-3-3-7a7 7 0 0 1 14 0c0 4-3 5-3 7v1H8z"/>',
+  comment: '<path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/>',
+  sortAsc: '<path d="M4 4v16m-3-3 3 3 3-3M11 5h4m-4 7h7m-7 7h10"/>',
+  sortDesc: '<path d="M4 20V4M1 7l3-3 3 3M11 5h10m-10 7h7m-7 7h4"/>',
+  checkAll: '<path d="m2 12 4 4L16 6m-6 10 4 4L24 10"/>',
+  sources: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  send: '<path d="M12 20V4m-7 7 7-7 7 7"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
   read: '<polyline points="20 6 9 17 4 12"/>',
   important:
     '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',

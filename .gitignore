@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 app_settings.json
+*.model-catalogs/
 
 # Local design and experiment artifacts
 .impeccable/

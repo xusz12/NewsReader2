@@ -10,11 +10,12 @@ DEFAULT_DAILY_NEWS_DIR = Path(
 )
 DEFAULT_DAILY_BRIEFING_DIR = DEFAULT_DAILY_NEWS_DIR / "briefings" / "daily"
 PROJECT_DB_PATH = Path(__file__).resolve().parent / "news_index.sqlite3"
+LEGACY_DB_PATH = Path(__file__).resolve().parent.parent / "news_index.sqlite3"
 
 
 def resolve_default_db_path() -> Path:
-    """Keep new-project data local; never implicitly open a sibling database."""
-    return PROJECT_DB_PATH
+    """Preserve the original parent-directory layout as well as fresh installs."""
+    return LEGACY_DB_PATH if LEGACY_DB_PATH.is_file() else PROJECT_DB_PATH
 
 
 # Kept as a public compatibility constant for callers that import it.

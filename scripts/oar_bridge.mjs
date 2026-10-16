@@ -153,7 +153,38 @@ export function validateRequest(request) {
        (typeof request.config_id !== 'string' || !/^[a-f0-9]{32}$/.test(request.config_id))) ||
       (request.legacy_native_id !== undefined &&
        (typeof request.legacy_native_id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(request.legacy_native_id)))) throw new Error('oar_invalid_request');
+  if (request.research_budget_ms !== undefined && (!Number.isInteger(request.research_budget_ms) || request.research_budget_ms < 1 || request.research_budget_ms > 180000)) throw new Error('oar_invalid_request');
+  if (request.max_tool_calls !== undefined && (!Number.isInteger(request.max_tool_calls) || request.max_tool_calls < 1 || request.max_tool_calls > 20)) throw new Error('oar_invalid_request');
   return request;
+}
+
+/** Bound repeated research without aborting a valid final answer or changing tool permissions. */
+export function researchBudget(session, request, emit) {
+  if (!request.research_budget_ms) return { event() {}, close() {} };
+  let asked = false, closed = false, phase = '';
+  const calls = new Set();
+  const progress = value => {
+    if (!closed && phase !== value) { phase = value; emit({ type: 'oar_progress', phase: value }); }
+  };
+  const finish = () => {
+    if (asked || closed) return;
+    asked = true;
+    progress('summarizing');
+    // Steer runs after the current tool returns; never claim partial output is success.
+    Promise.resolve(session.steer('研究时间或检索轮次已达到本轮预算。请停止新增工具调用，立即用已有资料回答用户问题；明确注明无法核实的最新信息和工具失败，不要编造来源。')).catch(() => {});
+  };
+  const timer = setTimeout(finish, request.research_budget_ms);
+  return {
+    event(event) {
+      if (event.kind === 'tool_call_started') {
+        if (event.callId) calls.add(event.callId);
+        if (calls.size >= (request.max_tool_calls || 6)) finish();
+      }
+      if (event.kind === 'retry') progress('retrying');
+      if (event.kind === 'thinking_delta' || event.kind === 'tool_call_ended') progress(asked ? 'summarizing' : 'thinking');
+    },
+    close() { closed = true; clearTimeout(timer); },
+  };
 }
 
 export async function execute(request, runtime, installation, emit, signal, waitForTurn) {
@@ -173,7 +204,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
     options.model = `${request.provider}/${request.model}`;
   }
-  let session;
+  let session, budget;
   let resumed = false;
   try {
     if (nativeId) {
@@ -192,14 +223,17 @@ export async function execute(request, runtime, installation, emit, signal, wait
     session ??= await runtime.session(installation, options);
     if (signal?.aborted) throw new Error('oar_stopped');
     emit({ type: 'oar_session', id: session.id, resumed, runtime: 'oar-pi' });
+    budget = researchBudget(session, request, emit);
     session.events(event => {
       // Never forward raw event payloads, tool arguments or provider diagnostics.
       if (event.agentPath?.length) return;
+      budget.event(event);
       if (event.kind === 'text_delta') emit({ type: 'text_delta', delta: event.text });
       if (event.kind === 'tool_call_started') emit({ type: 'oar_tool', tool: event.tool });
     });
     const promptAndWait = waitForTurn ?? (await import('@botiverse/oar')).promptAndWait;
     const result = await promptAndWait(session, resumed ? request.resume_prompt : request.prompt, { signal });
+    budget?.close();
     if (result.kind !== 'ended' || result.outcome?.kind !== 'completed') {
       const reason = result.reason || result.outcome?.reason || '';
       const failure = result.failure ?? result.outcome?.failure;
@@ -223,7 +257,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
     // Explicit terminal result is mandatory. Exit 0 alone is not success.
     emit({ type: 'oar_result', outcome: 'completed', answer: result.text });
     return true;
-  } finally { if (session) { try { await session.dispose(); } catch {} } }
+  } finally { budget?.close(); if (session) { try { await session.dispose(); } catch {} } }
 }
 
 /** Keep execution family stable for a conversation, including retries. */

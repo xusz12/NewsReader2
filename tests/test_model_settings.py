@@ -12,6 +12,10 @@ import settings
 
 CONFIG={'model':'m','profile':'','sandbox':'read-only'}
 
+@pytest.fixture(autouse=True)
+def isolate_catalog_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv('NEWS_READER_APP_SETTINGS_PATH', str(tmp_path / 'settings.json'))
+
 def test_empty_pi_default_and_legacy_config(monkeypatch,tmp_path):
     p=tmp_path/'settings.json';monkeypatch.setenv('NEWS_READER_APP_SETTINGS_PATH',str(p))
     assert settings.load_app_settings()['llm']['pi_chat']=={'provider':'','model':''}

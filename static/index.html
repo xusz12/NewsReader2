@@ -19,7 +19,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.1</title>
+    <title>News Reader v0.0.2</title>
     <script>
       try {
         const m =
@@ -37,7 +37,7 @@
       } catch {}
     </script>
     <link
-      href="/static/style.css?v=0.0.1&amp;build=workbench1"
+      href="/static/style.css?v=0.0.2&amp;build=workbench2"
       rel="stylesheet"
     />
   </head>
@@ -75,7 +75,7 @@
               <path d="M6 6h10M6 10h10M6 14h6"></path>
             </svg>
             <span>News Reader</span>
-            <span class="brand-version">v0.0.1</span>
+            <span class="brand-version">v0.0.2</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -282,9 +282,6 @@
                   </svg>
                   <span>设置</span>
                 </div>
-                <span class="nav-settings-shortcut" title="快捷键: 逗号键 ,"
-                  >,</span
-                >
               </button>
             </div>
           </aside>
@@ -315,9 +312,9 @@
                   <span class="search-shortcut-hint">/</span>
                 </div>
               </div>
-              <div class="feed-filter-chips"></div>
+              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button></div></div>
             </div>
-            <div class="batch-action-bar" id="batchActionBar"></div>
+
             <ul class="news-list" id="feedCardList" role="feed"></ul>
           </section>
           <section
@@ -409,25 +406,7 @@
                   class="reader-action-toolbar"
                   role="toolbar"
                 >
-                  <button
-                    class="reader-tool-btn"
-                    data-state="read"
-                    disabled=""
-                    id="btnToggleRead"
-                    title="标记已读 / 未读 (快捷键: m)"
-                    type="button"
-                  >
-                    <svg
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                    <span id="readBtnLabel">标记已读</span>
-                    <kbd class="reader-btn-kbd">M</kbd>
-                  </button>
+
                   <button
                     class="reader-tool-btn"
                     data-state="important"
@@ -450,26 +429,7 @@
                     <span id="importantBtnLabel">重要</span>
                     <kbd class="reader-btn-kbd">I</kbd>
                   </button>
-                  <button
-                    class="reader-tool-btn"
-                    data-state="read_later"
-                    disabled=""
-                    id="btnToggleLater"
-                    title="存入稍后再看队列 (快捷键: s)"
-                    type="button"
-                  >
-                    <svg
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <polyline points="12 6 12 12 16 14"></polyline>
-                    </svg>
-                    <span id="laterBtnLabel">稍后再看</span>
-                    <kbd class="reader-btn-kbd">S</kbd>
-                  </button>
+
                   <button
                     class="reader-tool-btn"
                     data-state="favorite"
@@ -509,27 +469,14 @@
                 title="点击展开 / 收起对话 (快捷键: A)"
               >
                 <div class="agent-title-info">
-                  <svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    style="width: 15px; height: 15px; color: var(--accent)"
-                    viewBox="0 0 24 24"
-                  >
-                    <polygon
-                      points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
-                    ></polygon>
-                  </svg>
-                  <strong style="font-size: 12.5px">新闻研究 Agent</strong>
-                  <span class="agent-runtime-badge" id="agentRuntimeBadge"
-                    >尚未开启</span
-                  >
+                  <div class="agent-title-line"><strong>新闻研究 Agent</strong><span class="agent-runtime-badge" id="agentRuntimeBadge">尚未开启</span></div>
+                  <span class="agent-caption" id="agentStatus" role="status"></span>
                 </div>
                 <div class="agent-minimized-hint">
                   <span>点击展开</span>
                   <kbd class="reader-btn-kbd">A</kbd>
                 </div>
-                <div class="agent-actions">
+                <div class="agent-actions"><button class="agent-btn expanded-only" id="agentNewBtn" type="button" title="新会话" aria-label="新会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
                   <button
                     class="agent-btn expanded-only"
                     id="archiveAgentBtn"
@@ -612,22 +559,6 @@
                 </div>
               </div>
               <div class="agent-body">
-                <div class="agent-session-tools">
-                  <button
-                    class="reader-action-btn"
-                    id="agentNewBtn"
-                    type="button"
-                  >
-                    新会话</button
-                  ><button
-                    class="reader-action-btn"
-                    hidden=""
-                    id="agentStopBtn"
-                    type="button"
-                  >
-                    停止</button
-                  ><span id="agentStatus" role="status"></span>
-                </div>
                 <blockquote hidden="" id="agentQuote"></blockquote>
                 <div class="agent-chat-stream" id="agentChatStream"></div>
                 <div class="agent-suggestions">
@@ -720,159 +651,323 @@
               <div class="workbench-detail-body" id="ideaDetailBody"></div>
             </div>
           </section>
+          <section
+            class="feed-column settings-categories"
+            id="feedColSettings"
+            aria-labelledby="settingsListTitle"
+          >
+            <div class="feed-header settings-list-header">
+              <div class="settings-list-heading">
+                <div>
+                  <span class="settings-eyebrow">工作台偏好</span>
+                  <h1 id="settingsListTitle" tabindex="-1">设置</h1>
+                </div>
+                <button
+                  class="reader-action-btn"
+                  id="closeSettingsBtn"
+                  type="button"
+                  title="返回阅读 (Esc)"
+                >
+                  返回阅读 <kbd>Esc</kbd>
+                </button>
+              </div>
+              <label class="feed-search-box"
+                ><svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m16 16 4 4" /></svg
+                ><input
+                  class="feed-search-input"
+                  id="settingsSearchInput"
+                  type="search"
+                  placeholder="搜索设置…"
+                  aria-label="搜索设置分类"
+                /><span class="search-shortcut-hint">/</span></label
+              >
+            </div>
+            <div class="settings-category-list" aria-label="设置分类">
+              <button
+                class="settings-category-card"
+                id="settingsCategory-models"
+                data-settings-tab="models"
+                data-title="模型与 Agent"
+                data-description="选择运行方式、模型与推理强度，测试连接。"
+                data-search="model runtime provider profile 模型 推理 连接 chat agent codex pi oar"
+                type="button"
+                aria-controls="settingsContent"
+                aria-current="true"
+              >
+                <span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                    ></path></svg
+                ></span>
+                <span class="settings-category-copy"
+                  ><span class="settings-category-meta">Pi / Codex</span
+                  ><strong>模型与 Agent</strong
+                  ><span class="settings-category-description"
+                    >选择运行方式、模型与推理强度，测试连接。</span
+                  ></span
+                >
+                <svg
+                  class="settings-category-arrow"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg></button
+              ><button
+                class="settings-category-card"
+                id="settingsCategory-deepseek"
+                data-settings-tab="deepseek"
+                data-title="DeepSeek 精读与翻译"
+                data-description="管理翻译模型与 API 密钥，配置单篇新闻精读。"
+                data-search="deepseek 翻译 精读 摘要 密钥 api"
+                type="button"
+                aria-controls="settingsContent"
+                aria-current="false"
+              >
+                <span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    ></path>
+                    <polyline points="14 2 14 8 20 8"></polyline></svg
+                ></span>
+                <span class="settings-category-copy"
+                  ><span class="settings-category-meta">中文阅读</span
+                  ><strong>DeepSeek 精读与翻译</strong
+                  ><span class="settings-category-description"
+                    >管理翻译模型与 API 密钥，配置单篇新闻精读。</span
+                  ></span
+                >
+                <svg
+                  class="settings-category-arrow"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg></button
+              ><button
+                class="settings-category-card"
+                id="settingsCategory-pipeline"
+                data-settings-tab="pipeline"
+                data-title="信源与采集"
+                data-description="管理来源开关，增量扫描新闻输入。"
+                data-search="source 信源 采集 管线 opencli dailynews 扫描"
+                type="button"
+                aria-controls="settingsContent"
+                aria-current="false"
+              >
+                <span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline
+                      points="22 12 18 12 15 21 9 3 6 12 2 12"
+                    ></polyline></svg
+                ></span>
+                <span class="settings-category-copy"
+                  ><span class="settings-category-meta"
+                    >DailyNews / opencli</span
+                  ><strong>信源与采集</strong
+                  ><span class="settings-category-description"
+                    >管理来源开关，增量扫描新闻输入。</span
+                  ></span
+                >
+                <svg
+                  class="settings-category-arrow"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg></button
+              ><button
+                class="settings-category-card"
+                id="settingsCategory-storage"
+                data-settings-tab="storage"
+                data-title="数据库与存储"
+                data-description="接入原有新闻库，查看与设置存储路径。"
+                data-search="database sqlite 数据库 存储 路径 数据 文件"
+                type="button"
+                aria-controls="settingsContent"
+                aria-current="false"
+              >
+                <span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg
+                ></span>
+                <span class="settings-category-copy"
+                  ><span class="settings-category-meta">SQLite</span
+                  ><strong>数据库与存储</strong
+                  ><span class="settings-category-description"
+                    >接入原有新闻库，查看与设置存储路径。</span
+                  ></span
+                >
+                <svg
+                  class="settings-category-arrow"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg></button
+              ><button
+                class="settings-category-card"
+                id="settingsCategory-system"
+                data-settings-tab="system"
+                data-title="系统与版本"
+                data-description="查看当前版本、更新状态与版本记录。"
+                data-search="system 系统 更新 版本 升级 记录"
+                type="button"
+                aria-controls="settingsContent"
+                aria-current="false"
+              >
+                <span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <rect
+                      height="14"
+                      rx="2"
+                      ry="2"
+                      width="20"
+                      x="2"
+                      y="3"
+                    ></rect>
+                    <line x1="8" x2="16" y1="21" y2="21"></line>
+                    <line x1="12" x2="12" y1="17" y2="21"></line></svg
+                ></span>
+                <span class="settings-category-copy"
+                  ><span class="settings-category-meta">News Reader</span
+                  ><strong>系统与版本</strong
+                  ><span class="settings-category-description"
+                    >查看当前版本、更新状态与版本记录。</span
+                  ></span
+                >
+                <svg
+                  class="settings-category-arrow"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
+                  <path d="m9 5 7 7-7 7" />
+                </svg>
+              </button>
+              <div class="list-message" id="settingsSearchEmpty" hidden>
+                没有匹配的设置分类。<button
+                  class="btn-secondary"
+                  id="clearSettingsSearchBtn"
+                  type="button"
+                >
+                  清除搜索
+                </button>
+              </div>
+            </div>
+            <div class="settings-list-footer">
+              <span id="settingsCategoryCount" role="status">5 个配置分类</span
+              ><span>更改后点击保存</span>
+            </div>
+          </section>
+          <section
+            class="detail-panel settings-detail"
+            id="detailPanelSettings"
+            aria-labelledby="settingsDetailTitle"
+          >
+            <header class="settings-detail-header">
+              <div class="settings-detail-heading">
+                <button
+                  class="reader-action-btn settings-mobile-back"
+                  id="settingsCategoryBackBtn"
+                  type="button"
+                  aria-label="返回设置分类"
+                >
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="m15 18-6-6 6-6" />
+                  </svg>
+                </button>
+                <div>
+                  <span class="settings-eyebrow">设置工作台</span>
+                  <h2 id="settingsDetailTitle" tabindex="-1">模型与 Agent</h2>
+                </div>
+              </div>
+              <div class="settings-detail-actions">
+                <button
+                  class="btn-secondary"
+                  id="settingsResetBtn"
+                  type="button"
+                  disabled
+                >
+                  撤销更改</button
+                ><button class="btn-primary" id="settingsSaveBtn" type="button">
+                  保存设置
+                </button>
+              </div>
+            </header>
+            <div
+              class="settings-status"
+              id="settingsStatus"
+              role="status"
+            ></div>
+            <div class="settings-main">
+              <p
+                class="settings-detail-description"
+                id="settingsDetailDescription"
+              ></p>
+              <div class="settings-sheet" id="settingsContent"></div>
+            </div>
+          </section>
         </main>
       </div>
-      <div class="settings-drawer-backdrop" id="settingsDrawerBackdrop"></div>
-      <aside
-        aria-label="系统与模型设置右侧栏"
-        aria-modal="true"
-        class="settings-right-drawer"
-        id="settingsRightDrawer"
-        inert=""
-        role="dialog"
-      >
-        <div class="settings-drawer-header">
-          <div class="settings-drawer-title-group">
-            <div class="settings-drawer-title">
-              <svg
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                style="width: 17px; height: 17px; color: var(--accent)"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="12" r="3"></circle>
-                <path
-                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                ></path>
-              </svg>
-              <span>系统与模型设置</span>
-              <span
-                class="nav-badge accent"
-                style="font-size: 11px; padding: 1px 6px"
-              ></span>
-            </div>
-            <span class="settings-drawer-sub">模型、信源与本地存储</span>
-          </div>
-          <div class="settings-drawer-actions">
-            <button class="btn-primary" id="settingsSaveBtn" type="button">
-              保存设置
-            </button>
-            <button
-              aria-label="关闭设置右侧栏 (Esc)"
-              class="settings-drawer-close-btn"
-              id="closeSettingsBtn"
-              title="关闭设置 (Esc)"
-              type="button"
-            >
-              <svg
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                viewBox="0 0 24 24"
-              >
-                <line x1="18" x2="6" y1="6" y2="18"></line>
-                <line x1="6" x2="18" y1="6" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="settings-status" id="settingsStatus" role="status"></div>
-        <div class="settings-drawer-body" id="settingsView">
-          <div class="settings-container">
-            <aside class="settings-sidebar">
-              <button
-                class="settings-tab-btn active"
-                data-settings-tab="models"
-                type="button"
-              >
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path
-                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                  ></path>
-                </svg>
-                <span>模型与 Agent (Pi / Codex)</span>
-              </button>
-              <button
-                class="settings-tab-btn"
-                data-settings-tab="deepseek"
-                type="button"
-              >
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                  ></path>
-                  <polyline points="14 2 14 8 20 8"></polyline>
-                </svg>
-                <span>DeepSeek 摘要与精翻</span>
-              </button>
-              <button
-                class="settings-tab-btn"
-                data-settings-tab="pipeline"
-                type="button"
-              >
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                </svg>
-                <span>信源管线与 opencli</span>
-              </button>
-              <button
-                class="settings-tab-btn"
-                data-settings-tab="storage"
-                type="button"
-              >
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-                </svg>
-                <span>数据库与存储路径</span>
-              </button>
-              <button
-                class="settings-tab-btn"
-                data-settings-tab="system"
-                type="button"
-              >
-                <svg
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <rect height="14" rx="2" ry="2" width="20" x="2" y="3"></rect>
-                  <line x1="8" x2="16" y1="21" y2="21"></line>
-                  <line x1="12" x2="12" y1="17" y2="21"></line>
-                </svg>
-                <span>系统状态与版本升级</span>
-              </button>
-            </aside>
-            <section class="settings-main">
-              <div class="settings-sheet" id="settingsContent"></div>
-            </section>
-          </div>
-        </div>
-      </aside>
       <nav
         aria-label="移动端核心主视图导航"
         class="mobile-bottom-nav"
@@ -1129,15 +1224,15 @@
     </div>
     <div aria-live="polite" class="app-toast" id="toast" role="status"></div>
     <div class="selection-popover" id="selectionPopover">
+      <button class="selection-pop-btn" id="highlightSelectionBtn" type="button">高亮</button>
+      <button class="selection-pop-btn" id="quoteNoteBtn" type="button">引用写想法</button>
       <button class="selection-pop-btn accent" id="quoteAgentBtn" type="button">
-        引用提问 Agent</button
-      ><button class="selection-pop-btn" id="quoteNoteBtn" type="button">
-        记为想法
+        引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.1"></script>
+    <script src="/static/error_ui.js?v=0.0.2"></script>
     <script
-      src="/static/app.js?v=0.0.1&amp;build=workbench1"
+      src="/static/app.js?v=0.0.2&amp;build=workbench2"
       type="module"
     ></script>
   </body>

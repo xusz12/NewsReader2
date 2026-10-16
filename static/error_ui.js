@@ -2,6 +2,10 @@
 (() => {
   'use strict';
   const groups = {};
+  register('credentials', 'missing_api_key', '尚未配置可用的 DeepSeek API 密钥。', '请在设置中保存密钥后重试。');
+  register('model', 'models_unavailable translation_test_failed empty_model_response', '翻译模型目录或测试请求未成功。', '请检查 DeepSeek 密钥、模型调用权限及服务连接，再重试。');
+  register('input', 'invalid_note invalid_model', '想法内容或模型名称为空、过长或格式不正确。', '请检查输入后重试。');
+  register('save', 'note_changed note_not_found', '这条想法已被修改或删除。', '请重新打开文章后查看最新想法。');
   function register(category, codes, message, action) {
     for (const code of codes.split(' ')) groups[code] = {category, message, action};
   }

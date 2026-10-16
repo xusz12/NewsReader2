@@ -1,13 +1,5 @@
-import {
-  $,
-  $$,
-  api,
-  escapeHTML as e,
-  errorText,
-  toast,
-  busy,
-  focusTrap,
-} from "./ui.js";
+import { $, $$, api, escapeHTML as e, errorText, toast, busy } from "./ui.js";
+import { SelectControls } from "./select-control.js";
 
 const clone = (value) => structuredClone(value);
 const get = (object, path) =>
@@ -26,11 +18,13 @@ function select(label, path, value, options, placeholder = "沿用默认") {
     typeof x === "string" ? { value: x, label: x } : x,
   );
   if (value && !values.some((x) => x.value === value))
-    values.push({ value, label: `${value}（当前设置）` });
-  return `<label class="field-item"><span class="field-label">${label}</span><select class="field-select" name="${path}"><option value="">${placeholder}</option>${values.map((x) => `<option value="${e(x.value)}" ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></label>`;
+    values.push({ value, label: value, custom: true });
+  const id = `setting-${path.replaceAll(".", "-")}`;
+  return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label"><option value="">${placeholder}</option>${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
-  constructor({ onSaved, onSources }) {
+  constructor({ onSaved, onSources, onOpen }) {
+    this.onOpen = onOpen;
     this.onSaved = onSaved;
     this.onSources = onSources;
     this.open = false;
@@ -38,14 +32,22 @@ export class SettingsPanel {
     this.section = "models";
     this.connectionSequence = 0;
     this.catalogSequence = 0;
-    this.sourceCounts = [];
+    this.catalogs = new Map();
+    this.selects = new SelectControls($("#settingsContent"));
     $("#closeSettingsBtn").onclick = () => this.close();
-    $("#settingsDrawerBackdrop").onclick = () => this.close();
+    $("#settingsResetBtn").onclick = () => this.resetDraft();
+    $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
+    $("#settingsSearchInput").oninput = () => this.filterCategories();
+    $("#clearSettingsSearchBtn").onclick = () => {
+      $("#settingsSearchInput").value = "";
+      this.filterCategories();
+      $("#settingsSearchInput").focus();
+    };
     $("#settingsSaveBtn").onclick = (event) =>
       busy(event.currentTarget, () => this.save());
-    $$(".settings-tab-btn").forEach(
+    $$("[data-settings-tab]").forEach(
       (button) =>
-        (button.onclick = () => this.scrollTo(button.dataset.settingsTab)),
+        (button.onclick = () => this.selectSection(button.dataset.settingsTab)),
     );
     $("#settingsContent").addEventListener("input", (event) =>
       this.updateDraft(event),
@@ -63,6 +65,7 @@ export class SettingsPanel {
       try {
         const data = await api("/api/settings");
         this.saved = data;
+        this.rememberModelCatalogs(data);
         if (!this.dirty) this.draft = clone(data);
         this.onSources?.();
         if (render && this.open) this.render();
@@ -81,56 +84,182 @@ export class SettingsPanel {
   async toggle() {
     if (this.open) return this.close();
     this.lastFocus = document.activeElement;
+    this.onOpen?.();
     this.open = true;
-    $("#settingsRightDrawer").classList.add("show");
-    $("#settingsRightDrawer").inert = false;
-    $("#settingsDrawerBackdrop").classList.add("show");
-    $("#leftNavSettingsBtn").classList.add("active");
-    $("#closeSettingsBtn").focus();
-    $("#feedView").inert = true;
-    $(".topbar").inert = true;
-    $("#mobileBottomNav").inert = true;
+    const view = $("#feedView");
+    this.wasReader = view.classList.contains("mobile-reader-active");
+    this.previousPanels = $$(
+      "#feedView > .feed-column.active, #feedView > .detail-panel.active",
+    );
+    this.previousNavigation = $$("[data-collection].active");
+    this.previousPanels.forEach((panel) => panel.classList.remove("active"));
+    this.previousNavigation.forEach((button) => {
+      button.classList.remove("active");
+      button.removeAttribute("aria-current");
+    });
+    view.classList.remove("mobile-reader-active", "settings-detail-active");
+    view.classList.add("settings-active");
+    ["#feedColSettings", "#detailPanelSettings"].forEach((id) =>
+      $(id).classList.add("active"),
+    );
+    ["#leftNavSettingsBtn", "#mobNavSettings"].forEach((id) => {
+      $(id).classList.add("active");
+      $(id).setAttribute("aria-current", "page");
+    });
+    this.selectSection(this.section, { reveal: false });
+    $("#settingsListTitle").focus();
     if (this.saved) this.render();
     else {
       $("#settingsContent").innerHTML =
-        '<div class="list-message">正在读取配置…</div>';
+        '<div class="list-message" role="status">正在读取配置…</div>';
+      this.status("正在读取配置…");
       await this.load();
       this.render();
     }
   }
-  close() {
+  close({ restoreFocus = true } = {}) {
+    if (!this.open) return;
     this.open = false;
-    $("#settingsRightDrawer").classList.remove("show");
-    $("#settingsRightDrawer").inert = true;
-    $("#settingsDrawerBackdrop").classList.remove("show");
-    $("#leftNavSettingsBtn").classList.remove("active");
-    $("#feedView").inert = false;
-    $(".topbar").inert = false;
-    $("#mobileBottomNav").inert = false;
-    this.lastFocus?.focus();
-    // Unsaved settings remain a draft when the drawer is closed.
+    this.selects.close(false);
+    $("#feedView").classList.remove(
+      "settings-active",
+      "settings-detail-active",
+    );
+    $("#feedView").classList.toggle("mobile-reader-active", this.wasReader);
+    ["#feedColSettings", "#detailPanelSettings"].forEach((id) =>
+      $(id).classList.remove("active"),
+    );
+    this.previousPanels.forEach((panel) => panel.classList.add("active"));
+    this.previousNavigation.forEach((button) => {
+      button.classList.add("active");
+      button.setAttribute("aria-current", "page");
+    });
+    ["#leftNavSettingsBtn", "#mobNavSettings"].forEach((id) => {
+      $(id).classList.remove("active");
+      $(id).removeAttribute("aria-current");
+    });
+    if (restoreFocus) {
+      const target = this.lastFocus?.getClientRects().length
+        ? this.lastFocus
+        : $(
+            window.innerWidth < 768
+              ? "#mobNavSettings"
+              : "#leftNavSettingsBtn",
+          );
+      target.focus({ preventScroll: true });
+    }
+    // Drafts and reading positions survive navigation between workspaces.
   }
   handleKey(event) {
     if (event.key === "Escape") {
       event.preventDefault();
       this.close();
-    } else focusTrap(event, $("#settingsRightDrawer"));
+      return;
+    }
+    if (
+      event.target.closest('input,textarea,select,[role="combobox"],[contenteditable="true"]') ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.isComposing
+    )
+      return;
+    if (event.key === ",") {
+      event.preventDefault();
+      this.close();
+    } else if (event.key === "/") {
+      event.preventDefault();
+      this.showCategories(false);
+      $("#settingsSearchInput").focus();
+    } else if (["j", "k"].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      const buttons = $$("[data-settings-tab]").filter(
+        (button) => !button.hidden,
+      );
+      const current = buttons.findIndex(
+        (button) => button.dataset.settingsTab === this.section,
+      );
+      const next =
+        buttons[
+          Math.max(
+            0,
+            Math.min(
+              buttons.length - 1,
+              current + (event.key.toLowerCase() === "j" ? 1 : -1),
+            ),
+          )
+        ];
+      if (next) {
+        this.selectSection(next.dataset.settingsTab, { reveal: false });
+        this.showCategories(false);
+        next.focus();
+      }
+    }
   }
   status(text, failed = false) {
     $("#settingsStatus").textContent = text;
     $("#settingsStatus").classList.toggle("error-state", failed);
+    $("#settingsStatus").classList.toggle("dirty-state", this.dirty);
+    $("#settingsResetBtn").disabled = !this.dirty;
   }
-  scrollTo(section) {
+  filterCategories() {
+    const query = $("#settingsSearchInput").value.trim().toLocaleLowerCase();
+    const buttons = $$("[data-settings-tab]");
+    for (const button of buttons) {
+      const text =
+        `${button.textContent} ${button.dataset.search}`.toLocaleLowerCase();
+      button.hidden = !query.split(/\s+/).every((word) => text.includes(word));
+    }
+    const count = buttons.filter((button) => !button.hidden).length;
+    $("#settingsCategoryCount").textContent = `${count} 个配置分类`;
+    $("#settingsSearchEmpty").hidden = count > 0;
+  }
+  selectSection(section, { reveal = true } = {}) {
+    const selected = $(`[data-settings-tab="${section}"]`);
+    if (!selected) return;
+    const changed = this.section !== section;
+    if (changed) this.selects.close(false);
     this.section = section;
-    $$(".settings-tab-btn").forEach((button) =>
-      button.classList.toggle("active", button.dataset.settingsTab === section),
-    );
-    const target = $(`[data-section="${section}"]`);
-    if (target)
-      $(".settings-main").scrollTo({
-        top: target.offsetTop - 24,
-        behavior: "smooth",
-      });
+    $$("[data-settings-tab]").forEach((button) => {
+      const active = button === selected;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-current", String(active));
+    });
+    $$("#settingsContent > [data-section]").forEach((panel) => {
+      panel.hidden = panel.dataset.section !== section;
+    });
+    $("#settingsDetailTitle").textContent = selected.dataset.title;
+    $("#settingsDetailDescription").textContent = selected.dataset.description;
+    if (changed) $(".settings-main").scrollTop = 0;
+    if (reveal && window.innerWidth < 768) {
+      $("#feedView").classList.add("settings-detail-active");
+      $("#settingsDetailTitle").focus();
+    }
+  }
+  showCategories(focus = true) {
+    this.selects.close(false);
+    $("#feedView").classList.remove("settings-detail-active");
+    if (focus) {
+      const selected = $(`[data-settings-tab="${this.section}"]`);
+      (selected.hidden ? $("#settingsSearchInput") : selected).focus();
+    }
+  }
+  resetDraft() {
+    if (!this.saved) return;
+    this.draft = clone(this.saved);
+    this.dirty = false;
+    this.translationCatalog = null;
+    this.translationSequence = (this.translationSequence || 0) + 1;
+    this.translationNotice = "";
+    this.translationTestResult = "";
+    this.editingSecret = false;
+    this.secretDraft = "";
+    this.catalogNotice = "";
+    this.catalogSequence++;
+    this.connectionSequence++;
+    this.connectionResult = "";
+    this.render();
+    this.status("已恢复已保存的配置");
   }
   payload() {
     const d = this.draft;
@@ -150,6 +279,7 @@ export class SettingsPanel {
   }
   updateDraft(event) {
     const input = event.target;
+    if (input.id === "deepseekSecret") { this.secretDraft = input.value; return; }
     if (!input.name || !this.draft) return;
     const unchanged = get(this.draft, input.name) === input.value;
     if (unchanged && event.type !== "change") return;
@@ -160,6 +290,21 @@ export class SettingsPanel {
         ? Number(input.value)
         : input.value,
     );
+    if (input.name === "llm.translation.model") {
+      this.translationSequence = (this.translationSequence || 0) + 1;
+      this.translationNotice = "模型已变化，可以测试当前选择。";
+      this.translationTestResult = "[READY] 模型已变化，请重新测试当前选择。";
+      $("#translationTestTerminal").textContent = this.translationTestResult;
+      $("#translationStatus").textContent = this.translationNotice;
+      this.syncModelFields(input, this.translationOptions());
+    }
+    if (input.name === "agent.codex.model") {
+      this.syncModelFields(input, this.codexOptions());
+      if (!unchanged) {
+        this.draft.agent.codex.reasoning_effort = "";
+        this.renderReasoning();
+      }
+    }
     this.dirty = true;
     this.status("有未保存的更改");
     this.connectionSequence++;
@@ -167,29 +312,77 @@ export class SettingsPanel {
     if ($("#connTestTerminal"))
       $("#connTestTerminal").textContent = this.connectionResult;
     if (["agent.codex.provider", "agent.codex.profile"].includes(input.name)) {
-      this.catalog = null;
+      this.catalogNotice = "";
       this.catalogSequence++;
       this.draft.agent.codex.reasoning_effort = "";
-    }
-    if (input.name === "agent.codex.model" && event.type === "change") {
-      this.draft.agent.codex.reasoning_effort = "";
-      this.renderModels();
+      this.renderCodexSelection();
     }
     if (input.name === "llm.pi_chat.provider" && event.type === "change") {
       this.draft.llm.pi_chat.model = "";
       this.renderModels();
     }
   }
+  syncModelFields(input, options) {
+    const dropdown = $(`select[name="${input.name}"]`, $("#settingsContent"));
+    const custom = $(`input[name="${input.name}"]`, $("#settingsContent"));
+    if (input === dropdown) custom.value = options.some(option => option.value === input.value) ? "" : input.value;
+    else {
+      for (const option of dropdown.querySelectorAll("[data-custom-option]"))
+        if (option.value !== input.value) option.remove();
+      if (![...dropdown.options].some(option => option.value === input.value)) {
+        const option = new Option(input.value, input.value);
+        option.dataset.customOption = "true";
+        dropdown.add(option);
+      }
+      dropdown.value = input.value;
+    }
+    this.selects.refresh();
+  }
+  catalogKey(runtime = this.draft.agent.runtime, config = this.draft.agent.codex) {
+    return JSON.stringify(runtime === "codex" ? [runtime, config.provider || "", config.profile || ""] : [runtime]);
+  }
+  rememberModelCatalogs(data) {
+    for (const [runtime, name] of [["codex", "codex"], ["pi", "pi_chat"]]) {
+      const catalog = data.model_catalogs?.[name];
+      const key = this.catalogKey(runtime, data.agent.codex);
+      if (catalog && (catalog.options?.length || catalog.provider_options?.length || !this.catalogs.has(key)))
+        this.catalogs.set(key, clone(catalog));
+    }
+  }
+  modelCatalog(runtime = this.draft.agent.runtime) {
+    return this.catalogs.get(this.catalogKey(runtime)) || {};
+  }
+  codexOptions() {
+    return this.modelCatalog("codex").options?.filter(option => option.source !== "saved") || [];
+  }
+  renderCodexSelection() {
+    const current = $('select[name="agent.codex.model"]');
+    if (!current) return;
+    const options = this.codexOptions(), value = this.draft.agent.codex.model;
+    const container = document.createElement("div");
+    container.innerHTML = select("模型选择 (Model)", "agent.codex.model", value, options, "沿用本机默认");
+    current.closest(".field-item").replaceWith(container.firstElementChild);
+    $('input[name="agent.codex.model"]').value = options.some(option => option.value === value) ? "" : value;
+    $("#modelsNotice").textContent = this.modelCatalog().notice || "候选目录不代表实际调用权限。";
+    this.renderReasoning();
+  }
+  renderReasoning() {
+    const current = $('select[name="agent.codex.reasoning_effort"]');
+    if (!current) return;
+    const efforts = this.codexOptions().find(option => option.value === this.draft.agent.codex.model)?.reasoning_efforts || [];
+    const container = document.createElement("div");
+    container.innerHTML = select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", this.draft.agent.codex.reasoning_effort, efforts, "沿用默认");
+    current.closest(".field-item").replaceWith(container.firstElementChild);
+    $("#modelCapabilitiesHint").textContent = efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。";
+    this.selects.refresh();
+  }
   render() {
     if (!this.draft) return;
     const d = this.draft;
+    this.selects.close(false);
     $("#settingsContent").innerHTML =
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
-      <section class="settings-section-card" data-section="deepseek"><div class="section-card-title"><span>DeepSeek 结构化精读与翻译管道</span></div>
-      <p class="muted">为单篇新闻提供中文正文与结构化精读。</p>
-      ${select("翻译模型", "llm.translation.model", d.llm.translation.model, d.model_catalogs?.translation?.options || [], "使用默认模型")}
-      ${field("自定义模型（可选）", "llm.translation.model", d.llm.translation.model, 'maxlength="120"')}
-      <div class="field-item"><label class="field-label" for="deepseekSecret">API 密钥</label><input class="field-input" id="deepseekSecret" type="password" autocomplete="new-password" placeholder="输入新的密钥，不显示已保存值"><p class="muted">${e(d.api_status?.deepseek?.configured ? "已配置密钥" : "尚未配置密钥")}</p><div class="button-row"><button class="btn-secondary" id="saveSecretBtn" type="button">保存密钥</button><button class="reader-action-btn danger" id="deleteSecretBtn" type="button" ${d.api_status?.deepseek?.configured ? "" : "disabled"}>删除密钥</button></div></div></section>
+      <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>信源增量采集与 opencli 适配器</span></div><p class="muted">保存信源开关后更新新闻流，保留原有阅读状态。正文抓取由本机 opencli 执行，可在文章中查看结果。</p><div id="settingsSources">${this.sourceHTML()}</div><button class="btn-secondary" id="settingsReindexBtn" type="button">重新扫描 DailyNews</button></section>
       <section class="settings-section-card" data-section="storage"><div class="section-card-title"><span>本地 SQLite 数据库与存储路径</span></div>
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
@@ -197,26 +390,67 @@ export class SettingsPanel {
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
       <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong>News Reader ${e($(".brand-version").textContent)}</strong><p class="muted">独立项目版本；配置本项目更新仓库后可检查稳定版本。</p></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button></div><div id="updateResult" role="status"></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
+    this.renderTranslation();
     this.renderUpdate();
+    this.selectSection(this.section, { reveal: false });
     $("#settingsContent details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
     };
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
   }
+  translationOptions() {
+    return (this.translationCatalog || this.draft.model_catalogs?.translation)?.options?.filter(option => option.source !== "saved") || [];
+  }
+  renderTranslation() {
+    const d = this.draft, service = d.api_status?.deepseek || {};
+    const configured = service.configured, editing = !configured || this.editingSecret;
+    const options = this.translationOptions();
+    const custom = options.some(option => option.value === d.llm.translation.model) ? "" : d.llm.translation.model;
+    $("#translationSettings").innerHTML = `<div class="section-card-title"><span>DeepSeek 结构化精读与翻译管道</span></div>
+      <p class="muted">为单篇新闻提供中文正文与结构化精读。</p>
+      <div class="translation-model-row">${select("翻译模型", "llm.translation.model", d.llm.translation.model, options, "使用默认模型")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"}>获取模型</button></div>
+      ${field("自定义模型（可选）", "llm.translation.model", custom, 'maxlength="120"')}
+      <p class="muted" id="translationStatus" role="status">${e(this.translationNotice || "选择目录中的模型，或填写自定义模型。测试使用当前选择，无需先保存。")}</p>
+      <div class="field-item"><label class="field-label" for="deepseekSecret">API 密钥</label>
+      ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
+      ${service.environment_override ? '<p class="muted">当前由 DEEPSEEK_API_KEY 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>' : ""}
+      ${editing ? `<input class="field-input" id="deepseekSecret" type="password" autocomplete="new-password" value="${e(this.secretDraft || "")}" placeholder="输入新的 API 密钥"><div class="button-row"><button class="btn-secondary" id="saveSecretBtn" type="button">保存密钥</button>${configured ? '<button class="btn-secondary" id="cancelSecretBtn" type="button">取消</button>' : ""}</div>` : '<div class="button-row"><button class="btn-secondary" id="editSecretBtn" type="button">更新密钥</button><button class="reader-action-btn danger" id="deleteSecretBtn" type="button">删除密钥</button></div>'}</div>
+      <div class="connection-test-section"><div><strong>翻译模型独立连接测试</strong><p class="muted">使用当前选择测试，无需先保存。</p></div><button class="btn-primary" id="translationTestBtn" type="button" ${configured ? "" : "disabled"}>测试模型</button><div class="terminal-box" id="translationTestTerminal" role="status">${e(this.translationTestResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
+    this.selects.refresh($("#translationSettings"));
+  }
+  async refreshTranslationModels() {
+    const seq = this.translationSequence = (this.translationSequence || 0) + 1;
+    const data = await api("/api/settings/translation/models", { method: "POST", body: {} });
+    if (seq !== this.translationSequence) return;
+    this.translationCatalog = data.catalog;
+    this.translationNotice = `已获取 ${data.catalog.options.length} 个模型`;
+    this.renderTranslation();
+  }
+  async testTranslation() {
+    const model = this.draft.llm.translation.model;
+    const seq = this.translationSequence = (this.translationSequence || 0) + 1;
+    $("#translationTestTerminal").textContent = "[RUNNING] 正在测试当前模型…";
+    try {
+      const data = await api("/api/settings/translation/test", { method: "POST", body: { model } });
+      if (seq === this.translationSequence && model === this.draft.llm.translation.model) this.translationTestResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
+    } catch (error) {
+      if (seq === this.translationSequence) this.translationTestResult = `[FAIL] ${errorText(error)}`;
+    }
+    if (seq === this.translationSequence) $("#translationTestTerminal").textContent = this.translationTestResult;
+  }
   renderModels() {
     if (!$("#modelSettings")) return;
     const d = this.draft,
       codex = d.agent.runtime === "codex";
-    const catalog =
-      this.catalog ||
-      (codex ? d.model_catalogs?.codex : d.model_catalogs?.pi_chat) ||
-      {};
-    const model = catalog.options?.find((x) => x.value === d.agent.codex.model);
+    const catalog = this.modelCatalog();
+    const codexOptions = this.codexOptions();
+    const model = codexOptions.find((x) => x.value === d.agent.codex.model);
+    const custom = model ? "" : d.agent.codex.model;
     const efforts = model?.reasoning_efforts || [];
     const savedEffort = d.agent.codex.reasoning_effort;
     $("#modelSettings").innerHTML =
       `<div class="section-card-title"><span>Chat 与新闻研究 Agent 模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
-    ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, catalog.options || [], "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", d.agent.codex.model, 'maxlength="120"')}<p class="muted">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
+    ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, codexOptions, "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", custom, 'maxlength="120"')}<p class="muted" id="modelCapabilitiesHint">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
     <button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><p class="muted" id="modelsNotice">${e(this.catalogNotice || catalog.notice || "候选目录不代表实际调用权限。")}</p>
     <div class="connection-test-section"><div><strong>模型可用性独立连接测试</strong><p class="muted">使用当前未保存选择测试，不写入新闻或聊天历史。</p></div><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing ? "disabled" : ""}>${this.testing ? "测试中…" : "运行连接测试"}</button><div class="terminal-box" id="connTestTerminal" role="status">${e(this.connectionResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>
     ${select(
@@ -230,6 +464,7 @@ export class SettingsPanel {
     )}<button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>`;
     const placeholder = $('[name="agent.session_ttl_hours"] option[value=""]');
     if (placeholder) placeholder.remove();
+    this.selects.refresh($("#modelSettings"));
   }
   sourceHTML() {
     const hidden = new Set(this.draft.feed.hidden_source_subkeys || []);
@@ -258,7 +493,7 @@ export class SettingsPanel {
     if (button.dataset.runtime) {
       this.draft.agent.runtime = button.dataset.runtime;
       this.dirty = true;
-      this.catalog = null;
+      this.catalogNotice = "";
       this.connectionSequence++;
       this.catalogSequence++;
       this.connectionResult = "";
@@ -270,6 +505,10 @@ export class SettingsPanel {
       retrySettingsBtn: () => this.load(),
       refreshModelsBtn: () => this.refreshModels(),
       testConnectionBtn: () => this.testConnection(),
+      editSecretBtn: () => { this.editingSecret = true; this.renderTranslation(); $("#deepseekSecret").focus(); },
+      cancelSecretBtn: () => { this.secretDraft = ""; this.editingSecret = false; this.renderTranslation(); },
+      translationModelsBtn: () => this.refreshTranslationModels(),
+      translationTestBtn: () => this.testTranslation(),
       saveSecretBtn: () => this.saveSecret(),
       deleteSecretBtn: () => this.deleteSecret(),
       pickDatabaseBtn: () => this.pickDatabase(),
@@ -297,6 +536,7 @@ export class SettingsPanel {
     try {
       const data = await api("/api/settings", { method: "PUT", body: payload });
       this.saved = data;
+      this.rememberModelCatalogs(data);
       if (fingerprint === JSON.stringify(this.payload())) {
         this.draft = clone(data);
         this.dirty = false;
@@ -335,7 +575,8 @@ export class SettingsPanel {
           ])
       )
         return;
-      this.catalog = data.catalog;
+      if (!data.catalog.error || data.catalog.options?.length || !this.catalogs.has(this.catalogKey()))
+        this.catalogs.set(this.catalogKey(), clone(data.catalog));
       this.catalogNotice =
         data.catalog.error || data.catalog.notice || "模型目录已刷新";
       this.renderModels();
@@ -387,19 +628,33 @@ export class SettingsPanel {
       toast("请输入新的 API 密钥");
       return;
     }
-    await api("/api/settings/secrets/deepseek", {
+    const data = await api("/api/settings/secrets/deepseek", {
       method: "PUT",
       body: { key },
     });
     input.value = "";
     toast("密钥已保存");
-    await this.load();
+    this.applySecretResponse(data);
+  }
+  applySecretResponse(data) {
+    this.secretDraft = "";
+    this.rememberModelCatalogs(data);
+    this.saved.api_status = clone(data.api_status);
+    this.draft.api_status = clone(data.api_status);
+    this.saved.model_catalogs = clone(data.model_catalogs);
+    this.draft.model_catalogs = clone(data.model_catalogs);
+    this.editingSecret = false;
+    this.translationCatalog = null;
+    this.translationSequence = (this.translationSequence || 0) + 1;
+    this.translationNotice = "";
+    this.translationTestResult = "";
+    this.renderTranslation();
   }
   async deleteSecret() {
     if (!confirm("删除已保存的 DeepSeek API 密钥？")) return;
-    await api("/api/settings/secrets/deepseek", { method: "DELETE" });
+    const data = await api("/api/settings/secrets/deepseek", { method: "DELETE" });
     toast("密钥已删除");
-    await this.load();
+    this.applySecretResponse(data);
   }
   async pickDatabase() {
     const data = await api("/api/settings/database/pick", { method: "POST" });

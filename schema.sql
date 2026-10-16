@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS article_ai (
 CREATE TABLE IF NOT EXISTS article_highlights (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   url TEXT NOT NULL,
-  body_kind TEXT NOT NULL DEFAULT 'ai_zh' CHECK (body_kind IN ('ai_zh', 'ai_points_zh', 'ai_conclusion_zh', 'twitter_detail')),
+  body_kind TEXT NOT NULL DEFAULT 'ai_zh' CHECK (body_kind IN ('ai_zh', 'ai_points_zh', 'ai_conclusion_zh', 'twitter_detail', 'original')),
   content_hash TEXT NOT NULL,
   start_offset INTEGER NOT NULL CHECK (start_offset >= 0),
   end_offset INTEGER NOT NULL CHECK (end_offset > start_offset),
@@ -364,3 +364,28 @@ CREATE TABLE IF NOT EXISTS review_evidence (
 
 CREATE INDEX IF NOT EXISTS idx_review_evidence_chain
 ON review_evidence(chain_id);
+
+CREATE TABLE IF NOT EXISTS article_note_entries (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_article_note_entries_url ON article_note_entries(url);
+
+-- Keep the original five-column entries table compatible with older clients.
+CREATE TABLE IF NOT EXISTS article_note_metadata (
+    note_id TEXT PRIMARY KEY,
+    author TEXT NOT NULL DEFAULT 'user',
+    quote_text TEXT NOT NULL DEFAULT '',
+    quote_source TEXT NOT NULL DEFAULT '',
+    quote_paragraph INTEGER,
+    archive_summary TEXT NOT NULL DEFAULT '',
+    source_session_id TEXT NOT NULL DEFAULT ''
+);
+CREATE TRIGGER IF NOT EXISTS article_note_metadata_cleanup
+AFTER DELETE ON article_note_entries
+BEGIN
+    DELETE FROM article_note_metadata WHERE note_id = OLD.id;
+END;

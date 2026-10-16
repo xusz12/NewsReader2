@@ -31,6 +31,18 @@ module.pi_chat_settings_snapshot = lambda *args: {
     'service': {'configured': True},
     'catalog': {'provider_options': [{'value': 'test', 'label': 'Test provider'}], 'options': [{'value': 'test-model', 'label': 'Test model'}], 'model_options_by_provider': {'test': [{'value': 'test-model', 'label': 'Test model'}]}},
 }
+module.model_catalogs.codex_catalog = lambda config: {
+    'source': 'fixture-codex', 'error': '', 'default_label': '沿用本机默认', 'resolved_default_model': '',
+    'options': [
+        {'value': 'ui-catalog-a', 'label': 'ui-catalog-a', 'reasoning_efforts': ['low', 'high']},
+        {'value': 'ui-catalog-b', 'label': 'ui-catalog-b', 'reasoning_efforts': ['medium']},
+    ],
+}
+# Deterministic archive generation; the real archive API still persists and tags the card.
+def fixture_archive(**kwargs):
+    return {'provider': 'pi', 'model': 'fixture', 'summary': '**流动性传导研读结论**\n\n- 核心判断：关注准备金与短期融资利率的变化。\n- 待核实：政策调整能否缓解季末资金压力。'}
+module.run_pi_chat_archive = fixture_archive
+module.run_codex_chat_archive = fixture_archive
 fixtures = json.loads((ROOT / 'tests/ui/articles.json').read_text())
 with module.db_conn() as conn:
     for index in range(65):
@@ -39,11 +51,14 @@ with module.db_conn() as conn:
         date = f'2026-10-{14 - index // 15:02}'
         published = f'{date} {14 - index % 12:02}:02:18'
         url = item['url'] + f'/ui-{index}'
+        original = item['original']
+        if index == 64:
+            original += '\n\n📌 **重复判断** 与 [引用](https://example.com/重复判断) 和 `code`。\n\n重复判断。'
         title = item['title'] if index < len(fixtures) else f'{item["title"]} · 历史 {index}'
         conn.execute('INSERT INTO items(id,source_file,item_order,published_at,date,time,source,source_type,source_name,title,summary,url,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                      (ident, f'dailyFreshNews_{date}.md', index, published,date,published[11:16],item['source'],'news',item['source'],title,item['summary'],url,published,published))
         conn.execute('INSERT INTO article_details(url,title,author,published_at,content,content_length,fetched_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
-                     (url,title,'News desk',published,item['original'],len(item['original']),published,published))
+                     (url,title,'News desk',published,original,len(original),published,published))
         conn.execute('INSERT INTO article_ai(url,model,key_points_zh,conclusion_zh,body_zh,generated_at,updated_at) VALUES (?,?,?,?,?,?,?)',
                      (url,'deepseek-v4-flash',json.dumps(item['points'],ensure_ascii=False),item['conclusion'],item['body'],published,published))
         if index == 0:
@@ -51,4 +66,10 @@ with module.db_conn() as conn:
             conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES (?,?,?,?)',(url,'关注准备金变化与流动性传导。',published,published))
         if index == 4:
             conn.execute('INSERT INTO item_state(item_id,favorite_at,updated_at) VALUES (?,?,?)',(ident,published,published))
+@module.app.post('/__test/reset-reading')
+def reset_reading():
+    with module.db_conn() as conn:
+        conn.execute("UPDATE item_state SET read_at=NULL")
+    return {"ok": True}
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

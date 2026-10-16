@@ -48,7 +48,9 @@ def parse_event(raw: str) -> dict:
         event = json.loads(raw)
     except (ValueError, TypeError) as exc:
         raise RuntimeError("oar_protocol_error") from exc
-    if not isinstance(event, dict) or event.get("type") not in {"text_delta", "oar_session", "oar_tool", "oar_result"}:
+    if not isinstance(event, dict) or event.get("type") not in {"text_delta", "oar_session", "oar_tool", "oar_progress", "oar_result"}:
+        raise RuntimeError("oar_protocol_error")
+    if event["type"] == "oar_progress" and event.get("phase") not in {"thinking", "retrying", "summarizing"}:
         raise RuntimeError("oar_protocol_error")
     if event["type"] == "text_delta" and not isinstance(event.get("delta"), str):
         raise RuntimeError("oar_protocol_error")

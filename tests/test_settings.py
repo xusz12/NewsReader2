@@ -3,17 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import settings
+import pytest
 
 
-def test_resolve_db_path_does_not_reuse_parent_database(monkeypatch, tmp_path: Path):
+@pytest.fixture(autouse=True)
+def isolate_local_settings(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(settings, "LEGACY_DB_PATH", tmp_path / "news_index.sqlite3")
+
+
+def test_resolve_db_path_preserves_original_parent_database_layout(monkeypatch, tmp_path: Path):
     project_db = tmp_path / "project" / "news_index.sqlite3"
     legacy_db = tmp_path / "news_index.sqlite3"
     project_db.parent.mkdir()
+    project_db.touch()
     legacy_db.touch()
     monkeypatch.setattr(settings, "PROJECT_DB_PATH", project_db)
     monkeypatch.delenv("NEWS_READER_DB_PATH", raising=False)
 
-    assert settings.resolve_db_path() == project_db
+    assert settings.resolve_db_path() == legacy_db
 
 
 def test_resolve_db_path_defaults_to_project_database(monkeypatch, tmp_path: Path):
@@ -40,6 +48,7 @@ def test_resolve_db_path_prefers_saved_configured_database(monkeypatch, tmp_path
     settings_path = tmp_path / "app_settings.json"
     configured_db = tmp_path / "configured.sqlite3"
     configured_db.touch()
+    settings.LEGACY_DB_PATH.touch()
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(settings_path))
     monkeypatch.delenv("NEWS_READER_DB_PATH", raising=False)
     settings_path.write_text(
@@ -48,6 +57,16 @@ def test_resolve_db_path_prefers_saved_configured_database(monkeypatch, tmp_path
     )
 
     assert settings.resolve_db_path() == configured_db
+
+
+def test_daily_news_input_keeps_original_default_and_environment_override(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("NEWS_READER_DAILY_NEWS_DIR", raising=False)
+    assert settings.resolve_daily_news_dir() == Path(
+        "/Users/x/Library/Mobile Documents/iCloud~md~obsidian/Documents/DailyNews"
+    )
+    original_input = tmp_path / "DailyNews"
+    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(original_input))
+    assert settings.resolve_daily_news_dir() == original_input
 
 
 def test_environment_database_path_still_overrides_saved_configured_database(monkeypatch, tmp_path: Path):

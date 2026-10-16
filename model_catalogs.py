@@ -1,15 +1,70 @@
-"""Read-only CLI model metadata. Catalog defaults never override native defaults."""
+"""CLI model metadata with a local cache. Catalogs never override native defaults."""
 from __future__ import annotations
 import json
+import hashlib
 import os
 from pathlib import Path
 import selectors
 import subprocess
 import time
+import tempfile
 import codex_client
+from settings import resolve_app_settings_path
 from oar_client import terminate_group
 
 MAX_BYTES = 2 * 1024 * 1024
+
+
+def _cache_path(config):
+    c = codex_client.normalize_config(config)
+    context = [c.get('provider', ''), c['profile'],
+               str(Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()),
+               os.environ.get('NEWS_READER_CODEX') or 'codex']
+    key = hashlib.sha256(json.dumps(context).encode()).hexdigest()
+    return resolve_app_settings_path().expanduser().with_suffix('.model-catalogs') / f'{key}.json'
+
+
+def _valid_catalog(catalog):
+    if not isinstance(catalog, dict) or catalog.get('error') or not isinstance(catalog.get('options'), list):
+        return False
+    return all(isinstance(option, dict) and isinstance(option.get('value'), str)
+               and 0 < len(option['value']) <= 120
+               and isinstance(option.get('reasoning_efforts'), list)
+               and all(isinstance(effort, str) and effort in codex_client.REASONING_EFFORTS
+                       for effort in option['reasoning_efforts'])
+               for option in catalog['options'])
+
+
+def cached_catalog(config):
+    """Restore model metadata without starting the CLI or reading credentials."""
+    try:
+        path = _cache_path(config)
+        if path.stat().st_size <= MAX_BYTES:
+            record = json.loads(path.read_text(encoding='utf-8'))
+            if record.get('version') == 1 and _valid_catalog(record.get('catalog')):
+                return {**record['catalog'], 'cached': True, 'cached_at': record.get('saved_at', '')}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return {'source': 'unavailable', 'options': [], 'error': '', 'cached': False,
+            'default_label': '沿用本机默认', 'resolved_default_model': ''}
+
+
+def _save_catalog(config, catalog):
+    path = _cache_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Store only the public metadata used by model selection, never CLI output.
+    metadata = {key: catalog[key] for key in ('source', 'options', 'error', 'notice',
+                'default_label', 'resolved_default_model') if key in catalog}
+    record = {'version': 1, 'saved_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'catalog': metadata}
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(record, stream, ensure_ascii=False)
+        os.replace(temporary, path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink()
 
 class Rpc:
     def __init__(self, command, timeout=15):
@@ -77,11 +132,21 @@ def codex_catalog(config):
     finally: rpc.close()
 
 def safe_catalog(config):
-    try: return codex_catalog(config)
+    try:
+        catalog = codex_catalog(config)
+        if not _valid_catalog(catalog):
+            raise ValueError('catalog_invalid')
     except Exception:
         # Never expose raw provider errors, config values, tokens or URLs.
-        return {'source':'unavailable','options':[],'error':'模型目录读取失败，请检查本机配置或重试。',
-                'default_label':'沿用本机默认','resolved_default_model':''}
+        previous = cached_catalog(config)
+        message = ('模型目录刷新失败，已保留上次获取的目录。' if previous['cached']
+                   else '模型目录读取失败，请检查本机配置或重试。')
+        return {**previous, 'error': message}
+    try:
+        _save_catalog(config, catalog)
+    except OSError:
+        return {**catalog, 'notice': '模型目录已获取，但无法保存到本地；请检查配置目录的写入权限。'}
+    return catalog
 
 def validate_effort(config):
     c = codex_client.normalize_config(config)

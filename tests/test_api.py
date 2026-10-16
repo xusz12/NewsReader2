@@ -4693,6 +4693,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
     assert summary.get_json()["summary"] == {
         "feed_unread": 1,
         "read_later_unread": 1,
+        "favorites": 0,
         "pending_review": 1,
     }
 
@@ -9135,7 +9136,8 @@ def test_agent_legacy_pi_session_switches_with_one_time_visible_history(tmp_path
 
 def test_agent_legacy_pi_migration_persists_and_stops_replaying_history(tmp_path: Path, monkeypatch):
     app_module, client, item, _db_path, agent_db_path = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    monkeypatch.setattr(app_module, "_agent_provider_model", lambda: ("pi", "minimax-m3:cloud", "ollama"))
+    monkeypatch.setattr(app_module, "_agent_executor_settings", lambda: dict(
+        provider="pi", model="minimax-m3:cloud", executor_provider="ollama", executor_config={}))
     log = _install_fake_oar(tmp_path, monkeypatch)
 
     first = client.post(f"/api/news/{item['id']}/agent/jobs", json={"question": "旧问题"})
@@ -9321,6 +9323,7 @@ def test_default_database_is_created_when_no_database_exists(tmp_path: Path, mon
     project_db = project_dir / "news_index.sqlite3"
     legacy_db = tmp_path / "legacy-news.sqlite3"
     monkeypatch.setattr(settings_module, "PROJECT_DB_PATH", project_db)
+    monkeypatch.setattr(settings_module, "LEGACY_DB_PATH", legacy_db)
     monkeypatch.delenv("NEWS_READER_DB_PATH", raising=False)
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
 

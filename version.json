@@ -1,5 +1,5 @@
 {
-  "version": "v0.0.1",
+  "version": "v0.0.2",
   "repository": "",
   "stable_tag_pattern": "vN.N.N or vN.N.N.N",
   "health_path": "/api/version"
