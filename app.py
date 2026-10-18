@@ -136,6 +136,8 @@ TWITTER_ARTICLE_COMMAND = ["opencli", "twitter", "article"]
 TWITTER_COMMENT_FETCH_LIMIT = 50
 TWITTER_THREAD_TIMEOUT = 90
 TWITTER_ARTICLE_TIMEOUT = 60
+DETAIL_MAX_ATTEMPTS = 3
+DETAIL_RETRY_DELAYS = (5, 15)
 
 SOURCE_LABELS = {
     "all": "全部来源",
@@ -5918,14 +5920,24 @@ def resolve_detail_route(url: str) -> dict | None:
     return DETAIL_COMMAND_ROUTES.get(host)
 
 
-def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source: str) -> bool:
-    route = resolve_detail_route(url)
+def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source: str, *, refresh: bool = False) -> bool:
     ts = now_ts()
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    row = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (url,)).fetchone()
+    # Duplicate requests must not reset a running attempt or its retry budget.
+    if row and (row["status"] in ("pending", "running") or
+                (not refresh and row["status"] in ("success", "skipped"))):
+        conn.execute(
+            "UPDATE detail_jobs SET item_id=?, source=? WHERE url=?",
+            (item_id, source, url),
+        )
+        return False
     existing_detail = conn.execute(
         "SELECT url FROM article_details WHERE url=?",
         (url,),
     ).fetchone()
-    if existing_detail:
+    if existing_detail and not refresh:
         conn.execute(
             """
             INSERT INTO detail_jobs(url, item_id, source, status, attempts, queued_at, updated_at)
@@ -5934,20 +5946,12 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
               item_id=excluded.item_id,
               source=excluded.source,
               status='success',
+              last_error=NULL,
+              next_attempt_at=NULL,
+              worker_pid=NULL,
               updated_at=excluded.updated_at
             """,
             (url, item_id, source, ts, ts),
-        )
-        return False
-
-    row = conn.execute(
-        "SELECT status FROM detail_jobs WHERE url=?",
-        (url,),
-    ).fetchone()
-    if row and row["status"] in ("pending", "running", "success", "skipped"):
-        conn.execute(
-            "UPDATE detail_jobs SET item_id=?, source=?, updated_at=? WHERE url=?",
-            (item_id, source, ts, url),
         )
         return False
 
@@ -5959,6 +5963,12 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
           item_id=excluded.item_id,
           source=excluded.source,
           status='pending',
+          attempts=0,
+          last_error=NULL,
+          started_at=NULL,
+          finished_at=NULL,
+          next_attempt_at=NULL,
+          worker_pid=NULL,
           queued_at=excluded.queued_at,
           updated_at=excluded.updated_at
         """,
@@ -5975,14 +5985,31 @@ def _run_opencli_json_command(cmd: list[str], timeout: int) -> tuple[bool, objec
     except Exception as exc:
         return False, None, f"SUBPROCESS_ERROR: {exc}"
 
+    try:
+        parsed = json.loads(proc.stdout or "")
+    except (ValueError, TypeError) as exc:
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            return False, None, err or f"EXIT_{proc.returncode}"
+        return False, None, f"INVALID_JSON: {exc}"
+
+    # opencli 2.x wraps results in {ok, data/error}; older adapters returned
+    # the list or article object directly. Unwrap once at this shared boundary.
+    if isinstance(parsed, dict) and isinstance(parsed.get("ok"), bool):
+        if not parsed["ok"]:
+            error = parsed.get("error")
+            if isinstance(error, dict):
+                code = str(error.get("code") or "OPENCLI_ERROR")
+                parts = [str(error[key]) for key in ("message", "cause", "hint", "help") if error.get(key)]
+                return False, None, f"{code}: {' | '.join(dict.fromkeys(parts))}".rstrip(": ")
+            return False, None, f"OPENCLI_ERROR: {error or 'Command failed'}"
+        if "data" not in parsed:
+            return False, None, "INVALID_JSON: opencli success response has no data"
+        parsed = parsed["data"]
+
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
         return False, None, err or f"EXIT_{proc.returncode}"
-
-    try:
-        parsed = json.loads(proc.stdout or "[]")
-    except Exception as exc:
-        return False, None, f"INVALID_JSON: {exc}"
     return True, parsed, ""
 
 
@@ -6502,32 +6529,134 @@ def run_opencli_detail(url: str) -> tuple[bool, dict, str]:
     return True, normalized, ""
 
 
+def _detail_error_is_retryable(error: str) -> bool:
+    code = error.split(":", 1)[0].upper()
+    if code in {"AUTH_REQUIRED", "ARGUMENT", "UNSUPPORTED_URL", "NOT_FOUND", "INVALID_JSON",
+                "EMPTY_RESULT", "EMPTY_TWITTER_THREAD", "CONTENT_TOO_SHORT", "SKIPPED_SOURCE",
+                "SUBPROCESS_ERROR", "DETAIL_JOB_ERROR"}:
+        return False
+    if re.search(r"captcha|bot.protection|paywall|not logged|subscription|human verification", error, re.I):
+        return False
+    if code in {"TIMEOUT", "NETWORK_ERROR", "BROWSER_CONNECT", "ECONNRESET", "ETIMEDOUT"}:
+        return True
+    return bool(re.search(
+        r"navigation rejected|browser connection dropped|connection (?:reset|closed)|"
+        r"timed? out|\bECONNRESET\b|\bETIMEDOUT\b|"
+        r"\bHTTP(?:\s+(?:status|error))?\s*[:=]?\s*(?:429|50[0-4])\b",
+        error, re.I,
+    ))
+
+
+def _detail_retry_at(attempts: int, timestamp: str) -> str:
+    delay = DETAIL_RETRY_DELAYS[min(max(attempts - 1, 0), len(DETAIL_RETRY_DELAYS) - 1)]
+    return (datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=delay)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _owns_detail_job(conn: sqlite3.Connection, job: dict) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM detail_jobs WHERE url=? AND status='running' AND worker_pid=? AND attempts=?",
+        (job["url"], os.getpid(), job["attempts"]),
+    ).fetchone() is not None
+
+
+def _finish_detail_failure(conn: sqlite3.Connection, job: dict, error: str) -> None:
+    finished = now_ts()
+    retry = job["attempts"] < DETAIL_MAX_ATTEMPTS and _detail_error_is_retryable(error)
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not _owns_detail_job(conn, job):
+            return
+        conn.execute(
+            """UPDATE detail_jobs SET status=?, last_error=?, finished_at=?, updated_at=?,
+               next_attempt_at=?, worker_pid=NULL WHERE url=?""",
+            ("pending" if retry else "failed", error[:500], None if retry else finished,
+             finished, _detail_retry_at(job["attempts"], finished) if retry else None, job["url"]),
+        )
+
+
+def _detail_worker_process_alive(pid: int | None) -> bool:
+    if not pid or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def recover_interrupted_detail_jobs() -> int:
+    """Called before starting this process's worker, never during a live attempt.
+
+    Preserve attempts across restarts, including legacy running rows without an
+    owner. A second app sharing the DB must leave another live worker alone.
+    """
+    conn = db_conn()
+    recovered = 0
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for row in conn.execute("SELECT url, attempts, worker_pid FROM detail_jobs WHERE status='running'").fetchall():
+                owner = row["worker_pid"]
+                if owner != os.getpid() and _detail_worker_process_alive(owner):
+                    continue
+                attempts = max(1, int(row["attempts"] or 0))
+                ts = now_ts()
+                retry = attempts < DETAIL_MAX_ATTEMPTS
+                conn.execute(
+                    """UPDATE detail_jobs SET status=?, attempts=?, last_error=?,
+                       finished_at=?, updated_at=?, next_attempt_at=?, worker_pid=NULL WHERE url=?""",
+                    ("pending" if retry else "failed", attempts,
+                     "INTERRUPTED: previous detail worker stopped before completion",
+                     None if retry else ts, ts, _detail_retry_at(attempts, ts) if retry else None, row["url"]),
+                )
+                recovered += 1
+        return recovered
+    finally:
+        conn.close()
+
+
 def process_pending_jobs_once() -> bool:
     conn = db_conn()
     try:
-        job = conn.execute(
-            """
-            SELECT url, item_id, source, attempts
-            FROM detail_jobs
-            WHERE status='pending'
-            ORDER BY queued_at ASC
-            LIMIT 1
-            """
-        ).fetchone()
-        if not job:
-            return False
-
-        started = now_ts()
+        # Claim atomically, and count the attempt before invoking the subprocess
+        # so a crash cannot reset the retry budget.
         with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            started = now_ts()
+            row = conn.execute(
+                """SELECT url, item_id, source, attempts FROM detail_jobs
+                   WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+                   ORDER BY queued_at ASC LIMIT 1""", (started,),
+            ).fetchone()
+            if not row:
+                return False
+            job = dict(row)
+            if int(job["attempts"] or 0) >= DETAIL_MAX_ATTEMPTS:
+                conn.execute(
+                    """UPDATE detail_jobs SET status='failed', last_error='RETRY_EXHAUSTED',
+                       finished_at=?, updated_at=?, next_attempt_at=NULL, worker_pid=NULL WHERE url=?""",
+                    (started, started, job["url"]),
+                )
+                return True
+            job["attempts"] = int(job["attempts"] or 0) + 1
             conn.execute(
-                "UPDATE detail_jobs SET status='running', started_at=?, updated_at=? WHERE url=?",
-                (started, started, job["url"]),
+                """UPDATE detail_jobs SET status='running', attempts=?, started_at=?, updated_at=?,
+                   finished_at=NULL, next_attempt_at=NULL, worker_pid=? WHERE url=?""",
+                (job["attempts"], started, started, os.getpid(), job["url"]),
             )
 
-        ok, detail, error = run_opencli_detail(job["url"])
-        finished = now_ts()
-        with conn:
-            if ok:
+        try:
+            ok, detail, error = run_opencli_detail(job["url"])
+            if not ok:
+                _finish_detail_failure(conn, job, error)
+                return True
+            finished = now_ts()
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                if not _owns_detail_job(conn, job):
+                    return True
                 conn.execute(
                     """
                     INSERT INTO article_details(
@@ -6564,6 +6693,8 @@ def process_pending_jobs_once() -> bool:
                     UPDATE detail_jobs
                     SET status='success',
                         last_error=NULL,
+                        next_attempt_at=NULL,
+                        worker_pid=NULL,
                         finished_at=?,
                         updated_at=?
                     WHERE url=?
@@ -6572,20 +6703,9 @@ def process_pending_jobs_once() -> bool:
                 )
                 if detail["source"] != "Twitter/X":
                     enqueue_ai_job(conn, job["url"])
-            else:
-                attempts = int(job["attempts"] or 0) + 1
-                conn.execute(
-                    """
-                    UPDATE detail_jobs
-                    SET status='failed',
-                        attempts=?,
-                        last_error=?,
-                        finished_at=?,
-                        updated_at=?
-                    WHERE url=?
-                    """,
-                    (attempts, error[:500], finished, finished, job["url"]),
-                )
+        except Exception as exc:
+            app.logger.exception("Detail job failed for %s", job["url"])
+            _finish_detail_failure(conn, job, f"DETAIL_JOB_ERROR: {exc}")
         return True
     finally:
         conn.close()
@@ -6763,7 +6883,7 @@ def detail_worker_loop() -> None:
         try:
             processed = process_pending_jobs_once()
         except Exception:
-            pass
+            app.logger.exception("Detail worker could not process its queue")
         if not processed:
             try:
                 processed = process_pending_ai_once()
@@ -6780,6 +6900,7 @@ def start_detail_worker() -> None:
     with DETAIL_LOCK:
         if WORKER_THREAD and WORKER_THREAD.is_alive():
             return
+        recover_interrupted_detail_jobs()
         WORKER_STOP.clear()
         WORKER_THREAD = threading.Thread(target=detail_worker_loop, name="detail-worker", daemon=True)
         WORKER_THREAD.start()
@@ -9233,7 +9354,7 @@ def api_news_detail(item_id: str):
         detail_out = None
         if url:
             job = conn.execute(
-                "SELECT status, attempts, last_error, queued_at, started_at, finished_at FROM detail_jobs WHERE url=?",
+                "SELECT status, attempts, last_error, queued_at, started_at, finished_at, next_attempt_at FROM detail_jobs WHERE url=?",
                 (url,),
             ).fetchone()
             ai_job = conn.execute(
@@ -10683,44 +10804,20 @@ def api_news_detail_retry(item_id: str):
         has_detail = conn.execute("SELECT 1 FROM article_details WHERE url=?", (url,)).fetchone()
         with conn:
             ts = now_ts()
-            if has_detail:
-                if is_twitter and mode != "ai":
-                    # For Twitter/X, retry re-fetches the tweet detail even if it already exists,
-                    # so that images and updated text can be refreshed without losing the old view.
-                    conn.execute(
-                        """
-                        INSERT INTO detail_jobs(url, item_id, source, status, attempts, queued_at, updated_at, started_at, finished_at)
-                        VALUES (?, ?, ?, 'pending', 0, ?, ?, NULL, NULL)
-                        ON CONFLICT(url) DO UPDATE SET
-                          item_id=excluded.item_id,
-                          source=excluded.source,
-                          status='pending',
-                          last_error=NULL,
-                          attempts=0,
-                          queued_at=excluded.queued_at,
-                          updated_at=excluded.updated_at,
-                          started_at=NULL,
-                          finished_at=NULL
-                        """,
-                        (url, row["id"], row["source"] or "", ts, ts),
-                    )
-                else:
-                    enqueue_ai_job(conn, url)
-                    conn.execute(
-                        """
-                        UPDATE ai_jobs
-                        SET status='pending', last_error=NULL, queued_at=?, updated_at=?
-                        WHERE url=?
-                        """,
-                        (ts, ts, url),
-                    )
+            if has_detail and (not is_twitter or mode == "ai"):
+                enqueue_ai_job(conn, url)
+                conn.execute(
+                    """
+                    UPDATE ai_jobs
+                    SET status='pending', last_error=NULL, queued_at=?, updated_at=?
+                    WHERE url=?
+                    """,
+                    (ts, ts, url),
+                )
             else:
-                created = enqueue_detail_job(conn, row["id"], url, row["source"] or "")
-                if not created:
-                    conn.execute(
-                        "UPDATE detail_jobs SET status='pending', last_error=NULL, queued_at=?, updated_at=? WHERE url=?",
-                        (ts, ts, url),
-                    )
+                # A completed/failed job gets a fresh budget; an active one is
+                # left alone. Existing X content stays readable while refreshing.
+                enqueue_detail_job(conn, row["id"], url, row["source"] or "", refresh=True)
     finally:
         conn.close()
     return jsonify({"ok": True})

@@ -139,6 +139,25 @@ test('pipeline distinguishes translation while original remains available', asyn
   await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
 });
 
+test('pipeline shows retry waiting and only exposes terminal failures', async ({ page }) => {
+  let status = 'pending';
+  await page.route('**/api/news/*/detail', async route => {
+    const data = await (await route.fetch()).json();
+    Object.assign(data, { detail_status: status, detail: null, ai: null, ai_status: 'none',
+      job: { status, attempts: status === 'failed' ? 3 : 1, last_error: 'TIMEOUT',
+        next_attempt_at: status === 'pending' ? '2099-01-01 00:00:00' : null } });
+    await route.fulfill({ json: data });
+  });
+  await start(page);
+  await expect(page.locator('#detailPanelFeed .cache-label')).toHaveText('等待重试正文…');
+  await expect(page.locator('#detailContent .inline-error')).toHaveCount(0);
+  await expect(page.locator('#fetchArticleBtn')).toBeDisabled();
+  status = 'failed';
+  await expect(page.locator('#detailPanelFeed .cache-label')).toHaveText('正文抓取失败', { timeout: 10000 });
+  await expect(page.locator('#detailContent .inline-error')).toBeVisible();
+  await expect(page.locator('#fetchArticleBtn')).toBeEnabled();
+});
+
 test('Agent UI submits ordinary and quoted questions to real backend', async ({ page, request }) => {
   const saved = await (await request.get('/api/settings')).json();
   await request.put('/api/settings', { data: { llm: { ...saved.llm, pi_chat: { provider: 'test', model: 'test-model' } }, agent: { ...saved.agent, runtime: 'pi' } } });

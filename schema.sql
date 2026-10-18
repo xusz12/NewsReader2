@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS detail_jobs (
   queued_at TEXT,
   started_at TEXT,
   finished_at TEXT,
+  next_attempt_at TEXT,
+  worker_pid INTEGER,
   updated_at TEXT NOT NULL
 );
 

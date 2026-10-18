@@ -58,6 +58,10 @@ def make_item_id(date: str, source: str, title: str, url: str) -> str:
 
 def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     conn.executescript(schema_path.read_text(encoding="utf-8"))
+    detail_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(detail_jobs)")}
+    for name, kind in (("next_attempt_at", "TEXT"), ("worker_pid", "INTEGER")):
+        if name not in detail_job_cols:
+            conn.execute(f"ALTER TABLE detail_jobs ADD COLUMN {name} {kind}")
     source_file_cols = {
         r[1]
         for r in conn.execute("PRAGMA table_info(source_files)").fetchall()

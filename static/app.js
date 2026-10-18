@@ -595,13 +595,15 @@ function renderReader() {
     return html;
   }).join("");
   const savedNotes = payload?.notes || (payload?.note ? [{ ...payload.note, id: "legacy" }] : []);
+  const pipelineError = (["failed", "skipped"].includes(payload?.detail_status) ? payload?.job?.last_error : "")
+    || (payload?.ai_status === "failed" ? payload?.ai_job?.last_error : "");
   const thoughts = '<div id="researchNotesMount"></div>';
   $("#detailContent").innerHTML =
     `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasContent && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
     ${hasContent ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}
-    ${payload?.job?.last_error || payload?.ai_job?.last_error ? `<div class="inline-error">${e(errorText({ error: payload.job?.last_error || payload.ai_job.last_error }))}</div>` : ""}`;
+    ${pipelineError ? `<div class="inline-error">${e(errorText({ error: pipelineError }))}</div>` : ""}`;
   researchNotes.mount($("#researchNotesMount"), item.id, savedNotes, notesFocus);
   readerHighlights.mount(item.id, { [bodyKind]: body || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
   const writeThought = $("#writeArticleThoughtBtn");
@@ -681,6 +683,7 @@ setInterval(async () => {
 }, 3000);
 function pipelineLabel(payload) {
   if (!payload) return "正在读取正文…";
+  if (payload.detail_status === "pending" && payload.job?.next_attempt_at) return "等待重试正文…";
   const fetchLabels = { pending: "等待抓取正文", running: "正文抓取中…", failed: "正文抓取失败", canceled: "正文抓取已取消", skipped: "正文抓取已跳过" };
   if (fetchLabels[payload.detail_status]) return fetchLabels[payload.detail_status];
   if (!payload.detail?.content) return "尚未抓取正文";
