@@ -357,14 +357,20 @@ async function refreshBadges() {
 }
 let sourcesSequence = 0;
 const sourceCountsByCollection = new Map();
+const sourceCatalogByCollection = new Map();
 async function loadSources() {
   const currentCollection = state.collection;
   const collection = currentCollection === "summaries" ? "feed" : currentCollection, sequence = ++sourcesSequence;
   const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   try {
-    const data = await api(`/api/sources?collection=${collection}&read_filter=${readFilter}`);
+    // Source availability covers the whole collection; badges still count unread items.
+    const [data, catalog] = await Promise.all([
+      api(`/api/sources?collection=${collection}&read_filter=${readFilter}`),
+      readFilter === "unread" ? api(`/api/sources?collection=${collection}&read_filter=all`) : null,
+    ]);
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
     sourceCountsByCollection.set(currentCollection, data.sources);
+    sourceCatalogByCollection.set(currentCollection, (catalog || data).sources);
     renderSources();
   } catch (error) {
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
@@ -378,8 +384,8 @@ function renderSources() {
   const badge = count => showCount && count > 0 ? `<span class="nav-badge">${count}</span>` : "";
   const counts = new Map(sourceCounts.map(source => [source.key, source]));
   const sources = groups.map(group => counts.get(group.source_key) || { key: group.source_key, label: group.label, count: 0 });
-  for (const source of counts.values())
-    if (!sources.some(item => item.key === source.key)) sources.push(source);
+  for (const source of sourceCatalogByCollection.get(state.collection) || [])
+    if (!sources.some(item => item.key === source.key)) sources.push({ ...source, count: counts.get(source.key)?.count || 0 });
   $("#sourceFilters").innerHTML =
     `<div class="source-row"><button class="source-filter-button ${state.source === "all" ? "selected" : ""}" type="button" data-source="all"><span class="source-row-info"><span class="source-icon-badge all-sources">${icon("sources")}</span><span>全部来源</span></span>${badge(sourceCounts.reduce((n, s) => n + s.count, 0))}</button></div>` +
     sources

@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.0.9`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.0.10`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 本项目独立维护，使用新的 Git 历史，不绑定原项目远程仓库或更新源。内部包名为 `newsreader-workbench`，界面名称保留 News Reader。
 
@@ -91,7 +91,7 @@ Agent 会话默认保留 72 小时，可在设置中改为 24 小时；运行中
 
 ## 版本与更新
 
-版本统一为 `v0.0.9`；npm 包版本为 `0.0.9`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
+版本统一为 `v0.0.10`；npm 包版本为 `0.0.10`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
 
 在设置 → 系统状态与版本升级中点击「检查更新」，会重新读取 GitHub 的稳定版本 tag（`vN.N.N` 或 `vN.N.N.N`，不含预发布后缀），显示目标版本、检查时间和本地更新条件。没有稳定版本、已是最新版和本地版本领先会分别提示。GitHub 连接或访问限制导致检查失败时可稍后重试。
 

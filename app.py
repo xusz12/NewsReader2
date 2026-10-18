@@ -2105,12 +2105,12 @@ def parse_deepseek_model_options(payload: object) -> list[dict]:
 def deepseek_settings_snapshot(saved_model: str) -> dict:
     resolved_default_model = resolve_translation_default_model()
     configured = provider_has_configured_key("deepseek")
-    options = fallback_model_options(DEEPSEEK_MODEL_FALLBACKS, source="fallback")
-    status_text = "未配置 key，使用默认候选。"
+    options = fallback_model_options(DEEPSEEK_MODEL_FALLBACKS, source="fallback") if configured else []
+    status_text = "尚未配置 API 密钥，保存密钥后可获取模型。"
     last_error = ""
     models_endpoint_reachable = None
-    used_fallback = True
-    source = "fallback"
+    used_fallback = configured
+    source = "fallback" if configured else "unavailable"
     api_key = ""
 
     if configured:
@@ -8046,7 +8046,7 @@ def api_translation_test():
     except HTTPError as exc:
         return jsonify(ok=False, error="translation_test_failed", message=f"模型测试失败（HTTP {exc.code}）"), 502
     except Exception:
-        return jsonify(ok=False, error="translation_test_failed", message="模型测试失败，请检查网络、密钥和模型权限。"), 502
+        return jsonify(ok=False, error="translation_test_failed", message="翻译模型连接测试失败。"), 502
 
 
 @app.post("/api/settings/models")

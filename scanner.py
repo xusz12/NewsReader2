@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from parser import parse_daily_file, parse_daily_json_file, sidecar_path_for_daily
+from parser import DAILY_FILE_RE, parse_daily_file, parse_daily_json_file, sidecar_path_for_daily
 
 INGEST_MODE_SIDECAR_JSON = "sidecar_json"
 INGEST_MODE_MARKDOWN_FALLBACK = "markdown_fallback"
@@ -107,7 +107,12 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
 
 
 def list_daily_files(root: Path) -> list[Path]:
-    return sorted(root.rglob("dailyFreshNews_*.md"))
+    # Sync/backup copies (for example "dailyFreshNews_2026-10-18 2.md")
+    # are not daily inputs and must not interrupt indexing of later dates.
+    return sorted(
+        path for path in root.rglob("dailyFreshNews_*.md")
+        if path.is_file() and DAILY_FILE_RE.fullmatch(path.name)
+    )
 
 
 def file_signature(path: Path, sidecar_path: Path | None = None) -> tuple[float, int]:

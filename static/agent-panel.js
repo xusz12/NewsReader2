@@ -1,6 +1,5 @@
 import {
   $,
-  $$,
   api,
   escapeHTML as e,
   errorText,
@@ -48,13 +47,6 @@ export class AgentPanel {
         this.send();
       }
     });
-    $$(".suggestion-chip").forEach(
-      (button) =>
-        (button.onclick = () => {
-          $("#agentPromptInput").value = button.dataset.prompt;
-          $("#agentPromptInput").focus();
-        }),
-    );
     $(".mobile-sheet-handle-bar").onclick = () => this.collapse();
     $("#agentChatStream").addEventListener("click", (event) => {
       const button = event.target.closest("[data-retry-job]");
@@ -216,7 +208,6 @@ export class AgentPanel {
             : "等待正文就绪");
     $("#agentStatus").title = $("#agentStatus").textContent;
     $("#agentRuntimeBadge").title = $("#agentRuntimeBadge").textContent;
-    $(".agent-suggestions").hidden = !!(this.payload.messages || []).length;
     $("#agentQuote").hidden = !this.quoteText;
     $("#agentQuote").textContent = this.quoteText
       ? `引用：${this.quoteText}`

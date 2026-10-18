@@ -410,6 +410,7 @@ export class SettingsPanel {
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
   }
   translationOptions() {
+    if (!this.draft.api_status?.deepseek?.configured) return [];
     return (this.translationCatalog || this.draft.model_catalogs?.translation)?.options?.filter(option => option.source !== "saved") || [];
   }
   renderTranslation() {
@@ -419,9 +420,9 @@ export class SettingsPanel {
     const custom = options.some(option => option.value === d.llm.translation.model) ? "" : d.llm.translation.model;
     $("#translationSettings").innerHTML = `<div class="section-card-title"><span>DeepSeek 结构化精读与翻译管道</span></div>
       <p class="muted">为单篇新闻提供中文正文与结构化精读。</p>
-      <div class="translation-model-row">${select("翻译模型", "llm.translation.model", d.llm.translation.model, options, "使用默认模型")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"}>获取模型</button></div>
+      <div class="translation-model-row">${select("翻译模型", "llm.translation.model", d.llm.translation.model, options, configured ? "使用默认模型" : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"}>获取模型</button></div>
       ${field("自定义模型（可选）", "llm.translation.model", custom, 'maxlength="120"')}
-      <p class="muted" id="translationStatus" role="status">${e(this.translationNotice || "选择目录中的模型，或填写自定义模型。测试使用当前选择，无需先保存。")}</p>
+      <p class="muted" id="translationStatus" role="status">${e(configured ? this.translationNotice || "选择目录中的模型，或填写自定义模型。测试使用当前选择，无需先保存。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。")}</p>
       <div class="field-item"><label class="field-label" for="deepseekSecret">API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? '<p class="muted">当前由 DEEPSEEK_API_KEY 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>' : ""}

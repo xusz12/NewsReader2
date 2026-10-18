@@ -121,7 +121,7 @@ test('running job resumes after refresh and cancellation preserves unread', asyn
 test('failed generation preserves unread and permits a new preview and retry', async ({ page, request }) => {
   await request.post('/__test/summary-mode', { data: { mode: 'fail' } });
   await open(page); await preview(page); await page.locator('#confirmSummaryBtn').click();
-  await expect(page.locator('#summaryProgress')).toContainText('本任务未改变本批未读状态');
+  await expect(page.locator('#summaryProgress')).toContainText('所选运行方式未完整完成，未标记已读。');
   expect(await unread(request)).toBe(65);
   await request.post('/__test/summary-mode', { data: { mode: 'success' } });
   await complete(page);
@@ -132,7 +132,7 @@ test('saved scope changes invalidate an open preview', async ({ page, request })
   await open(page); await preview(page);
   await setLimits(request, { max_days: 20, max_items: 3 });
   await page.locator('#confirmSummaryBtn').click();
-  await expect(page.locator('#summaryModalError')).toContainText('预览已过期');
+  await expect(page.locator('#summaryModalError')).toContainText('预览后运行方式或总结限制已改变');
   await expect(page.locator('#confirmSummaryBtn')).toBeDisabled();
   expect(await unread(request)).toBe(65);
   await page.locator('#discardSummaryBtn').click();
@@ -150,7 +150,7 @@ test('lost create response retries the same request without duplicate archives',
     } else await route.continue();
   });
   await open(page); await preview(page); await page.locator('#confirmSummaryBtn').click();
-  await expect(page.locator('#summaryModalError')).toContainText('结果状态尚未确认');
+  await expect(page.locator('#summaryModalError')).toContainText('网络请求失败。');
   await page.locator('#confirmSummaryBtn').click();
   await expect(page.locator('#summaryModal')).not.toBeVisible();
   await expect(page.locator('#summaryCardList .news-card')).toHaveCount(1);

@@ -1,4 +1,4 @@
-import { $, $$, api, busy, escapeHTML as e } from "./ui.js";
+import { $, $$, api, busy, escapeHTML as e, singlePane } from "./ui.js";
 
 // Source offsets stay in the original Markdown. This avoids ambiguous text searches
 // when a paragraph repeats, a link hides its URL, or inline formatting splits a quote.
@@ -52,6 +52,9 @@ export class ReaderHighlights {
     this.onQuote = onQuote;
     this.onUpdate = onUpdate;
     this.popover = $("#selectionPopover");
+    // Keep the selected range intact until an action consumes it, including touch taps.
+    this.popover.addEventListener("pointerdown", event => event.preventDefault());
+    $("#dismissSelectionBtn").onclick = () => { getSelection()?.removeAllRanges(); this.hide(); };
     $("#highlightSelectionBtn").onclick = event => busy(event.currentTarget, () => this.save());
     $("#quoteNoteBtn").onclick = () => this.quote("note");
     $("#quoteAgentBtn").onclick = () => this.quote("agent");
@@ -81,6 +84,12 @@ export class ReaderHighlights {
       if (rect && rect.bottom >= viewport.top && rect.top <= viewport.bottom) this.position(rect);
       else this.hide();
     }, { passive: true });
+    const reposition = () => {
+      if (this.popover.classList.contains("show") && this.anchor) this.position(this.anchor.getBoundingClientRect());
+    };
+    window.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("resize", reposition);
+    window.visualViewport?.addEventListener("scroll", reposition);
   }
   hide() { this.popover.classList.remove("show"); }
   mount(id, bodies, surfaces = {}) {
@@ -119,7 +128,10 @@ export class ReaderHighlights {
   }
   select() {
     const selection = getSelection();
-    if (!selection?.rangeCount || selection.isCollapsed || !selection.toString().trim()) return;
+    if (!selection?.rangeCount || selection.isCollapsed || !selection.toString().trim()) {
+      if (!(this.anchor instanceof Element)) this.hide();
+      return;
+    }
     const range = selection.getRangeAt(0);
     const element = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
     const root = element.closest("[data-highlight-kind]");
@@ -168,9 +180,19 @@ export class ReaderHighlights {
     this.position(rect);
   }
   position(rect) {
+    const docked = singlePane.matches || matchMedia("(pointer: coarse)").matches;
+    this.popover.classList.toggle("selection-toolbar", docked);
     this.popover.style.position = "fixed";
-    this.popover.style.left = `${Math.max(8, Math.min(innerWidth - this.popover.offsetWidth - 8, rect.left))}px`;
-    this.popover.style.top = `${Math.max(8, Math.min(innerHeight - this.popover.offsetHeight - 8, rect.top - this.popover.offsetHeight - 8))}px`;
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+    const width = viewport?.width || innerWidth, bottom = top + (viewport?.height || innerHeight);
+    this.popover.style.maxWidth = `${Math.max(0, width - 16)}px`;
+    const nav = $(".mobile-bottom-nav");
+    const navTop = nav?.getClientRects().length ? nav.getBoundingClientRect().top : bottom;
+    const x = docked ? left + (width - this.popover.offsetWidth) / 2 : rect.left;
+    const y = docked ? Math.min(bottom, navTop) - this.popover.offsetHeight - 8 : rect.top - this.popover.offsetHeight - 8;
+    this.popover.style.left = `${Math.max(left + 8, Math.min(left + width - this.popover.offsetWidth - 8, x))}px`;
+    this.popover.style.top = `${Math.max(top + 8, Math.min(bottom - this.popover.offsetHeight - 8, y))}px`;
   }
   quote(target) {
     if (this.selection?.itemId === this.itemId) this.onQuote(target, this.selection.quote);

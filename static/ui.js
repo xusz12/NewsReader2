@@ -36,8 +36,8 @@ export async function api(path, { method = "GET", body, signal } = {}) {
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data || data.ok === false) {
-    if (globalThis.NewsErrors && data)
-      throw NewsErrors.fromResponse(data, response, "request_failed");
+    if (globalThis.NewsErrors)
+      throw NewsErrors.fromResponse(data, response, `http_${response.status}`);
     throw new Error(data?.error || `请求失败（HTTP ${response.status}）`);
   }
   return data;
@@ -45,7 +45,7 @@ export async function api(path, { method = "GET", body, signal } = {}) {
 export function errorText(error) {
   if (globalThis.NewsErrors) {
     const info = NewsErrors.explain(error);
-    return `${info.message} ${info.action || ""}`.trim();
+    return info.message;
   }
   return error?.message || "请求失败，请重试。";
 }

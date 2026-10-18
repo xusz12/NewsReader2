@@ -47,7 +47,7 @@ module.NEWS_SUMMARY_SERVICE.runner = fixture_summary
 # Do not inspect local credentials or call model catalogs in UI tests.
 module.deepseek_settings_snapshot = lambda model: {
     'service': {'configured': False, 'status_text': '未配置密钥'},
-    'catalog': {'options': [{'value': 'deepseek-v4-flash', 'label': 'deepseek-v4-flash'}]},
+    'catalog': {'options': []},
 }
 module.pi_chat_settings_snapshot = lambda *args: {
     'service': {'configured': True},

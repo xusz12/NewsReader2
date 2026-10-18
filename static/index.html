@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.9</title>
+    <title>News Reader v0.0.10</title>
     <script>
       try {
         const m =
@@ -41,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.9" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.10" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.9&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.10&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -87,7 +87,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.9</span>
+            <span class="brand-version">v0.0.10</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -562,27 +562,6 @@
               <div class="agent-body">
                 <blockquote hidden="" id="agentQuote"></blockquote>
                 <div class="agent-chat-stream" id="agentChatStream"></div>
-                <div class="agent-suggestions">
-                  <button
-                    class="suggestion-chip"
-                    data-prompt="解释关键背景"
-                    type="button"
-                  >
-                    解释关键背景</button
-                  ><button
-                    class="suggestion-chip"
-                    data-prompt="核对核心证据"
-                    type="button"
-                  >
-                    核对核心证据</button
-                  ><button
-                    class="suggestion-chip"
-                    data-prompt="分析潜在影响"
-                    type="button"
-                  >
-                    分析潜在影响
-                  </button>
-                </div>
                 <div class="agent-input-row">
                   <input
                     aria-label="向新闻研究 Agent 提问"
@@ -1240,16 +1219,17 @@
       </div>
     </div>
     <div aria-live="polite" class="app-toast" id="toast" role="status"></div>
-    <div class="selection-popover" id="selectionPopover">
+    <div class="selection-popover" id="selectionPopover" role="group" aria-label="选中文本操作">
       <button class="selection-pop-btn" id="highlightSelectionBtn" type="button">高亮</button>
       <button class="selection-pop-btn" id="quoteNoteBtn" type="button">引用写想法</button>
       <button class="selection-pop-btn accent" id="quoteAgentBtn" type="button">
         引用提问 Agent
       </button>
+      <button class="selection-pop-btn" id="dismissSelectionBtn" type="button" aria-label="关闭选中文本操作">×</button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.9"></script>
+    <script src="/static/error_ui.js?v=0.0.10"></script>
     <script
-      src="/static/app.js?v=0.0.9&amp;build=workbench2"
+      src="/static/app.js?v=0.0.10&amp;build=workbench2"
       type="module"
     ></script>
   </body>

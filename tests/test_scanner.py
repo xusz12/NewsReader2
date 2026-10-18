@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from scanner import apply_schema, reindex
+from scanner import apply_schema, list_daily_files, reindex
 
 
 def make_daily(path: Path, title: str, url: str, t: str = "08:00:00"):
@@ -66,6 +66,35 @@ def test_reindex_is_idempotent_and_updates(tmp_path: Path):
     row = conn.execute("SELECT title, published_at FROM items").fetchone()
     assert row[0] == "A-UPDATED"
     assert row[1].endswith("09:00")
+
+
+def test_reindex_ignores_copy_filenames_and_continues_to_new_dates(tmp_path: Path):
+    daily = tmp_path / "2026年10月"
+    daily.mkdir()
+    current = daily / "dailyFreshNews_2026-10-18.md"
+    following = daily / "dailyFreshNews_2026-10-19.md"
+    make_daily(current, "原有新闻", "https://example.com/original")
+    conn = sqlite3.connect(":memory:")
+    apply_schema(conn, Path(__file__).resolve().parents[1] / "schema.sql")
+    reindex(conn, tmp_path)
+
+    make_daily(current, "更新后的新闻", "https://example.com/original")
+    make_daily(following, "次日新闻", "https://example.com/new")
+    copies = [daily / name for name in (
+        "dailyFreshNews_2026-10-18 2.md",
+        "dailyFreshNews_2026-10-18 (conflicted copy).md",
+        "dailyFreshNews_2026-10-18.backup.md",
+    )]
+    for copy in copies:
+        copy.write_text("副本保留，不参与索引", encoding="utf-8")
+    (daily / "dailyFreshNews_2026-10-20.md").mkdir()
+
+    assert list_daily_files(tmp_path) == [current, following]
+    stats = reindex(conn, tmp_path)
+    assert stats.scanned_files == stats.changed_files == 2
+    assert [row[0] for row in conn.execute("SELECT title FROM items ORDER BY source_file")] == ["更新后的新闻", "次日新闻"]
+    assert reindex(conn, tmp_path).changed_files == 0
+    assert all(copy.read_text(encoding="utf-8") == "副本保留，不参与索引" for copy in copies)
 
 
 def test_stale_delete_and_item_state_preserved(tmp_path: Path):
