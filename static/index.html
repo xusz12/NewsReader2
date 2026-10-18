@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.7</title>
+    <title>News Reader v0.0.8</title>
     <script>
       try {
         const m =
@@ -41,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.7" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.8" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.7&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.8&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -87,7 +87,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.7</span>
+            <span class="brand-version">v0.0.8</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -266,6 +266,12 @@
                     <span>想法</span>
                   </div>
                   <span class="nav-badge"></span>
+                </button>
+              </section>
+              <section class="nav-section">
+                <div class="nav-title">研究</div>
+                <button class="nav-item" data-collection="summaries" id="navSummariesBtn" type="button">
+                  <div class="nav-item-left"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg><span>新闻总结</span></div>
                 </button>
               </section>
               <section class="nav-section">
@@ -631,6 +637,27 @@
               <div class="workbench-detail-body" id="ideaDetailBody"></div>
             </div>
           </section>
+          <section class="feed-column" id="feedColSummaries" aria-label="新闻总结历史列表">
+            <div class="feed-header">
+              <label class="feed-search-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg><input class="feed-search-input" id="summariesSearchInput" type="search" aria-label="搜索新闻总结" placeholder="搜索历史总结、主线或日期…"><span class="search-shortcut-hint">/</span></label>
+              <div class="feed-filter-row"><div class="feed-filter-chips" id="summaryFilters"><button class="filter-chip active" data-summary-filter="all" type="button" aria-pressed="true">全部</button></div></div>
+            </div>
+            <div class="summary-list-scroll">
+              <section class="catchup-card" aria-label="总结未读积压">
+                <div class="catchup-top"><strong id="catchupStatusLabel">未读积压</strong><button class="catchup-range-link" id="catchupSettingsBtn" type="button">调整范围 ›</button></div>
+                <p class="catchup-copy">锁定点击时的全部未读，不受新闻流筛选影响。成功归档后才标读，Bloomberg 视频除外。</p>
+                <div class="catchup-metrics" id="catchupMetrics"></div>
+                <div class="catchup-foot"><button class="btn-primary" id="catchupStartBtn" type="button">总结并全部已读</button><span class="catchup-runtime" id="catchupRuntime"></span></div>
+                <div id="summaryProgress" role="status" aria-live="polite"></div>
+                <button class="btn-secondary" id="cancelSummaryBtn" type="button" hidden>停止本次总结</button>
+              </section>
+              <ul class="news-list" id="summaryCardList" aria-label="已归档总结"></ul>
+            </div>
+          </section>
+          <section class="detail-panel" id="detailPanelSummaries" aria-label="新闻总结阅读区">
+            <div class="detail-toolbar"><div class="detail-toolbar-left"><div class="reader-cache-status"><span class="cache-pulse-dot"></span><span class="cache-label" id="summaryToolbarTitle">新闻总结</span></div></div><div class="detail-toolbar-right"><button class="reader-action-btn" id="summaryReturnBtn" type="button" hidden>↑ 回到原位</button><button class="reader-action-btn" id="exportSummaryBtn" type="button" disabled>导出 Markdown</button></div></div>
+            <div class="reader-scroll" id="summaryScrollArea"><article class="summary-report" id="summaryContent"><div class="summary-empty"><span class="settings-eyebrow">CATCH UP · 新闻总结</span><h1>把积压读成脉络</h1><p>生成一份未读新闻总结，或从左侧选择历史报告。</p><p>报告保存后可随时回看，并追溯引用来源。</p></div></article></div>
+          </section>
           <section
             class="feed-column settings-categories"
             id="feedColSettings"
@@ -830,7 +857,12 @@
                 >
                   <path d="m9 5 7 7-7 7" />
                 </svg></button
-              ><button
+              ><button class="settings-category-card" id="settingsCategory-catchup" data-settings-tab="catchup" data-title="积压新闻总结范围" data-description="设置总结的最大自然日与最多未读条数。" data-search="summary catchup 积压 新闻 总结 范围 日期 条数 已读" type="button" aria-controls="settingsContent" aria-current="false">
+                <span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg></span>
+                <span class="settings-category-copy"><span class="settings-category-meta">未读补课</span><strong>积压新闻总结范围</strong><span class="settings-category-description">设置回溯日期与新闻数量，查看当前积压范围。</span></span>
+                <svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg>
+              </button>
+              <button
                 class="settings-category-card"
                 id="settingsCategory-system"
                 data-settings-tab="system"
@@ -888,7 +920,7 @@
               </div>
             </div>
             <div class="settings-list-footer">
-              <span id="settingsCategoryCount" role="status">5 个配置分类</span
+              <span id="settingsCategoryCount" role="status">6 个配置分类</span
               ><span>更改后点击保存</span>
             </div>
           </section>
@@ -999,7 +1031,7 @@
               d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
             ></path></svg
           ><span>想法</span></button
-        ><button class="mobile-nav-btn" id="mobNavSettings" type="button">
+        ><button class="mobile-nav-btn" data-collection="summaries" id="mobNavSummaries" type="button"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg><span>新闻总结</span></button><button class="mobile-nav-btn" id="mobNavSettings" type="button">
           <div class="mob-icon-wrap">
             <svg
               fill="none"
@@ -1032,6 +1064,11 @@
           <span>按 <kbd>Esc</kbd> 退出弹窗</span>
         </div>
       </footer>
+      <dialog class="catchup-dialog" id="summaryModal" aria-labelledby="summaryModalTitle">
+        <div class="modal-header"><h2 class="modal-title" id="summaryModalTitle">总结并全部已读确认</h2><button class="modal-close-btn" id="closeSummaryModalBtn" type="button" aria-label="关闭总结确认">✕</button></div>
+        <div class="modal-body" id="summaryModalBody"></div>
+        <div class="modal-footer"><button class="btn-secondary" id="discardSummaryBtn" type="button">取消</button><button class="btn-primary" id="confirmSummaryBtn" type="button">确认启动并标读全部</button></div>
+      </dialog>
       <div
         aria-label="键盘快捷键"
         aria-modal="true"
@@ -1210,9 +1247,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.7"></script>
+    <script src="/static/error_ui.js?v=0.0.8"></script>
     <script
-      src="/static/app.js?v=0.0.7&amp;build=workbench2"
+      src="/static/app.js?v=0.0.8&amp;build=workbench2"
       type="module"
     ></script>
   </body>

@@ -14,8 +14,8 @@ test('default unread ascending, collection filters and full card dates', async (
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', 'ui-064');
   await expect(page.locator('.feed-date-heading')).toHaveCount(0);
   await expect(page.locator('#feedCardList .news-card .meta-time-row').first()).toHaveText('2026-10-10 10:02');
-  const row = await page.locator('.feed-filter-row').boundingBox();
-  for (const control of await page.locator('.feed-filter-row button').all()) { const box = await control.boundingBox(); expect(box.y).toBeCloseTo(row.y, 0); }
+  const row = await page.locator('#feedColFeed .feed-filter-row').boundingBox();
+  for (const control of await page.locator('#feedColFeed .feed-filter-row button').all()) { const box = await control.boundingBox(); expect(box.y).toBeCloseTo(row.y, 0); }
   await page.locator('#navImportantBtn').click();
   await expect(page.locator('#feedColFeed [data-filter]')).toHaveCount(2);
   await expect(page.locator('#feedColFeed [data-filter="notes"]')).toBeVisible();

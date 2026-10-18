@@ -19,6 +19,7 @@ import {
   focusTrap,
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js";
+import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js";
 import { AgentPanel } from "./agent-panel.js";
 import { ResearchNotes } from "./research-notes.js";
@@ -54,6 +55,7 @@ const labels = {
   important: "重要新闻",
   favorites: "收藏",
   notes: "想法",
+  summaries: "新闻总结",
 };
 const stateLabels = {
   read: "已读",
@@ -111,6 +113,21 @@ const agent = new AgentPanel({
 const readerHighlights = new ReaderHighlights({
   onQuote: (target, quote) => target === "note" ? researchNotes.open(quote) : agent.quote(quote.text),
   onUpdate: (id, result) => { if (state.selected?.id === id) state.detail = { ...state.detail, ...result }; },
+});
+const summaries = new SummaryPanel({
+  isVisible: () => state.collection === "summaries" && !settings.open,
+  enterReader,
+  openSettings: async () => {
+    if (!settings.open) await settings.toggle();
+    settings.selectSection("catchup");
+  },
+  onCompleted: () => {
+    refreshBadges();
+    if (!["notes", "summaries"].includes(state.collection)) {
+      loadFeed();
+      if (state.selected) selectNews(state.selected, false);
+    }
+  },
 });
 
 function feedParams() {
@@ -211,6 +228,7 @@ function renderFeed() {
   requestAnimationFrame(trackFeedReading);
 }
 async function loadFeed(append = false) {
+  if (state.collection === "summaries") return summaries.load();
   if (state.collection === "notes") return loadIdeas();
   if (append && (state.loading || !state.more)) return;
   requestController?.abort();
@@ -324,6 +342,7 @@ function setIndexStatus(message, failed = false) {
 }
 let badgesSequence = 0;
 async function refreshBadges() {
+  summaries.refreshScope();
   const sequence = ++badgesSequence;
   try {
     const [data] = await Promise.all([api("/api/nav-summary"), loadSources()]);
@@ -339,15 +358,16 @@ async function refreshBadges() {
 let sourcesSequence = 0;
 const sourceCountsByCollection = new Map();
 async function loadSources() {
-  const collection = state.collection, sequence = ++sourcesSequence;
+  const currentCollection = state.collection;
+  const collection = currentCollection === "summaries" ? "feed" : currentCollection, sequence = ++sourcesSequence;
   const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   try {
     const data = await api(`/api/sources?collection=${collection}&read_filter=${readFilter}`);
-    if (sequence !== sourcesSequence || collection !== state.collection) return;
-    sourceCountsByCollection.set(collection, data.sources);
+    if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
+    sourceCountsByCollection.set(currentCollection, data.sources);
     renderSources();
   } catch (error) {
-    if (sequence !== sourcesSequence || collection !== state.collection) return;
+    if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
     $("#sourceFilters").textContent = errorText(error);
   }
 }
@@ -389,10 +409,13 @@ function switchCollection(collection) {
   closeNav();
   exitReader();
   const ideas = collection === "notes";
-  $("#feedColFeed").classList.toggle("active", !ideas);
-  $("#detailPanelFeed").classList.toggle("active", !ideas);
+  const summary = collection === "summaries";
+  $("#feedColFeed").classList.toggle("active", !ideas && !summary);
+  $("#detailPanelFeed").classList.toggle("active", !ideas && !summary);
   $("#feedColIdeas").classList.toggle("active", ideas);
   $("#detailPanelIdeas").classList.toggle("active", ideas);
+  $("#feedColSummaries").classList.toggle("active", summary);
+  $("#detailPanelSummaries").classList.toggle("active", summary);
   syncMobileLayers();
   $$("[data-collection]").forEach((button) => {
     const active = button.dataset.collection === collection;
@@ -400,7 +423,12 @@ function switchCollection(collection) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  if (ideas) {
+  if (summary) {
+    agent.suspend();
+    clearTimeout(detailTimer);
+    state.detailSequence++;
+    summaries.load();
+  } else if (ideas) {
     agent.suspend();
     loadIdeas();
   } else {
@@ -824,7 +852,7 @@ async function saveIdea() {
   await loadIdeas();
 }
 function enterReader() {
-  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
+  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
   if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
   syncMobileLayers();
@@ -841,8 +869,8 @@ function mobileReaderOpen() {
 }
 function syncMobileLayers() {
   const open = mobileReaderOpen() && !settings.open;
-  for (const list of $$("#feedColFeed, #feedColIdeas")) list.inert = open;
-  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas"))
+  for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries")) list.inert = open;
+  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries"))
     panel.inert = singlePane.matches && (!open || !panel.classList.contains("active"));
   const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
@@ -861,9 +889,9 @@ function canSwipeDetail(panel) {
     return settings.open && $("#feedView").classList.contains("settings-detail-active");
   return !settings.open &&
     $("#feedView").classList.contains("mobile-reader-active") &&
-    !(state.collection !== "notes" && agent.open);
+    !(!["notes", "summaries"].includes(state.collection) && agent.open);
 }
-for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSettings")) {
+for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelSettings")) {
   panel.addEventListener("touchstart", event => {
     resetDetailSwipe();
     if (!canSwipeDetail(panel) || event.touches.length !== 1 ||
@@ -946,7 +974,7 @@ document.addEventListener("click", (event) => {
     loadIdeas();
   }
   if (button?.dataset.source) {
-    if (settings.open) switchCollection("feed");
+    if (settings.open || state.collection === "summaries") switchCollection("feed");
     state.source = button.dataset.source;
     renderSources();
     closeNav();
@@ -1062,6 +1090,7 @@ function refreshIndex(notify = false) {
 refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
+  if (summaries.modal.open) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));
@@ -1104,6 +1133,8 @@ document.addEventListener("keydown", (event) => {
   if (key === ",") {
     event.preventDefault();
     settings.toggle();
+  } else if (state.collection === "summaries" && key !== "?") {
+    summaries.handleKey(event);
   } else if (key === "/") {
     event.preventDefault();
     (state.collection === "notes"
@@ -1159,7 +1190,9 @@ syncMobileLayers();
 drawerNavigation.addEventListener("change", closeNav);
 singlePane.addEventListener("change", () => {
   if (singlePane.matches || settings.open) return;
-  if (state.collection === "notes") {
+  if (state.collection === "summaries") {
+    if (!summaries.selected && summaries.entries.length) summaries.select(summaries.entries[0].id);
+  } else if (state.collection === "notes") {
     if (!state.idea && state.ideas.length) selectIdea(state.ideas[0]);
   } else if (!state.selected && state.items.length) selectNews(state.items[0], false);
 });
@@ -1169,6 +1202,7 @@ renderReader();
 Promise.allSettled([
   refreshIndex(),
   settings.load(false),
+  summaries.load(),
 ]).then(() => renderSources());
 api("/api/version")
   .then((data) => {

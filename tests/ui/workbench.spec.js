@@ -33,12 +33,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.7", available: false,
+    ok: true, enabled: false, current_version: "v0.0.8", available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.7");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.7");
+  await expect(page).toHaveTitle("News Reader v0.0.8");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.8");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();
@@ -67,7 +67,7 @@ test("three-column shell, real data and retired feature removal", async ({
     "page",
   );
   await expect(
-    page.getByRole("button", { name: /^(新闻总结|日报|提醒|复盘|跟踪|板块)$/ }),
+    page.getByRole("button", { name: /^(日报|提醒|复盘|跟踪|板块)$/ }),
   ).toHaveCount(0);
   expect(await page.locator('script[src*="news_summaries"]').count()).toBe(0);
   await select(page);
@@ -680,7 +680,7 @@ test("settings is an inline three-column workspace with searchable categories", 
   await page.locator("#settingsSearchInput").fill("没有这个分类");
   await expect(page.locator("#settingsSearchEmpty")).toBeVisible();
   await page.locator("#clearSettingsSearchBtn").click();
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(5);
+  await expect(page.locator(".settings-category-card:visible")).toHaveCount(6);
   for (const category of ["deepseek", "pipeline", "system", "models"]) {
     await page.locator(`[data-settings-tab="${category}"]`).click();
     await expect(

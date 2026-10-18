@@ -6,7 +6,7 @@ from __future__ import annotations
 import json, hashlib, os, re, sqlite3, threading, uuid, time, selectors, subprocess, tempfile, shutil
 from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import codex_client
 import news_summary_selection as selection
 from oar_client import (
@@ -629,6 +629,7 @@ class Service:
             "item_count": len(s["items"]),
             "scope": public_scope(s["scope"]),
             "runtime": config["runtime"],
+            "model": config.get("codex", {}).get("model", "") if config["runtime"] == "codex" else config.get("pi_model", ""),
         }
 
     def prepare(self, request_id, token):
@@ -1024,13 +1025,62 @@ class Service:
             finally:
                 c.close()
 
-    def listing(self, offset=0):
+    def overview(self, draft_limits=None):
+        """Read-only date/count selection, using draft limits without saving them."""
         path, _, token = self.context()
         c = self.connection(path)
         try:
+            settings = self.settings_getter()
+            options = selection.limits(draft_limits if draft_limits is not None else settings.get("news_summary"))
+            scope_query = self.scope_getter(c) if self.scope_getter else ("WHERE st.read_at IS NULL", [])
+            where, args = scope_query[:2]
+            rows = [dict(r) for r in c.execute(
+                "SELECT items.id, COALESCE(NULLIF(items.date,''),substr(items.published_at,1,10)) date "
+                "FROM items LEFT JOIN item_state st ON st.item_id=items.id " + where, args,
+            )]
+            start, end, fallback = selection.window(rows, options)
+            selected = selection.clean_snapshot({"items": rows}, options) if rows else None
+            counts = {
+                "summarized_count": 0, "excluded_count": 0,
+                "excluded_by": {"date": 0, "count": 0},
+                "undated_count": 0, "undated_summarized": 0,
+            }
+            if selected:
+                counts.update({key: selected["scope"][key] for key in counts})
+                # Input-size limits are applied by prepare(), not this metadata-only view.
+                counts["excluded_by"] = {key: counts["excluded_by"][key] for key in ("date", "count")}
+            visible = scope_query[2].get("feed_visible_unread_count", len(rows)) if len(scope_query) > 2 else len(rows)
+            agent = settings["agent"]
+            return {
+                **counts,
+                "database_token": token, "limits": options,
+                "window_start": start, "window_end": end, "fallback_window": fallback,
+                "start_date": selected["start"] if selected else "",
+                "end_date": selected["end"] if selected else "",
+                "locked_count": len(rows), "feed_visible_unread_count": visible,
+                "hidden_source_unread_count": len(rows) - visible,
+                "runtime": agent["runtime"],
+                "model": agent.get("codex", {}).get("model", "") if agent["runtime"] == "codex" else settings["llm"]["pi_chat"].get("model", ""),
+            }
+        finally:
+            c.close()
+
+    def listing(self, offset=0, query="", recent=False):
+        path, _, token = self.context()
+        c = self.connection(path)
+        try:
+            clauses, args = [], []
+            if query:
+                clauses.append("(instr(lower(title || ' ' || body || ' ' || start_date || ' ' || end_date), lower(?)) > 0)")
+                args.append(query)
+            if recent:
+                clauses.append("created_at >= ?")
+                args.append((date.today() - timedelta(days=29)).isoformat())
+            where = " WHERE " + " AND ".join(clauses) if clauses else ""
             rows = c.execute(
-                "SELECT id,title,start_date,end_date,item_count,created_at FROM news_summaries ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET ?",
-                (offset,),
+                "SELECT id,title,start_date,end_date,item_count,created_at,substr(body,1,240) excerpt "
+                "FROM news_summaries" + where + " ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET ?",
+                [*args, offset],
             ).fetchall()
             active = c.execute(
                 "SELECT * FROM news_summary_jobs WHERE status IN ('pending','generating','checking') ORDER BY created_at DESC LIMIT 1"
@@ -1041,7 +1091,8 @@ class Service:
             return {
                 "database_token": token,
                 "items": [dict(r) for r in rows],
-                "total": c.execute("SELECT count(*) FROM news_summaries").fetchone()[0],
+                "total": c.execute("SELECT count(*) FROM news_summaries" + where, args).fetchone()[0],
+                "archive_total": c.execute("SELECT count(*) FROM news_summaries").fetchone()[0],
                 "active": self.public_job(active),
                 "latest_job": self.public_job(latest),
             }

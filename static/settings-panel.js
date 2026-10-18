@@ -1,6 +1,7 @@
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js";
+import { visibilityText } from "./summary-panel.js";
 
 const clone = (value) => structuredClone(value);
 const get = (object, path) =>
@@ -235,6 +236,7 @@ export class SettingsPanel {
     $("#settingsDetailDescription").textContent = selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
     if (section === "system" && $("#updateResult")) this.updater.restore();
+    if (section === "catchup" && $("#settingsCatchupScope")) this.loadCatchupScope();
     if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
       this.onViewChange?.();
@@ -273,6 +275,7 @@ export class SettingsPanel {
       llm: clone(d.llm),
       feed: clone(d.feed),
       agent: clone(d.agent),
+      news_summary: clone(d.news_summary || { max_days: 20, max_items: 6000 }),
       database: { path: d.database.configured_path || "" },
     };
   }
@@ -287,15 +290,12 @@ export class SettingsPanel {
     const input = event.target;
     if (input.id === "deepseekSecret") { this.secretDraft = input.value; return; }
     if (!input.name || !this.draft) return;
-    const unchanged = get(this.draft, input.name) === input.value;
-    if (unchanged && event.type !== "change") return;
-    set(
-      this.draft,
-      input.name,
-      input.type === "number" || input.name === "agent.session_ttl_hours"
-        ? Number(input.value)
-        : input.value,
-    );
+    const value = input.type === "number" || input.name === "agent.session_ttl_hours"
+      ? Number(input.value) : input.value;
+    const unchanged = Object.is(get(this.draft, input.name), value);
+    // Numeric fields emit change again on blur, after input already updated the draft.
+    if (unchanged && (input.name.startsWith("news_summary.") || event.type !== "change")) return;
+    set(this.draft, input.name, value);
     if (input.name === "llm.translation.model") {
       this.translationSequence = (this.translationSequence || 0) + 1;
       this.translationNotice = "模型已变化，可以测试当前选择。";
@@ -313,6 +313,7 @@ export class SettingsPanel {
     }
     this.dirty = true;
     this.status("有未保存的更改");
+    if (input.name.startsWith("news_summary.")) this.loadCatchupScope(250);
     this.connectionSequence++;
     this.connectionResult = "[READY] 配置已变化，请重新测试。";
     if ($("#connTestTerminal"))
@@ -389,6 +390,10 @@ export class SettingsPanel {
     $("#settingsContent").innerHTML =
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
       <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
+      <section class="settings-section-card" data-section="catchup"><div class="section-card-title"><span>积压新闻总结范围</span></div>
+      <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
+      <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
+      <button class="btn-secondary" id="resetCatchupDefaultsBtn" type="button">恢复默认范围（20 天 / 6000 条）</button></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>信源增量采集与 opencli 适配器</span></div><p class="muted">保存信源开关后更新新闻流，保留原有阅读状态。正文抓取由本机 opencli 执行，可在文章中查看结果。</p><div id="settingsSources">${this.sourceHTML()}</div><button class="btn-secondary" id="settingsReindexBtn" type="button">重新扫描 DailyNews</button></section>
       <section class="settings-section-card" data-section="storage"><div class="section-card-title"><span>本地 SQLite 数据库与存储路径</span></div>
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
@@ -455,7 +460,7 @@ export class SettingsPanel {
     const efforts = model?.reasoning_efforts || [];
     const savedEffort = d.agent.codex.reasoning_effort;
     $("#modelSettings").innerHTML =
-      `<div class="section-card-title"><span>Chat 与新闻研究 Agent 模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
+      `<div class="section-card-title"><span>Chat、新闻研究 Agent 与积压总结模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
     ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, codexOptions, "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", custom, 'maxlength="120"')}<p class="muted" id="modelCapabilitiesHint">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
     <button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><p class="muted" id="modelsNotice">${e(this.catalogNotice || catalog.notice || "候选目录不代表实际调用权限。")}</p>
     <div class="connection-test-section"><div><strong>模型可用性独立连接测试</strong><p class="muted">使用当前未保存选择测试，不写入新闻或聊天历史。</p></div><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing ? "disabled" : ""}>${this.testing ? "测试中…" : "运行连接测试"}</button><div class="terminal-box" id="connTestTerminal" role="status">${e(this.connectionResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>
@@ -508,6 +513,12 @@ export class SettingsPanel {
       return;
     }
     const actions = {
+      retryCatchupScopeBtn: () => this.loadCatchupScope(),
+      resetCatchupDefaultsBtn: () => {
+        this.draft.news_summary = { max_days: 20, max_items: 6000 };
+        this.dirty = true;
+        this.render();
+      },
       retrySettingsBtn: () => this.load(),
       refreshModelsBtn: () => this.refreshModels(),
       testConnectionBtn: () => this.testConnection(),
@@ -540,6 +551,13 @@ export class SettingsPanel {
   }
   async save() {
     if (!this.draft) return;
+    const invalid = $$('#settingsContent input[type="number"]').find(input => !input.checkValidity());
+    if (invalid) {
+      this.selectSection(invalid.closest("[data-section]").dataset.section);
+      invalid.reportValidity();
+      this.status("总结范围必须填写有效的正整数", true);
+      return;
+    }
     const payload = this.payload();
     const fingerprint = JSON.stringify(payload);
     this.status("正在保存…");
@@ -556,6 +574,7 @@ export class SettingsPanel {
       );
       this.onSources();
       this.onSaved();
+      if (this.section === "catchup") this.loadCatchupScope();
       toast("设置已保存");
     } catch (error) {
       this.status(errorText(error), true);
@@ -595,6 +614,34 @@ export class SettingsPanel {
       this.renderModels();
       throw error;
     }
+  }
+  loadCatchupScope(delay = 0) {
+    clearTimeout(this.catchupScopeTimer);
+    this.catchupScopeController?.abort();
+    const sequence = this.catchupScopeSequence = (this.catchupScopeSequence || 0) + 1;
+    const target = $("#settingsCatchupScope");
+    if (!target || !this.draft) return;
+    const limits = clone(this.draft.news_summary || { max_days: 20, max_items: 6000 });
+    if (![limits.max_days, limits.max_items].every(n => Number.isSafeInteger(n) && n > 0)) {
+      target.textContent = "请输入有效的正整数以计算当前生效范围。";
+      target.removeAttribute("aria-busy");
+      return;
+    }
+    target.textContent = "正在计算当前生效范围…";
+    target.setAttribute("aria-busy", "true");
+    const controller = this.catchupScopeController = new AbortController();
+    this.catchupScopeTimer = setTimeout(async () => {
+      try {
+        const scope = await api("/api/news-summaries/scope", { method: "POST", body: { news_summary: limits }, signal: controller.signal });
+        if (sequence !== this.catchupScopeSequence || !target.isConnected) return;
+        const coverage = scope.summarized_count ? `实际覆盖 ${e(scope.start_date)} → ${e(scope.end_date)}` : "暂无未读新闻";
+        target.innerHTML = `<div class="catchup-scope-heading"><strong>当前生效范围</strong><span>${e(scope.window_start)} → ${e(scope.window_end)}</span></div><p>${e(visibilityText(scope))}</p><p>按日期与条数纳入 ${scope.summarized_count} 条；日期排除 ${scope.excluded_by.date} 条，条数排除 ${scope.excluded_by.count} 条。${coverage}${scope.undated_summarized ? `；另含日期不明 ${scope.undated_summarized} 条` : ""}。</p><p class="muted">当前填写：${scope.limits.max_days} 个自然日、最多 ${scope.limits.max_items} 条。${scope.fallback_window ? "当前日期窗口内无新闻，已回溯至最近有新闻的日期。" : ""}</p>`;
+      } catch (error) {
+        if (sequence === this.catchupScopeSequence && target.isConnected && error.name !== "AbortError") target.innerHTML = `<p>${e(errorText(error))}</p><button class="btn-secondary" id="retryCatchupScopeBtn" type="button">重新读取范围</button>`;
+      } finally {
+        if (sequence === this.catchupScopeSequence && target.isConnected) target.removeAttribute("aria-busy");
+      }
+    }, delay);
   }
   async testConnection() {
     const draft = this.modelDraft(),

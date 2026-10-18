@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import tempfile
+import re
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +25,25 @@ for name, path in {
 (RUNTIME / 'daily').mkdir()
 import app as module
 module.ensure_db()
+# Summary UI exercises real preview/transaction APIs against this temporary DB.
+# Only model execution is replaced; never invoke a user's CLI from this server.
+summary_mode = {"value": "success"}
+module.news_summaries.native_config_stamp = lambda config: []
+def fixture_summary(config, prompt, cancel, diagnostics):
+    mode = summary_mode["value"]
+    end = time.monotonic() + (30 if mode == "wait" else .25)
+    while time.monotonic() < end:
+        if cancel():
+            raise RuntimeError("summary_cancelled")
+        time.sleep(.02)
+    if mode == "fail":
+        raise RuntimeError("summary_runtime_failed")
+    ref = re.search(r"^(N\d+) \|", prompt, re.M).group(1)
+    return ("## 本期主要变化\n\n准备金变化、先进制程与开源推理模型构成本期关注的三条线索。[[" + ref + "]]\n\n"
+            "## 科技与流动性的发展脉络\n\n- **宏观政策**：材料讨论了准备金水平及短期融资压力。[[" + ref + "]]\n"
+            "- **科技产业**：报道涉及先进制程试产与推理模型部署。[[" + ref + "]]\n\n"
+            "## 继续观察\n\n当前材料不足以判断后续效果，需要继续跟踪披露。[[" + ref + "]]")
+module.NEWS_SUMMARY_SERVICE.runner = fixture_summary
 # Do not inspect local credentials or call model catalogs in UI tests.
 module.deepseek_settings_snapshot = lambda model: {
     'service': {'configured': False, 'status_text': '未配置密钥'},
@@ -71,6 +92,26 @@ with module.db_conn() as conn:
 def reset_reading():
     with module.db_conn() as conn:
         conn.execute("UPDATE item_state SET read_at=NULL")
+    return {"ok": True}
+
+@module.app.post('/__test/summary-mode')
+def set_summary_mode():
+    summary_mode["value"] = module.request.get_json()["mode"]
+    return {"ok": True}
+
+@module.app.post('/__test/reset-summaries')
+def reset_summaries():
+    service = module.NEWS_SUMMARY_SERVICE
+    service.context()
+    for event, worker in list(service.workers.values()):
+        event.set()
+        worker.join(timeout=3)
+    with module.db_conn() as conn:
+        conn.execute('DELETE FROM news_summaries')
+        conn.execute('DELETE FROM news_summary_jobs')
+        conn.execute('DELETE FROM news_summary_previews')
+        conn.execute('UPDATE item_state SET read_at=NULL')
+    summary_mode["value"] = "success"
     return {"ok": True}
 
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

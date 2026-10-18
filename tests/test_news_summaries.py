@@ -1201,3 +1201,127 @@ def test_public_diagnostic_whitelists_scalar_evidence_only():
     assert ns.public_diagnostic(json.dumps(raw)) == {"exit_code":1,"seconds":2.5,"terminal":True,"stderr_present":True}
     assert ns.public_diagnostic('["private news"]') == {}
     assert ns.public_diagnostic('{bad') == {}
+
+
+def test_overview_does_not_prepare_or_generate_and_tracks_saved_limits(setup):
+    p, _, s, _, _, calls, _, _ = setup
+    s.settings_getter()["news_summary"] = {"max_days": 1, "max_items": 1}
+    overview = s.overview()
+    assert overview["locked_count"] == overview["feed_visible_unread_count"] == 2
+    assert overview["hidden_source_unread_count"] == 0
+    assert overview["limits"] == {"max_days": 1, "max_items": 1}
+    assert overview["runtime"] == "codex" and overview["model"] == "test"
+    with s.connection(p) as c:
+        assert c.execute("SELECT count(*) FROM news_summary_previews").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM news_summary_jobs").fetchone()[0] == 0
+    assert not calls and not reads(p).get("1")
+    key, token, prepared = preview(s)
+    assert prepared["model"] == "test"
+
+
+def test_history_search_full_body_date_recent_and_pagination(setup):
+    p, _, s, *_ = setup
+    job = create(s)
+    assert wait(s, job["id"])["status"] == "completed"
+    assert s.listing(query="公司报告")["total"] == 1
+    assert s.listing(query="2026-10-01")["total"] == 1
+    assert s.listing(query="no match")["total"] == 0
+    assert s.listing(query="%_'")["total"] == 0
+    assert s.listing(offset=50)["items"] == []
+    assert s.listing()["items"][0]["excerpt"].startswith("## 本期变化")
+    with s.connection(p) as c:
+        c.execute("UPDATE news_summaries SET created_at='2000-01-01T12:00:00'")
+        c.commit()
+    assert s.listing(recent=True)["total"] == 0
+    assert s.listing(recent=True)["archive_total"] == 1
+
+
+def test_scope_api_reports_hidden_sources_without_changing_unread(setup, monkeypatch):
+    import app
+    p, _, s, _, _, calls, _, _ = setup
+    settings = s.settings_getter()
+    settings["feed"] = {"hidden_source_subkeys": ["x/fxtrader"]}
+    monkeypatch.setattr(app, "current_runtime_settings", lambda: settings)
+    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", s)
+    s.scope_getter = app.news_summary_feed_scope
+    with sqlite3.connect(p) as c:
+        c.execute("UPDATE items SET url='https://x.com/fxtrader/status/1',source_type='x',source='x',source_name='fxtrader' WHERE id='1'")
+    response = app.app.test_client().get('/api/news-summaries/scope')
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["locked_count"] == 2 and data["hidden_source_unread_count"] == 1
+    assert data["feed_visible_unread_count"] == 1
+    assert not calls and not reads(p).get("1")
+
+
+def test_draft_scope_recalculates_inclusive_dates_counts_and_never_saves(setup, monkeypatch):
+    import app
+    from datetime import date
+
+    class Today(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 3)
+
+    monkeypatch.setattr(ns.selection, "date", Today)
+    p, _, s, _, _, calls, add, _ = setup
+    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", s)
+    s.settings_getter()["news_summary"] = {"max_days": 20, "max_items": 6000}
+    with sqlite3.connect(p) as c:
+        add(c, 4, dt="2026-10-03")
+        add(c, 5, dt="2026-10-03")
+        add(c, 6, dt="2026-10-03")
+        c.execute("UPDATE items SET date='invalid',published_at='' WHERE id='6'")
+    before = reads(p)
+    client = app.app.test_client()
+
+    def scope(days, items):
+        r = client.post('/api/news-summaries/scope', json={"news_summary": {"max_days": days, "max_items": items}})
+        assert r.status_code == 200
+        return r.get_json()
+
+    broad = scope(20, 6000)
+    assert broad["summarized_count"] == broad["locked_count"] == 5
+    assert broad["start_date"] == "2026-10-01"
+    assert broad["undated_summarized"] == 1
+    narrowed = scope(2, 6000)
+    assert narrowed["window_start"] == narrowed["start_date"] == "2026-10-02"
+    assert narrowed["window_end"] == narrowed["end_date"] == "2026-10-03"
+    assert narrowed["summarized_count"] == 4
+    assert narrowed["excluded_by"] == {"date": 1, "count": 0}
+    capped = scope(2, 1)
+    assert capped["summarized_count"] == 1 and capped["excluded_count"] == 4
+    assert capped["start_date"] == capped["end_date"] == "2026-10-03"
+    assert capped["excluded_by"] == {"date": 1, "count": 3}
+    assert capped["undated_summarized"] == 0
+    assert scope(1, 6000)["summarized_count"] == 3
+    assert s.settings_getter()["news_summary"] == {"max_days": 20, "max_items": 6000}
+    assert client.get('/api/news-summaries/scope').get_json()["summarized_count"] == 5
+    assert reads(p) == before and not calls
+    with s.connection(p) as c:
+        assert c.execute("SELECT count(*) FROM news_summary_previews").fetchone()[0] == 0
+        assert c.execute("SELECT count(*) FROM news_summary_jobs").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("body", [None, [], {}, {"news_summary": None}, {"news_summary": {"max_days": 0}}, {"news_summary": {"max_items": 1.5}}, {"news_summary": {"max_days": True}}, {"news_summary": {"max_items": "4"}}])
+def test_draft_scope_rejects_invalid_limits(setup, monkeypatch, body):
+    import app
+    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", setup[2])
+    response = app.app.test_client().post('/api/news-summaries/scope', json=body)
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "invalid_summary_limits"
+
+
+def test_draft_scope_handles_empty_unread_and_unconfigured_agent(setup):
+    p, _, s, _, _, calls, *_ = setup
+    # Settings selection should work before choosing a model.
+    s.settings_getter()["agent"]["runtime"] = "pi"
+    s.settings_getter()["llm"]["pi_chat"] = {"provider": "", "model": ""}
+    assert s.overview({"max_days": 1, "max_items": 1})["summarized_count"] == 1
+    with sqlite3.connect(p) as c:
+        c.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES('1','read','now'),('2','read','now')")
+    data = s.overview({"max_days": 1, "max_items": 1})
+    assert data["summarized_count"] == data["locked_count"] == 0
+    assert data["start_date"] == data["end_date"] == ""
+    assert data["excluded_by"] == {"date": 0, "count": 0}
+    assert not calls

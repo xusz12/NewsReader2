@@ -11787,7 +11787,21 @@ def _summary_error(exc):
 def api_news_summaries():
     try:
         offset = max(0, min(1000000, int(request.args.get("offset", "0"))))
-        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.listing(offset)})
+        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.listing(offset, request.args.get("q", "").strip()[:500], request.args.get("recent") == "1")})
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        return _summary_error(exc)
+
+
+@app.route("/api/news-summaries/scope", methods=["GET", "POST"])
+def api_news_summary_scope():
+    try:
+        limits = None
+        if request.method == "POST":
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or not isinstance(body.get("news_summary"), dict):
+                raise ValueError("invalid_summary_limits")
+            limits = body["news_summary"]
+        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.overview(limits)})
     except (ValueError, OSError, sqlite3.Error) as exc:
         return _summary_error(exc)
 

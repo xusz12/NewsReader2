@@ -2378,7 +2378,7 @@ kbd {
     flex-direction: column;
   }
 
-  #feedView > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSettings).active {
+  #feedView > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelSettings).active {
     display: flex;
     visibility: hidden;
     pointer-events: none;
@@ -2386,7 +2386,7 @@ kbd {
     transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
 
-  #feedView.mobile-reader-active > :is(#detailPanelFeed, #detailPanelIdeas).active,
+  #feedView.mobile-reader-active > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries).active,
   #feedView.settings-active.settings-detail-active > #detailPanelSettings.active {
     visibility: visible;
     pointer-events: auto;
@@ -3924,3 +3924,81 @@ button:disabled {
 [data-theme="eink"] .card-action-btn.completed { background: var(--surface-subtle); }
 
 .agent-spark { width: 15px; height: 15px; flex-shrink: 0; color: var(--accent); }
+
+/* News catch-up shares the existing three-column workbench and theme tokens. */
+.summary-list-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+#summaryCardList { overflow: visible; height: auto; }
+.catchup-card { margin: 12px 14px 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle); display: flex; flex-direction: column; gap: 12px; }
+.catchup-top, .catchup-foot, .catchup-scope-heading, .summary-report-kicker, .summary-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.catchup-top { font-size: var(--fs-small); }
+.catchup-range-link { padding: 0; border: 0; background: none; color: var(--muted); font-size: var(--fs-meta); cursor: pointer; text-decoration: underline; text-underline-offset: 4px; text-align: left; }
+.catchup-range-link:hover { color: var(--accent); }
+.catchup-copy, .catchup-runtime { color: var(--muted); font-size: var(--fs-meta); line-height: 1.7; margin: 0; }
+.catchup-runtime { overflow-wrap: anywhere; }
+.catchup-metrics { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-meta); color: var(--muted); }
+.catchup-metrics > span { border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; background: var(--surface); }
+.catchup-metrics strong { color: var(--fg); font-family: var(--font-mono); font-weight: 500; }
+#summaryProgress:empty { display: none; }
+#summaryProgress { font-size: var(--fs-meta); line-height: 1.7; overflow-wrap: anywhere; }
+.summary-mark { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.summary-card-footer { font-size: var(--fs-meta); color: var(--muted); }
+.summary-card-footer > span { background: var(--surface-subtle); padding: 2px 5px; border-radius: 3px; }
+.summary-card-footer time { font-family: var(--font-mono); font-size: 11px; }
+#detailPanelSummaries .detail-toolbar-left { flex: 1; min-width: 0; overflow: hidden; }
+#detailPanelSummaries .reader-cache-status { min-width: 0; }
+#summaryToolbarTitle { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+#detailPanelSummaries .detail-toolbar-right { flex-shrink: 0; }
+#summaryReturnBtn { color: var(--accent); white-space: nowrap; }
+.summary-report { container-type: inline-size; width: 100%; max-width: var(--reading-width); margin: 0 auto; padding: 28px 28px 80px; overflow-wrap: anywhere; }
+.summary-report-header { padding: 24px; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 32px; }
+.summary-report-kicker { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-meta); }
+.summary-report h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.4; margin: 18px 0; }
+.summary-report-header > p { color: var(--muted); font-size: var(--fs-small); line-height: 1.7; }
+.summary-report-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--border); }
+.summary-report-stats strong { display: block; color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-h2); font-weight: 600; }
+.summary-report-stats span { color: var(--muted); font-size: var(--fs-meta); }
+.summary-prose { font-size: var(--fs-body); line-height: 1.9; }
+.summary-prose h3 { font-family: var(--font-display); font-size: var(--fs-h2); margin: 28px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.summary-prose p, .summary-prose ul { margin: 0 0 18px; }
+.summary-prose ul { padding-left: 22px; }
+.summary-prose li { margin-bottom: 10px; }
+.summary-prose blockquote { margin: 20px 0; padding-left: 18px; border-left: 3px solid var(--accent); color: var(--muted); }
+.summary-citation { display: inline; border: 0; background: none; color: var(--accent); font-family: var(--font-mono); font-size: 11px; cursor: pointer; padding: 2px 3px; vertical-align: super; }
+.summary-citation:hover { background: var(--accent-soft); border-radius: 3px; }
+.summary-audit, .summary-sources { border-top: 1px solid var(--border); margin-top: 28px; padding-top: 18px; color: var(--muted); font-size: var(--fs-small); line-height: 1.8; }
+.summary-audit summary, .summary-sources summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+.summary-sources section { padding: 18px 0; border-bottom: 1px solid var(--border); }
+.summary-sources h3 { margin: 6px 0; color: var(--fg); font-size: var(--fs-body); }
+.summary-sources a { color: var(--accent); }
+.summary-empty { padding-top: 56px; text-align: center; }
+.summary-empty p { color: var(--muted); font-size: var(--fs-body); line-height: 1.8; }
+.catchup-scope-preview { background: var(--surface-subtle); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 18px; line-height: 1.8; font-size: var(--fs-small); }
+.catchup-scope-heading { align-items: baseline; margin-bottom: 10px; color: var(--fg); }
+.catchup-scope-heading > span { font-family: var(--font-mono); color: var(--muted); }
+.catchup-scope-preview p { margin: 8px 0 0; color: var(--muted); }
+.catchup-dialog { width: clamp(560px, 40vw, 720px); max-width: calc(100vw - 32px); max-height: calc(100dvh - 40px); margin: auto; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-raised); color: var(--fg); box-shadow: var(--shadow-float); overflow: hidden; }
+.catchup-dialog[open] { display: flex; flex-direction: column; }
+.catchup-dialog::backdrop { background: rgb(0 0 0 / 45%); backdrop-filter: blur(4px); }
+.catchup-dialog .modal-header { padding: 18px 22px; flex-shrink: 0; gap: 12px; }
+.catchup-dialog .modal-title { margin: 0; font-size: 20px; }
+.catchup-dialog .modal-body { padding: 18px 22px; overflow-y: auto; font-size: var(--fs-body); line-height: 1.7; }
+.catchup-dialog .modal-body > p { margin: 0; }
+.catchup-dialog .modal-footer { flex-shrink: 0; padding: 14px 22px; }
+.catchup-dialog .catchup-scope-preview { border-style: solid; padding: 14px; line-height: 1.75; }
+.catchup-settings-hint { color: var(--muted); font-size: var(--fs-small); }
+.catchup-settings-hint .catchup-range-link { font: inherit; }
+#summaryModalError:empty { display: none; }
+#summaryModalError { font-size: var(--fs-small); }
+#settingsCatchupScope { overflow-wrap: anywhere; }
+@container (min-width: 600px) { .summary-report-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 920px) {
+  .catchup-card { margin: 12px 12px 0; }
+  .summary-report { padding: 20px 18px 50px; }
+  .summary-report-header { padding: 18px; }
+  .catchup-dialog .modal-header, .catchup-dialog .modal-body, .catchup-dialog .modal-footer { padding: 16px; }
+  .catchup-dialog .modal-footer { flex-direction: row; flex-wrap: wrap; }
+  .catchup-dialog .modal-footer button { flex: 1; }
+  .catchup-dialog .modal-footer #confirmSummaryBtn { flex: 2.2; white-space: nowrap; padding-inline: 8px; }
+  .catchup-scope-preview { padding: 14px; }
+}
+[data-theme="eink"] .catchup-dialog::backdrop { backdrop-filter: none; }
