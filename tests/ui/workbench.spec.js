@@ -33,12 +33,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.10", available: false,
+    ok: true, enabled: false, current_version: "v0.0.11", available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.10");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.10");
+  await expect(page).toHaveTitle("News Reader v0.0.11");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.11");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();
@@ -89,6 +89,8 @@ test("read flags persist and card/reader stay synchronized", async ({
   ).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("m");
   await expect(page.locator('[data-id="ui-000"]')).toHaveClass(/read/);
+  // The card updates optimistically; persistence completes asynchronously.
+  await expect.poll(async () => (await (await request.get("/api/news/ui-000/detail")).json()).read_at).toBeTruthy();
   const detail = await (await request.get("/api/news/ui-000/detail")).json();
   expect(detail.favorite_at).toBeTruthy();
   expect(detail.read_at).toBeTruthy();
@@ -312,7 +314,7 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   );
   await ready(page);
   await select(page);
-  await page.keyboard.press("a");
+  await page.keyboard.press("q");
   await expect(page.locator("#agentPromptInput")).toBeEnabled();
   await page.locator("#agentPromptInput").fill("解释核心证据");
   await page.locator("#agentSendBtn").click();

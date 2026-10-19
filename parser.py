@@ -239,6 +239,8 @@ def parse_daily_errors(path: Path) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     inside_errors = False
     current_label: str | None = None
+    error_lines: list[str] = []
+    reading_error = False
 
     def flush_pending(time_date: str | None, time_text: str | None) -> None:
         if current_label and time_text:
@@ -246,6 +248,7 @@ def parse_daily_errors(path: Path) -> list[dict[str, str]]:
                 "date": time_date or date,
                 "label": current_label,
                 "time": time_text,
+                "error": "\n".join(error_lines),
             })
 
     pending_date: str | None = None
@@ -260,6 +263,8 @@ def parse_daily_errors(path: Path) -> list[dict[str, str]]:
                 pending_time = None
             inside_errors = sec_m.group(1).strip().lower() == "errors"
             current_label = None
+            error_lines = []
+            reading_error = False
             continue
 
         if not inside_errors:
@@ -271,12 +276,19 @@ def parse_daily_errors(path: Path) -> list[dict[str, str]]:
             current_label = item_m.group(1).strip()
             pending_date = None
             pending_time = None
+            error_lines = []
+            reading_error = False
             continue
 
         time_m = ERROR_TIME_RE.match(line)
         if time_m and current_label:
             pending_date = time_m.group(1)
             pending_time = time_m.group(2)
+        elif current_label and line.startswith("- 错误："):
+            error_lines.append(line.removeprefix("- 错误：").strip())
+            reading_error = True
+        elif reading_error and line.strip() and not line.startswith("- "):
+            error_lines.append(line)
 
     flush_pending(pending_date, pending_time)
     return entries

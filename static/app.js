@@ -24,6 +24,9 @@ import { SelectControls } from "./select-control.js";
 import { AgentPanel } from "./agent-panel.js";
 import { ResearchNotes } from "./research-notes.js";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
+import { UpstreamErrors } from "./upstream-errors.js";
+import { ItemStateQueue } from "./item-state.js";
+import { readLaterPending, readLaterState } from "./read-later.js";
 
 const state = {
   collection: "feed",
@@ -33,7 +36,6 @@ const state = {
   query: "",
   items: [],
   selected: null,
-  openedReadLaterId: null,
   detail: null,
   page: 0,
   cursor: null,
@@ -41,8 +43,11 @@ const state = {
   total: 0,
   loading: false,
   sequence: 0,
+  collectionSequence: 0,
   detailSequence: 0,
-  pendingStates: new Set(),
+  detailRequestSequence: 0,
+  favoritesTotal: null,
+  removingFavorites: false,
   ideaType: "all",
   ideas: [],
   idea: null,
@@ -63,7 +68,35 @@ const stateLabels = {
   read_later: "稍后再看",
   favorite: "收藏",
 };
-const shortcuts = { m: "read", i: "important", s: "read_later", f: "favorite" };
+const shortcuts = { m: "read", a: "important", d: "read_later", f: "favorite" };
+const stateWrites = new ItemStateQueue({
+  save: (id, body) => api(`/api/news/${encodeURIComponent(id)}/state`, { method: "PATCH", body }),
+  onChange: (id, patch) => {
+    const item = state.items.find(row => row.id === id);
+    if (item) { Object.assign(item, patch); updateCardActions(item); }
+    if (state.selected?.id === id) {
+      Object.assign(state.selected, patch);
+      if (state.detail) Object.assign(state.detail, patch);
+      readerActions();
+    }
+    renderFavoritesAction();
+  },
+  onSaved: (id, saved) => {
+    for (const [flag, { value, silent, complete }] of Object.entries(saved)) {
+      const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null);
+      const removed = item?.detail_ready ? "正文已就绪，已进入全文待看" : item?.detail_status === "running" ? "抓取已开始，完成后会进入全文待看" : "已取消排队";
+      if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : complete ? "已看完" : removed) : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
+    }
+    refreshBadges();
+    if (saved.read_later) void refreshStateDetail(id);
+    if (saved.favorite?.value === false && state.collection === "favorites" && !state.removingFavorites) {
+      // Reload to keep offset pagination correct after removing a favorite.
+      void loadFeed();
+    }
+  },
+  onError: error => toast(errorText(error)),
+});
+const upstreamErrors = new UpstreamErrors();
 let requestController,
   detailTimer,
   searchTimer,
@@ -84,7 +117,7 @@ const settings = new SettingsPanel({
     syncMobileLayers();
   },
   onSaved: () => {
-    loadSources();
+    sourceCatalogByCollection.clear();
     loadFeed();
     refreshBadges();
     if (agent.open) agent.refresh();
@@ -147,6 +180,7 @@ function feedParams() {
   };
 }
 function renderFilters() {
+  renderFavoritesAction();
   const filters =
     state.collection === "read_later"
       ? [
@@ -193,6 +227,38 @@ function cardTimestamp(item) {
   const time = item.published_at?.slice(11, 16) || item.time;
   return [date, time].filter(Boolean).join(" ");
 }
+function cardAction(item, flag) {
+  const saving = stateWrites.has(item.id, flag);
+  if (flag === "read_later") {
+    const action = readLaterState(item, saving);
+    return {
+      ...action, saving,
+      className: `card-action-btn ${action.active ? "active" : ""} ${action.phase === "done" ? "completed" : ""} ${["pending", "running"].includes(action.phase) ? "fetching" : ""}`,
+      title: `${action.label} · ${action.hint}${saving ? " · 正在保存" : ""}`,
+    };
+  }
+  const active = !!item[`${flag}_at`];
+  const label = flag === "favorite" && active ? "取消收藏" : stateLabels[flag];
+  return { active, saving, label, className: `card-action-btn ${active ? "active" : ""}`, title: `${label}${saving ? " · 正在保存" : ""}` };
+}
+function updateCardActions(item) {
+  const node = $(`#feedCardList [data-id="${CSS.escape(item.id)}"]`);
+  if (!node) return;
+  node.classList.toggle("read", state.collection === "feed" && !!item.read_at);
+  const time = $(".meta-time-row", node);
+  const dot = $(".unread-dot", node);
+  if (state.collection === "read_later" || item.read_at) dot?.remove();
+  else if (!dot) time.insertAdjacentHTML("beforeend", '<span class="unread-dot" title="未读"></span>');
+  for (const button of $$("[data-state]", node)) {
+    const action = cardAction(item, button.dataset.state);
+    button.className = action.className;
+    button.setAttribute("aria-pressed", String(action.active));
+    button.setAttribute("aria-busy", String(action.saving));
+    button.title = action.title;
+    $("span", button).textContent = action.label;
+    button.disabled = button.dataset.state === "favorite" && state.removingFavorites;
+  }
+}
 function card(item) {
   const active = item.id === state.selected?.id;
   const dimReadCard = state.collection === "feed" && item.read_at;
@@ -204,11 +270,8 @@ function card(item) {
     ${text ? `<p class="news-card-snippet">${e(text)}</p>` : ""}
     <div class="news-card-footer"><div class="card-footer-left">${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
     <div class="card-actions">${["important", "read_later", "favorite"].map((flag) => {
-      const later = flag === "read_later";
-      const completed = later && !item.read_later_at && (item.detail_ready || item.read_later_done_at);
-      const fetching = later && ["pending", "running"].includes(item.detail_status);
-      const label = !later ? stateLabels[flag] : fetching ? "抓取中" : item.detail_status === "failed" && item.read_later_at ? "抓取失败" : completed ? "已看完" : item.read_later_at && item.detail_ready ? "全文待看" : item.read_later_at ? "待抓取" : "稍后再看";
-      return `<button class="card-action-btn ${item[`${flag}_at`] ? "active" : ""} ${completed ? "completed" : ""} ${fetching ? "fetching" : ""}" type="button" data-state="${flag}" aria-pressed="${!!item[`${flag}_at`]}" title="${label}${later ? (item.read_later_at ? " · 点击标记看完" : " · 点击加入待看并抓取全文") : ""}" ${state.pendingStates.has(item.id) ? "disabled" : ""}>${icon(flag)}<span>${label}</span></button>`;
+      const action = cardAction(item, flag);
+      return `<button class="${action.className}" type="button" data-state="${flag}" aria-pressed="${action.active}" aria-busy="${action.saving}" title="${action.title}" ${flag === "favorite" && state.removingFavorites ? "disabled" : ""}>${icon(flag)}<span>${action.label}</span></button>`;
     }).join("")}</div></div></li>`;
 }
 function renderFeed() {
@@ -227,6 +290,37 @@ function renderFeed() {
   renderFilters();
   requestAnimationFrame(trackFeedReading);
 }
+function renderFavoritesAction() {
+  const button = $("#clearFavoritesBtn");
+  button.hidden = state.collection !== "favorites";
+  button.disabled = state.removingFavorites || (state.favoritesTotal === 0 && !stateWrites.hasAny("favorite"));
+  button.setAttribute("aria-busy", String(state.removingFavorites));
+  button.innerHTML = icon("favoriteOff");
+}
+async function clearFavorites() {
+  if (state.collection !== "favorites" || state.removingFavorites) return;
+  state.removingFavorites = true;
+  renderFavoritesAction();
+  state.items.forEach(updateCardActions);
+  readerActions();
+  try {
+    await stateWrites.settle();
+    const data = await api("/api/news/clear-favorites", { method: "POST" });
+    // Publish the result so older detail/status responses cannot restore a star.
+    const ids = new Set(state.items.map(item => item.id));
+    if (state.selected) ids.add(state.selected.id);
+    for (const id of ids) stateWrites.publish(id, "favorite", { favorite_at: null });
+    if (state.collection === "favorites") await loadFeed();
+    await refreshBadges();
+    toast(`已取消 ${data.updated} 篇收藏`);
+  } catch (error) { toast(errorText(error)); }
+  finally {
+    state.removingFavorites = false;
+    renderFavoritesAction();
+    state.items.forEach(updateCardActions);
+    readerActions();
+  }
+}
 async function loadFeed(append = false) {
   if (state.collection === "summaries") return summaries.load();
   if (state.collection === "notes") return loadIdeas();
@@ -234,6 +328,7 @@ async function loadFeed(append = false) {
   requestController?.abort();
   requestController = new AbortController();
   const sequence = ++state.sequence;
+  const stateVersion = stateWrites.version;
   if (!append) {
     state.items = [];
     state.page = 0;
@@ -260,6 +355,7 @@ async function loadFeed(append = false) {
       ? await searchNews(sequence, requestController.signal)
       : await api(`/api/news?${params}`, { signal: requestController.signal });
     if (sequence !== state.sequence) return;
+    for (const item of data.items) stateWrites.reconcile(item.id, item, stateVersion);
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
     state.page = data.page;
@@ -299,7 +395,7 @@ async function searchNews(sequence, signal) {
     pages = 1;
   do {
     const data = await api(
-      `/api/search?${new URLSearchParams({ q: state.query, page: String(page), per: "100" })}`,
+      `/api/search?${new URLSearchParams({ ...params, feed_filters: "1", page: String(page), per: "100" })}`,
       { signal },
     );
     matches.push(...data.items);
@@ -316,10 +412,10 @@ async function searchNews(sequence, signal) {
     if (params.collection === "important" && !item.important_at) return false;
     if (params.has_note === "1" && !item.has_note) return false;
     if (params.collection === "read_later") {
-      if (params.read_filter === "unread") return !!item.read_later_at;
+      if (params.read_filter === "unread") return readLaterPending(item);
       if (params.read_filter === "read")
-        return !!item.detail_ready && !item.read_later_at;
-      return !!item.read_later_at || !!item.detail_ready;
+        return !!item.read_later_done_at && !item.read_later_at;
+      return !!item.read_later_at || !!item.read_later_done_at || !!item.detail_ready;
     }
     return (
       params.read_filter === "all" ||
@@ -341,18 +437,51 @@ function setIndexStatus(message, failed = false) {
     `<span class="pipeline-dot ${failed ? "failed" : ""}"></span><span>${e(message)}</span>`;
 }
 let badgesSequence = 0;
-async function refreshBadges() {
-  summaries.refreshScope();
-  const sequence = ++badgesSequence;
+let badgesTimer, badgesRunning = false, badgesPending = false;
+const badgesWaiters = [];
+function refreshBadges() {
+  ++badgesSequence;
+  badgesPending = true;
+  const promise = new Promise(resolve => badgesWaiters.push(resolve));
+  if (!badgesRunning) {
+    clearTimeout(badgesTimer);
+    badgesTimer = setTimeout(updateBadges, 120);
+  }
+  return promise;
+}
+async function updateBadges() {
+  badgesRunning = true;
+  badgesPending = false;
+  const sequence = badgesSequence;
+  const feedSequence = state.sequence;
+  const params = new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1" });
+  const hasFeed = !["notes", "summaries"].includes(state.collection);
+  if (state.collection === "summaries") summaries.refreshScope();
   try {
-    const [data] = await Promise.all([api("/api/nav-summary"), loadSources()]);
+    const [data, count] = await Promise.all([
+      api("/api/nav-summary"),
+      hasFeed ? api(`/api/${state.query ? "search" : "news"}?${params}`) : null,
+      loadSources(),
+    ]);
     if (sequence !== badgesSequence) return;
     $("#unreadBadge").textContent = data.summary.feed_unread || "";
     $("#readLaterNavBadge").textContent = data.summary.read_later_unread || "";
     $("#starredNavBadge").textContent = data.summary.favorites || "";
+    state.favoritesTotal = data.summary.favorites;
+    renderFavoritesAction();
     $("#mobUnreadBadge").textContent = data.summary.feed_unread || "0";
+    if (count && feedSequence === state.sequence && params.toString() === new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1" }).toString()) {
+      state.total = count.total;
+      renderFilters();
+      if ($("#pipelineStatus").textContent.startsWith("新闻库已连接"))
+        setIndexStatus(`新闻库已连接 · ${count.total} 篇`);
+    }
   } catch {
     /* Feed and settings report connectivity separately. */
+  } finally {
+    badgesRunning = false;
+    if (badgesPending) badgesTimer = setTimeout(updateBadges, 120);
+    else badgesWaiters.splice(0).forEach(resolve => resolve());
   }
 }
 let sourcesSequence = 0;
@@ -366,11 +495,12 @@ async function loadSources() {
     // Source availability covers the whole collection; badges still count unread items.
     const [data, catalog] = await Promise.all([
       api(`/api/sources?collection=${collection}&read_filter=${readFilter}`),
-      readFilter === "unread" ? api(`/api/sources?collection=${collection}&read_filter=all`) : null,
+      readFilter === "unread" && !sourceCatalogByCollection.has(currentCollection) ? api(`/api/sources?collection=${collection}&read_filter=all`) : null,
     ]);
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
     sourceCountsByCollection.set(currentCollection, data.sources);
-    sourceCatalogByCollection.set(currentCollection, (catalog || data).sources);
+    if (catalog || readFilter === "all" || !sourceCatalogByCollection.has(currentCollection))
+      sourceCatalogByCollection.set(currentCollection, (catalog || data).sources);
     renderSources();
   } catch (error) {
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
@@ -396,6 +526,7 @@ function renderSources() {
 }
 function switchCollection(collection) {
   if (!labels[collection]) return;
+  state.collectionSequence++;
   settings.close({ restoreFocus: false });
   stashNote();
   clearTimeout(feedEndTimer);
@@ -403,7 +534,6 @@ function switchCollection(collection) {
   state.collection = collection;
   renderSources();
   loadSources();
-  state.openedReadLaterId = null;
   state.filter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   state.sortOrder = "default";
   state.query = "";
@@ -451,16 +581,21 @@ function stashNote() {
     else state.noteDrafts.set(state.idea.idea_id, idea.value);
   }
 }
-async function selectNews(item, mobile = true, userInitiated = false) {
+async function selectNews(item, mobile = true, openedByUser = false) {
   if (!item) return;
-  if (userInitiated && state.collection === "read_later") state.openedReadLaterId = item.id;
-  else if (state.selected?.id !== item.id) state.openedReadLaterId = null;
+  // Only opening an already-readable card completes it. Default selection and
+  // a fetch finishing in the open reader must leave the article pending.
+  const completeOnOpen = openedByUser && state.collection === "read_later" && readLaterState(item).phase === "ready";
+  const readLaterAt = item.read_later_at;
+  const collectionSequence = state.collectionSequence;
   stashNote();
   clearTimeout(detailTimer);
   state.selected = item;
   state.detail = null;
   state.bodyMode = "translated";
   const sequence = ++state.detailSequence;
+  const requestSequence = ++state.detailRequestSequence;
+  const stateVersion = stateWrites.version;
   renderFeed();
   renderReader();
   $("#detailScrollArea").scrollTop = 0;
@@ -468,17 +603,21 @@ async function selectNews(item, mobile = true, userInitiated = false) {
   if (mobile) enterReader();
   try {
     const data = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
-    if (sequence !== state.detailSequence) return;
+    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
+    stateWrites.reconcile(item.id, data, stateVersion);
     stashNote();
     state.detail = data;
-    for (const flag of ["read", "important", "read_later", "read_later_done", "favorite"])
-      item[`${flag}_at`] = data[`${flag}_at`];
     updateDetailItem(item, data);
     renderReader();
     renderFeed();
+    if (completeOnOpen && collectionSequence === state.collectionSequence && state.collection === "read_later" &&
+        !settings.open && !document.hidden && !document.querySelector("dialog[open]") &&
+        (!singlePane.matches || mobileReaderOpen()) && $("#detailPanelFeed").getClientRects().length &&
+        item.read_later_at === readLaterAt && readLaterState(item).phase === "ready" &&
+        (data.detail?.content?.trim() || data.ai?.body_zh?.trim()))
+      void toggleState(item, "read_later", false, true, true);
     agent.select(item, data.agent);
     pollDetail(item, sequence);
-    await completeOpenedReadLater(item, data, sequence);
     if (state.collection === "feed" && item.url)
       api("/api/reading-checkpoint", {
         method: "PUT",
@@ -490,10 +629,10 @@ async function selectNews(item, mobile = true, userInitiated = false) {
         },
       }).catch(() => {});
   } catch (error) {
-    if (sequence !== state.detailSequence) return;
+    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
     $("#detailContent").innerHTML =
       `<div class="list-message error-state">${e(errorText(error))}<button class="btn-secondary" id="retryReaderBtn" type="button">重新加载</button></div>`;
-    $("#retryReaderBtn").onclick = () => selectNews(item, false);
+    $("#retryReaderBtn").onclick = () => selectNews(item, false, openedByUser);
   }
 }
 function pollDetail(item, sequence) {
@@ -505,9 +644,12 @@ function pollDetail(item, sequence) {
   )
     return;
   detailTimer = setTimeout(async () => {
+    const stateVersion = stateWrites.version;
+    const requestSequence = ++state.detailRequestSequence;
     try {
       const data = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
-      if (sequence !== state.detailSequence) return;
+      if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
+      stateWrites.reconcile(item.id, data, stateVersion);
       const changed =
         data.detail_status !== state.detail.detail_status ||
         data.ai_status !== state.detail.ai_status ||
@@ -522,33 +664,29 @@ function pollDetail(item, sequence) {
         agent.select(item, data.agent);
         renderFeed();
       }
-      await completeOpenedReadLater(item, data, sequence);
       pollDetail(item, sequence);
     } catch {
-      if (sequence === state.detailSequence)
+      if (sequence === state.detailSequence && requestSequence === state.detailRequestSequence)
         toast("正文状态刷新失败，可点击重新加载。");
     }
   }, 3000);
-}
-async function completeOpenedReadLater(item, payload, sequence) {
-  if (state.collection !== "read_later" || state.openedReadLaterId !== item.id ||
-      state.selected?.id !== item.id || sequence !== state.detailSequence ||
-      settings.open || document.hidden || (singlePane.matches && !mobileReaderOpen()) ||
-      !$("#detailPanelFeed").getClientRects().length || !item.read_later_at ||
-      !(payload.detail?.content?.trim() || payload.ai?.body_zh?.trim())) return;
-  await toggleState(item, "read_later", false, true);
-  if (!item.read_later_at && state.openedReadLaterId === item.id) state.openedReadLaterId = null;
 }
 function readerActions() {
   const item = state.selected;
   $$("[data-state]", $("#detailPanelFeed .detail-toolbar")).forEach(
     (button) => {
-      button.disabled = !item || state.pendingStates.has(item.id);
+      button.disabled = !item || (button.dataset.state === "favorite" && state.removingFavorites);
+      button.setAttribute("aria-busy", String(!!item && stateWrites.has(item.id, button.dataset.state)));
       button.classList.toggle("active", !!item?.[`${button.dataset.state}_at`]);
       button.setAttribute(
         "aria-pressed",
         String(!!item?.[`${button.dataset.state}_at`]),
       );
+      if (button.dataset.state === "favorite") {
+        const label = item?.favorite_at ? "取消收藏" : "收藏";
+        $("span", button).textContent = label;
+        button.title = `${label} (快捷键: f)`;
+      }
     },
   );
   const url = safeURL(item?.url || "");
@@ -628,48 +766,70 @@ function renderReader() {
       await selectNews(item, false);
     });
 }
-async function toggleState(item, flag, force, silent = false) {
-  if (!item || state.pendingStates.has(item.id)) return;
-  state.pendingStates.add(item.id);
-  readerActions();
-  const value = force ?? !item[`${flag}_at`];
-  try {
-    const data = await api(`/api/news/${encodeURIComponent(item.id)}/state`, {
-      method: "PATCH",
-      body: { [flag]: value },
-    });
-    Object.assign(item, data.state || data);
-    const loaded = state.items.find((row) => row.id === item.id);
-    if (loaded && loaded !== item) Object.assign(loaded, data.state || data);
-    // The API returns the authoritative timestamps at the top level.
-    if (!Object.hasOwn(data, `${flag}_at`) && !data.state)
-      item[`${flag}_at`] = value ? new Date().toISOString() : null;
-    if (state.detail && state.selected?.id === item.id)
-      state.detail[`${flag}_at`] = item[`${flag}_at`];
-    if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : "已看完") : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
-    refreshBadges();
-    if (flag === "read_later") {
-      if (value && state.openedReadLaterId === item.id) state.openedReadLaterId = null;
-      const payload = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
-      updateDetailItem(item, payload);
-      if (state.selected?.id === item.id) {
-        stashNote();
-        state.detail = payload;
-        renderReader();
-        agent.select(item, payload.agent);
-        pollDetail(item, state.detailSequence);
-      }
+function toggleState(item, flag, force, silent = false, complete = false) {
+  if (!item || (flag === "favorite" && state.removingFavorites)) return;
+  let value = force ?? !item[`${flag}_at`];
+  if (flag === "read_later" && force === undefined) {
+    const { phase } = readLaterState(item, stateWrites.has(item.id, flag));
+    if (phase === "running") {
+      toast("正文正在抓取，完成后会进入全文待看");
+      return;
     }
-  } catch (error) {
-    toast(errorText(error));
-  } finally {
-    state.pendingStates.delete(item.id);
-    renderFeed();
-    readerActions();
+    complete = phase === "ready";
+    value = !["ready", "pending"].includes(phase);
+  }
+  return stateWrites.set(item, flag, value, silent, complete);
+}
+async function refreshStateDetail(id) {
+  // Saving a flag never waits for the full article. Only the open reader needs
+  // its body refreshed; other cards only need the lightweight job status.
+  const refreshReader = state.selected?.id === id;
+  const sequence = state.detailSequence;
+  const feedSequence = state.sequence;
+  const stateVersion = stateWrites.version;
+  const requestSequence = refreshReader ? ++state.detailRequestSequence : null;
+  try {
+    if (!refreshReader) {
+      const data = await api(`/api/news/status?${new URLSearchParams({ ids: id })}`);
+      if (feedSequence !== state.sequence) return;
+      const item = state.items.find(row => row.id === id);
+      const status = data.items.find(row => row.id === id);
+      if (item && status) {
+        Object.assign(item, stateWrites.reconcile(id, status, stateVersion));
+        updateCardActions(item);
+      }
+      return;
+    }
+    const payload = await api(`/api/news/${encodeURIComponent(id)}/detail`);
+    if (state.selected?.id !== id || sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence || stateWrites.has(id, "read_later")) return;
+    stateWrites.reconcile(id, payload, stateVersion);
+    const item = state.selected;
+    updateDetailItem(item, payload);
+    stashNote();
+    state.detail = payload;
+    renderReader();
+    agent.select(item, payload.agent);
+    pollDetail(item, sequence);
+  } catch {
+    if (!refreshReader || (state.selected?.id === id && sequence === state.detailSequence && requestSequence === state.detailRequestSequence))
+      toast("标记已保存，正文状态刷新失败，可点击重新加载。");
   }
 }
 function updateDetailItem(item, payload) {
-  Object.assign(item, { detail_ready: !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, has_note: payload.has_note, note_count: payload.notes?.length || 0 });
+  const patch = { detail_ready: payload.detail_ready ?? !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, has_note: payload.has_note, note_count: payload.notes?.length || 0 };
+  for (const flag of ["read", "important", "read_later", "read_later_done", "favorite"])
+    if (Object.hasOwn(payload, `${flag}_at`)) patch[`${flag}_at`] = payload[`${flag}_at`];
+  const loaded = state.items.find(row => row.id === item.id);
+  let changed = false;
+  for (const target of new Set([item, loaded, state.selected?.id === item.id ? state.selected : null])) {
+    if (!target) continue;
+    const wasPending = readLaterPending(target);
+    Object.assign(target, patch);
+    changed ||= wasPending !== readLaterPending(target);
+  }
+  updateCardActions(loaded || item);
+  if (state.selected?.id === item.id) readerActions();
+  if (changed) refreshBadges();
 }
 let statusRefreshing = false;
 setInterval(async () => {
@@ -677,13 +837,23 @@ setInterval(async () => {
   const ids = state.items.filter(item => ["pending", "running"].includes(item.detail_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
   if (!ids.length) return;
   statusRefreshing = true;
+  const stateVersion = stateWrites.version;
+  const feedSequence = state.sequence;
   try {
     const data = await api(`/api/news/status?${new URLSearchParams({ ids: ids.join(",") })}`);
+    if (feedSequence !== state.sequence) return;
+    let changed = false;
     for (const row of data.items) {
+      stateWrites.reconcile(row.id, row, stateVersion);
       const item = state.items.find(item => item.id === row.id);
-      if (item) Object.assign(item, row);
+      if (item) {
+        const wasPending = readLaterPending(item);
+        Object.assign(item, row);
+        changed ||= wasPending !== readLaterPending(item);
+        updateCardActions(item);
+      }
     }
-    renderFeed();
+    if (changed) refreshBadges();
   } catch { /* The reader reports detailed fetch failures. Retry on the next tick. */ }
   finally { statusRefreshing = false; }
 }, 3000);
@@ -700,7 +870,7 @@ const queuedReadIds = new Set();
 let lastFeedScroll = 0, feedEndTimer, autoReadBusy = false;
 function feedVisible() {
   return state.collection === "feed" && !settings.open && !mobileReaderOpen() &&
-    !document.hidden && $("#feedCardList").getBoundingClientRect().width > 0;
+    !document.hidden && !document.querySelector("dialog[open]") && $("#feedCardList").getBoundingClientRect().width > 0;
 }
 async function markReadIds(ids) {
   for (const id of ids) queuedReadIds.add(id);
@@ -751,16 +921,21 @@ function trackFeedReading() {
 }
 async function markAllRead() {
   const later = state.collection === "read_later";
-  if (state.query) {
-    const items = [...state.items];
+  const params = feedParams(), items = [...state.items];
+  let failed = 0;
+  // Earlier button saves must finish before the bulk operation supersedes them.
+  if (later) await stateWrites.settle();
+  if (params.q) {
     if (later) {
-      for (const item of items.filter(item => item.read_later_at)) await api(`/api/news/${encodeURIComponent(item.id)}/state`, { method: "PATCH", body: { read_later: false } });
+      if (params.read_filter !== "read")
+        for (const item of items.filter(readLaterPending))
+          if (!await toggleState(item, "read_later", false, true, true)) failed++;
     } else await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: items.map(item => item.id) } });
-  } else await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: feedParams() });
+  } else await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: params });
   await loadFeed();
   if (state.selected) await selectNews(state.selected, false);
   refreshBadges();
-  toast(later ? "当前范围已全部看完" : "当前范围已全部标为已读");
+  toast(failed ? `有 ${failed} 篇未能标为已看完，请重试` : later ? "当前范围已全部看完" : "当前范围已全部标为已读");
 }
 async function loadIdeas() {
   const sequence = ++state.sequence;
@@ -1057,6 +1232,15 @@ $("#feedCardList").addEventListener("scroll", () => {
 $("#sortNewsBtn").onclick = () => { state.sortOrder = state.sortOrder === "default" ? "reverse" : "default"; loadFeed(); };
 $("#markAllReadBtn").onclick = event => busy(event.currentTarget, markAllRead);
 document.addEventListener("visibilitychange", trackFeedReading);
+function syncVisibleCounts() {
+  if (document.hidden) return;
+  sourceCatalogByCollection.clear();
+  refreshBadges();
+}
+document.addEventListener("visibilitychange", syncVisibleCounts);
+window.addEventListener("focus", syncVisibleCounts);
+setInterval(syncVisibleCounts, 30000);
+$("#clearFavoritesBtn").onclick = clearFavorites;
 $("#themeSelect").value = document.documentElement.dataset.theme || "system";
 $("#themeSelect").onchange = (event) => {
   document.documentElement.dataset.theme = event.target.value;
@@ -1088,6 +1272,7 @@ function refreshIndex(notify = false) {
     } catch (error) {
       scanError = error;
     }
+    sourceCatalogByCollection.clear();
     await Promise.all([loadFeed(), refreshBadges()]);
     if (scanError) {
       setIndexStatus("索引刷新失败，可点击刷新重试", true);
@@ -1099,7 +1284,7 @@ function refreshIndex(notify = false) {
 refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
-  if (summaries.modal.open) return;
+  if (summaries.modal.open || upstreamErrors.dialog.open) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));
@@ -1153,14 +1338,14 @@ document.addEventListener("keydown", (event) => {
   } else if (key === "?") {
     event.preventDefault();
     shortcutsDialog(true);
-  } else if (key === "a" && state.collection !== "notes") {
+  } else if (key === "q" && state.collection !== "notes") {
     event.preventDefault();
     agent.toggle();
   } else if (shortcuts[key] && state.collection !== "notes") {
     event.preventDefault();
-    if (key === "m" && state.collection === "read_later") toggleState(state.selected, "read_later", false);
+    if (key === "m" && state.collection === "read_later") toggleState(state.selected, "read_later", false, false, true);
     else toggleState(state.selected, shortcuts[key]);
-  } else if (["j", "k"].includes(key) && state.collection !== "notes") {
+  } else if (["w", "s", "j", "k"].includes(key) && state.collection !== "notes") {
     event.preventDefault();
     const index = state.items.findIndex(
       (item) => item.id === state.selected?.id,
@@ -1169,7 +1354,7 @@ document.addEventListener("keydown", (event) => {
       state.items[
         Math.max(
           0,
-          Math.min(state.items.length - 1, index + (key === "j" ? 1 : -1)),
+          Math.min(state.items.length - 1, index + (["s", "j"].includes(key) ? 1 : -1)),
         )
       ];
     if (next) {

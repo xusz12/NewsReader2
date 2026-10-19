@@ -31,7 +31,8 @@ test.beforeEach(async ({ request }) => {
   await request.post('/__test/reset-summaries');
   await setLimits(request);
 });
-test.afterEach(async ({ request }) => {
+test.afterEach(async ({ page, request }) => {
+  await page.unrouteAll({ behavior: 'wait' });
   await request.post('/__test/reset-summaries');
   await setLimits(request, { max_days: 20, max_items: 6000 });
 });

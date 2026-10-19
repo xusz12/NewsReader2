@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.10</title>
+    <title>News Reader v0.0.11</title>
     <script>
       try {
         const m =
@@ -41,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.10" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.11" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.10&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.11&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -87,7 +87,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.10</span>
+            <span class="brand-version">v0.0.11</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -97,6 +97,10 @@
           </div>
         </div>
         <div class="topbar-right">
+          <button aria-label="上游数据报错集合" aria-haspopup="dialog" aria-controls="upstreamErrorsDialog" aria-expanded="false" class="topbar-upstream-btn" id="upstreamErrorsBtn" title="正在读取当日上游报错" type="button">
+            <span class="upstream-pulse-dot" aria-hidden="true"></span>
+            <span class="upstream-badge" id="upstreamErrorBadge" aria-hidden="true">—</span>
+          </button>
           <button
             aria-label="刷新新闻索引"
             class="topbar-tool-btn"
@@ -330,7 +334,7 @@
                   <span class="search-shortcut-hint">/</span>
                 </div>
               </div>
-              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button></div></div>
+              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button></div></div>
             </div>
 
             <ul class="news-list" id="feedCardList" role="feed"></ul>
@@ -414,7 +418,7 @@
                     data-state="important"
                     disabled=""
                     id="btnToggleImportant"
-                    title="标记为重要新闻 (快捷键: i)"
+                    title="标记为重要新闻 (快捷键: a)"
                     type="button"
                   >
                     <svg
@@ -429,7 +433,7 @@
                       <line x1="4" x2="4" y1="22" y2="15"></line>
                     </svg>
                     <span id="importantBtnLabel">重要</span>
-                    <kbd class="reader-btn-kbd">I</kbd>
+                    <kbd class="reader-btn-kbd">A</kbd>
                   </button>
 
                   <button
@@ -470,7 +474,7 @@
               <div
                 class="agent-header"
                 id="agentHeader"
-                title="点击展开 / 收起对话 (快捷键: A)"
+                title="点击展开 / 收起对话 (快捷键: Q)"
               >
                 <div class="agent-title-info">
                   <div class="agent-title-line"><svg class="agent-spark" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7Z"/></svg><strong>新闻研究 Agent</strong><span class="agent-runtime-badge" id="agentRuntimeBadge">尚未开启</span></div>
@@ -478,7 +482,7 @@
                 </div>
                 <div class="agent-minimized-hint">
                   <span>点击展开</span>
-                  <kbd class="reader-btn-kbd">A</kbd>
+                  <kbd class="reader-btn-kbd">Q</kbd>
                 </div>
                 <div class="agent-actions"><button class="agent-btn expanded-only" id="agentNewBtn" type="button" title="新会话" aria-label="新会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
                   <button
@@ -533,7 +537,7 @@
                   <button
                     class="agent-btn agent-toggle-btn"
                     id="agentDockToggleBtn"
-                    title="展开 / 收起窗口 (快捷键: A)"
+                    title="展开 / 收起窗口 (快捷键: Q)"
                     type="button"
                   >
                     <svg
@@ -1029,12 +1033,12 @@
       </nav>
       <footer class="keyboard-bar">
         <div class="kbd-group">
-          <span class="kbd-item"><kbd>j</kbd>/<kbd>k</kbd> 上下移动</span>
-          <span class="kbd-item"><kbd>i</kbd> 标记重要</span>
-          <span class="kbd-item"><kbd>s</kbd> 稍后再读</span>
+          <span class="kbd-item"><kbd>w</kbd>/<kbd>s</kbd> 上下移动</span>
+          <span class="kbd-item"><kbd>a</kbd> 标记重要</span>
+          <span class="kbd-item"><kbd>d</kbd> 稍后再读</span>
           <span class="kbd-item"><kbd>f</kbd> 收藏高光</span>
           <span class="kbd-item"><kbd>m</kbd> 标为已读</span>
-          <span class="kbd-item"><kbd>a</kbd> 展开/收起 Agent</span>
+          <span class="kbd-item"><kbd>q</kbd> 展开/收起 Agent</span>
           <span class="kbd-item"><kbd>/</kbd> 搜索</span>
           <span class="kbd-item"><kbd>,</kbd> 设置</span>
         </div>
@@ -1043,6 +1047,19 @@
           <span>按 <kbd>Esc</kbd> 退出弹窗</span>
         </div>
       </footer>
+      <dialog class="catchup-dialog upstream-dialog" id="upstreamErrorsDialog" aria-labelledby="upstreamErrorsTitle">
+        <div class="modal-header">
+          <div class="upstream-dialog-heading">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/></svg>
+            <h2 class="modal-title" id="upstreamErrorsTitle">上游信源报错查看 <span lang="en">(Upstream Error Diagnostics)</span></h2>
+          </div>
+          <button class="modal-close-btn" id="closeUpstreamErrorsBtn" type="button" aria-label="关闭上游报错">✕</button>
+        </div>
+        <div class="modal-body upstream-dialog-body">
+          <div class="upstream-error-controls"><label>记录日期 <input type="date" id="upstreamErrorDate" aria-label="上游报错日期"></label><button class="btn-secondary" id="upstreamTodayBtn" type="button">回到今日</button></div>
+          <div id="upstreamErrorsContent" aria-live="polite"></div>
+        </div>
+      </dialog>
       <dialog class="catchup-dialog" id="summaryModal" aria-labelledby="summaryModalTitle">
         <div class="modal-header"><h2 class="modal-title" id="summaryModalTitle">总结并全部已读确认</h2><button class="modal-close-btn" id="closeSummaryModalBtn" type="button" aria-label="关闭总结确认">✕</button></div>
         <div class="modal-body" id="summaryModalBody"></div>
@@ -1086,7 +1103,7 @@
                 "
               >
                 <span>向下移动新闻聚焦</span>
-                <kbd>j</kbd>
+                <kbd>s</kbd>
               </div>
               <div
                 style="
@@ -1098,7 +1115,7 @@
                 "
               >
                 <span>向上移动新闻聚焦</span>
-                <kbd>k</kbd>
+                <kbd>w</kbd>
               </div>
               <div
                 style="
@@ -1110,7 +1127,7 @@
                 "
               >
                 <span>标记重要新闻切换</span>
-                <kbd>i</kbd>
+                <kbd>a</kbd>
               </div>
               <div
                 style="
@@ -1122,7 +1139,7 @@
                 "
               >
                 <span>稍后再读切换</span>
-                <kbd>s</kbd>
+                <kbd>d</kbd>
               </div>
               <div
                 style="
@@ -1158,7 +1175,7 @@
                 "
               >
                 <span>展开 / 折叠 Agent</span>
-                <kbd>a</kbd>
+                <kbd>q</kbd>
               </div>
               <div
                 style="
@@ -1227,9 +1244,9 @@
       </button>
       <button class="selection-pop-btn" id="dismissSelectionBtn" type="button" aria-label="关闭选中文本操作">×</button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.10"></script>
+    <script src="/static/error_ui.js?v=0.0.11"></script>
     <script
-      src="/static/app.js?v=0.0.10&amp;build=workbench2"
+      src="/static/app.js?v=0.0.11&amp;build=workbench2"
       type="module"
     ></script>
   </body>

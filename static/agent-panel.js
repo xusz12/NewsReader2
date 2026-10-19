@@ -187,7 +187,7 @@ export class AgentPanel {
     $("#agentSendBtn").setAttribute("aria-label", active ? "停止研究" : "发送");
     $("#agentSendBtn").title = active ? "停止研究" : "发送";
     $("#agentPromptInput").placeholder = available
-      ? "基于本文原文提问…"
+      ? "围绕本文研究与追问…"
       : "全文抓取完成后即可提问";
     $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing;
     $("#archiveAgentBtn").disabled =
@@ -204,7 +204,7 @@ export class AgentPanel {
         : this.payload.context_updated
           ? "正文已更新，可新建会话读取最新内容"
           : available
-            ? ({ succeeded: "本轮已完成", failed: "本轮未完成 · 可重试", stopped: "已停止", interrupted: "任务已中断 · 可重试" })[latest?.status] || "就绪 · 可基于本文提问"
+            ? ({ succeeded: "本轮已完成", failed: "本轮未完成 · 可重试", stopped: "已停止", interrupted: "任务已中断 · 可重试" })[latest?.status] || "就绪 · 围绕本文研究"
             : "等待正文就绪");
     $("#agentStatus").title = $("#agentStatus").textContent;
     $("#agentRuntimeBadge").title = $("#agentRuntimeBadge").textContent;
@@ -225,7 +225,7 @@ export class AgentPanel {
             job &&
             ["failed", "stopped", "interrupted"].includes(job.status);
           if (message.role === "assistant" && !message.content && !failed) return "";
-          return `<div class="agent-msg ${message.role === "user" ? "user" : "assistant"}"><div class="agent-bubble">${message.quote_text ? `<blockquote>${e(message.quote_text)}</blockquote>` : ""}${markdown(message.content || "")}</div>${failed ? `<div class="agent-error">${e(job.status === "stopped" ? "已停止，保留已生成的内容" : job.status === "interrupted" ? "服务重启中断了任务" : errorText({ error: job.error || "request_failed" }))}<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button></div>` : ""}</div>`;
+          return `<div class="agent-msg ${message.role === "user" ? "user" : "assistant"}"><div class="agent-bubble">${message.quote_text ? `<blockquote class="agent-message-quote"><span class="agent-quote-label">引用文本</span>${e(message.quote_text)}</blockquote>` : ""}${markdown(message.content || "")}</div>${failed ? `<div class="agent-error">${e(job.status === "stopped" ? "已停止，保留已生成的内容" : job.status === "interrupted" ? "服务重启中断了任务" : errorText({ error: job.error || "request_failed" }))}<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button></div>` : ""}</div>`;
         })
         .join("") ||
       `<p class="agent-empty-caption">${available ? "围绕本文提问，或选择原文引用提问。" : "全文就绪后，即可开始研究。"}</p>`;

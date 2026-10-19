@@ -205,15 +205,17 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     done = client.patch(f"/api/news/{item_id}/state", json={"read_later": False})
     assert done.status_code == 200
     assert done.get_json()["read_later_at"] is None
-    assert done.get_json()["read_later_done_at"] is not None
+    assert done.get_json()["read_later_done_at"] is None
 
     read_later_unread = client.get("/api/news?collection=read_later&read_filter=unread")
     assert read_later_unread.status_code == 200
     assert read_later_unread.get_json()["total"] == 0
 
+    assert client.get("/api/news?collection=read_later&read_filter=read").get_json()["total"] == 0
+    client.patch(f"/api/news/{item_id}/state", json={"read_later": False, "read_later_done": True})
     read_later_read = client.get("/api/news?collection=read_later&read_filter=read")
     assert read_later_read.status_code == 200
-    assert read_later_read.get_json()["total"] == 0
+    assert read_later_read.get_json()["total"] == 1
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -2416,7 +2418,7 @@ def test_read_later_enqueues_detail_job_and_retry(tmp_path: Path, monkeypatch):
     cancel = client.patch(f"/api/news/{item_id}/state", json={"read_later": False})
     assert cancel.status_code == 200
     assert cancel.get_json()["read_later_at"] is None
-    assert cancel.get_json()["read_later_done_at"] is not None
+    assert cancel.get_json()["read_later_done_at"] is None
 
     read_later_done = client.get("/api/news?collection=read_later&read_filter=read").get_json()
     assert read_later_done["total"] == 0

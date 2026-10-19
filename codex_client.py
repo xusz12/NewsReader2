@@ -107,7 +107,7 @@ def valid_thread_id(value: str) -> bool:
         return False
 
 
-def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: bool = False) -> list[str]:
+def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: bool = False, live_search: bool = False) -> list[str]:
     config = normalize_config(config)
     if thread_id and not valid_thread_id(thread_id):
         raise RuntimeError("codex_session_invalid")
@@ -124,6 +124,8 @@ def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: b
         args += ["-c", "model_reasoning_effort=" + json.dumps(config["reasoning_effort"])]
     if ephemeral:
         args.append("--ephemeral")
+    if live_search:
+        args += ["-c", 'web_search="live"']
     if thread_id:
         args += ["resume", thread_id, "-"]
     else:

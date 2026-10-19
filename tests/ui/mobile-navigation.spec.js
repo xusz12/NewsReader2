@@ -95,7 +95,7 @@ test('the underlying list does not auto-mark news read until the reader is close
   await page.clock.install();
   await page.route('**/api/news?*', async route => {
     const data = await (await route.fetch()).json();
-    await route.fulfill({ json: { ...data, items: data.items.slice(0, 1), total: 1, has_more: false, next_cursor: null } });
+    await route.fulfill({ json: { ...data, ...(data.items ? { items: data.items.slice(0, 1) } : {}), total: 1, has_more: false, next_cursor: null } });
   });
   await openReader(page);
   await page.clock.fastForward(6000);

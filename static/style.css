@@ -973,6 +973,12 @@ a {
   transform: scale(0.95);
 }
 
+/* Preserve the active color and click target while a flag is saving. */
+.card-action-btn[aria-busy="true"],
+.detail-toolbar [data-state][aria-busy="true"] {
+  border-style: dotted;
+}
+
 .unread-dot {
   width: 7px;
   height: 7px;
@@ -3984,3 +3990,104 @@ button:disabled {
 }
 .selection-toolbar .selection-pop-btn { min-height: 44px; justify-content: center; }
 #dismissSelectionBtn { min-width: 36px; }
+
+/* v0.0.11: upstream errors and explicit Agent quotations. */
+.agent-bubble .agent-message-quote { margin: 0 0 12px; padding: 9px 12px; border-left: 3px solid currentColor; background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.agent-quote-label { display: block; margin-bottom: 5px; font-size: var(--fs-meta); font-weight: 600; }
+/* Upstream diagnostics: isolated from the other top-bar controls and dialogs. */
+.topbar-upstream-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 7px; min-width: 32px; height: var(--topbar-control-height); padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; transition: transform var(--motion-fast), background var(--motion-fast); }
+.topbar-upstream-btn:hover { background: var(--accent-soft); border-color: var(--border); box-shadow: var(--shadow-subtle); transform: translateY(-1px); }
+.topbar-upstream-btn:focus-visible, .upstream-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.topbar-upstream-btn.has-errors { color: var(--status-warning); }
+.topbar-upstream-btn.no-errors { color: var(--status-success); }
+.upstream-pulse-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px color-mix(in oklch, currentColor 20%, transparent); }
+.upstream-badge { min-width: 19px; padding: 1px 5px; border-radius: 10px; font: 700 11px/1.4 var(--font-mono); background: var(--surface-subtle); color: var(--muted); text-align: center; }
+.has-errors .upstream-badge { color: #fff; background: var(--status-warning); }
+.upstream-dialog { width: 760px; }
+.upstream-dialog .modal-header { padding: 20px 22px; }
+.upstream-dialog-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.upstream-dialog-heading > svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--status-warning); }
+.upstream-dialog .modal-title { font-family: var(--font-display); font-size: 19px; line-height: 1.4; }
+.upstream-dialog .modal-title span { font-size: .9em; }
+.upstream-dialog .modal-close-btn { flex-shrink: 0; }
+.upstream-dialog .upstream-dialog-body { padding: 18px 22px 24px; min-height: 0; }
+.upstream-error-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.upstream-error-controls label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.upstream-error-controls input { min-width: 0; font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 7px; }
+[data-theme="dark"] .upstream-error-controls input { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] .upstream-error-controls input { color-scheme: dark; }
+}
+.upstream-error-controls button { padding: 5px 12px; font-size: 12px; }
+.upstream-health-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 14px 16px; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 26px; }
+.upstream-stat-label { display: block; font-size: 12px; color: var(--muted); }
+.upstream-stat-value { display: block; margin-top: 3px; font: 700 16px/1.5 var(--font-mono); }
+.upstream-stat-value.warning { color: var(--status-warning); }
+.upstream-stat-value.success { color: var(--status-success); }
+.upstream-classifier-bar { display: flex; flex-direction: column; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+.upstream-dim-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.upstream-dim-switcher { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-subtle); }
+.upstream-dim-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; font-size: 12px; cursor: pointer; }
+.upstream-dim-btn svg, .upstream-group-header svg { width: 14px; height: 14px; flex-shrink: 0; }
+.upstream-dim-btn[aria-pressed="true"] { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow-subtle); }
+.upstream-showing-count { font: 11px var(--font-mono); color: var(--muted); }
+.upstream-filter-chips { display: flex; gap: 6px; overflow-x: auto; padding: 3px; margin: -3px; }
+.upstream-chip-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.upstream-chip-btn span { font: 11px var(--font-mono); }
+.upstream-chip-btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.upstream-error-group + .upstream-error-group { margin-top: 22px; }
+.upstream-group-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 5px 2px; border-bottom: 1px dashed var(--border); font-size: 12px; }
+.upstream-group-header > span:first-child { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.upstream-group-header > span:last-child { color: var(--muted); flex-shrink: 0; font: 11px var(--font-mono); }
+.upstream-error-card { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow-wrap: anywhere; }
+.upstream-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.upstream-source-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+.upstream-source-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-subtle); color: var(--accent); font: 700 11px var(--font-mono); }
+.upstream-error-tag { padding: 2px 7px; border-radius: 10px; color: var(--status-warning); background: color-mix(in oklch, var(--status-warning) 12%, var(--surface)); font: 600 11px/1.5 var(--font-mono); }
+.upstream-card-head time { margin-left: auto; color: var(--muted); font: 11px var(--font-mono); }
+.upstream-log-box { border: 1px solid oklch(28% .01 250); border-radius: 4px; padding: 9px 12px; background: oklch(14% .01 250); color: oklch(90% .01 250); font: 12px/1.6 var(--font-mono); }
+.upstream-log-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; margin-bottom: 6px; color: oklch(70% .01 250); border-bottom: 1px solid oklch(28% .01 250); font-size: 11px; }
+.upstream-log-copy-btn { flex-shrink: 0; border: 1px solid oklch(40% .01 250); border-radius: 3px; padding: 2px 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.upstream-log-copy-btn:hover { color: #fff; border-color: currentColor; }
+.upstream-log-box pre { margin: 0; max-height: 220px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.upstream-copy-feedback:not(:empty) { display: block; margin-top: 6px; font-size: 11px; }
+.upstream-empty { padding: 30px 12px; text-align: center; color: var(--muted); }
+.upstream-empty p { margin: 8px 0 0; }
+.upstream-empty button { margin-top: 14px; }
+[data-theme="eink"] .topbar-upstream-btn, [data-theme="eink"] .upstream-stat-value, [data-theme="eink"] .upstream-dialog-heading > svg { color: var(--fg); }
+[data-theme="eink"] .has-errors .upstream-badge { background: var(--fg); }
+[data-theme="eink"] .upstream-log-box, [data-theme="eink"] .upstream-log-head, [data-theme="eink"] .upstream-log-copy-btn { color: var(--fg); background: var(--surface); border-color: var(--border); }
+@media (max-width: 920px) {
+  .topbar-upstream-btn { min-width: 36px; height: 36px; gap: 4px; padding-inline: 6px; }
+  .topbar-upstream-btn .upstream-pulse-dot { width: 4px; height: 4px; }
+  .upstream-badge { min-width: 16px; padding-inline: 3px; font-size: 10px; }
+}
+@media (max-width: 600px) {
+  .upstream-dialog .modal-header, .upstream-dialog .upstream-dialog-body { padding: 16px; }
+  .upstream-dialog .modal-title { font-size: 17px; }
+  .upstream-dialog .modal-title span { display: block; font-size: 12px; color: var(--muted); }
+  .upstream-dialog-heading { gap: 8px; }
+  .upstream-health-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px; margin-bottom: 18px; }
+  .upstream-dim-switcher { display: flex; width: 100%; }
+  .upstream-dim-btn { flex: 1; padding: 8px 4px; gap: 4px; font-size: 11px; }
+  .upstream-error-card { padding: 12px; }
+  .upstream-log-box { padding: 8px; font-size: 11px; }
+  .upstream-log-head { flex-wrap: wrap; }
+  .upstream-log-copy-btn { min-height: 30px; }
+}
+@media (max-width: 420px) {
+  .topbar { padding-inline: 8px; gap: 6px; }
+  .brand-version { display: none; }
+  .brand-logo { gap: 6px; }
+  .brand-wordmark { width: clamp(70px, calc(100vw - 250px), 124px); }
+  .theme-select { max-width: 68px; }
+}
+@media (max-width: 380px) {
+  .upstream-error-controls { gap: 8px; }
+  .upstream-error-controls label { gap: 6px; white-space: nowrap; }
+  .upstream-error-controls input { width: 116px; }
+  .upstream-error-controls button { padding-inline: 8px; white-space: nowrap; }
+  .topbar-upstream-btn { gap: 2px; padding-inline: 2px; }
+  .topbar-upstream-btn .upstream-pulse-dot { width: 3px; height: 3px; }
+  .topbar-upstream-btn .upstream-badge { min-width: 16px; padding-inline: 0; font-size: 9px; }
+}
