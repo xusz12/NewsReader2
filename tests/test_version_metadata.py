@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "v0.0.12"
+RELEASE_VERSION = "v0.0.13"
 ASSET_VERSION = RELEASE_VERSION.removeprefix("v")
 
 

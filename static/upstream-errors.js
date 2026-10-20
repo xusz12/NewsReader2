@@ -14,25 +14,53 @@ function errorBadge(log) {
   return /timeout|timed?\s*out|超时/i.test(log) ? "连接超时" : "采集异常";
 }
 
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function shiftDay(day, offset) {
+  const date = new Date(`${day}T12:00:00`);
+  date.setDate(date.getDate() + offset);
+  return dateKey(date);
+}
+
 export class UpstreamErrors {
   constructor() {
     this.dialog = $("#upstreamErrorsDialog");
     this.button = $("#upstreamErrorsBtn");
     this.content = $("#upstreamErrorsContent");
+    this.loadMessage = $("#upstreamLoadMessage");
+    this.retryButton = $("[data-upstream-retry]", this.dialog);
+    this.retryButton.onclick = () => this.load(this.requestedDay);
+    this.loadedDay = "";
     this.sequence = 0;
     this.dimension = "time";
     this.filter = "";
+    this.today = dateKey(new Date());
     this.button.onclick = () => {
       this.dialog.showModal();
       this.button.setAttribute("aria-expanded", "true");
       this.showToday();
     };
     $("#closeUpstreamErrorsBtn").onclick = () => this.dialog.close();
-    $("#upstreamErrorDate").onchange = () => this.load();
-    $("#upstreamTodayBtn").onclick = () => this.showToday();
+    $("#upstreamErrorDate").onchange = () => this.selectDay($("#upstreamErrorDate").value);
+    $(".upstream-date-shortcuts").onclick = event => {
+      const shortcut = event.target.closest("[data-upstream-day-offset]");
+      if (shortcut) {
+        const offset = Number(shortcut.dataset.upstreamDayOffset);
+        if (offset === 0) this.showToday();
+        else this.selectDay(shiftDay(this.today, offset));
+      }
+    };
+    $("#upstreamPreviousDayBtn").onclick = () => this.selectDay(shiftDay($("#upstreamErrorDate").value || this.today, -1));
+    $("#upstreamNextDayBtn").onclick = () => this.selectDay(shiftDay($("#upstreamErrorDate").value || this.today, 1));
+    this.updateDateControls();
     this.dialog.addEventListener("close", () => {
       ++this.sequence;
+      this.content.setAttribute("aria-busy", "false");
+      this.setLoadStatus("");
       this.button.setAttribute("aria-expanded", "false");
+      this.button.focus({ preventScroll: true });
     });
     this.dialog.addEventListener("click", event => {
       if (event.target === this.dialog) {
@@ -47,7 +75,6 @@ export class UpstreamErrors {
       if (dimension) { this.dimension = dimension.dataset.upstreamDimension; this.filter = ""; this.render(); }
       else if (filter) { this.filter = filter.dataset.upstreamFilter; this.render(); }
       else if (copy) this.copyLog(copy);
-      else if (event.target.closest("[data-upstream-retry]")) this.load();
     };
     const sync = () => { if (!document.hidden) this.refreshBadge(); };
     window.addEventListener("focus", sync);
@@ -58,9 +85,31 @@ export class UpstreamErrors {
 
   showToday() {
     // Omit the day so the server resolves today's date afresh, including after midnight.
-    $("#upstreamErrorDate").value = "";
+    $("#upstreamErrorDate").value = this.today;
+    this.updateDateControls();
     this.refreshBadge();
+    this.load("");
+  }
+
+  selectDay(day) {
+    if (!day) return this.showToday();
+    $("#upstreamErrorDate").value = day > this.today ? this.today : day;
     this.load();
+  }
+
+  updateDateControls() {
+    const date = $("#upstreamErrorDate");
+    const selected = date.value || this.today;
+    date.max = this.today;
+    document.querySelectorAll("[data-upstream-day-offset]").forEach(button => {
+      const offset = Number(button.dataset.upstreamDayOffset);
+      const day = shiftDay(this.today, offset);
+      const shortDate = `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}`;
+      button.textContent = offset === 0 ? `今天 (${shortDate})` : offset === -1 ? `昨天 (${shortDate})` : shortDate;
+      button.setAttribute("aria-pressed", String(selected === day));
+      button.setAttribute("aria-label", `${offset === 0 ? "今天" : offset === -1 ? "昨天" : "前天"}，${day}`);
+    });
+    $("#upstreamNextDayBtn").disabled = selected >= this.today;
   }
 
   async refreshBadge() {
@@ -71,14 +120,16 @@ export class UpstreamErrors {
         const data = await api("/api/error-stats?details=0");
         const count = recordsFrom(data).length;
         const badge = $("#upstreamErrorBadge");
-        badge.hidden = count === 0;
+        $("#upstreamErrorSummary").hidden = count === 0;
         badge.textContent = count > 99 ? "99+" : count ? String(count) : "";
+        this.today = data.today || data.day || this.today;
+        this.updateDateControls();
         this.button.classList.toggle("has-errors", count > 0);
         this.button.classList.toggle("no-errors", count === 0);
         this.button.title = count ? `当日 ${count} 条上游报错记录 · 点击查看` : "当日未记录上游报错 · 点击查看历史记录";
         this.button.setAttribute("aria-label", `上游数据报错集合：${this.button.title}`);
       } catch {
-        $("#upstreamErrorBadge").hidden = false;
+        $("#upstreamErrorSummary").hidden = false;
         $("#upstreamErrorBadge").textContent = "?";
         this.button.classList.remove("has-errors", "no-errors");
         this.button.title = "上游报错统计暂不可用 · 点击重试";
@@ -88,25 +139,43 @@ export class UpstreamErrors {
     try { await this.badgeRequest; } finally { this.badgeRequest = null; }
   }
 
-  async load() {
+  setLoadStatus(message, failed = false) {
+    this.loadMessage.textContent = message;
+    this.loadMessage.parentElement.classList.toggle("is-error", failed);
+    this.retryButton.hidden = !failed;
+  }
+
+  async load(day = $("#upstreamErrorDate").value) {
     const sequence = ++this.sequence;
+    this.requestedDay = day;
     const date = $("#upstreamErrorDate");
+    this.updateDateControls();
     this.content.setAttribute("aria-busy", "true");
-    this.content.innerHTML = '<p class="upstream-empty">正在读取上游报错…</p>';
+    // Keep the last successful view in place until the next date is ready.
+    this.setLoadStatus("");
+    if (!this.loadedDay) this.content.replaceChildren();
     try {
       const params = new URLSearchParams({ details: "1" });
-      if (date.value) params.set("day", date.value);
+      if (day) params.set("day", day);
       const data = await api(`/api/error-stats?${params}`);
       if (sequence !== this.sequence || !this.dialog.open) return;
       date.value = data.day;
+      this.today = data.today || this.today;
+      this.updateDateControls();
       this.records = recordsFrom(data);
       this.stats = data.stats || {};
       this.isToday = !data.today || data.day === data.today;
       this.filter = "";
       this.render();
+      if (this.loadedDay !== data.day) this.content.scrollTop = 0;
+      this.loadedDay = data.day;
+      this.content.setAttribute("aria-label", `${data.day} 的上游报错记录`);
+      this.setLoadStatus("");
     } catch (error) {
-      if (sequence === this.sequence && this.dialog.open)
-        this.content.innerHTML = `<div class="upstream-empty" role="status"><p>${e(errorText(error))}</p><button class="btn-secondary" type="button" data-upstream-retry>重新读取</button></div>`;
+      if (sequence === this.sequence && this.dialog.open) {
+        this.setLoadStatus(`${errorText(error)}${this.loadedDay ? `；仍显示 ${this.loadedDay}` : ""}`, true);
+        if (!this.loadedDay) this.content.innerHTML = '<div class="upstream-empty">暂时无法显示上游报错，请重新读取。</div>';
+      }
     } finally {
       if (sequence === this.sequence) this.content.setAttribute("aria-busy", "false");
     }
@@ -131,7 +200,7 @@ export class UpstreamErrors {
     const groupIcon = this.dimension === "time" ? icon("read_later") : sourceIcon;
     const chips = [["", this.dimension === "time" ? "全部时间" : "全部来源", records.length],
       ...[...groups].map(([key, items]) => [key, key, items.length])];
-    this.content.innerHTML = `
+    const html = `
       <div class="upstream-health-strip">
         <div title="${e(availabilityTitle)}"><span class="upstream-stat-label">当日抓取可用率</span><strong class="upstream-stat-value ${Number.isFinite(availability) ? (availability < 100 ? "warning" : "success") : ""}">${Number.isFinite(availability) ? `${availability}%` : "—"}</strong></div>
         <div><span class="upstream-stat-label">异常来源</span><strong class="upstream-stat-value">${new Set(records.map(row => row.label)).size} 个</strong></div>
@@ -153,8 +222,13 @@ export class UpstreamErrors {
           <h3 class="upstream-group-header"><span>${groupIcon}${e(key)}</span><span>${items.length} 条报错</span></h3>
           ${items.map(record => this.card(record)).join("")}
         </section>`).join("") : '<div class="upstream-empty"><strong>当天没有记录上游报错。</strong><p>可切换日期查看历史记录。</p></div>'}</div>`;
-    if (focusValue !== undefined)
-      [...this.content.querySelectorAll("button")].find(button => button.dataset[focusKey] === focusValue)?.focus({ preventScroll: true });
+    // Commit the new view in one paint; unchanged responses keep their DOM and scroll position.
+    if (html !== this.renderedHTML) {
+      this.content.innerHTML = html;
+      this.renderedHTML = html;
+      if (focusValue !== undefined)
+        [...this.content.querySelectorAll("button")].find(button => button.dataset[focusKey] === focusValue)?.focus({ preventScroll: true });
+    }
   }
 
   card(record) {

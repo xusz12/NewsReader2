@@ -17,6 +17,8 @@ export class AgentPanel {
     this.open = storage("newsreader_workbench_agent_collapsed", "true") === "false";
     this.payload = {};
     this.drafts = new Map();
+    this.draftVersions = new Map();
+    this.pendingSends = new Set();
     this.initializing = new Map();
     this.sequence = 0;
     $("#agentHeader").addEventListener("click", (event) => {
@@ -47,6 +49,7 @@ export class AgentPanel {
         this.send();
       }
     });
+    $("#agentPromptInput").addEventListener("input", () => this.draftChanged());
     $(".mobile-sheet-handle-bar").onclick = () => this.collapse();
     $("#agentChatStream").addEventListener("click", (event) => {
       const button = event.target.closest("[data-retry-job]");
@@ -58,6 +61,12 @@ export class AgentPanel {
     return (this.payload.jobs || []).find((job) =>
       activeStatuses.includes(job.status),
     );
+  }
+  get sending() {
+    return this.pendingSends.has(this.item?.id);
+  }
+  draftChanged() {
+    if (this.item) this.draftVersions.set(this.item.id, (this.draftVersions.get(this.item.id) || 0) + 1);
   }
   hasHistory() {
     return !!(this.payload.messages?.length || this.payload.jobs?.length);
@@ -85,7 +94,6 @@ export class AgentPanel {
       this.item = item;
       this.payload = {};
       this.message = "";
-      this.sending = false;
       this.preparing = null;
       const draft = this.drafts.get(item?.id) || {};
       $("#agentPromptInput").value = draft.prompt || "";
@@ -180,7 +188,6 @@ export class AgentPanel {
       available =
         this.payload.context_available === true || !!this.payload.session;
     const initializing = this.initializing.has(this.item?.id) || this.preparing === this.sequence;
-    $("#agentPromptInput").disabled = !available || !!active || this.sending || initializing;
     const stopping = active?.status === "stopping" || this.stopping;
     $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || initializing));
     $("#agentSendBtn").innerHTML = icon(active ? "stop" : "send");
@@ -188,7 +195,7 @@ export class AgentPanel {
     $("#agentSendBtn").title = active ? "停止研究" : "发送";
     $("#agentPromptInput").placeholder = available
       ? "围绕本文研究与追问…"
-      : "全文抓取完成后即可提问";
+      : "可先输入问题，全文就绪后发送";
     $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing;
     $("#archiveAgentBtn").disabled =
       !!active ||
@@ -297,12 +304,18 @@ export class AgentPanel {
   }
   async send() {
     if (!this.item || this.sending || this.active() || this.initializing.has(this.item.id) || this.preparing === this.sequence) return;
-    const question = $("#agentPromptInput").value.trim();
+    if (this.payload.context_available !== true && !this.payload.session) return;
+    const prompt = $("#agentPromptInput").value;
+    const question = prompt.trim();
     if (!question) return;
     const id = this.item.id,
       sequence = this.sequence,
-      quote = this.quoteText || "";
-    this.sending = true;
+      quote = this.quoteText || "",
+      draftVersion = this.draftVersions.get(id) || 0;
+    this.pendingSends.add(id);
+    $("#agentPromptInput").value = "";
+    this.quoteText = "";
+    this.drafts.delete(id);
     this.message = "正在创建研究任务…";
     this.render();
     try {
@@ -324,23 +337,31 @@ export class AgentPanel {
           quote_source: quote ? "selection" : "",
         },
       });
-      this.drafts.delete(id);
       if (sequence !== this.sequence) return;
       this.payload = data.agent || data;
-      $("#agentPromptInput").value = "";
-      this.quoteText = "";
       this.message = "";
       if (this.active()) this.startStream(this.active().id);
     } catch (error) {
+      // Restore an unsent question only if the user has not edited its next draft.
+      if ((this.draftVersions.get(id) || 0) === draftVersion) {
+        this.drafts.set(id, { prompt, quote });
+        if (this.item?.id === id) {
+          $("#agentPromptInput").value = prompt;
+          this.quoteText = quote;
+        }
+      }
       if (sequence === this.sequence) this.message = errorText(error);
     } finally {
+      this.pendingSends.delete(id);
       if (sequence === this.sequence) {
-        this.sending = false;
         this.render();
+      } else if (this.item?.id === id) {
+        this.refresh();
       }
     }
   }
   quote(text) {
+    this.draftChanged();
     this.quoteText = text;
     return this.expand();
   }

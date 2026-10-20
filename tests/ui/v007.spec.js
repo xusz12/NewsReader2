@@ -50,7 +50,7 @@ test('a failed startup scan still loads existing news and can be retried', async
   await expect(page.locator('#refreshIndexBtn')).toBeEnabled();
   expect(scans).toBe(1);
   await page.locator('#refreshIndexBtn').click();
-  await expect(page.locator('#pipelineStatus')).toContainText('新闻库已连接');
+  await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
   await expect(page.locator('#toast')).toHaveText('新闻索引已刷新');
   await expect(page.locator('#refreshIndexBtn')).toBeEnabled();
   expect(scans).toBe(2);

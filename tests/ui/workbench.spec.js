@@ -33,12 +33,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.12", available: false,
+    ok: true, enabled: false, current_version: "v0.0.13", available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.12");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.12");
+  await expect(page).toHaveTitle("News Reader v0.0.13");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.13");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();
@@ -278,6 +278,8 @@ test("Agent session, streamed result, stop/retry and archive", async ({
     ],
     jobs: [job],
   };
+  let releaseSend, sendCount = 0;
+  const sendGate = new Promise(resolve => { releaseSend = resolve; });
   await page.route("**/api/news/*/agent/session", (route) =>
     route.fulfill({
       json: {
@@ -289,9 +291,11 @@ test("Agent session, streamed result, stop/retry and archive", async ({
       },
     }),
   );
-  await page.route("**/api/news/*/agent/jobs", (route) =>
-    route.fulfill({ json: { ok: true, ...payload } }),
-  );
+  await page.route("**/api/news/*/agent/jobs", async (route) => {
+    sendCount++;
+    await sendGate;
+    await route.fulfill({ json: { ok: true, ...payload } });
+  });
   await page.route("**/api/news/*/agent/jobs/job-ui/stream", (route) =>
     route.fulfill({
       status: 200,
@@ -318,10 +322,25 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   await expect(page.locator("#agentPromptInput")).toBeEnabled();
   await page.locator("#agentPromptInput").fill("解释核心证据");
   await page.locator("#agentSendBtn").click();
+  await expect.poll(() => sendCount).toBe(1);
+  const prompt = page.locator("#agentPromptInput");
+  await expect(prompt).toHaveAttribute("autocomplete", "off");
+  await expect(prompt).toBeEditable();
+  await expect(prompt).toHaveValue("");
+  await prompt.fill("下一条问题的草稿");
+  await prompt.press("Enter");
+  expect(sendCount).toBe(1);
+  await expect(prompt).toHaveValue("下一条问题的草稿");
+  releaseSend();
   await expect(page.locator("#agentChatStream")).toContainText(
     "已验证的测试回答",
   );
   await expect(page.getByRole("button", { name: "停止研究" })).toBeVisible();
+  await expect(prompt).toBeEditable();
+  await expect(prompt).toHaveValue("下一条问题的草稿");
+  await prompt.fill("生成期间继续修改问题");
+  await prompt.press("Enter");
+  expect(sendCount).toBe(1);
   await page.route("**/api/news/*/agent/session", (route) =>
     route.fulfill({
       json: {
@@ -337,6 +356,8 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   );
   await page.getByRole("button", { name: "停止研究" }).click();
   await expect(page.locator('[data-retry-job="job-ui"]')).toBeVisible();
+  await expect(prompt).toBeEditable();
+  await expect(prompt).toHaveValue("生成期间继续修改问题");
   let archived;
   await page.route("**/api/news/*/chat/archive", (route) => {
     archived = route.request().postDataJSON();
@@ -354,6 +375,40 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   expect(archived.agent_session_id).toBe("session-ui");
   await expect(page.locator(".saved-note").last()).toContainText("归档结论");
 });
+
+for (const editNextDraft of [false, true]) {
+  test(`Agent failed submission ${editNextDraft ? "preserves the next draft" : "restores the unsent question"}`, async ({ page }) => {
+    const session = { id: "failed-send-session", runtime: "codex", model: "fixture" };
+    let releaseSend, sendCount = 0;
+    const sendGate = new Promise(resolve => { releaseSend = resolve; });
+    await page.route("**/api/news/*/agent/session", route => route.fulfill({
+      json: { ok: true, session, context_available: true, messages: [], jobs: [] },
+    }));
+    await page.route("**/api/news/*/agent/jobs", async route => {
+      sendCount++;
+      await sendGate;
+      await route.fulfill({ status: 500, json: { ok: false, error: "request_failed" } });
+    });
+    await ready(page);
+    await select(page);
+    await page.locator("#agentDockToggleBtn").click();
+    const prompt = page.locator("#agentPromptInput");
+    await prompt.fill("尚未成功发送的问题");
+    await page.locator("#agentSendBtn").click();
+    await expect.poll(() => sendCount).toBe(1);
+    await expect(prompt).toHaveValue("");
+    if (editNextDraft) await prompt.fill("新写的草稿");
+    await select(page, "ui-001");
+    await select(page, "ui-000");
+    await page.locator("#agentDockToggleBtn").click();
+    await expect(page.locator("#agentStatus")).not.toHaveText("正在准备会话…");
+    await expect(prompt).toBeEditable();
+    await expect(page.locator("#agentSendBtn")).toBeDisabled();
+    releaseSend();
+    await expect(page.locator("#agentSendBtn")).toBeEnabled();
+    await expect(prompt).toHaveValue(editNextDraft ? "新写的草稿" : "尚未成功发送的问题");
+  });
+}
 test("stale detail response cannot overwrite the selected article", async ({
   page,
 }) => {

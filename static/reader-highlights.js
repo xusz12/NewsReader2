@@ -54,7 +54,6 @@ export class ReaderHighlights {
     this.popover = $("#selectionPopover");
     // Keep the selected range intact until an action consumes it, including touch taps.
     this.popover.addEventListener("pointerdown", event => event.preventDefault());
-    $("#dismissSelectionBtn").onclick = () => { getSelection()?.removeAllRanges(); this.hide(); };
     $("#highlightSelectionBtn").onclick = event => busy(event.currentTarget, () => this.save());
     $("#quoteNoteBtn").onclick = () => this.quote("note");
     $("#quoteAgentBtn").onclick = () => this.quote("agent");

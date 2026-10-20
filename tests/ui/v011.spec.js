@@ -175,7 +175,7 @@ test('upstream errors support dates, escaped details, retry and modal keyboard i
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
   fail = true;
   await page.locator('#upstreamTodayBtn').click();
-  await expect(page.locator('#upstreamErrorsContent')).not.toContainText('正在读取');
+  await expect(page.locator('[data-upstream-retry]')).toBeVisible();
   fail = false;
   await page.locator('#upstreamErrorDate').fill('2026-10-19');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('Reuters world');
@@ -203,7 +203,7 @@ test('visible polling catches other-device changes and hidden pages pause pollin
   await page.clock.fastForward(31000);
   await page.clock.runFor(200);
   await expect(activeFilter(page)).toHaveText('未读 (64)');
-  await expect(page.locator('#pipelineStatus')).toContainText('64 篇');
+  await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
   let requests = 0;
   page.on('request', req => { if (req.url().includes('/api/nav-summary')) requests++; });
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { configurable: true, value: true }));

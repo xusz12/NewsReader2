@@ -66,12 +66,29 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
+  const dialogBox = await page.locator('#upstreamErrorsDialog').boundingBox();
+  await expect(page.locator('#upstreamNextDayBtn')).toBeDisabled();
+  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('max', today);
+  await page.locator('[data-upstream-day-offset="-1"]').click();
+  await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-10-18');
+  await expect(page.locator('[data-upstream-day-offset="-1"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#upstreamNextDayBtn').click();
+  await expect(page.locator('.upstream-error-card')).toHaveCount(3);
+  await expect(page.locator('#upstreamNextDayBtn')).toBeDisabled();
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
+  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
   await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
   await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
-  await expect(page.locator('#upstreamTodayBtn')).toHaveText('回到今日');
+  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/19)');
+  await page.locator('#upstreamErrorDate').fill('2026-10-01');
+  await expect(page.locator('#upstreamErrorsContent')).toHaveAttribute('aria-busy', 'false');
+  await page.locator('#upstreamPreviousDayBtn').click();
+  await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-09-30');
+  await expect(page.locator('#upstreamErrorsContent')).toHaveAttribute('aria-busy', 'false');
+  await page.locator('#upstreamNextDayBtn').click();
+  await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-10-01');
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
@@ -83,17 +100,19 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await page.locator('#upstreamErrorDate').fill('2026-10-17');
   await requested;
+  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   release();
   await page.unrouteAll({ behavior: 'wait' });
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
-  await page.route('**/api/error-stats?*', route => route.fulfill(fail ? { status: 500, json: { ok: false, error: 'request_failed' } } : { json: payload(currentDay, rows) }));
+  await page.route('**/api/error-stats?*', route => route.fulfill(fail ? { status: 500, json: { ok: false, error: 'request_failed' } } : { json: { ...payload(currentDay, rows), today: currentDay } }));
   fail = true;
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('?');
   await expect(page.locator('[data-upstream-retry]')).toBeVisible();
+  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
   fail = false; rows = [];
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toBeHidden();
@@ -103,7 +122,78 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.locator('#closeUpstreamErrorsBtn').click();
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(currentDay);
+  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/20)');
+  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('max', currentDay);
 });
+
+for (const width of [1440, 320]) {
+  test(`date changes retain visible results and scroll while loading at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await start(page);
+    const pending = [];
+    await page.route('**/api/error-stats?*', route => {
+      if (new URL(route.request().url()).searchParams.get('details') === '1') pending.push(route);
+      else return route.fulfill({ json: payload() });
+    });
+    const content = page.locator('#upstreamErrorsContent');
+    const message = page.locator('#upstreamLoadMessage');
+    const changes = [
+      ['2026-10-18', () => page.locator('#upstreamErrorDate').fill('2026-10-18')],
+      ['2026-10-17', () => page.locator('#upstreamPreviousDayBtn').click()],
+      ['2026-10-18', () => page.locator('#upstreamNextDayBtn').click()],
+      [today, () => page.locator('#upstreamTodayBtn').click()],
+    ];
+    for (const [day, change] of changes) {
+      const before = await content.evaluate(node => {
+        node.scrollTop = 80;
+        window.retainedUpstreamCard = node.querySelector('.upstream-error-card');
+        return { html: node.innerHTML, scroll: node.scrollTop };
+      });
+      const box = await content.boundingBox();
+      await change();
+      await expect.poll(() => pending.length).toBe(1);
+      await expect(content).toHaveAttribute('aria-busy', 'true');
+      await expect(message).toBeEmpty();
+      expect(await content.evaluate(node => ({ html: node.innerHTML, scroll: node.scrollTop }))).toEqual(before);
+      expect(await content.boundingBox()).toEqual(box);
+      expect(await page.evaluate(() => window.retainedUpstreamCard.isConnected)).toBe(true);
+      if (day === '2026-10-17') await page.screenshot({ path: `.ui-artifacts/upstream-pending-${width}.png` });
+      await pending.shift().fulfill({ json: payload(day) });
+      await expect(content).toHaveAttribute('aria-busy', 'false');
+      await expect(content).toHaveAttribute('aria-label', `${day} 的上游报错记录`);
+      await expect(message).toBeEmpty();
+      expect(await content.evaluate(node => node.scrollTop)).toBe(0);
+    }
+    // Refreshing the same date with unchanged data should leave the current view untouched.
+    await content.evaluate(node => {
+      node.scrollTop = 80;
+      window.retainedUpstreamCard = node.querySelector('.upstream-error-card');
+    });
+    await page.locator('#upstreamTodayBtn').click();
+    await expect.poll(() => pending.length).toBe(1);
+    await pending.shift().fulfill({ json: payload() });
+    await expect(content).toHaveAttribute('aria-busy', 'false');
+    expect(await page.evaluate(() => window.retainedUpstreamCard.isConnected)).toBe(true);
+    expect(await content.evaluate(node => node.scrollTop)).toBe(80);
+
+    // Failures keep the last successful date explicit, and retry requests the selected date.
+    await page.locator('#upstreamPreviousDayBtn').click();
+    await expect.poll(() => pending.length).toBe(1);
+    await pending.shift().fulfill({ status: 500, json: { ok: false, error: 'request_failed' } });
+    await expect(content).toHaveAttribute('aria-busy', 'false');
+    await expect(message).toContainText(`仍显示 ${today}`);
+    await expect(page.locator('.upstream-error-card')).toHaveCount(3);
+    expect(await page.evaluate(() => window.retainedUpstreamCard.isConnected)).toBe(true);
+    await page.locator('[data-upstream-retry]').click();
+    await expect.poll(() => pending.length).toBe(1);
+    const retry = pending.shift();
+    expect(new URL(retry.request().url()).searchParams.get('day')).toBe('2026-10-18');
+    await retry.fulfill({ json: payload('2026-10-18', []) });
+    await expect(content).toContainText('当天没有记录');
+    await expect(message).toBeEmpty();
+    await expect(page.locator('[data-upstream-retry]')).toBeHidden();
+  });
+}
 
 test('upstream entry and diagnostic dialog fit desktop and narrow screens in each theme', async ({ page }) => {
   await start(page);
@@ -113,8 +203,10 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     const entry = page.locator('#upstreamErrorsBtn');
     await expect(entry.locator('svg')).toHaveCount(0);
     await page.mouse.move(0, 0);
-    await expect(entry).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
-    await expect(entry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+    await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
+    const box = await entry.boundingBox();
+    expect(box.x + box.width / 2).toBeCloseTo(720, 0);
     await entry.screenshot({ path: `.ui-artifacts/upstream-entry-${theme}.png` });
     await entry.hover();
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
@@ -128,6 +220,8 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await page.setViewportSize({ width, height: 844 });
     await chooseTheme(page, 'light');
     const button = await page.locator('#upstreamErrorsBtn').boundingBox();
+    await expect(page.locator('#pipelineStatus')).toBeHidden();
+    await expect(page.locator('.upstream-pulse-dot')).toBeVisible();
     const refresh = await page.locator('#refreshIndexBtn').boundingBox();
     expect(button.x + button.width).toBeLessThanOrEqual(refresh.x);
     const theme = await page.locator('#themeSelect').boundingBox();
@@ -136,6 +230,8 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(page.locator('.upstream-error-card')).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await page.locator('.upstream-dialog-body').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await page.locator('.upstream-error-controls').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await page.locator('#upstreamErrorsContent').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}.png` });
   }
 });

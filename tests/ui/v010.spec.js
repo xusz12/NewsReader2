@@ -89,7 +89,7 @@ test.describe('touch selection toolbar', () => {
     await page.locator('#highlightSelectionBtn').tap();
     await expect(page.locator('.digest-lead mark')).toHaveCount(0);
     await selectText();
-    await page.locator('#dismissSelectionBtn').tap();
+    await page.locator('#articleMainTitle').tap();
     await expect(toolbar).toBeHidden();
     await selectText();
     await page.setViewportSize({ width: 320, height: 568 });

@@ -382,7 +382,8 @@ async function loadFeed(append = false) {
     readerActions();
     if (!state.selected && state.items.length && !singlePane.matches)
       selectNews(state.items[0], false);
-    setIndexStatus(`新闻库已连接 · ${state.total ?? "…"} 篇`);
+    indexStatus.connectionFailed = false;
+    renderIndexStatus();
   } catch (error) {
     if (error.name === "AbortError" || sequence !== state.sequence) return;
     state.loading = false;
@@ -396,11 +397,11 @@ async function loadFeed(append = false) {
     retry.onclick = () => loadFeed(append);
     node.append(retry);
     $("#feedCardList").append(node);
-    setIndexStatus("新闻库连接失败，请重试", true);
+    indexStatus.connectionFailed = true;
+    renderIndexStatus();
   }
 }
-async function searchNews(sequence, signal) {
-  const params = feedParams();
+async function searchNews(sequence, signal, params = feedParams()) {
   const matches = [];
   let page = 1,
     pages = 1;
@@ -443,9 +444,19 @@ async function searchNews(sequence, signal) {
     next_cursor: null,
   };
 }
-function setIndexStatus(message, failed = false) {
-  $("#pipelineStatus").innerHTML =
-    `<span class="pipeline-dot ${failed ? "failed" : ""}"></span><span>${e(message)}</span>`;
+const indexStatus = { syncing: false, syncedAt: null, scanFailed: false, connectionFailed: false };
+function renderIndexStatus() {
+  const { syncing, syncedAt, scanFailed, connectionFailed } = indexStatus;
+  const failed = !syncing && (scanFailed || connectionFailed);
+  const message = syncing ? "正在扫描 DailyNews…"
+    : scanFailed ? "索引刷新失败，可点击刷新重试"
+    : connectionFailed ? "新闻库连接失败，请重试"
+    : syncedAt ? `DailyNews 增量索引已同步（最近更新：${syncedAt}）`
+    : "正在连接 DailyNews…";
+  $("#pipelineStatus").textContent = message;
+  const dot = $("#upstreamErrorsBtn .pipeline-dot");
+  dot.classList.toggle("failed", failed);
+  dot.classList.toggle("syncing", syncing);
 }
 let navSummary = null, totalScope = "", readCountsFrame;
 const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
@@ -564,8 +575,6 @@ async function updateBadges() {
         totalScope = scope;
         state.total = count.total;
         renderFilters();
-        if ($("#pipelineStatus").textContent.startsWith("新闻库已连接"))
-          setIndexStatus(`新闻库已连接 · ${count.total} 篇`);
       }) : null,
     ]);
   } finally {
@@ -1001,21 +1010,43 @@ function trackFeedReading() {
 }
 async function markAllRead() {
   const later = state.collection === "read_later";
-  const params = feedParams(), items = [...state.items];
-  let failed = 0;
+  if (!later && state.loading) return toast("新闻列表正在加载，请稍后再试");
+  const params = feedParams(), sequence = state.sequence, scope = countScope();
+  const sourceName = params.source_filter === "all" ? "全部来源"
+    : $(`#sourceFilters [data-source="${CSS.escape(params.source_filter)}"] .source-row-info > span:last-child`)?.textContent || params.source_filter;
+  let items = [...state.items], failed = 0, marked = 0;
   // Earlier button saves must finish before the bulk operation supersedes them.
   await stateWrites.settle();
+  if (!later) {
+    params.read_filter = "unread";
+    // Fetch the full scoped count, not just the loaded page or a stale badge.
+    const preview = params.q
+      ? await searchNews(sequence, undefined, params)
+      : await api(`/api/news?${new URLSearchParams({ ...params, count_only: "1" })}`);
+    if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部已读");
+    if (!preview.total) return toast(`${sourceName}：当前范围没有未读新闻`);
+    if (params.q) items = preview.items;
+    const sourceScope = params.source_filter === "all" ? sourceName : `「${sourceName}」`;
+    const search = params.q ? `\n搜索条件：「${params.q}」` : "";
+    if (!confirm(`确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${search}\n包含当前范围内尚未加载的新闻。`)) return;
+  }
   if (params.q) {
     if (later) {
       if (params.read_filter !== "read")
         for (const item of items.filter(readLaterPending))
           if (!await toggleState(item, "read_later", false, true, true)) failed++;
-    } else await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: items.map(item => item.id) } });
-  } else await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: params });
+    } else {
+      const result = await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: items.map(item => item.id) } });
+      marked = result.marked;
+    }
+  } else {
+    const result = await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: params });
+    marked = result.marked;
+  }
   await loadFeed();
   if (state.selected) await selectNews(state.selected, false);
   refreshBadges();
-  toast(failed ? `有 ${failed} 篇未能标为已看完，请重试` : later ? "当前范围已全部看完" : "当前范围已全部标为已读");
+  toast(failed ? `有 ${failed} 篇未能标为已看完，请重试` : later ? "当前范围已全部看完" : `${sourceName}：已将 ${marked} 条新闻标为已读`);
 }
 async function loadIdeas() {
   const sequence = ++state.sequence;
@@ -1344,17 +1375,22 @@ $("#copyIdeaBtn").onclick = (event) =>
 const refreshButton = $("#refreshIndexBtn");
 function refreshIndex(notify = false) {
   return busy(refreshButton, async () => {
-    setIndexStatus("正在扫描 DailyNews…");
+    indexStatus.syncing = true;
+    renderIndexStatus();
     let scanError;
     try {
       await api("/api/reindex", { method: "POST" });
+      indexStatus.syncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+      indexStatus.scanFailed = false;
     } catch (error) {
       scanError = error;
+      indexStatus.scanFailed = true;
     }
+    indexStatus.syncing = false;
+    renderIndexStatus();
     sourceCatalogByCollection.clear();
     await Promise.all([loadFeed(), refreshBadges()]);
     if (scanError) {
-      setIndexStatus("索引刷新失败，可点击刷新重试", true);
       throw scanError;
     }
     if (notify) toast("新闻索引已刷新");
