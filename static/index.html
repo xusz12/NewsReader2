@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.14</title>
+    <title>News Reader v0.0.15</title>
     <script>
       try {
         const m =
@@ -41,9 +41,10 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.14" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.0.15-md1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.15" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.14&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.15&amp;build=ideas-md2"
       rel="stylesheet"
     />
   </head>
@@ -87,7 +88,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.14</span>
+            <span class="brand-version">v0.0.15</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -584,7 +585,7 @@
             </section>
           </section>
           <section
-            aria-label="想法沉淀与深度推演工作台"
+            aria-label="独立想法轻量编辑"
             class="detail-panel"
             id="detailPanelIdeas"
           >
@@ -599,17 +600,12 @@
                     >想法与灵感</span
                   >
                   <span class="toolbar-v-divider"></span>
-                  <span class="cache-time" id="ideaToolbarTime"></span>
+                  <span class="cache-time" id="ideaToolbarTime" role="status" aria-live="polite"></span>
                 </div>
               </div>
               <div class="detail-toolbar-right">
-                <button
-                  class="reader-action-btn"
-                  id="copyIdeaBtn"
-                  type="button"
-                >
-                  复制想法</button
-                ><button class="btn-primary" id="saveIdeaBtn" type="button">
+                <button class="reader-action-btn danger" id="deleteIdeaBtn" type="button" hidden>删除</button>
+                <button class="btn-primary" id="saveIdeaBtn" type="button">
                   保存想法
                 </button>
               </div>
@@ -1244,9 +1240,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.14"></script>
+    <script src="/static/error_ui.js?v=0.0.15"></script>
     <script
-      src="/static/app.js?v=0.0.14&amp;build=workbench2"
+      src="/static/app.js?v=0.0.15&amp;build=ideas-md4"
       type="module"
     ></script>
   </body>

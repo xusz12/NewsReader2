@@ -6694,7 +6694,7 @@ def test_standalone_idea_crud_and_merge(tmp_path: Path, monkeypatch):
     assert idea["idea_id"].startswith("standalone:")
     assert idea["standalone_id"] is not None
     assert idea["note"] == "第一个独立想法"
-    assert idea["title"] == "独立想法"
+    assert idea["title"] == ""
     idea_id = idea["standalone_id"]
 
     # empty note rejected

@@ -117,11 +117,11 @@ test('idea detail supports edge return while editing gestures preserve the draft
   await page.locator('#ideaNote').fill('返回后保留想法草稿');
   expect(await swipe(page, { target: '#ideaNote' })).toBe(false);
   await expect(page.locator('#mobileReaderBackBtn')).toHaveAccessibleName('返回想法列表');
-  expect(await swipe(page, { target: '#ideaDetailBody .article-header' })).toBe(true);
+  expect(await swipe(page, { target: '#ideaDetailBody .standalone-meta' })).toBe(true);
   await expect(page.locator('#detailPanelIdeas')).toBeHidden();
   await expect(page.locator('#ideasCardList')).toBeVisible();
   await page.locator('#newIdeaBtn').click();
-  await expect(page.locator('#ideaNote')).toHaveValue('返回后保留想法草稿');
+  await expect(page.locator('#ideaNote')).toHaveText('返回后保留想法草稿');
 });
 
 test('the underlying list does not auto-mark news read until the reader is closed', async ({ page, request }) => {

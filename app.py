@@ -1082,6 +1082,8 @@ def ensure_db() -> None:
     conn = db_conn()
     try:
         apply_schema(conn, SCHEMA_PATH)
+        if "title" not in {row[1] for row in conn.execute("PRAGMA table_info(standalone_ideas)")}:
+            conn.execute("ALTER TABLE standalone_ideas ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         migrate_article_highlights_schema(conn)
         migrate_market_trend_notes(conn)
         migrate_news_reminders_review_chain_id(conn)
@@ -4124,7 +4126,9 @@ def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]
             conn.close()
     for item in items:
         notes = entries.get(item.get("url"), [])
-        item["note_count"] = (len(notes) if notes and "\n\n---\n".join(notes) == item.get("note_preview_source") else 1) if item.get("has_note") else 0
+        structured = notes and "\n\n---\n".join(notes) == item.get("note_preview_source")
+        item["note_count"] = (len(notes) if structured else 1) if item.get("has_note") else 0
+        item["latest_note_preview"] = build_note_preview(notes[-1] if structured else item.get("note_preview_source"))
         tags = market_tags_map.get(item.get("url") or "", [])
         item["note_preview"] = build_note_preview(item.pop("note_preview_source", None))
         item["market_tags"] = tags
@@ -4334,33 +4338,11 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
     if idea_type in ("all", "standalone"):
         standalone_rows = conn.execute(
             """
-            SELECT id, note, created_at, updated_at
+            SELECT id, title, note, created_at, updated_at
             FROM standalone_ideas
             """
         ).fetchall()
-        for row in standalone_rows:
-            updated_at = row["updated_at"] or ""
-            date_key, date_label = derive_ts_date_meta(updated_at)
-            ideas.append(
-                {
-                    "id": None,
-                    "idea_id": f"standalone:{row['id']}",
-                    "idea_type": "standalone_note",
-                    "idea_context_label": "独立想法",
-                    "standalone_id": row["id"],
-                    "title": "独立想法",
-                    "summary": "",
-                    "source": "独立",
-                    "published_at": "",
-                    "url": "",
-                    "note": row["note"],
-                    "note_preview": build_note_preview(row["note"]),
-                    "created_at": row["created_at"] or "",
-                    "updated_at": updated_at,
-                    "date_key": date_key,
-                    "date_label": date_label,
-                }
-            )
+        ideas.extend(_serialize_standalone_idea(row) for row in standalone_rows)
 
     reverse = sort_order != "reverse"
     ideas.sort(
@@ -8966,6 +8948,11 @@ STANDALONE_IDEA_MAX_LEN = 5000
 @app.post("/api/standalone-ideas")
 def api_standalone_idea_create():
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    title = body.get("title", "")
+    if not isinstance(title, str) or len(title.strip()) > 200:
+        return jsonify(ok=False, error="invalid_idea_title", message="标题最多 200 个字符。"), 400
     raw_note = body.get("note")
     if not isinstance(raw_note, str):
         return jsonify({"ok": False, "error": "invalid_note"}), 400
@@ -8979,12 +8966,12 @@ def api_standalone_idea_create():
     try:
         with conn:
             cur = conn.execute(
-                "INSERT INTO standalone_ideas(note, created_at, updated_at) VALUES (?, ?, ?)",
-                (note_text, ts, ts),
+                "INSERT INTO standalone_ideas(title, note, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (title.strip(), note_text, ts, ts),
             )
         idea_id = cur.lastrowid
         row = conn.execute(
-            "SELECT id, note, created_at, updated_at FROM standalone_ideas WHERE id=?",
+            "SELECT id, title, note, created_at, updated_at FROM standalone_ideas WHERE id=?",
             (idea_id,),
         ).fetchone()
     finally:
@@ -8995,6 +8982,11 @@ def api_standalone_idea_create():
 @app.patch("/api/standalone-ideas/<int:idea_id>")
 def api_standalone_idea_update(idea_id: int):
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    title = body.get("title")
+    if "title" in body and (not isinstance(title, str) or len(title.strip()) > 200):
+        return jsonify(ok=False, error="invalid_idea_title", message="标题最多 200 个字符。"), 400
     raw_note = body.get("note")
     if not isinstance(raw_note, str):
         return jsonify({"ok": False, "error": "invalid_note"}), 400
@@ -9013,11 +9005,11 @@ def api_standalone_idea_update(idea_id: int):
             return jsonify({"ok": False, "error": "idea_not_found"}), 404
         with conn:
             conn.execute(
-                "UPDATE standalone_ideas SET note=?, updated_at=? WHERE id=?",
-                (note_text, now_ts(), idea_id),
+                "UPDATE standalone_ideas SET title=COALESCE(?, title), note=?, updated_at=? WHERE id=?",
+                (title.strip() if title is not None else None, note_text, now_ts(), idea_id),
             )
         row = conn.execute(
-            "SELECT id, note, created_at, updated_at FROM standalone_ideas WHERE id=?",
+            "SELECT id, title, note, created_at, updated_at FROM standalone_ideas WHERE id=?",
             (idea_id,),
         ).fetchone()
     finally:
@@ -9051,7 +9043,7 @@ def _serialize_standalone_idea(row) -> dict:
         "idea_type": "standalone_note",
         "idea_context_label": "独立想法",
         "standalone_id": row["id"],
-        "title": "独立想法",
+        "title": row["title"],
         "summary": "",
         "source": "独立",
         "published_at": "",

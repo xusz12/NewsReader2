@@ -23,6 +23,7 @@ import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js";
 import { AgentPanel } from "./agent-panel.js";
 import { ResearchNotes } from "./research-notes.js";
+import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.0.15-md4";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
 import { UpstreamErrors } from "./upstream-errors.js";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
@@ -49,9 +50,10 @@ const state = {
   favoritesTotal: null,
   removingFavorites: false,
   ideaType: "all",
+  ideaSequence: 0,
   ideas: [],
   idea: null,
-  noteDrafts: new Map(),
+  readerViews: new Map(),
   bodyMode: "translated",
 };
 const labels = {
@@ -112,7 +114,6 @@ const selects = new SelectControls(document.body);
 const settings = new SettingsPanel({
   selects,
   onOpen: () => {
-    stashNote();
     resetDetailSwipe();
     closeNav();
     $("#selectionPopover").classList.remove("show");
@@ -132,6 +133,31 @@ const settings = new SettingsPanel({
   onSources: renderSources,
 });
 const researchNotes = new ResearchNotes({ onUpdate: updateResearchNotes });
+const standaloneIdeas = new StandaloneIdeas({
+  onSaved: (idea, oldId) => {
+    // Invalidate a list request that began before this write.
+    state.ideaSequence++;
+    state.ideas = state.ideas.filter(row => row.idea_id !== oldId && row.idea_id !== idea.idea_id);
+    state.ideas.push(idea);
+    state.ideas.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+    if (state.idea?.idea_id === oldId || state.idea?.idea_id === idea.idea_id) state.idea = idea;
+    renderIdeas();
+    if (state.collection === "notes") void loadIdeas({ quiet: true });
+  },
+  onDeleted: idea => {
+    state.ideaSequence++;
+    state.ideas = state.ideas.filter(row => row.idea_id !== idea.idea_id);
+    if (state.idea?.idea_id === idea.idea_id) {
+      state.idea = null;
+      if (state.collection === "notes") {
+        const next = visibleIdeas()[0];
+        if (next && !singlePane.matches) selectIdea(next, false);
+        else { standaloneIdeas.select(null); syncDetailPanels(); exitReader(); }
+      }
+    }
+    renderIdeas();
+  },
+});
 function updateResearchNotes(id, result) {
   const item = state.items.find(x => x.id === id);
   const notes = result.notes || (result.note ? [{ ...result.note, id: "legacy", author: "user" }] : []);
@@ -142,6 +168,15 @@ function updateResearchNotes(id, result) {
     state.detail = { ...state.detail, ...patch, note: result.note, notes };
   }
   researchNotes.update(id, { ...result, notes });
+  const idea = state.ideas.find(row => row.idea_type === "article_note" && row.id === id);
+  if (idea) {
+    Object.assign(idea, patch, {
+      note: result.note?.note || "", latest_note_preview: notes.at(-1)?.note || "", updated_at: result.note?.updated_at || idea.updated_at,
+    });
+    if (!notes.length) state.ideas = state.ideas.filter(row => row !== idea);
+    if (state.collection === "notes") renderIdeas();
+  }
+  if (state.collection === "notes") void loadIdeas({ quiet: true });
   renderFeed();
   refreshBadges();
 }
@@ -322,7 +357,7 @@ async function clearFavorites() {
   if (state.collection !== "favorites" || state.removingFavorites) return;
   state.removingFavorites = true;
   renderFavoritesAction();
-  state.items.forEach(updateCardActions);
+  state.items.forEach(updateCard);
   readerActions();
   try {
     await stateWrites.settle();
@@ -338,7 +373,7 @@ async function clearFavorites() {
   finally {
     state.removingFavorites = false;
     renderFavoritesAction();
-    state.items.forEach(updateCardActions);
+    state.items.forEach(updateCard);
     readerActions();
   }
 }
@@ -641,8 +676,13 @@ function renderSources() {
 function switchCollection(collection) {
   if (!labels[collection]) return;
   state.collectionSequence++;
+  state.ideaSequence++;
   settings.close({ restoreFocus: false });
-  stashNote();
+  rememberReader();
+  clearTimeout(detailTimer);
+  state.detailSequence++;
+  state.detailRequestSequence++;
+  readerHighlights.hide();
   clearTimeout(feedEndTimer);
   feedEndTimer = null;
   state.collection = collection;
@@ -661,12 +701,9 @@ function switchCollection(collection) {
   const ideas = collection === "notes";
   const summary = collection === "summaries";
   $("#feedColFeed").classList.toggle("active", !ideas && !summary);
-  $("#detailPanelFeed").classList.toggle("active", !ideas && !summary);
   $("#feedColIdeas").classList.toggle("active", ideas);
-  $("#detailPanelIdeas").classList.toggle("active", ideas);
   $("#feedColSummaries").classList.toggle("active", summary);
-  $("#detailPanelSummaries").classList.toggle("active", summary);
-  syncMobileLayers();
+  syncDetailPanels();
   $$("[data-collection]").forEach((button) => {
     const active = button.dataset.collection === collection;
     button.classList.toggle("active", active);
@@ -680,33 +717,45 @@ function switchCollection(collection) {
     summaries.load();
   } else if (ideas) {
     agent.suspend();
+    if (state.idea) selectIdea(state.idea, false);
     loadIdeas();
   } else {
     loadFeed();
-    if (state.selected) agent.select(state.selected, state.detail?.agent);
+    if (state.selected && state.detail) {
+      renderReader();
+      $("#detailScrollArea").scrollTop = state.readerViews.get(state.selected.id)?.scroll || 0;
+      agent.select(state.selected, state.detail.agent);
+      pollDetail(state.selected, state.detailSequence);
+    } else if (state.selected) selectNews(state.selected, false, false, { skipRemember: true });
   }
   renderFilters();
 }
-function stashNote() {
-  const idea = $("#ideaNote");
-  if (idea && state.idea) {
-    if (idea.value === (state.idea.note || ""))
-      state.noteDrafts.delete(state.idea.idea_id);
-    else state.noteDrafts.set(state.idea.idea_id, idea.value);
-  }
+function readingArticle() {
+  return state.collection !== "summaries" && (state.collection !== "notes" || state.idea?.idea_type === "article_note");
 }
-async function selectNews(item, mobile = true, openedByUser = false) {
+function syncDetailPanels() {
+  $("#detailPanelFeed").classList.toggle("active", readingArticle());
+  $("#detailPanelIdeas").classList.toggle("active", state.collection === "notes" && !readingArticle());
+  $("#detailPanelSummaries").classList.toggle("active", state.collection === "summaries");
+  syncMobileLayers();
+}
+function rememberReader() {
+  if (!state.selected || !state.detail || !$("#detailPanelFeed").classList.contains("active")) return;
+  state.readerViews.set(state.selected.id, { mode: state.bodyMode, scroll: $("#detailScrollArea").scrollTop });
+}
+async function selectNews(item, mobile = true, openedByUser = false, { skipRemember = false } = {}) {
   if (!item) return;
   // Only opening an already-readable card completes it. Default selection and
   // a fetch finishing in the open reader must leave the article pending.
   const completeOnOpen = openedByUser && state.collection === "read_later" && readLaterState(item).phase === "ready";
   const readLaterAt = item.read_later_at;
   const collectionSequence = state.collectionSequence;
-  stashNote();
+  if (!skipRemember) rememberReader();
   clearTimeout(detailTimer);
   state.selected = item;
   state.detail = null;
-  state.bodyMode = "translated";
+  const view = state.readerViews.get(item.id);
+  state.bodyMode = view?.mode || "translated";
   const sequence = ++state.detailSequence;
   const requestSequence = ++state.detailRequestSequence;
   const stateVersion = stateWrites.version;
@@ -719,10 +768,10 @@ async function selectNews(item, mobile = true, openedByUser = false) {
     const data = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
     if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
     stateWrites.reconcile(item.id, data, stateVersion);
-    stashNote();
     state.detail = data;
     updateDetailItem(item, data);
     renderReader();
+    $("#detailScrollArea").scrollTop = view?.scroll || 0;
     renderFeed();
     if (completeOnOpen && collectionSequence === state.collectionSequence && state.collection === "read_later" &&
         !settings.open && !document.hidden && !document.querySelector("dialog[open]") &&
@@ -770,11 +819,9 @@ function pollDetail(item, sequence) {
         data.detail?.content !== state.detail.detail?.content ||
         data.ai?.conclusion_zh !== state.detail.ai?.conclusion_zh ||
         data.ai?.body_zh !== state.detail.ai?.body_zh;
-      stashNote();
       state.detail = data;
       updateDetailItem(item, data);
       if (changed) {
-        stashNote();
         renderReader();
         agent.select(item, data.agent);
         renderFeed();
@@ -857,9 +904,10 @@ function renderReader() {
   const pipelineError = (["failed", "skipped"].includes(payload?.detail_status) ? payload?.job?.last_error : "")
     || (payload?.ai_status === "failed" ? payload?.ai_job?.last_error : "");
   const thoughts = '<div id="researchNotesMount"></div>';
+  const hasThoughts = hasContent || savedNotes.length || (payload && state.collection === "notes" && state.idea?.idea_type === "article_note");
   $("#detailContent").innerHTML =
-    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasContent && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
-    ${hasContent ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
+    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
+    ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}
     ${pipelineError ? `<div class="inline-error">${e(errorText({ error: pipelineError }))}</div>` : ""}`;
@@ -870,6 +918,18 @@ function renderReader() {
     writeThought.setAttribute("aria-controls", "researchNoteComposer");
     writeThought.onclick = () => researchNotes.toggle();
   }
+  if (state.collection === "notes" && hasThoughts) {
+    const jump = document.createElement("button");
+    jump.type = "button";
+    jump.className = "reader-action-btn";
+    jump.textContent = "查看想法";
+    jump.onclick = () => {
+      if (!researchNotes.entries.length) researchNotes.open();
+      else $(".research-notes").scrollIntoView({ block: "start", behavior: "instant" });
+    };
+    $(".article-meta-bottom").append(jump);
+  }
+  const sequence = state.detailSequence;
   $("#fetchArticleBtn").onclick = (event) =>
     busy(event.currentTarget, async () => {
       await api(`/api/news/${encodeURIComponent(item.id)}/detail/retry`, {
@@ -877,8 +937,8 @@ function renderReader() {
         body: detail?.content ? { mode: "ai" } : {},
       });
       toast(detail?.content ? "翻译任务已提交" : "正文抓取已提交");
-      stashNote();
-      await selectNews(item, false);
+      if (sequence === state.detailSequence && readingArticle() && state.selected?.id === item.id)
+        await selectNews(item, false);
     });
 }
 function toggleState(item, flag, force, silent = false, complete = false) {
@@ -898,7 +958,7 @@ function toggleState(item, flag, force, silent = false, complete = false) {
 async function refreshStateDetail(id) {
   // Saving a flag never waits for the full article. Only the open reader needs
   // its body refreshed; other cards only need the lightweight job status.
-  const refreshReader = state.selected?.id === id;
+  const refreshReader = readingArticle() && state.selected?.id === id;
   const sequence = state.detailSequence;
   const feedSequence = state.sequence;
   const stateVersion = stateWrites.version;
@@ -920,7 +980,6 @@ async function refreshStateDetail(id) {
     stateWrites.reconcile(id, payload, stateVersion);
     const item = state.selected;
     updateDetailItem(item, payload);
-    stashNote();
     state.detail = payload;
     renderReader();
     agent.select(item, payload.agent);
@@ -1063,9 +1122,9 @@ async function markAllRead() {
   refreshBadges();
   toast(failed ? `有 ${failed} 篇未能标为已看完，请重试` : later ? "当前范围已全部看完" : `${sourceName}：已将 ${marked} 条新闻标为已读`);
 }
-async function loadIdeas() {
-  const sequence = ++state.sequence;
-  $("#ideasCardList").innerHTML =
+async function loadIdeas({ quiet = false } = {}) {
+  const sequence = ++state.ideaSequence;
+  if (!quiet) $("#ideasCardList").innerHTML =
     '<li class="list-message" role="status">正在读取想法…</li>';
   try {
     // Load only the retained idea types. Backend pagination remains unchanged.
@@ -1076,7 +1135,7 @@ async function loadIdeas() {
         let page = 1,
           more = true,
           rows = [];
-        while (more && sequence === state.sequence) {
+        while (more && sequence === state.ideaSequence) {
           const data = await api(
             `/api/ideas?type=${type}&page=${page}&per=100`,
           );
@@ -1087,79 +1146,54 @@ async function loadIdeas() {
         return rows;
       }),
     );
-    if (sequence !== state.sequence) return;
+    if (sequence !== state.ideaSequence || state.collection !== "notes") return;
     state.ideas = arrays
       .flat()
       .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
     renderIdeas();
-    if (!state.idea && state.ideas.length && !singlePane.matches)
-      selectIdea(state.ideas[0], false);
-    else if (!state.idea)
-      $("#ideaDetailBody").innerHTML =
-        '<div class="reader-empty"><h2>把阅读变成自己的想法</h2><p>从新闻中记录，或新建一条独立想法。</p></div>';
+    if (!state.idea && visibleIdeas().length && !singlePane.matches)
+      selectIdea(visibleIdeas()[0], false);
+    else if (!state.idea) { standaloneIdeas.select(null); syncDetailPanels(); }
   } catch (error) {
-    if (sequence === state.sequence)
+    if (sequence === state.ideaSequence && state.collection === "notes")
       $("#ideasCardList").innerHTML =
         `<li class="list-message error-state">${e(errorText(error))}<button id="retryIdeasBtn" class="btn-secondary" type="button">重试</button></li>`;
   }
 }
-function renderIdeas() {
+function visibleIdeas() {
   const q = $("#ideasSearchInput").value.trim().toLowerCase();
-  const ideas = state.ideas.filter((idea) =>
+  return state.ideas.filter(idea =>
+    (state.ideaType === "all" || idea.idea_type === `${state.ideaType}_note`) &&
     `${idea.title} ${idea.note}`.toLowerCase().includes(q),
-  );
-  $("#ideasCardList").innerHTML =
-    ideas
-      .map(
-        (idea) =>
-          `<li class="news-card ${state.idea?.idea_id === idea.idea_id ? "active is-active" : ""}" data-idea-id="${e(idea.idea_id)}" tabindex="0"><div class="news-card-meta"><div class="meta-source-box"><span class="source-icon-badge idea">想</span>${e(idea.idea_context_label)}</div><span>${e(idea.updated_at?.slice(0, 16) || "")}</span></div><h3 class="news-card-title">${e(idea.idea_type === "standalone_note" ? idea.note?.split("\n")[0] : idea.title)}</h3><p class="news-card-snippet">${e(idea.note)}</p><div class="news-card-footer"><span class="card-tag">${e(idea.source || "独立想法")}</span></div></li>`,
-      )
-      .join("") ||
-    '<li class="list-message">暂无想法。点击“新想法”开始记录。</li>';
+  ).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+}
+function renderIdeas() {
+  const ideas = visibleIdeas(), list = $("#ideasCardList"), scroll = list.scrollTop;
+  list.innerHTML = ideas.map(idea => {
+    const article = idea.idea_type === "article_note";
+    const latest = article ? idea.latest_note_preview || idea.note_preview : idea.note;
+    return `<li class="news-card ${state.idea?.idea_id === idea.idea_id ? "active is-active" : ""}" data-idea-id="${e(idea.idea_id)}" tabindex="0"><div class="news-card-meta"><div class="meta-source-box"><span class="source-icon-badge idea">想</span>${e(idea.idea_context_label)}</div><span>${e(idea.updated_at?.slice(0, 16) || "")}</span></div><h3 class="news-card-title">${e(article ? idea.title : standaloneTitle(idea))}</h3><p class="news-card-snippet">${e(latest)}</p><div class="news-card-footer"><span class="card-tag">${e(idea.source || "独立想法")}</span>${article ? `<span class="note-badge" aria-label="${idea.note_count || 1} 条想法">${icon("note")} ${idea.note_count || 1}</span>` : ""}</div></li>`;
+  }).join("") || `<li class="list-message">${$("#ideasSearchInput").value.trim() ? "没有匹配的想法，试试其他关键词。" : "暂无想法。点击“新想法”开始记录。"}</li>`;
+  list.scrollTop = scroll;
 }
 function selectIdea(idea, mobile = true) {
-  stashNote();
-  state.idea = idea;
-  const value = state.noteDrafts.get(idea.idea_id) ?? idea.note ?? "";
-  $("#ideaDetailBody").innerHTML =
-    `<div class="article-header"><div class="article-meta-top"><span>${e(idea.idea_context_label || "独立想法")}</span><span>${e(idea.updated_at || "")}</span></div><h1 class="article-title">${e(idea.idea_type === "article_note" ? idea.title : "记录一个新想法")}</h1></div><div class="research-workspace-box"><textarea id="ideaNote" class="note-textarea idea-editor" maxlength="${idea.idea_type === "article_note" ? 50000 : 5000}" aria-label="编辑想法" placeholder="写下你想记住的观点…">${e(value)}</textarea><div class="note-actions"><span id="ideaSaveStatus" class="muted"></span>${idea.idea_type === "article_note" ? '<button class="btn-secondary" id="ideaArticleBtn" type="button">阅读关联新闻 →</button>' : idea.standalone_id ? '<button class="reader-action-btn danger" id="deleteIdeaBtn" type="button">删除想法</button>' : ""}</div></div>`;
-  $("#ideaNote").oninput = (event) => {
-    state.noteDrafts.set(idea.idea_id, event.target.value);
-    $("#ideaSaveStatus").textContent = "尚未保存";
-  };
-  renderIdeas();
-  if (mobile) enterReader();
-}
-async function saveIdea() {
-  const idea = state.idea;
   if (!idea) return;
-  const value = $("#ideaNote").value;
-  if (!value.trim() && idea.idea_type !== "article_note") {
-    toast("先写下一点想法再保存");
-    return;
+  rememberReader();
+  state.idea = idea;
+  readerHighlights.hide();
+  syncDetailPanels();
+  if (idea.idea_type === "article_note") {
+    selectNews(idea, mobile, false, { skipRemember: true });
+  } else {
+    clearTimeout(detailTimer);
+    state.detailSequence++;
+    state.detailRequestSequence++;
+    agent.select(null, null);
+    standaloneIdeas.select(idea);
+    $("#ideaScrollArea").scrollTop = 0;
+    if (mobile) enterReader();
   }
-  const result = await api(
-    idea.idea_type === "article_note"
-      ? `/api/news/${encodeURIComponent(idea.id)}/note`
-      : `/api/standalone-ideas${idea.standalone_id ? `/${idea.standalone_id}` : ""}`,
-    {
-      method:
-        idea.idea_type === "article_note"
-          ? "PUT"
-          : idea.standalone_id
-            ? "PATCH"
-            : "POST",
-      body: { note: value },
-    },
-  );
-  if (state.noteDrafts.get(idea.idea_id) === value)
-    state.noteDrafts.delete(idea.idea_id);
-  Object.assign(idea, result.idea || { note: result.note?.note || "" });
-  if (state.idea === idea)
-    $("#ideaSaveStatus").textContent =
-      $("#ideaNote").value === value ? "已保存" : "尚未保存";
-  toast("想法已保存");
-  await loadIdeas();
+  renderIdeas();
 }
 function enterReader() {
   $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
@@ -1199,7 +1233,7 @@ function canSwipeDetail(panel) {
     return settings.open && $("#feedView").classList.contains("settings-detail-active");
   return !settings.open &&
     $("#feedView").classList.contains("mobile-reader-active") &&
-    !(!["notes", "summaries"].includes(state.collection) && agent.open);
+    !(panel.id === "detailPanelFeed" && agent.open);
 }
 for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelSettings")) {
   panel.addEventListener("touchstart", event => {
@@ -1300,7 +1334,6 @@ document.addEventListener("click", (event) => {
     );
   }
   if (button?.dataset.bodyMode) {
-    stashNote();
     state.bodyMode = button.dataset.bodyMode;
     renderReader();
   }
@@ -1308,22 +1341,7 @@ document.addEventListener("click", (event) => {
   if (button?.id === "loadMoreBtn") loadFeed(true);
   if (button?.id === "retryIdeasBtn") loadIdeas();
   if (button?.id === "newIdeaBtn")
-    selectIdea({ idea_id: "draft", idea_type: "standalone_note", note: "" });
-  if (button?.id === "ideaArticleBtn") {
-    const item = state.idea;
-    switchCollection("feed");
-    selectNews(item);
-  }
-  if (button?.id === "deleteIdeaBtn")
-    busy(button, async () => {
-      if (!confirm("删除这条独立想法？")) return;
-      const id = state.idea.standalone_id;
-      await api(`/api/standalone-ideas/${id}`, { method: "DELETE" });
-      state.noteDrafts.delete(state.idea.idea_id);
-      state.idea = null;
-      await loadIdeas();
-      toast("想法已删除");
-    });
+    selectIdea({ idea_id: "draft", idea_type: "standalone_note", title: "", note: "" });
   const card = event.target.closest("#feedCardList [data-id]");
   if (card && !button)
     selectNews(state.items.find((item) => item.id === card.dataset.id), true, true);
@@ -1381,12 +1399,6 @@ $$(".mobile-back-btn").forEach((button) => (button.onclick = exitReader));
 $("#shortcutsModal").onclick = (event) => {
   if (event.target.id === "shortcutsModal") shortcutsDialog(false);
 };
-$("#saveIdeaBtn").onclick = (event) => busy(event.currentTarget, saveIdea);
-$("#copyIdeaBtn").onclick = (event) =>
-  busy(event.currentTarget, async () => {
-    await navigator.clipboard.writeText($("#ideaNote")?.value || "");
-    toast("想法已复制");
-  });
 const refreshButton = $("#refreshIndexBtn");
 function refreshIndex(notify = false) {
   return busy(refreshButton, async () => {
@@ -1468,13 +1480,21 @@ document.addEventListener("keydown", (event) => {
   } else if (key === "?") {
     event.preventDefault();
     shortcutsDialog(true);
-  } else if (key === "q" && state.collection !== "notes") {
+  } else if (key === "q" && readingArticle()) {
     event.preventDefault();
     agent.toggle();
-  } else if (shortcuts[key] && state.collection !== "notes") {
+  } else if (shortcuts[key] && readingArticle()) {
     event.preventDefault();
     if (key === "m" && state.collection === "read_later") toggleState(state.selected, "read_later", false, false, true);
     else toggleState(state.selected, shortcuts[key]);
+  } else if (["w", "s", "j", "k"].includes(key) && state.collection === "notes") {
+    event.preventDefault();
+    const ideas = visibleIdeas(), index = ideas.findIndex(idea => idea.idea_id === state.idea?.idea_id);
+    const next = ideas[Math.max(0, Math.min(ideas.length - 1, index + (["s", "j"].includes(key) ? 1 : -1)))];
+    if (next) {
+      selectIdea(next, false);
+      $(`[data-idea-id="${CSS.escape(next.idea_id)}"]`)?.scrollIntoView({ block: "nearest" });
+    }
   } else if (["w", "s", "j", "k"].includes(key) && state.collection !== "notes") {
     event.preventDefault();
     const index = state.items.findIndex(
@@ -1501,8 +1521,7 @@ document.addEventListener("keydown", (event) => {
     );
 });
 window.addEventListener("beforeunload", (event) => {
-  stashNote();
-  const dirty = state.noteDrafts.size > 0 || researchNotes.dirty;
+  const dirty = standaloneIdeas.dirty || researchNotes.dirty;
   if (dirty || settings.dirty) {
     event.preventDefault();
     event.returnValue = "";

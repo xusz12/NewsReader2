@@ -33,12 +33,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.14", available: false,
+    ok: true, enabled: false, current_version: "v0.0.15", available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.14");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.14");
+  await expect(page).toHaveTitle("News Reader v0.0.15");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.15");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();

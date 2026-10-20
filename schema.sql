@@ -291,6 +291,7 @@ CREATE INDEX IF NOT EXISTS idx_media_cache_status ON media_cache(status);
 
 CREATE TABLE IF NOT EXISTS standalone_ideas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

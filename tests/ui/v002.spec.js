@@ -86,7 +86,7 @@ for (const width of [1440, 390]) {
     let fetched = false;
     await page.route('**/api/news/*/detail', async route => {
       const data = await (await route.fetch()).json();
-      if (!fetched) Object.assign(data, { detail: null, ai: null, detail_status: 'missing', ai_status: 'missing', job: null, ai_job: null });
+      if (!fetched) Object.assign(data, { detail: null, ai: null, detail_status: 'missing', ai_status: 'missing', job: null, ai_job: null, notes: [], note: null, has_note: false });
       await route.fulfill({ json: data });
     });
     await page.route('**/api/news/*/detail/retry', async route => {
