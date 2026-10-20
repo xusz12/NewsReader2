@@ -7037,6 +7037,7 @@ def api_news():
                aj.status AS ai_status,
                aj.last_error AS ai_error,
                CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready,
+               aa.conclusion_zh AS ai_conclusion_zh,
                (
                  SELECT COUNT(*)
                  FROM news_reminders nr
@@ -7203,12 +7204,14 @@ def api_news_status():
                    dj.status AS detail_status,
                    dj.last_error AS detail_error,
                    CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS detail_ready,
-                   aj.status AS ai_status
+                   aj.status AS ai_status,
+                   aa.conclusion_zh AS ai_conclusion_zh
             FROM items
             LEFT JOIN item_state st ON st.item_id = items.id
             LEFT JOIN detail_jobs dj ON dj.url = items.url
             LEFT JOIN article_details ad ON ad.url = items.url
             LEFT JOIN ai_jobs aj ON aj.url = items.url
+            LEFT JOIN article_ai aa ON aa.url = items.url
             WHERE items.id IN ({placeholders})
               AND {visible_news_sql()}
             """,
@@ -7736,7 +7739,8 @@ def api_search():
                    CASE WHEN an.url IS NULL THEN 0 ELSE 1 END AS has_note,
                    aj.status AS ai_status,
                    aj.last_error AS ai_error,
-                   CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready
+                   CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready,
+                   aa.conclusion_zh AS ai_conclusion_zh
             FROM items
             {join_sql}
             {where_sql}{filter_sql}

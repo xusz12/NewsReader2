@@ -80,7 +80,7 @@ const stateWrites = new ItemStateQueue({
   onChange: (id, patch) => {
     applyReadCountChange(id, patch);
     const item = state.items.find(row => row.id === id);
-    if (item) { Object.assign(item, patch); updateCardActions(item); }
+    if (item) { Object.assign(item, patch); updateCard(item); }
     if (state.selected?.id === id) {
       Object.assign(state.selected, patch);
       if (state.detail) Object.assign(state.detail, patch);
@@ -248,9 +248,23 @@ function cardAction(item, flag) {
   const label = flag === "favorite" && active ? "取消收藏" : stateLabels[flag];
   return { active, saving, label, className: `card-action-btn ${active ? "active" : ""}`, title: `${label}${saving ? " · 正在保存" : ""}` };
 }
-function updateCardActions(item) {
+function cardSnippet(item) {
+  return (item.detail_ready ? item.ai_conclusion_zh || "" : item.summary || item.note_preview || "").trim();
+}
+function updateCard(item) {
   const node = $(`#feedCardList [data-id="${CSS.escape(item.id)}"]`);
   if (!node) return;
+  const text = cardSnippet(item);
+  let snippet = $(".news-card-snippet", node);
+  if (!text) snippet?.remove();
+  else {
+    if (!snippet) {
+      snippet = document.createElement("p");
+      $(".news-card-title", node).after(snippet);
+    }
+    snippet.className = `news-card-snippet${item.detail_ready ? " news-card-conclusion" : ""}`;
+    snippet.textContent = text;
+  }
   node.classList.toggle("read", state.collection === "feed" && !!item.read_at);
   const time = $(".meta-time-row", node);
   const dot = $(".unread-dot", node);
@@ -270,11 +284,11 @@ function card(item) {
   const active = item.id === state.selected?.id;
   const dimReadCard = state.collection === "feed" && item.read_at;
   const showUnreadDot = state.collection !== "read_later" && !item.read_at;
-  const text = item.summary || item.note_preview || "";
+  const text = cardSnippet(item);
   return `<li class="news-card ${active ? "active is-active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
     <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTimestamp(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
-    ${text ? `<p class="news-card-snippet">${e(text)}</p>` : ""}
+    ${text ? `<p class="news-card-snippet${item.detail_ready ? " news-card-conclusion" : ""}">${e(text)}</p>` : ""}
     <div class="news-card-footer"><div class="card-footer-left">${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
     <div class="card-actions">${["important", "read_later", "favorite"].map((flag) => {
       const action = cardAction(item, flag);
@@ -754,6 +768,7 @@ function pollDetail(item, sequence) {
         data.detail_status !== state.detail.detail_status ||
         data.ai_status !== state.detail.ai_status ||
         data.detail?.content !== state.detail.detail?.content ||
+        data.ai?.conclusion_zh !== state.detail.ai?.conclusion_zh ||
         data.ai?.body_zh !== state.detail.ai?.body_zh;
       stashNote();
       state.detail = data;
@@ -896,7 +911,7 @@ async function refreshStateDetail(id) {
       const status = data.items.find(row => row.id === id);
       if (item && status) {
         Object.assign(item, stateWrites.reconcile(id, status, stateVersion));
-        updateCardActions(item);
+        updateCard(item);
       }
       return;
     }
@@ -916,7 +931,7 @@ async function refreshStateDetail(id) {
   }
 }
 function updateDetailItem(item, payload) {
-  const patch = { detail_ready: payload.detail_ready ?? !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, has_note: payload.has_note, note_count: payload.notes?.length || 0 };
+  const patch = { detail_ready: payload.detail_ready ?? !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, ai_conclusion_zh: payload.ai?.conclusion_zh || "", has_note: payload.has_note, note_count: payload.notes?.length || 0 };
   for (const flag of ["read", "important", "read_later", "read_later_done", "favorite"])
     if (Object.hasOwn(payload, `${flag}_at`)) patch[`${flag}_at`] = payload[`${flag}_at`];
   const loaded = state.items.find(row => row.id === item.id);
@@ -927,14 +942,14 @@ function updateDetailItem(item, payload) {
     Object.assign(target, patch);
     changed ||= wasPending !== readLaterPending(target);
   }
-  updateCardActions(loaded || item);
+  updateCard(loaded || item);
   if (state.selected?.id === item.id) readerActions();
   if (changed) refreshBadges();
 }
 let statusRefreshing = false;
 setInterval(async () => {
   if (statusRefreshing || document.hidden || settings.open) return;
-  const ids = state.items.filter(item => ["pending", "running"].includes(item.detail_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
+  const ids = state.items.filter(item => ["pending", "running"].includes(item.detail_status) || ["pending", "running"].includes(item.ai_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
   if (!ids.length) return;
   statusRefreshing = true;
   const stateVersion = stateWrites.version;
@@ -950,7 +965,7 @@ setInterval(async () => {
         const wasPending = readLaterPending(item);
         Object.assign(item, row);
         changed ||= wasPending !== readLaterPending(item);
-        updateCardActions(item);
+        updateCard(item);
       }
     }
     if (changed) refreshBadges();
