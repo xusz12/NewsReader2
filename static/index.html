@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.11</title>
+    <title>News Reader v0.0.12</title>
     <script>
       try {
         const m =
@@ -41,9 +41,9 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/tokens.css?v=0.0.11" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.0.12" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.11&amp;build=bookmark-r1"
+      href="/static/style.css?v=0.0.12&amp;build=bookmark-r1"
       rel="stylesheet"
     />
   </head>
@@ -87,7 +87,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.11</span>
+            <span class="brand-version">v0.0.12</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -418,7 +418,7 @@
                     data-state="important"
                     disabled=""
                     id="btnToggleImportant"
-                    title="标记为重要新闻 (快捷键: a)"
+                    title="标记为重要新闻 (快捷键: a / ←)"
                     type="button"
                   >
                     <svg
@@ -963,6 +963,7 @@
           </section>
         </main>
       </div>
+      <!-- 移动端底栏固定为新闻流、稍后再看、收藏；新增功能入口放入导航抽屉。 -->
       <nav
         aria-label="移动端核心主视图导航"
         class="mobile-bottom-nav"
@@ -972,6 +973,7 @@
           class="mobile-nav-btn active"
           data-collection="feed"
           id="mobNavFeed"
+          aria-current="page"
           type="button"
         >
           <div class="mob-icon-wrap">
@@ -1001,41 +1003,26 @@
             <path
               d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
             ></path></svg
-          ><span>稍后再看</span></button
-        ><button class="mobile-nav-btn" data-collection="notes" type="button">
+          ><span>稍后再看</span>
+        </button>
+        <button class="mobile-nav-btn" data-collection="favorites" type="button">
           <svg
             fill="none"
             stroke="currentColor"
             stroke-width="2"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
-            <path d="M12 20h9"></path>
-            <path
-              d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
-            ></path></svg
-          ><span>想法</span></button
-        ><button class="mobile-nav-btn" data-collection="summaries" id="mobNavSummaries" type="button"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg><span>新闻总结</span></button><button class="mobile-nav-btn" id="mobNavSettings" type="button">
-          <div class="mob-icon-wrap">
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <circle cx="12" cy="12" r="3"></circle>
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-              ></path>
-            </svg>
-          </div>
-          <span>系统设置</span>
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+          <span>收藏</span>
         </button>
       </nav>
       <footer class="keyboard-bar">
         <div class="kbd-group">
-          <span class="kbd-item"><kbd>w</kbd>/<kbd>s</kbd> 上下移动</span>
-          <span class="kbd-item"><kbd>a</kbd> 标记重要</span>
-          <span class="kbd-item"><kbd>d</kbd> 稍后再读</span>
+          <span class="kbd-item"><kbd>w</kbd>/<kbd>s</kbd> 或 <kbd>↑</kbd>/<kbd>↓</kbd> 上下移动</span>
+          <span class="kbd-item"><kbd>a</kbd>/<kbd>←</kbd> 标记重要</span>
+          <span class="kbd-item"><kbd>d</kbd>/<kbd>→</kbd> 稍后再读</span>
           <span class="kbd-item"><kbd>f</kbd> 收藏高光</span>
           <span class="kbd-item"><kbd>m</kbd> 标为已读</span>
           <span class="kbd-item"><kbd>q</kbd> 展开/收起 Agent</span>
@@ -1103,7 +1090,7 @@
                 "
               >
                 <span>向下移动新闻聚焦</span>
-                <kbd>s</kbd>
+                <span><kbd>s</kbd> / <kbd>↓</kbd></span>
               </div>
               <div
                 style="
@@ -1115,7 +1102,7 @@
                 "
               >
                 <span>向上移动新闻聚焦</span>
-                <kbd>w</kbd>
+                <span><kbd>w</kbd> / <kbd>↑</kbd></span>
               </div>
               <div
                 style="
@@ -1127,7 +1114,7 @@
                 "
               >
                 <span>标记重要新闻切换</span>
-                <kbd>a</kbd>
+                <span><kbd>a</kbd> / <kbd>←</kbd></span>
               </div>
               <div
                 style="
@@ -1139,7 +1126,7 @@
                 "
               >
                 <span>稍后再读切换</span>
-                <kbd>d</kbd>
+                <span><kbd>d</kbd> / <kbd>→</kbd></span>
               </div>
               <div
                 style="
@@ -1244,9 +1231,9 @@
       </button>
       <button class="selection-pop-btn" id="dismissSelectionBtn" type="button" aria-label="关闭选中文本操作">×</button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.11"></script>
+    <script src="/static/error_ui.js?v=0.0.12"></script>
     <script
-      src="/static/app.js?v=0.0.11&amp;build=workbench2"
+      src="/static/app.js?v=0.0.12&amp;build=workbench2"
       type="module"
     ></script>
   </body>

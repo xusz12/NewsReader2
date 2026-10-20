@@ -1,4 +1,4 @@
-import { chooseTheme } from "./helpers.js";
+import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 test.beforeEach(async ({ request }) => {
@@ -33,12 +33,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.11", available: false,
+    ok: true, enabled: false, current_version: "v0.0.12", available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.11");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.11");
+  await expect(page).toHaveTitle("News Reader v0.0.12");
+  await expect(page.locator(".brand-version")).toHaveText("v0.0.12");
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();
@@ -446,7 +446,7 @@ for (const [width, height] of viewports)
       await page.locator("#agentDockToggleBtn").click();
       await page.locator("#mobileReaderBackBtn").click();
       await expect(page.locator("#feedColFeed")).toBeVisible();
-      await page.locator("#mobNavSettings").click();
+      await openSettings(page);
     } else {
       if (width < 1280) await page.locator("#openNavBtn").click();
       await page.locator("#leftNavSettingsBtn").click();
@@ -759,7 +759,7 @@ test("mobile settings return to categories and keep the original reader", async 
   await page.goto("/");
   await select(page);
   const title = await page.locator("#articleMainTitle").textContent();
-  await page.locator("#mobNavSettings").click();
+  await openSettings(page);
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).not.toBeVisible();
   await page.locator('[data-settings-tab="storage"]').click();
@@ -779,5 +779,6 @@ test("mobile settings return to categories and keep the original reader", async 
   await page.keyboard.press("Escape");
   await expect(page.locator("#articleMainTitle")).toHaveText(title);
   await expect(page.locator("#detailPanelFeed")).toBeVisible();
-  await expect(page.locator("#mobNavSettings")).not.toHaveClass(/active/);
+  await expect(page.locator("#leftNavSettingsBtn")).not.toHaveClass(/active/);
+  await expect(page.locator("#openNavBtn")).toBeFocused();
 });

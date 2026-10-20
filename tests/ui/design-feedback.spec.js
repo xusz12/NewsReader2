@@ -1,20 +1,41 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme } from './helpers.js';
+import { chooseTheme, openSettings } from './helpers.js';
 
 test.beforeEach(async ({ request }) => {
   await request.post('/__test/reset-reading');
 });
 
-for (const width of [1440, 390]) {
+for (const width of [1440, 390, 320]) {
   test(`theme menu is custom, aligned and keyboard accessible at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     const theme = page.getByRole('combobox', { name: '外观主题', exact: true });
     await expect(theme).toBeVisible();
     await expect(page.locator('#themeSelect-native')).toBeHidden();
+    if (width <= 920) {
+      await expect(theme.locator('.theme-symbol')).toBeVisible();
+      await expect(theme.locator('.select-value')).toBeHidden();
+      await expect(theme).toHaveAccessibleDescription('跟随系统');
+      const rect = await theme.boundingBox();
+      expect(rect.width).toBe(36);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+    } else {
+      await expect(theme.locator('.theme-symbol')).toBeHidden();
+      await expect(theme.locator('.select-value')).toBeVisible();
+    }
     const heights = await page.locator('#refreshIndexBtn, #themeSelect').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
     expect(heights[0]).toBe(width <= 920 ? 36 : 32);
+    if (width <= 920) {
+      await page.locator('#feedCardList .news-card-title').first().click();
+      await expect(page.locator('#mobileReaderBackBtn')).toBeVisible();
+      await expect(page.locator('#openNavBtn')).toBeVisible();
+      const controls = await page.locator('.topbar-left, .topbar-right').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+      expect(controls[0].right).toBeLessThanOrEqual(controls[1].left);
+      expect(controls[1].right).toBeLessThanOrEqual(width - 8);
+      await page.screenshot({ path: `.ui-artifacts/mobile-theme-reader-${width}.png`, animations: 'disabled' });
+      await page.locator('#mobileReaderBackBtn').click();
+    }
     await theme.click();
     const menu = page.getByRole('listbox', { name: '外观主题', exact: true });
     await expect(menu).toBeVisible();
@@ -32,8 +53,9 @@ for (const width of [1440, 390]) {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
     await page.reload();
     await expect(theme).toHaveText('墨水屏 (E-Ink)');
+    await expect(theme).toHaveAccessibleDescription('墨水屏 (E-Ink)');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
-    await page.locator(width <= 920 ? '#mobNavSettings' : '#leftNavSettingsBtn').click();
+    await openSettings(page);
     await page.locator('[data-settings-tab="models"]').click();
     await expect(page.locator('#modelSettings')).toBeVisible();
     expect(await page.locator('select').evaluateAll(nodes => nodes.every(n => n.hidden && n.nextElementSibling?.getAttribute('role') === 'combobox'))).toBe(true);

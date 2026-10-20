@@ -41,7 +41,7 @@ from llm_client import (
     _pi_subprocess_env,
     _parse_pi_stdout,
 )
-from parser import parse_daily_errors
+from parser import parse_daily_availability, parse_daily_errors
 from scanner import apply_schema, list_daily_files, reindex
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from updater import STATE_PATH as UPDATE_STATE_PATH
@@ -7837,7 +7837,22 @@ def api_error_stats():
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_day"}), 400
     days = load_error_stats(day, details=request.args.get("details") == "1")
-    return jsonify({"ok": True, "day": day, "days": days})
+    payload = {"ok": True, "day": day, "days": days}
+    if request.args.get("details") == "1":
+        filename = f"dailyFreshNews_{day}.md"
+        path = next((path for path in list_daily_files(DAILY_NEWS_DIR) if path.name == filename), None)
+        stats = parse_daily_availability(path) if path else {
+            "available_sources": 0, "total_sources": 0, "availability": None,
+        }
+        # Collection day comes from the input file, not the article's publication
+        # or initial database import date; old articles can be collected today.
+        with db_conn() as conn:
+            stats["ingested_count"] = conn.execute(
+                "SELECT COUNT(*) FROM items WHERE source_file = ? OR source_file GLOB ?",
+                (filename, f"*/{filename}"),
+            ).fetchone()[0]
+        payload.update(stats=stats, today=datetime.now().strftime("%Y-%m-%d"))
+    return jsonify(payload)
 
 
 def _version_manifest() -> dict:

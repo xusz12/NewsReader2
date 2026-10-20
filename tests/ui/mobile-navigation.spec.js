@@ -1,7 +1,36 @@
+import { openNavigation, openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 test.use({ viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
+
+test('bottom navigation stays limited to reading views while other workspaces use the drawer', async ({ page }) => {
+  await page.goto('/');
+  const bottom = page.locator('#mobileBottomNav');
+  await expect(bottom.locator('button > span')).toHaveText(['新闻流', '稍后再看', '收藏']);
+  for (const [collection, title] of [['favorites', '收藏'], ['read_later', '稍后再看'], ['feed', '新闻流']]) {
+    const loaded = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/news' && url.searchParams.get('collection') === collection;
+    });
+    await bottom.getByRole('button', { name: title }).click();
+    await loaded;
+    await expect(bottom.locator('[aria-current="page"]')).toHaveAttribute('data-collection', collection);
+    await expect(page.locator(`#leftNavDrawer [data-collection="${collection}"]`)).toHaveAttribute('aria-current', 'page');
+  }
+  for (const collection of ['notes', 'summaries']) {
+    await openNavigation(page);
+    await page.locator(`#leftNavDrawer [data-collection="${collection}"]`).click();
+    await expect(bottom.locator('[aria-current="page"]')).toHaveCount(0);
+    await expect(page.locator('#leftNavDrawer')).toHaveJSProperty('inert', true);
+  }
+  await openSettings(page);
+  await expect(page.locator('#feedColSettings')).toBeVisible();
+  await expect(bottom.locator('button > span')).toHaveText(['新闻流', '稍后再看', '收藏']);
+  await bottom.getByRole('button', { name: '收藏', exact: true }).click();
+  await expect(page.locator('#feedColSettings')).toBeHidden();
+  await expect(bottom.getByRole('button', { name: '收藏', exact: true })).toHaveAttribute('aria-current', 'page');
+});
 
 async function openReader(page) {
   await page.goto('/');
@@ -13,9 +42,12 @@ async function openReader(page) {
 async function swipe(page, { x = 20, dx = 110, dy = 4, cancel = false, multi = false, finish = true, target = '#detailScrollArea' } = {}) {
   return page.evaluate(({ x, dx, dy, cancel, multi, finish, target }) => {
     const element = document.querySelector(target);
-    const touch = (clientX, clientY, identifier = 1) => new Touch({ identifier, target: element, clientX, clientY });
+    const touch = (clientX, clientY, identifier = 1) => ({ identifier, target: element, clientX, clientY });
     const dispatch = (type, touches, changedTouches) => {
-      const event = new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches });
+      // WebKit does not expose a constructible Touch. Supply the same touch
+      // payload on a synthetic event so gesture tests run in both engines.
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(event, { touches: { value: touches }, changedTouches: { value: changedTouches } });
       element.dispatchEvent(event);
       return event.defaultPrevented;
     };
@@ -79,7 +111,8 @@ test('selected text and an open Agent do not trigger swipe navigation', async ({
 
 test('idea detail supports edge return while editing gestures preserve the draft', async ({ page }) => {
   await page.goto('/');
-  await page.locator('.mobile-bottom-nav [data-collection="notes"]').click();
+  await openNavigation(page);
+  await page.locator('#navNotesBtn').click();
   await page.locator('#newIdeaBtn').click();
   await page.locator('#ideaNote').fill('返回后保留想法草稿');
   expect(await swipe(page, { target: '#ideaNote' })).toBe(false);
@@ -110,7 +143,7 @@ test('every settings subpage swipes back to its category and preserves the origi
   await page.setViewportSize({ width: 360, height: 450 });
   await openReader(page);
   const title = await page.locator('#articleMainTitle').textContent();
-  await page.locator('#mobNavSettings').click();
+  await openSettings(page);
   const list = page.locator('.settings-category-list');
   for (const section of ['models', 'deepseek', 'pipeline', 'storage', 'system']) {
     const category = page.locator(`[data-settings-tab="${section}"]`);
@@ -136,7 +169,7 @@ test('every settings subpage swipes back to its category and preserves the origi
 
 test('settings swipe preserves the draft and search while ignoring editing and canceled gestures', async ({ page }) => {
   await page.goto('/');
-  await page.locator('#mobNavSettings').click();
+  await openSettings(page);
   await page.locator('#settingsSearchInput').fill('翻译');
   await page.locator('[data-settings-tab="deepseek"]').click();
   const input = page.locator('input[name="llm.translation.model"]');
@@ -159,9 +192,44 @@ test('settings swipe preserves the draft and search while ignoring editing and c
 test.describe('original sliding transitions', () => {
   test.use({ reducedMotion: 'no-preference' });
 
+  test('entering every settings category keeps the workspace in place throughout the animation', async ({ page }) => {
+    await page.setViewportSize({ width: 402, height: 874 });
+    await page.goto('/');
+    await openSettings(page);
+    await expect(page.locator('#modelSettings')).toBeAttached();
+    const panel = page.locator('#detailPanelSettings');
+    for (const section of ['models', 'pipeline', 'deepseek', 'catchup', 'storage', 'system']) {
+      await page.evaluate(() => {
+        window.settingsFrames = [];
+        window.samplingSettings = true;
+        const containers = [document.querySelector('#feedView'), document.querySelector('.workspace-view'), document.querySelector('.app-root')];
+        const sample = () => {
+          window.settingsFrames.push(containers.map(node => node.scrollLeft));
+          if (window.samplingSettings) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      await page.locator(`[data-settings-tab="${section}"]`).tap();
+      await expect(page.locator('#settingsDetailTitle')).toBeFocused();
+      await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+      const scrollOffsets = await page.evaluate(() => {
+        window.samplingSettings = false;
+        return window.settingsFrames.flat();
+      });
+      expect(scrollOffsets.length).toBeGreaterThan(0);
+      expect(Math.max(...scrollOffsets.map(Math.abs))).toBe(0);
+      const rect = await panel.boundingBox();
+      expect(rect.x).toBe(0);
+      expect(rect.width).toBe(402);
+      await expect(page.locator(`#settingsContent > [data-section="${section}"]`)).toBeVisible();
+      await page.locator('#settingsCategoryBackBtn').tap();
+      await expect(panel).toBeHidden();
+    }
+  });
+
   test('settings subpage follows the finger over categories and rebounds or exits in 200ms', async ({ page }) => {
     await page.goto('/');
-    await page.locator('#mobNavSettings').click();
+    await openSettings(page);
     await page.locator('[data-settings-tab="deepseek"]').click();
     const panel = page.locator('#detailPanelSettings');
     await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
@@ -173,7 +241,7 @@ test.describe('original sliding transitions', () => {
       expect(await page.evaluate(() => !!document.elementFromPoint(10, 200)?.closest('#detailPanelSettings'))).toBe(false);
       await page.screenshot({ path: `.ui-artifacts/v007-settings-swipe-${dx}.png` });
       const middle = await panel.evaluate(node => {
-        node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [] }));
+        node.dispatchEvent(new Event('touchend', { bubbles: true }));
         const animation = node.getAnimations().find(item => item.transitionProperty === 'transform');
         if (!animation) throw new Error('Missing settings transform transition');
         animation.pause();
@@ -213,7 +281,7 @@ test.describe('original sliding transitions', () => {
       expect(await page.evaluate(() => !!document.elementFromPoint(10, 200)?.closest('#detailPanelFeed'))).toBe(false);
       await page.screenshot({ path: `.ui-artifacts/v007-original-swipe-${dx}.png` });
       const middle = await panel.evaluate(node => {
-        node.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [] }));
+        node.dispatchEvent(new Event('touchend', { bubbles: true }));
         const animation = node.getAnimations().find(item => item.transitionProperty === 'transform');
         if (!animation) throw new Error('Missing transform transition');
         animation.pause();

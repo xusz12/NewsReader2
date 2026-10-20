@@ -25,7 +25,7 @@ import { AgentPanel } from "./agent-panel.js";
 import { ResearchNotes } from "./research-notes.js";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
 import { UpstreamErrors } from "./upstream-errors.js";
-import { ItemStateQueue } from "./item-state.js";
+import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 
 const state = {
@@ -40,7 +40,7 @@ const state = {
   page: 0,
   cursor: null,
   more: true,
-  total: 0,
+  total: null,
   loading: false,
   sequence: 0,
   collectionSequence: 0,
@@ -69,9 +69,16 @@ const stateLabels = {
   favorite: "收藏",
 };
 const shortcuts = { m: "read", a: "important", d: "read_later", f: "favorite" };
+const shortcutAliases = { ArrowUp: "w", ArrowDown: "s", ArrowLeft: "a", ArrowRight: "d" };
+const readWrites = new ReadBatchWriter(ids =>
+  api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: ids } }));
+const readOperations = new Map();
 const stateWrites = new ItemStateQueue({
-  save: (id, body) => api(`/api/news/${encodeURIComponent(id)}/state`, { method: "PATCH", body }),
+  save: (id, body) => body.read === true && Object.keys(body).length === 1
+    ? readWrites.add(id)
+    : api(`/api/news/${encodeURIComponent(id)}/state`, { method: "PATCH", body }),
   onChange: (id, patch) => {
+    applyReadCountChange(id, patch);
     const item = state.items.find(row => row.id === id);
     if (item) { Object.assign(item, patch); updateCardActions(item); }
     if (state.selected?.id === id) {
@@ -94,7 +101,7 @@ const stateWrites = new ItemStateQueue({
       void loadFeed();
     }
   },
-  onError: error => toast(errorText(error)),
+  onError: error => { toast(errorText(error)); refreshBadges(); },
 });
 const upstreamErrors = new UpstreamErrors();
 let requestController,
@@ -206,7 +213,7 @@ function renderFilters() {
   $("#feedColFeed .feed-filter-chips").innerHTML = filters
     .map(
       ([key, label]) =>
-        `<button class="filter-chip ${state.filter === key ? "active" : ""}" data-filter="${key}" type="button" aria-pressed="${state.filter === key}">${label}${state.filter === key && !state.loading ? ` (${state.total})` : ""}</button>`,
+        `<button class="filter-chip ${state.filter === key ? "active" : ""}" data-filter="${key}" type="button" aria-pressed="${state.filter === key}">${label}${state.filter === key && (!state.loading || state.total !== null) ? ` (${state.total ?? "…"})` : ""}</button>`,
     )
     .join("");
   $("#feedColIdeas .feed-filter-chips").innerHTML =
@@ -329,6 +336,9 @@ async function loadFeed(append = false) {
   requestController = new AbortController();
   const sequence = ++state.sequence;
   const stateVersion = stateWrites.version;
+  const countsSnapshot = countSnapshot();
+  const scope = countScope();
+  if (totalScope !== scope) { totalScope = scope; state.total = null; }
   if (!append) {
     state.items = [];
     state.page = 0;
@@ -359,7 +369,8 @@ async function loadFeed(append = false) {
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
     state.page = data.page;
-    state.total = data.total;
+    if (countsAreCurrent(countsSnapshot)) state.total = data.total;
+    else refreshBadges();
     state.more = data.has_more;
     state.cursor = data.next_cursor;
     state.loading = false;
@@ -371,7 +382,7 @@ async function loadFeed(append = false) {
     readerActions();
     if (!state.selected && state.items.length && !singlePane.matches)
       selectNews(state.items[0], false);
-    setIndexStatus(`新闻库已连接 · ${data.total} 篇`);
+    setIndexStatus(`新闻库已连接 · ${state.total ?? "…"} 篇`);
   } catch (error) {
     if (error.name === "AbortError" || sequence !== state.sequence) return;
     state.loading = false;
@@ -436,48 +447,127 @@ function setIndexStatus(message, failed = false) {
   $("#pipelineStatus").innerHTML =
     `<span class="pipeline-dot ${failed ? "failed" : ""}"></span><span>${e(message)}</span>`;
 }
-let badgesSequence = 0;
+let navSummary = null, totalScope = "", readCountsFrame;
+const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
+const countSnapshot = () => ({ version: stateWrites.version, clean: !stateWrites.pending.size });
+const countsAreCurrent = snapshot => snapshot.clean && !stateWrites.pending.size && snapshot.version === stateWrites.version;
+
+function renderNavCounts() {
+  if (!navSummary) return;
+  $("#unreadBadge").textContent = navSummary.feed_unread || "";
+  $("#mobUnreadBadge").textContent = navSummary.feed_unread || "0";
+  $("#readLaterNavBadge").textContent = navSummary.read_later_unread || "";
+  $("#starredNavBadge").textContent = navSummary.favorites || "";
+  state.favoritesTotal = navSummary.favorites;
+  renderFavoritesAction();
+}
+
+function renderReadCounts() {
+  readCountsFrame = null;
+  renderNavCounts();
+  // Updating only the count text preserves keyboard focus and the list position.
+  if (state.collection !== "feed") return;
+  const chip = $('#feedColFeed .filter-chip.active[data-filter="unread"]');
+  if (chip && (!state.loading || state.total !== null)) chip.textContent = `未读 (${state.total ?? "…"})`;
+  const sources = sourceCountsByCollection.get("feed");
+  if (!sources) return;
+  const counts = new Map(sources.map(source => [source.key, source.count]));
+  counts.set("all", sources.reduce((sum, source) => sum + source.count, 0));
+  for (const button of $$("[data-source]", $("#sourceFilters"))) {
+    const count = counts.get(button.dataset.source) || 0;
+    let badge = $(".nav-badge", button);
+    if (!count) { badge?.remove(); continue; }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "nav-badge";
+      button.append(badge);
+    }
+    badge.textContent = count;
+  }
+}
+
+function applyReadCountChange(id, patch) {
+  const operation = readOperations.get(id);
+  if (!operation || !Object.hasOwn(patch, "read_at")) return;
+  const delta = Number(!patch.read_at) - Number(!operation.read_at);
+  operation.read_at = patch.read_at;
+  // Other collections may include sources hidden from the feed. Their counts
+  // are reconciled by the server instead of guessing feed membership.
+  if (!delta || !operation.fromFeed) return;
+  if (navSummary) navSummary.feed_unread = Math.max(0, navSummary.feed_unread + delta);
+  const sources = sourceCountsByCollection.get("feed");
+  if (sources) {
+    let source = sources.find(row => row.key === operation.source);
+    if (!source) {
+      source = { key: operation.source, label: operation.label, count: 0 };
+      sources.push(source);
+    }
+    source.count = Math.max(0, source.count + delta);
+  }
+  if (state.collection === "feed" && state.filter === "unread" &&
+      totalScope === countScope() && state.total !== null &&
+      (state.source === "all" || state.source === operation.source) &&
+      (!state.query || state.query === operation.query))
+    state.total = Math.max(0, state.total + delta);
+  if (!readCountsFrame) readCountsFrame = requestAnimationFrame(renderReadCounts);
+}
+
+function setReadState(item, value, silent) {
+  if (!readOperations.has(item.id))
+    readOperations.set(item.id, {
+      read_at: item.read_at, fromFeed: state.collection === "feed",
+      source: sourceKey(item), label: item.source, query: state.query,
+    });
+  return stateWrites.set(item, "read", value, silent).then(saved => {
+    if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
+    return saved;
+  });
+}
+
 let badgesTimer, badgesRunning = false, badgesPending = false;
 const badgesWaiters = [];
 function refreshBadges() {
-  ++badgesSequence;
   badgesPending = true;
   const promise = new Promise(resolve => badgesWaiters.push(resolve));
-  if (!badgesRunning) {
-    clearTimeout(badgesTimer);
+  // Throttle: new events do not push an already scheduled refresh further back.
+  if (!badgesRunning && !badgesTimer) {
     badgesTimer = setTimeout(updateBadges, 120);
   }
   return promise;
 }
 async function updateBadges() {
+  badgesTimer = null;
+  // The visible counts already include pending reads. Reconcile only against
+  // a settled snapshot, which cannot count the same read twice.
+  if (stateWrites.pending.size) {
+    badgesTimer = setTimeout(updateBadges, 120);
+    return;
+  }
   badgesRunning = true;
   badgesPending = false;
-  const sequence = badgesSequence;
+  const snapshot = countSnapshot();
   const feedSequence = state.sequence;
+  const scope = countScope();
   const params = new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1" });
   const hasFeed = !["notes", "summaries"].includes(state.collection);
   if (state.collection === "summaries") summaries.refreshScope();
+  void loadSources();
   try {
-    const [data, count] = await Promise.all([
-      api("/api/nav-summary"),
-      hasFeed ? api(`/api/${state.query ? "search" : "news"}?${params}`) : null,
-      loadSources(),
+    await Promise.allSettled([
+      api("/api/nav-summary").then(data => {
+        if (!countsAreCurrent(snapshot)) return;
+        navSummary = data.summary;
+        renderNavCounts();
+      }),
+      hasFeed ? api(`/api/${state.query ? "search" : "news"}?${params}`).then(count => {
+        if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== countScope()) return;
+        totalScope = scope;
+        state.total = count.total;
+        renderFilters();
+        if ($("#pipelineStatus").textContent.startsWith("新闻库已连接"))
+          setIndexStatus(`新闻库已连接 · ${count.total} 篇`);
+      }) : null,
     ]);
-    if (sequence !== badgesSequence) return;
-    $("#unreadBadge").textContent = data.summary.feed_unread || "";
-    $("#readLaterNavBadge").textContent = data.summary.read_later_unread || "";
-    $("#starredNavBadge").textContent = data.summary.favorites || "";
-    state.favoritesTotal = data.summary.favorites;
-    renderFavoritesAction();
-    $("#mobUnreadBadge").textContent = data.summary.feed_unread || "0";
-    if (count && feedSequence === state.sequence && params.toString() === new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1" }).toString()) {
-      state.total = count.total;
-      renderFilters();
-      if ($("#pipelineStatus").textContent.startsWith("新闻库已连接"))
-        setIndexStatus(`新闻库已连接 · ${count.total} 篇`);
-    }
-  } catch {
-    /* Feed and settings report connectivity separately. */
   } finally {
     badgesRunning = false;
     if (badgesPending) badgesTimer = setTimeout(updateBadges, 120);
@@ -491,6 +581,7 @@ async function loadSources() {
   const currentCollection = state.collection;
   const collection = currentCollection === "summaries" ? "feed" : currentCollection, sequence = ++sourcesSequence;
   const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
+  const snapshot = countSnapshot();
   try {
     // Source availability covers the whole collection; badges still count unread items.
     const [data, catalog] = await Promise.all([
@@ -498,7 +589,7 @@ async function loadSources() {
       readFilter === "unread" && !sourceCatalogByCollection.has(currentCollection) ? api(`/api/sources?collection=${collection}&read_filter=all`) : null,
     ]);
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
-    sourceCountsByCollection.set(currentCollection, data.sources);
+    if (countsAreCurrent(snapshot)) sourceCountsByCollection.set(currentCollection, data.sources);
     if (catalog || readFilter === "all" || !sourceCatalogByCollection.has(currentCollection))
       sourceCatalogByCollection.set(currentCollection, (catalog || data).sources);
     renderSources();
@@ -778,7 +869,7 @@ function toggleState(item, flag, force, silent = false, complete = false) {
     complete = phase === "ready";
     value = !["ready", "pending"].includes(phase);
   }
-  return stateWrites.set(item, flag, value, silent, complete);
+  return flag === "read" ? setReadState(item, value, silent) : stateWrites.set(item, flag, value, silent, complete);
 }
 async function refreshStateDetail(id) {
   // Saving a flag never waits for the full article. Only the open reader needs
@@ -866,42 +957,31 @@ function pipelineLabel(payload) {
   return ({ pending: "全文就绪 · 等待翻译", running: "全文就绪 · 正文翻译中…", failed: "全文就绪 · 翻译失败", canceled: "全文就绪 · 翻译已取消", skipped: "全文就绪 · 翻译已跳过" })[payload.ai_status] || (payload.ai?.body_zh ? "全文就绪 · 翻译完成" : "全文就绪 · 尚未翻译");
 }
 const enteredCards = new Set();
-const queuedReadIds = new Set();
-let lastFeedScroll = 0, feedEndTimer, autoReadBusy = false;
+let lastFeedScroll = 0, feedEndTimer;
 function feedVisible() {
   return state.collection === "feed" && !settings.open && !mobileReaderOpen() &&
     !document.hidden && !document.querySelector("dialog[open]") && $("#feedCardList").getBoundingClientRect().width > 0;
 }
-async function markReadIds(ids) {
-  for (const id of ids) queuedReadIds.add(id);
-  if (!queuedReadIds.size || autoReadBusy) return;
-  autoReadBusy = true;
-  try {
-    while (queuedReadIds.size) {
-      const batch = [...queuedReadIds];
-      queuedReadIds.clear();
-      await api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: batch } });
-      for (const item of state.items) if (batch.includes(item.id)) item.read_at ||= new Date().toISOString();
-      for (const id of batch) {
-        if (state.collection === "read_later") continue;
-        const card = $(`#feedCardList [data-id="${CSS.escape(id)}"]`);
-        card?.classList.toggle("read", state.collection === "feed");
-        if (card) $(".unread-dot", card)?.remove();
-      }
-    }
-    refreshBadges();
-  } catch (error) { queuedReadIds.clear(); toast(errorText(error)); }
-  finally { autoReadBusy = false; }
+function markReadIds(ids) {
+  const items = new Map(state.items.map(item => [item.id, item]));
+  for (const id of ids) {
+    const item = items.get(id);
+    if (item && !item.read_at && !stateWrites.has(id, "read"))
+      void setReadState(item, true, true);
+  }
 }
 function trackFeedReading() {
   if (!feedVisible()) { clearTimeout(feedEndTimer); feedEndTimer = null; return; }
   const list = $("#feedCardList"), bounds = list.getBoundingClientRect();
   const down = list.scrollTop > lastFeedScroll;
   const ids = [];
+  const items = new Map(state.items.map(item => [item.id, item]));
   for (const node of $$(".news-card", list)) {
-    const rect = node.getBoundingClientRect(), id = node.dataset.id;
+    const id = node.dataset.id;
+    if (items.get(id)?.read_at) continue;
+    const rect = node.getBoundingClientRect();
     if (rect.bottom > bounds.top && rect.top < bounds.bottom) enteredCards.add(id);
-    if (down && enteredCards.has(id) && rect.bottom <= bounds.top && !state.items.find(item => item.id === id)?.read_at) ids.push(id);
+    if (down && enteredCards.has(id) && rect.bottom <= bounds.top) ids.push(id);
   }
   lastFeedScroll = list.scrollTop;
   if (ids.length) markReadIds(ids);
@@ -924,7 +1004,7 @@ async function markAllRead() {
   const params = feedParams(), items = [...state.items];
   let failed = 0;
   // Earlier button saves must finish before the bulk operation supersedes them.
-  if (later) await stateWrites.settle();
+  await stateWrites.settle();
   if (params.q) {
     if (later) {
       if (params.read_filter !== "read")
@@ -1248,7 +1328,6 @@ $("#themeSelect").onchange = (event) => {
 };
 selects.refresh();
 $("#leftNavSettingsBtn").onclick = () => settings.toggle();
-$("#mobNavSettings").onclick = () => settings.toggle();
 $("#openNavBtn").onclick = openNav;
 $(".drawer-close-btn").onclick = closeNav;
 $("#navDrawerBackdrop").onclick = closeNav;
@@ -1323,7 +1402,7 @@ document.addEventListener("keydown", (event) => {
     event.isComposing
   )
     return;
-  const key = event.key.toLowerCase();
+  const key = shortcutAliases[event.key] || event.key.toLowerCase();
   if (key === ",") {
     event.preventDefault();
     settings.toggle();

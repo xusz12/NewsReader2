@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme } from './helpers.js';
+import { chooseTheme, openNavigation } from './helpers.js';
 
 async function setLimits(request, limits = { max_days: 20, max_items: 2 }) {
   const settings = await (await request.get('/api/settings')).json();
@@ -7,9 +7,8 @@ async function setLimits(request, limits = { max_days: 20, max_items: 2 }) {
 }
 async function open(page) {
   await page.goto('/');
-  const nav = page.viewportSize().width <= 920 ? '#mobNavSummaries' : '#navSummariesBtn';
-  if (page.viewportSize().width > 920 && page.viewportSize().width < 1280) await page.locator('#openNavBtn').click();
-  await page.locator(nav).click();
+  await openNavigation(page);
+  await page.locator('#navSummariesBtn').click();
   await expect(page.locator('#catchupStartBtn')).toBeEnabled();
 }
 async function preview(page) {

@@ -100,6 +100,8 @@ export class UpstreamErrors {
       if (sequence !== this.sequence || !this.dialog.open) return;
       date.value = data.day;
       this.records = recordsFrom(data);
+      this.stats = data.stats || {};
+      this.isToday = !data.today || data.day === data.today;
       this.filter = "";
       this.render();
     } catch (error) {
@@ -115,6 +117,10 @@ export class UpstreamErrors {
     const focusKey = focused?.upstreamDimension !== undefined ? "upstreamDimension" : "upstreamFilter";
     const focusValue = focused?.[focusKey];
     const records = this.records;
+    const { availability, available_sources, total_sources, ingested_count } = this.stats;
+    const availabilityTitle = Number.isFinite(availability)
+      ? `可用来源 ${available_sources} / ${total_sources}；无更新计为可用，发生过报错的来源计为异常`
+      : "当天暂无来源抓取记录";
     const groups = new Map();
     records.forEach(record => {
       const key = this.dimension === "time" ? record.time : record.label;
@@ -127,10 +133,10 @@ export class UpstreamErrors {
       ...[...groups].map(([key, items]) => [key, key, items.length])];
     this.content.innerHTML = `
       <div class="upstream-health-strip">
-        <div><span class="upstream-stat-label">当日报错</span><strong class="upstream-stat-value ${records.length ? "warning" : "success"}">${records.length} 条</strong></div>
+        <div title="${e(availabilityTitle)}"><span class="upstream-stat-label">当日抓取可用率</span><strong class="upstream-stat-value ${Number.isFinite(availability) ? (availability < 100 ? "warning" : "success") : ""}">${Number.isFinite(availability) ? `${availability}%` : "—"}</strong></div>
         <div><span class="upstream-stat-label">异常来源</span><strong class="upstream-stat-value">${new Set(records.map(row => row.label)).size} 个</strong></div>
-        <div><span class="upstream-stat-label">报错批次</span><strong class="upstream-stat-value">${new Set(records.map(row => row.time)).size} 次</strong></div>
-        <div><span class="upstream-stat-label">最近记录</span><strong class="upstream-stat-value">${e(records[0]?.time || "—")}</strong></div>
+        <div title="所选日期采集文件中实际已入库的资讯，包含其他日期发布的新闻"><span class="upstream-stat-label">${this.isToday ? "今日" : "当日"}已入库资讯</span><strong class="upstream-stat-value">${Number.isFinite(ingested_count) ? `${ingested_count} 条` : "—"}</strong></div>
+        <div><span class="upstream-stat-label">当日报错</span><strong class="upstream-stat-value ${records.length ? "warning" : "success"}">${records.length} 条</strong></div>
       </div>
       <div class="upstream-classifier-bar">
         <div class="upstream-dim-row">

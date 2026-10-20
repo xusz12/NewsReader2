@@ -1,5 +1,45 @@
 const fieldsFor = flag => flag === "read_later" ? ["read_later_at", "read_later_done_at"] : [`${flag}_at`];
 
+// Batch read writes across articles without delaying their optimistic UI state.
+// ItemStateQueue still serializes a later unread toggle behind that item's save.
+export class ReadBatchWriter {
+  constructor(save) {
+    this.save = save;
+    this.pending = new Map();
+    this.running = false;
+    this.scheduled = false;
+  }
+
+  add(id) {
+    const done = new Promise((resolve, reject) => {
+      if (!this.pending.has(id)) this.pending.set(id, []);
+      this.pending.get(id).push({ resolve, reject });
+    });
+    if (!this.running && !this.scheduled) {
+      this.scheduled = true;
+      queueMicrotask(() => this.flush());
+    }
+    return done;
+  }
+
+  async flush() {
+    this.scheduled = false;
+    this.running = true;
+    while (this.pending.size) {
+      const batch = this.pending;
+      this.pending = new Map();
+      try {
+        await this.save([...batch.keys()]);
+        const result = { read_at: new Date().toISOString() };
+        for (const waiters of batch.values()) for (const waiter of waiters) waiter.resolve(result);
+      } catch (error) {
+        for (const waiters of batch.values()) for (const waiter of waiters) waiter.reject(error);
+      }
+    }
+    this.running = false;
+  }
+}
+
 // Keep clicks responsive while serializing writes to each article. A newer click
 // remains visible even when an older request succeeds or fails out of date.
 export class ItemStateQueue {

@@ -1,4 +1,4 @@
-import { chooseTheme } from "./helpers.js";
+import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 async function settings(page, request, { model = 'catalog-a', many = false } = {}) {
@@ -18,7 +18,7 @@ async function settings(page, request, { model = 'catalog-a', many = false } = {
   });
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await page.locator(page.viewportSize().width <= 920 ? '#mobNavSettings' : '#leftNavSettingsBtn').click();
+  await openSettings(page);
   await page.locator('[data-settings-tab="models"]').click();
   await expect(page.locator('#modelSettings')).toBeVisible();
   return { saved, submitted: () => submitted };

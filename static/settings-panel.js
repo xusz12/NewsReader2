@@ -106,10 +106,8 @@ export class SettingsPanel {
     ["#feedColSettings", "#detailPanelSettings"].forEach((id) =>
       $(id).classList.add("active"),
     );
-    ["#leftNavSettingsBtn", "#mobNavSettings"].forEach((id) => {
-      $(id).classList.add("active");
-      $(id).setAttribute("aria-current", "page");
-    });
+    $("#leftNavSettingsBtn").classList.add("active");
+    $("#leftNavSettingsBtn").setAttribute("aria-current", "page");
     this.onViewChange?.();
     this.selectSection(this.section, { reveal: false });
     $("#settingsListTitle").focus();
@@ -139,16 +137,14 @@ export class SettingsPanel {
       button.classList.add("active");
       button.setAttribute("aria-current", "page");
     });
-    ["#leftNavSettingsBtn", "#mobNavSettings"].forEach((id) => {
-      $(id).classList.remove("active");
-      $(id).removeAttribute("aria-current");
-    });
+    $("#leftNavSettingsBtn").classList.remove("active");
+    $("#leftNavSettingsBtn").removeAttribute("aria-current");
     this.onViewChange?.();
     if (restoreFocus) {
       const target = this.lastFocus?.getClientRects().length && !this.lastFocus.closest('[inert]')
         ? this.lastFocus
         : $(
-            singlePane.matches ? "#mobNavSettings" : drawerNavigation.matches ? "#openNavBtn" : "#leftNavSettingsBtn",
+            drawerNavigation.matches ? "#openNavBtn" : "#leftNavSettingsBtn",
           );
       target.focus({ preventScroll: true });
     }
@@ -240,7 +236,9 @@ export class SettingsPanel {
     if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
       this.onViewChange?.();
-      $("#settingsDetailTitle").focus();
+      // The panel is still sliding in from outside the viewport. Default focus
+      // would scroll its overflow-hidden parent sideways to reveal the title.
+      $("#settingsDetailTitle").focus({ preventScroll: true });
     }
   }
   showCategories(focus = true) {

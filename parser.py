@@ -292,3 +292,36 @@ def parse_daily_errors(path: Path) -> list[dict[str, str]]:
 
     flush_pending(pending_date, pending_time)
     return entries
+
+
+def parse_daily_availability(path: Path) -> dict:
+    """Source availability, including successful fetches with no new articles."""
+    def source_key(label: str) -> str:
+        return re.sub(r"[\W_]+", "", label.casefold())
+
+    available: set[str] = set()
+    no_updates = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        section = SECTION_RE.match(line)
+        if section:
+            label = section.group(1).strip()
+            no_updates = label.startswith("本次无更新的分组")
+            if not no_updates and label.casefold() != "errors":
+                available.add(source_key(label))
+        elif no_updates and line.startswith("- "):
+            label = line[2:].strip()
+            if label and label != "无":
+                available.add(source_key(label))
+
+    failed: set[str] = set()
+    for entry in parse_daily_errors(path):
+        key = source_key(entry["label"])
+        # Older logs use labels such as "middle-east" for "Reuters · Middle East".
+        matches = [source for source in available if source.endswith(key)]
+        failed.add(key if key in available or len(matches) != 1 else matches[0])
+    sources = available | failed
+    return {
+        "available_sources": len(sources - failed),
+        "total_sources": len(sources),
+        "availability": round(len(sources - failed) / len(sources) * 100, 1) if sources else None,
+    }

@@ -1,3 +1,4 @@
+import { openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 const current = { ok: true, version: 'v0.0.6', commit: 'a'.repeat(40), repository: 'https://github.com/xusz12/NewsReader2.git' };
@@ -15,8 +16,7 @@ async function setup(page, checked = available) {
   await openSystem(page);
 }
 async function openSystem(page) {
-  const small = page.viewportSize().width <= 920;
-  await page.locator(small ? '#mobNavSettings' : '#leftNavSettingsBtn').click();
+  await openSettings(page);
   await page.locator('[data-settings-tab="system"]').click();
   await expect(page.locator('#updateRepository')).toHaveText(current.repository);
 }

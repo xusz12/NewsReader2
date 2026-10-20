@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ItemStateQueue } from '../static/item-state.js';
+import { ItemStateQueue, ReadBatchWriter } from '../static/item-state.js';
 
 function fixture() {
   const item = { id: 'article', important_at: null, favorite_at: null, read_later_at: null, read_later_done_at: 'previous' };
@@ -14,6 +14,37 @@ function fixture() {
   return { item, queue, requests, saved, errors };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('read batches deduplicate IDs and combine new reads during an in-flight save', async () => {
+  const requests = [];
+  const writer = new ReadBatchWriter(ids => new Promise((resolve, reject) => requests.push({ ids, resolve, reject })));
+  const first = writer.add('a');
+  const duplicate = writer.add('a');
+  await tick();
+  assert.deepEqual(requests[0].ids, ['a']);
+  const next = [writer.add('b'), writer.add('c')];
+  requests[0].resolve();
+  assert.ok((await first).read_at);
+  await duplicate;
+  await tick();
+  assert.deepEqual(requests[1].ids, ['b', 'c']);
+  requests[1].resolve();
+  await Promise.all(next);
+});
+
+test('a failed read batch rejects its own callers and still saves later reads', async () => {
+  const requests = [];
+  const writer = new ReadBatchWriter(ids => new Promise((resolve, reject) => requests.push({ ids, resolve, reject })));
+  const failed = assert.rejects(writer.add('a'), /offline/);
+  await tick();
+  const later = writer.add('b');
+  requests[0].reject(new Error('offline'));
+  await failed;
+  await tick();
+  assert.deepEqual(requests[1].ids, ['b']);
+  requests[1].resolve();
+  assert.ok((await later).read_at);
+});
 
 test('optimistic flags save serially and ignore unrelated fields in responses', async () => {
   const { item, queue, requests } = fixture();

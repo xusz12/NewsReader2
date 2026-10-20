@@ -2234,6 +2234,19 @@ kbd {
 
   .topbar-left {
     gap: 10px;
+    min-width: 0;
+  }
+
+  .brand-mark,
+  .brand-logo,
+  .brand-wordmark {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .topbar-right,
+  .mobile-back-btn {
+    flex-shrink: 0;
   }
 
   .brand-mark {
@@ -2413,10 +2426,6 @@ kbd {
     justify-content: center;
     width: 40px;
     padding: 0;
-  }
-
-  .app-root:has(#feedView.mobile-reader-active:not(.settings-active)) #openNavBtn {
-    display: none;
   }
 
   .detail-toolbar-left {
@@ -3830,6 +3839,7 @@ button:disabled {
   padding: 0 var(--space-2);
   gap: var(--space-2);
 }
+.theme-symbol { display: none; width: 18px; height: 18px; flex-shrink: 0; }
 .select-menu {
   position: fixed;
   z-index: 1200;
@@ -3866,6 +3876,16 @@ button:disabled {
 .select-option[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
 @media (max-width: 920px) {
   .theme-select { --topbar-control-height: 36px; }
+  .theme-select.select-trigger {
+    width: 36px;
+    min-width: 36px;
+    flex-shrink: 0;
+    padding: 0;
+    justify-content: center;
+  }
+  .theme-select .select-value,
+  .theme-select .select-chevron { display: none; }
+  .theme-select .theme-symbol { display: block; }
   .select-trigger { min-height: 44px; }
   .select-option { min-height: 44px; font-size: var(--fs-body); }
 }

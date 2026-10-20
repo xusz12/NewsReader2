@@ -3,6 +3,13 @@ import { escapeHTML as e } from "./ui.js";
 let nextMenuId = 0;
 let nextSelectId = 0;
 
+const themeSymbols = {
+  system: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>',
+  dark: '<path d="M20.5 13.3A9 9 0 0 1 10.7 3.5a9 9 0 1 0 9.8 9.8Z"/>',
+  eink: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 7h8M8 11h8M8 15h5m-2 4h2"/>',
+};
+
 // Keep the native select as the form value, but render every visible interaction
 // ourselves so the popup follows the application's theme on every platform.
 export class SelectControls {
@@ -67,12 +74,20 @@ export class SelectControls {
         if (select.hasAttribute("aria-labelledby")) button.setAttribute("aria-labelledby", select.getAttribute("aria-labelledby"));
         else if (select.hasAttribute("aria-label")) button.setAttribute("aria-label", select.getAttribute("aria-label"));
         button.innerHTML = '<span class="select-value"></span><svg class="select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+        if (select.classList.contains("theme-select")) {
+          button.insertAdjacentHTML("afterbegin", '<svg class="theme-symbol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>');
+        }
         select.after(button);
       }
       const label = select.selectedOptions[0]?.label || "请选择";
       button.querySelector(".select-value").textContent = label;
       button.title = label;
       button.disabled = select.disabled;
+      const symbol = button.querySelector(".theme-symbol");
+      if (symbol) {
+        symbol.innerHTML = themeSymbols[select.value] || themeSymbols.system;
+        button.setAttribute("aria-description", label);
+      }
     }
   }
   open(select, button) {

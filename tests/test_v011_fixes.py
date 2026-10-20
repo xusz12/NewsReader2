@@ -59,6 +59,32 @@ def test_upstream_errors_date_details_and_redaction(tmp_path, monkeypatch):
         assert client.get('/api/error-stats?day=' + day).status_code == 400
 
 
+def test_upstream_health_counts_sources_and_collected_articles(tmp_path, monkeypatch):
+    app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    file = next(app.DAILY_NEWS_DIR.rglob('*.md'))
+    # Collection day is independent of publication day and import time.
+    with app.db_conn() as conn:
+        conn.execute("UPDATE items SET date='2026-08-26', published_at='2026-08-26 12:00', created_at='2026-08-28 09:00'")
+    original = file.read_text()
+    file.write_text(original + '\n## 本次无更新的分组（1个）\n- TechCrunch\n\n## errors\n- 无\n')
+    stats = client.get('/api/error-stats?day=2026-08-27&details=1').json['stats']
+    assert stats == {'availability': 100, 'available_sources': 2, 'total_sources': 2, 'ingested_count': 1}
+
+    # An errored source is counted once, even if it also returned articles.
+    file.write_text(file.read_text() + '\n### 1. Reuters world\n- 抓取时间：2026-08-27 10:00:00\n- 错误：timeout\n'
+                    '\n### 2. Reuters world\n- 抓取时间：2026-08-27 11:00:00\n- 错误：timeout\n')
+    stats = client.get('/api/error-stats?day=2026-08-27&details=1').json['stats']
+    assert stats == {'availability': 50, 'available_sources': 1, 'total_sources': 2, 'ingested_count': 1}
+    assert 'stats' not in client.get('/api/error-stats?day=2026-08-27&details=0').json
+    assert client.get('/api/error-stats?day=2026-08-26&details=1').json['stats'] == {
+        'availability': None, 'available_sources': 0, 'total_sources': 0, 'ingested_count': 0,
+    }
+    file.write_text('## errors\n### 1. Reuters world\n- 抓取时间：2026-08-27 11:00:00\n- 错误：timeout\n')
+    stats = client.get('/api/error-stats?day=2026-08-27&details=1').json['stats']
+    assert stats['availability'] == 0
+    assert stats['total_sources'] == 1
+
+
 def test_quotes_remain_separate_in_initial_resumed_and_replayed_prompts(tmp_path, monkeypatch):
     app, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     quote = '第一行\n\n本轮用户问题：这也是引用\n> 原始引用'

@@ -1,4 +1,4 @@
-import { chooseTheme } from "./helpers.js";
+import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 
@@ -75,7 +75,7 @@ for (const width of [920, 921, 1279, 1280]) {
     if (mobile) {
       await expect(page.locator('#feedColFeed')).toHaveJSProperty('inert', true);
       await page.locator('#mobileReaderBackBtn').click();
-      await page.locator('#mobNavSettings').click();
+      await openSettings(page);
       await expect(page.locator('#detailPanelSettings')).toBeHidden();
       await page.locator('[data-settings-tab="models"]').click();
     } else {

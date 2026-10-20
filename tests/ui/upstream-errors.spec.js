@@ -8,7 +8,10 @@ const entries = [
   { label: 'Reuters world', error: 'connect ETIMEDOUT\nUnable to connect to the upstream source.' },
 ];
 function payload(day = today, rows = entries) {
-  return { ok: true, day, days: rows.length ? [{ date: day, groups: rows.map((entry, index) => ({ time: index ? '12:40:05' : '13:58:12', labels: [`${entry.label} error`], entries: [entry] })) }] : [] };
+  return { ok: true, day, today,
+    stats: day === today ? { availability: 80, available_sources: 8, total_sources: 10, ingested_count: 151 }
+      : { availability: null, available_sources: 0, total_sources: 0, ingested_count: 0 },
+    days: rows.length ? [{ date: day, groups: rows.map((entry, index) => ({ time: index ? '12:40:05' : '13:58:12', labels: [`${entry.label} error`], entries: [entry] })) }] : [] };
 }
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
 test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'wait' }); });
@@ -24,13 +27,15 @@ test('upstream prototype layout uses live counts, source/time filters and escape
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedUpstreamLog = text; } } }));
   await start(page);
   await expect(page.locator('#upstreamErrorsBtn')).toHaveClass(/has-errors/);
-  await expect(page.locator('.upstream-stat-value')).toHaveText(['3 条', '2 个', '2 次', '13:58:12']);
+  await expect(page.locator('.upstream-stat-label')).toHaveText(['当日抓取可用率', '异常来源', '今日已入库资讯', '当日报错']);
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
   await expect(page.locator('.upstream-error-group')).toHaveCount(2);
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   expect(await page.evaluate(() => window.upstreamInjected)).toBeUndefined();
   await page.locator('[data-upstream-filter="13:58:12"]').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
   await expect(page.locator('.upstream-showing-count')).toHaveText('当前展示 1 / 3 条报错');
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
   await page.locator('[data-upstream-dimension="source"]').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await page.locator('[data-upstream-filter="Reuters world"]').click();
@@ -63,6 +68,8 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
+  await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
   await expect(page.locator('#upstreamTodayBtn')).toHaveText('回到今日');
   await page.locator('#upstreamTodayBtn').click();

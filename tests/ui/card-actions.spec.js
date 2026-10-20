@@ -18,6 +18,37 @@ test.beforeEach(async ({ request }) => {
   await request.patch('/api/news/ui-064/state', { data: { important: false, favorite: false, read_later: false, read_later_done: true } });
 });
 
+test('arrow keys share WSAD actions and respect inputs and dialogs', async ({ page, request }) => {
+  await start(page);
+  const selected = page.locator('#feedCardList [aria-current="true"]');
+  const secondId = await page.locator('#feedCardList [data-id]').nth(1).getAttribute('data-id');
+  for (const [key, id] of [['ArrowDown', secondId], ['w', 'ui-064'], ['s', secondId], ['ArrowUp', 'ui-064']]) {
+    await page.keyboard.press(key);
+    await expect(selected).toHaveAttribute('data-id', id);
+  }
+  for (const [key, flag, active] of [
+    ['ArrowLeft', 'important', true], ['a', 'important', false],
+    ['ArrowRight', 'read_later', true], ['d', 'read_later', false],
+  ]) {
+    await page.keyboard.press(key);
+    await expect(button(page, flag)).toHaveAttribute('aria-pressed', String(active));
+    await expect(button(page, flag)).toHaveAttribute('aria-busy', 'false');
+    expect(Boolean((await detail(request))[`${flag}_at`])).toBe(active);
+  }
+  await page.locator('#feedSearchInput').focus();
+  for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight']) await page.keyboard.press(key);
+  await expect(page.locator('#feedSearchInput')).toBeFocused();
+  await expect(selected).toHaveAttribute('data-id', 'ui-064');
+  for (const flag of ['important', 'read_later']) await expect(button(page, flag)).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('#feedSearchInput').blur();
+  await page.keyboard.press('?');
+  for (const key of ['ArrowDown', 'ArrowLeft', 'ArrowRight']) await page.keyboard.press(key);
+  await expect(selected).toHaveAttribute('data-id', 'ui-064');
+  for (const flag of ['important', 'read_later']) await expect(button(page, flag)).toHaveAttribute('aria-pressed', 'false');
+  for (const key of ['↑', '↓', '←', '→']) await expect(page.locator('#shortcutsModal kbd').filter({ hasText: key })).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
 test('all three buttons respond before a slow save, keep their DOM and save every flag', async ({ page, request }) => {
   await start(page);
   const gate = deferred(), bodies = [];
