@@ -53,6 +53,7 @@ test('stored Markdown renders in the editor without dirtying or rewriting an unt
 test('syntax reference copies raw Markdown for direct paste without changing the draft', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await open(page);
+  await editor(page).focus();
   await page.getByRole('button', { name: '复制粗体语法', exact: true }).click();
   await expect(page.locator('#toast')).toHaveText('已复制粗体语法，可粘贴到编辑区');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('**粗体文字**');
@@ -64,7 +65,51 @@ test('syntax reference copies raw Markdown for direct paste without changing the
   await expect(editor(page).locator('pre code')).toHaveText('代码内容');
   await page.locator('.standalone-markdown-help summary').click();
   await page.locator(`[data-idea-id="${idea.idea_id}"]`).click();
+  await editor(page).focus();
   await expect(page.locator('.standalone-markdown-help')).not.toHaveAttribute('open', '');
+});
+
+test('syntax reference follows editing focus while retaining copy and collapse interactions', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await open(page);
+  const help = page.locator('.standalone-markdown-help');
+  await expect(help).toBeHidden();
+  await page.locator('#ideaTitle').focus();
+  await expect(help).toBeVisible();
+  await editor(page).focus();
+  await editor(page).press('Tab');
+  await expect(help.locator('summary')).toBeFocused();
+  await expect(help).toBeVisible();
+  await page.getByRole('button', { name: '复制粗体语法', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('**粗体文字**');
+  await expect(help).toBeVisible();
+  await help.locator('p').first().click();
+  await expect(help).toBeVisible();
+  await help.locator('summary').click();
+  await expect(help).not.toHaveAttribute('open', '');
+  await expect(help).toBeVisible();
+  await page.locator('#newIdeaBtn').focus();
+  await expect(help).toBeHidden();
+  await editor(page).focus();
+  await expect(help).toBeVisible();
+  await expect(help).not.toHaveAttribute('open', '');
+  await editor(page).fill('还没有保存的草稿');
+  await page.locator('#ideaTitle').fill('焦点切换后的标题');
+  await editor(page).press('ControlOrMeta+Enter');
+  await expect(page.locator('#ideaToolbarTime')).toHaveText('已保存');
+  await expect(help).toBeVisible();
+  await help.locator('summary').click();
+  await expect(help).toHaveAttribute('open', '');
+  await page.locator('#ideaScrollArea').evaluate(node => node.scrollTop = 0);
+  await page.screenshot({ path: '.ui-artifacts/task422-idea-editing.png' });
+  await page.locator('#newIdeaBtn').focus();
+  await expect(help).toBeHidden();
+  await page.screenshot({ path: '.ui-artifacts/task422-idea-reading.png' });
+  await page.locator('#newIdeaBtn').click();
+  await page.locator(`[data-idea-id="${idea.idea_id}"]`).click();
+  await expect(editor(page)).toHaveText('还没有保存的草稿');
+  await expect(page.locator('#ideaTitle')).toHaveValue('焦点切换后的标题');
+  await expect(help).toBeHidden();
 });
 
 test('reselecting a refreshed idea loads external edits while preserving unsaved local drafts', async ({ page, request }) => {
@@ -212,6 +257,7 @@ for (const width of [1440, 390]) {
       await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
       expect(await editor(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
       await page.screenshot({ path: `.ui-artifacts/idea-markdown-${width}-${theme}.png` });
+      await editor(page).focus();
       const help = page.locator('.standalone-markdown-help');
       await help.scrollIntoViewIfNeeded();
       expect(await help.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

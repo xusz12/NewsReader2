@@ -22,8 +22,9 @@ import { SettingsPanel } from "./settings-panel.js";
 import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js";
 import { AgentPanel } from "./agent-panel.js";
+import { AgentNotifications } from "./agent-notifications.js";
 import { ResearchNotes } from "./research-notes.js";
-import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.0.15-md4";
+import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
 import { UpstreamErrors } from "./upstream-errors.js";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
@@ -183,6 +184,25 @@ function updateResearchNotes(id, result) {
 const agent = new AgentPanel({
   onArchive: (id, result) => {
     updateResearchNotes(id, result);
+  },
+});
+const notifications = new AgentNotifications({
+  agent,
+  contextVersion: () => `${state.detailSequence}:${settings.open}`,
+  readerVisible: () => !settings.open && !!state.detail && state.detail.item_id === state.selected?.id && readingArticle() &&
+    (!singlePane.matches || mobileReaderOpen()) && !!$("#detailPanelFeed").getClientRects().length,
+  onOpen: async (target, current) => {
+    if (!current()) return false;
+    if (["notes", "summaries"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
+    settings.close({ restoreFocus: false });
+    const loaded = await selectNews(target.item, true, false, { notificationAgent: target.agent, navigationCurrent: current, retryNotification: () => notifications.openNotice(target.notification.id) });
+    if (!loaded || !current() || agent.payload.session?.id !== target.agent.session.id) return false;
+    const reply = $(`#agentChatStream [data-message-id="${CSS.escape(String(target.notification.message_id))}"]`);
+    if (!reply) throw new Error("未能显示对应回复，通知已保留。");
+    reply.scrollIntoView({ block: "center", behavior: "instant" });
+    reply.tabIndex = -1;
+    reply.focus({ preventScroll: true });
+    return true;
   },
 });
 const readerHighlights = new ReaderHighlights({
@@ -673,7 +693,7 @@ function renderSources() {
       })
       .join("");
 }
-function switchCollection(collection) {
+function switchCollection(collection, { restoreReader = true } = {}) {
   if (!labels[collection]) return;
   state.collectionSequence++;
   state.ideaSequence++;
@@ -721,12 +741,12 @@ function switchCollection(collection) {
     loadIdeas();
   } else {
     loadFeed();
-    if (state.selected && state.detail) {
+    if (restoreReader && state.selected && state.detail) {
       renderReader();
       $("#detailScrollArea").scrollTop = state.readerViews.get(state.selected.id)?.scroll || 0;
       agent.select(state.selected, state.detail.agent);
       pollDetail(state.selected, state.detailSequence);
-    } else if (state.selected) selectNews(state.selected, false, false, { skipRemember: true });
+    } else if (restoreReader && state.selected) selectNews(state.selected, false, false, { skipRemember: true });
   }
   renderFilters();
 }
@@ -743,7 +763,7 @@ function rememberReader() {
   if (!state.selected || !state.detail || !$("#detailPanelFeed").classList.contains("active")) return;
   state.readerViews.set(state.selected.id, { mode: state.bodyMode, scroll: $("#detailScrollArea").scrollTop });
 }
-async function selectNews(item, mobile = true, openedByUser = false, { skipRemember = false } = {}) {
+async function selectNews(item, mobile = true, openedByUser = false, { skipRemember = false, notificationAgent = null, navigationCurrent = () => true, retryNotification = null } = {}) {
   if (!item) return;
   // Only opening an already-readable card completes it. Default selection and
   // a fetch finishing in the open reader must leave the article pending.
@@ -762,11 +782,11 @@ async function selectNews(item, mobile = true, openedByUser = false, { skipRemem
   renderFeed();
   renderReader();
   $("#detailScrollArea").scrollTop = 0;
-  agent.select(item, null);
+  agent.select(item, null, { navigating: !!notificationAgent });
   if (mobile) enterReader();
   try {
     const data = await api(`/api/news/${encodeURIComponent(item.id)}/detail`);
-    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
+    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence || !navigationCurrent()) return false;
     stateWrites.reconcile(item.id, data, stateVersion);
     state.detail = data;
     updateDetailItem(item, data);
@@ -779,7 +799,7 @@ async function selectNews(item, mobile = true, openedByUser = false, { skipRemem
         item.read_later_at === readLaterAt && readLaterState(item).phase === "ready" &&
         (data.detail?.content?.trim() || data.ai?.body_zh?.trim()))
       void toggleState(item, "read_later", false, true, true);
-    agent.select(item, data.agent);
+    agent.select(item, notificationAgent || data.agent, { pin: !!notificationAgent });
     pollDetail(item, sequence);
     if (state.collection === "feed" && item.url)
       api("/api/reading-checkpoint", {
@@ -791,11 +811,14 @@ async function selectNews(item, mobile = true, openedByUser = false, { skipRemem
           title: item.title,
         },
       }).catch(() => {});
+    return true;
   } catch (error) {
-    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence) return;
+    if (sequence !== state.detailSequence || requestSequence !== state.detailRequestSequence || !navigationCurrent()) return false;
     $("#detailContent").innerHTML =
       `<div class="list-message error-state">${e(errorText(error))}<button class="btn-secondary" id="retryReaderBtn" type="button">重新加载</button></div>`;
-    $("#retryReaderBtn").onclick = () => selectNews(item, false, openedByUser);
+    $("#retryReaderBtn").onclick = retryNotification || (() => selectNews(item, false, openedByUser));
+    if (notificationAgent) throw error;
+    return false;
   }
 }
 function pollDetail(item, sequence) {

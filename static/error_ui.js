@@ -47,7 +47,12 @@
   register('save', 'note_changed note_not_found', '这条想法已被修改或删除。');
   register('preview', 'summary_preview_invalid summary_settings_changed summary_database_changed summary_source_changed', '总结预览已失效。');
   register('busy', 'connection_test_busy summary_busy job_in_progress provider_busy', '已有任务正在处理。');
-  register('session', 'session_config_changed session_expired codex_session_invalid oar_legacy_session_missing', '当前会话已失效或配置已改变。');
+  register('session', 'notification_library_changed session_library_changed', '新闻库已改变，当前通知或会话不属于此库，请刷新后重试。');
+  register('session', 'notification_session_unavailable', '这段会话已过期或被删除，通知已保留，可选择忽略。');
+  register('input', 'notification_article_unavailable', '这篇新闻已不可访问，通知已保留，可选择忽略。');
+  register('input', 'notification_not_found', '这条通知已不可用，请刷新通知列表。');
+  register('session', 'legacy_session_unbound', '旧会话尚未关联新闻库，本次保留历史记录；继续提问后可在当前库管理。');
+  register('session', 'session_config_changed session_expired session_not_found codex_session_invalid oar_legacy_session_missing', '当前会话已失效或配置已改变。');
   register('session', 'oar_resources_changed oar_trust_changed oar_project_untrusted oar_extension_failed', '本机会话资源不可用或未获信任。');
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
   register('context', 'empty_archive_source', '没有可归档的内容。');

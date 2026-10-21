@@ -43,6 +43,11 @@ export class StandaloneIdeas {
     this.drafts = new Map();
     this.markdownHelpOpen = true;
     this.element = $("#ideaDetailBody");
+    this.element.addEventListener("focusin", () => this.updateHelpVisibility());
+    this.element.addEventListener("focusout", () => {
+      // Wait for the next control (including a reference example) to receive focus.
+      requestAnimationFrame(() => this.updateHelpVisibility());
+    });
     this.element.addEventListener("input", event => {
       const draft = this.current;
       if (!draft || event.target.id !== "ideaTitle") return;
@@ -78,6 +83,12 @@ export class StandaloneIdeas {
   }
   changed(draft) {
     return draft.title !== (draft.item.title || "") || draft.note !== (draft.item.note || "");
+  }
+  updateHelpVisibility() {
+    const help = $(".standalone-markdown-help", this.element);
+    if (!help) return;
+    const focused = document.activeElement;
+    help.hidden = !this.element.contains(focused) || !focused.closest(".standalone-fields, .standalone-markdown-help");
   }
   get dirty() {
     return [...this.drafts.values()].some(draft => draft.saving || this.changed(draft));
@@ -136,13 +147,15 @@ export class StandaloneIdeas {
       <p id="ideaSaveError" class="inline-error" role="alert" hidden></p>
       <footer class="standalone-footer"><span id="ideaWordCount"></span><span id="ideaEditorHint">Markdown 即时排版 · ⌘ / Ctrl + Enter 保存</span></footer>
       <div class="standalone-updated">${item.updated_at ? `更新于 ${e(item.updated_at)}` : "保存后会出现在想法列表中"}</div>
-      <details class="standalone-markdown-help" ${this.markdownHelpOpen ? "open" : ""}>
+      <details class="standalone-markdown-help" hidden ${this.markdownHelpOpen ? "open" : ""}>
         <summary>Markdown 语法速查</summary>
+        <div tabindex="-1">
         <p>点击示例复制，粘贴到编辑区即可排版。</p>
         <div class="markdown-example-grid">
           ${markdownExamples.map(([label, snippet], index) => `<button type="button" class="markdown-example" data-markdown-example="${index}" aria-label="复制${e(label)}语法" title="点击复制${e(label)}语法"><span>${e(label)}</span><code>${e(snippet)}</code></button>`).join("")}
         </div>
         <p class="markdown-help-tip">标题、列表和引用在行首输入，符号后加空格；代码块内按 Shift + Enter 回到普通段落。</p>
+        </div>
       </details>
     </article>`;
     $(".standalone-markdown-help", this.element).ontoggle = event => {

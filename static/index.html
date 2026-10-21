@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.0.16</title>
+    <title>News Reader v0.1.0</title>
     <script>
       try {
         const m =
@@ -41,10 +41,10 @@
           : "system";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.0.16-md1" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.0.16" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.1.0-md1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.1.0" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.0.16&amp;build=ideas-md2"
+      href="/static/style.css?v=0.1.0&amp;build=ideas-md2"
       rel="stylesheet"
     />
   </head>
@@ -88,7 +88,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.0.16</span>
+            <span class="brand-version">v0.1.0</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -99,6 +99,18 @@
           </button>
         </div>
         <div class="topbar-right">
+          <div class="agent-notifications" id="agentNotifications">
+            <button type="button" class="topbar-tool-btn agent-notifications-btn" id="agentNotificationsBtn" aria-label="Agent 回复通知，无待查看消息" aria-haspopup="dialog" aria-controls="agentNotificationsPanel" aria-expanded="false" title="Agent 回复通知">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+              <span class="agent-notifications-dot" id="agentNotificationsCount" aria-hidden="true"></span>
+            </button>
+            <span id="agentNotificationsLive" class="agent-notifications-live" role="status" aria-live="polite" aria-atomic="true"></span>
+            <section class="agent-notifications-panel" id="agentNotificationsPanel" role="dialog" aria-label="Agent 回复通知" hidden>
+              <div class="agent-notifications-heading"><strong>Agent 消息</strong><button type="button" class="agent-notice-dismiss" id="agentNotificationsReadAll">全部标为已读</button></div>
+              <p id="agentNotificationsStatus" class="agent-notifications-status" role="status"></p>
+              <ul id="agentNotificationsList" class="agent-notifications-list"></ul>
+            </section>
+          </div>
           <button
             aria-label="刷新新闻索引"
             class="topbar-tool-btn"
@@ -562,6 +574,7 @@
                 </div>
               </div>
               <div class="agent-body">
+                <div class="agent-context" id="agentContext" hidden><p id="agentContextTitle"></p><p>尚未提供全文</p></div>
                 <blockquote hidden="" id="agentQuote"></blockquote>
                 <div class="agent-chat-stream" id="agentChatStream"></div>
                 <div class="agent-input-row">
@@ -1240,9 +1253,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.0.16"></script>
+    <script src="/static/error_ui.js?v=0.1.0"></script>
     <script
-      src="/static/app.js?v=0.0.16&amp;build=ideas-md4"
+      src="/static/app.js?v=0.1.0&amp;build=ideas-md4"
       type="module"
     ></script>
   </body>

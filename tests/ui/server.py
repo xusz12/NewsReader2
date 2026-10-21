@@ -23,6 +23,7 @@ for name, path in {
 }.items():
     os.environ['NEWS_READER_' + name] = str(path)
 (RUNTIME / 'daily').mkdir()
+(RUNTIME / 'settings.json').write_text(json.dumps({'llm': {'pi_chat': {'provider': 'test', 'model': 'test-model'}}}))
 import app as module
 module.ensure_db()
 # Summary UI exercises real preview/transaction APIs against this temporary DB.
@@ -113,5 +114,58 @@ def reset_summaries():
         conn.execute('UPDATE item_state SET read_at=NULL')
     summary_mode["value"] = "success"
     return {"ok": True}
+
+# Notification fixtures use real persistence and result transactions, never a model.
+
+agent_article_fixtures = {}
+
+@module.app.post('/__test/agent-article')
+def agent_article():
+    body = module.request.get_json()
+    item, _ = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
+    url = item['url']
+    with module.db_conn() as conn:
+        if url not in agent_article_fixtures:
+            agent_article_fixtures[url] = {
+                table: dict(row) if (row := conn.execute('SELECT * FROM ' + table + ' WHERE url=?', (url,)).fetchone()) else None
+                for table in ['article_details', 'article_ai']
+            }
+        for table, original in agent_article_fixtures[url].items():
+            conn.execute('DELETE FROM ' + table + ' WHERE url=?', (url,))
+            if not body.get('missing') and original:
+                columns = ','.join(original)
+                conn.execute(f"INSERT INTO {table} ({columns}) VALUES ({','.join('?' for _ in original)})", tuple(original.values()))
+    return {'ok': True}
+
+@module.app.post('/__test/reset-agent')
+def reset_agent():
+    with module.agent_db_conn() as conn:
+        for table in ['agent_notifications', 'agent_messages', 'agent_jobs', 'agent_sessions']:
+            conn.execute('DELETE FROM ' + table)
+    return {'ok': True}
+
+@module.app.post('/__test/agent-complete')
+def complete_agent():
+    body = module.request.get_json()
+    item, detail = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
+    with module.agent_db_conn() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        if body.get('job_id'):
+            job = conn.execute('SELECT * FROM agent_jobs WHERE id=?', (body['job_id'],)).fetchone()
+        else:
+            session = module._agent_active_session(conn, item['id'])
+            if not session or body.get('new_session'):
+                session = module._agent_create_session(conn, item, detail)
+            job = module._agent_insert_job(conn, session, question='隔离测试问题')
+        stamp = module.now_ts()
+        status = body.get('status', 'succeeded')
+        answer = body.get('answer', '通知样例：这是一轮已经完成的研究回复。')
+        error = 'oar_auth_required' if status == 'failed' else ''
+        conn.execute('UPDATE agent_jobs SET status=?, answer_text=?, error=?, finished_at=?, updated_at=? WHERE id=?', (status, answer, error, stamp, stamp, job['id']))
+        conn.execute("UPDATE agent_messages SET status=?, content=?, updated_at=? WHERE job_id=? AND role='assistant'", (status, answer, stamp, job['id']))
+        module.agent_notifications.record(conn, job['id'])
+        if body.get('expire'):
+            conn.execute("UPDATE agent_sessions SET expires_at='2000-01-01 00:00:00' WHERE id=?", (job['session_id'],))
+    return {'ok': True, 'job_id': job['id'], 'session_id': job['session_id']}
 
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

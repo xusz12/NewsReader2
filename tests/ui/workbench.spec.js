@@ -1,6 +1,7 @@
 import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
+const version = JSON.parse(fs.readFileSync(new URL("../../version.json", import.meta.url), "utf8")).version;
 test.beforeEach(async ({ request }) => {
   const settings = await (await request.get("/api/settings")).json();
   await request.put("/api/settings", {
@@ -33,12 +34,12 @@ test("independent release shows its version and disabled update source", async (
   page,
 }) => {
   await page.route("**/api/update/check?*", route => route.fulfill({ json: {
-    ok: true, enabled: false, current_version: "v0.0.15", available: false,
+    ok: true, enabled: false, current_version: version, available: false,
     message: "独立项目尚未配置更新仓库，在线更新未启用。",
   } }));
   await ready(page);
-  await expect(page).toHaveTitle("News Reader v0.0.15");
-  await expect(page.locator(".brand-version")).toHaveText("v0.0.15");
+  await expect(page).toHaveTitle(`News Reader ${version}`);
+  await expect(page.locator(".brand-version")).toHaveText(version);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="system"]').click();
   await page.locator("#checkUpdateBtn").click();

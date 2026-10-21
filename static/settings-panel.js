@@ -534,9 +534,9 @@ export class SettingsPanel {
         this.onSaved();
       },
       clearSessionsBtn: async () => {
-        if (confirm("清空全部临时 Agent 对话与任务？新闻和想法会保留。")) {
-          await api("/api/agent/sessions", { method: "DELETE" });
-          toast("临时会话已清空");
+        if (confirm("清空当前新闻库的临时 Agent 对话与任务？新闻、想法和尚未归属的旧会话会保留。")) {
+          const result = await api("/api/agent/sessions", { method: "DELETE" });
+          toast(result.preserved_legacy ? "当前库临时会话已清空；尚未归属的旧会话已保留" : "当前库临时会话已清空");
         }
       },
       checkUpdateBtn: () => this.updater.check(),

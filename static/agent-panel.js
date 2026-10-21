@@ -80,7 +80,21 @@ export class AgentPanel {
   suspend() {
     this.clearStream();
   }
-  select(item, payload) {
+  select(item, payload, { pin = false, navigating = false } = {}) {
+    const previousPin = this.pinnedSessionId;
+    if (navigating) {
+      this.clearStream(); this.sequence++; this.preparing = null;
+      this.pinnedSessionId = ""; this.payload = {};
+    }
+    if (this.item?.id !== item?.id || !payload) this.pinnedSessionId = "";
+    if (pin) {
+      this.pinnedSessionId = payload?.session?.id || "";
+      this.open = true;
+      persist("newsreader_workbench_agent_collapsed", "false");
+    }
+    if (previousPin !== this.pinnedSessionId) {
+      this.clearStream(); this.sequence++; this.preparing = null;
+    }
     const changed = this.item?.id !== item?.id;
     const contextWasAvailable = this.payload.context_available;
     if (changed) {
@@ -99,7 +113,7 @@ export class AgentPanel {
       $("#agentPromptInput").value = draft.prompt || "";
       this.quoteText = draft.quote || "";
     }
-    if (payload) this.payload = payload;
+    if (payload && (!this.pinnedSessionId || payload.session?.id === this.pinnedSessionId)) this.payload = payload;
     this.render();
     if (this.open && this.active()) this.startStream(this.active().id);
     if (this.open && this.payload.context_available && (changed || !contextWasAvailable || !this.payload.session)) this.ensureSession();
@@ -129,7 +143,7 @@ export class AgentPanel {
     this.render();
     try {
       const data = await api(
-        `/api/news/${encodeURIComponent(id)}/agent/session`,
+        `/api/news/${encodeURIComponent(id)}/agent/session${this.pinnedSessionId ? `?${new URLSearchParams({ session_id: this.pinnedSessionId, db_scope: this.payload.session.db_scope })}` : ""}`,
       );
       if (sequence !== this.sequence) return;
       this.payload = data.agent || data;
@@ -150,7 +164,7 @@ export class AgentPanel {
   }
   async ensureSession() {
     const id = this.item?.id, sequence = this.sequence;
-    if (!id || this.hasHistory() || !this.payload.context_available) return this.payload.session;
+    if (!id || this.pinnedSessionId || this.hasHistory() || !this.payload.context_available) return this.payload.session;
     let pending = this.initializing.get(id);
     if (!pending) {
       pending = api(`/api/news/${encodeURIComponent(id)}/agent/session`, { method: "POST", body: {} });
@@ -187,6 +201,11 @@ export class AgentPanel {
       latest = (this.payload.jobs || []).at(-1),
       available =
         this.payload.context_available === true || !!this.payload.session;
+    const context = this.payload.session || this.payload;
+    const titleOnly = available && context.context_level === "title_only";
+    $("#agentContext").hidden = !titleOnly;
+    $("#agentContextTitle").textContent = titleOnly ? `引用新闻标题：${context.context_title || this.item?.title || ""}` : "";
+    $("#agentContextTitle").title = $("#agentContextTitle").textContent;
     const initializing = this.initializing.has(this.item?.id) || this.preparing === this.sequence;
     const stopping = active?.status === "stopping" || this.stopping;
     $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || initializing));
@@ -194,8 +213,8 @@ export class AgentPanel {
     $("#agentSendBtn").setAttribute("aria-label", active ? "停止研究" : "发送");
     $("#agentSendBtn").title = active ? "停止研究" : "发送";
     $("#agentPromptInput").placeholder = available
-      ? "围绕本文研究与追问…"
-      : "可先输入问题，全文就绪后发送";
+      ? titleOnly ? "围绕新闻标题提问…" : "围绕本文研究与追问…"
+      : "请先选择新闻，或稍后重试";
     $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing;
     $("#archiveAgentBtn").disabled =
       !!active ||
@@ -209,10 +228,10 @@ export class AgentPanel {
       (active
         ? (active.status === "stopping" ? "正在停止…" : ({ thinking: "正在分析原文…", searching: "正在检索来源…", fetching: "正在读取来源…", tool: "正在核查资料…", retrying: "服务暂未响应，正在重试…", summarizing: "正在汇总已有证据…", writing: "正在生成回答…" })[active.progress] || ({ queued: "等待执行…", pending: "等待执行…", running: "正在研究…", streaming: "正在生成回答…" })[active.status])
         : this.payload.context_updated
-          ? "正文已更新，可新建会话读取最新内容"
+          ? this.hasHistory() ? "资料已更新，可新建会话读取最新内容" : "资料已更新，首次发送将使用最新内容"
           : available
-            ? ({ succeeded: "本轮已完成", failed: "本轮未完成 · 可重试", stopped: "已停止", interrupted: "任务已中断 · 可重试" })[latest?.status] || "就绪 · 围绕本文研究"
-            : "等待正文就绪");
+            ? ({ succeeded: "本轮已完成", failed: "本轮未完成 · 可重试", stopped: "已停止", interrupted: "任务已中断 · 可重试" })[latest?.status] || (titleOnly ? "就绪 · 仅引用新闻标题" : "就绪 · 围绕本文研究")
+            : "新闻资料尚不可用");
     $("#agentStatus").title = $("#agentStatus").textContent;
     $("#agentRuntimeBadge").title = $("#agentRuntimeBadge").textContent;
     $("#agentQuote").hidden = !this.quoteText;
@@ -232,11 +251,12 @@ export class AgentPanel {
             job &&
             ["failed", "stopped", "interrupted"].includes(job.status);
           if (message.role === "assistant" && !message.content && !failed) return "";
-          return `<div class="agent-msg ${message.role === "user" ? "user" : "assistant"}"><div class="agent-bubble">${message.quote_text ? `<blockquote class="agent-message-quote"><span class="agent-quote-label">引用文本</span>${e(message.quote_text)}</blockquote>` : ""}${markdown(message.content || "")}</div>${failed ? `<div class="agent-error">${e(job.status === "stopped" ? "已停止，保留已生成的内容" : job.status === "interrupted" ? "服务重启中断了任务" : errorText({ error: job.error || "request_failed" }))}<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button></div>` : ""}</div>`;
+          return `<div data-message-id="${e(message.id)}" data-job-id="${e(message.job_id)}" data-role="${e(message.role)}" class="agent-msg ${message.role === "user" ? "user" : "assistant"}"><div class="agent-bubble">${message.quote_text ? `<blockquote class="agent-message-quote"><span class="agent-quote-label">引用文本</span>${e(message.quote_text)}</blockquote>` : ""}${markdown(message.content || "")}</div>${failed ? `<div class="agent-error">${e(job.status === "stopped" ? "已停止，保留已生成的内容" : job.status === "interrupted" ? "服务重启中断了任务" : errorText({ error: job.error || "request_failed" }))}<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button></div>` : ""}</div>`;
         })
         .join("") ||
-      `<p class="agent-empty-caption">${available ? "围绕本文提问，或选择原文引用提问。" : "全文就绪后，即可开始研究。"}</p>`;
+      `<p class="agent-empty-caption">${available ? titleOnly ? "输入你的问题，围绕标题开始临时聊天。" : "围绕本文提问，或选择原文引用提问。" : "选择新闻后即可开始研究。"}</p>`;
     if (atBottom) stream.scrollTop = stream.scrollHeight;
+    document.dispatchEvent(new Event("agent:rendered"));
   }
   mergeJob(job) {
     const jobs = (this.payload.jobs ||= []);
@@ -379,6 +399,7 @@ export class AgentPanel {
       { method: "POST", body: { new_session: true } },
     );
     if (sequence !== this.sequence) return;
+    this.pinnedSessionId = "";
     this.payload = data.agent || data;
     this.quoteText = "";
     this.message = "新会话已准备好";
