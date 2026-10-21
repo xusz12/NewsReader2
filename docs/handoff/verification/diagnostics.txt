@@ -1,0 +1,23 @@
+2026-10-21 diagnostic results; no application or existing test source changed.
+
+Summary module, date.today fixed to 2026-10-20 only in diagnostic process
+Diagnostic only: freeze news_summary_selection.date.today() to 2026-10-20; no repository files changed.
+........................................................................ [ 69%]
+...............................                                          [100%]
+103 passed in 6.99s
+
+
+Original localhost failure, NO_PROXY and no_proxy=localhost,127.0.0.1,::1
+.                                                                        [100%]
+1 passed in 12.42s
+
+
+Isolated real process and synthetic data smoke check
+PASS: real app.py startup and /api/version v0.0.15
+PASS: supplied JSON sidecar imports exactly 2 synthetic articles
+PASS: repeated incremental import is idempotent
+PASS: favorite, read state, article note and standalone Markdown idea persist via real HTTP API
+PASS: Markdown fallback preserves IDs, favorite and read state
+PASS: SQLite backup API and integrity_check on isolated data
+PASS: process restart preserves favorite and saved standalone idea
+No real news database, real model or external news fetch used.

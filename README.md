@@ -2,6 +2,8 @@
 
 本地新闻阅读工作台。当前稳定版本：`v0.0.15`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+团队接手请从 [项目交接总览](docs/handoff/README.md) 开始，包含产品范围、架构接口、安装维护、数据迁移、实测结果及移交验收清单。
+
 本项目独立维护，使用新的 Git 历史，不绑定原项目远程仓库或更新源。内部包名为 `newsreader-workbench`，界面名称保留 News Reader。
 
 ## 界面与功能

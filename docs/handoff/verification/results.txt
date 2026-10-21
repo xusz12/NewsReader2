@@ -1,0 +1,95 @@
+News Reader Workbench handoff verification
+Date: 2026-10-21 (Asia/Shanghai)
+Source baseline: de1dec7fe15a536ef6fc802df02fbfafbf30566e / v0.0.15
+Platform: macOS 27.0.1 arm64
+Python: 3.13.1; SQLite: 3.45.3; Node: 26.3.1; npm: 11.17.0
+Flask 3.1.0; pytest 8.3.3; openai 1.82.0; certifi 2025.11.12
+Used existing dependency installation, not a clean-machine installation.
+
+Default full Python run: 727 passed, 24 failed in 129.82s; exit code 1.
+Failures: 23 news summary fixture/calendar cases; 1 localhost health check case.
+Conditional summary diagnosis: 103 passed in 6.99s; exit code 0.
+Conditional localhost proxy-bypass retest: 1 passed in 12.42s; exit code 0.
+These conditional reruns are NOT a passing full Python run.
+
+Node command:
+node --test tests/error_ui.test.cjs tests/item_state.test.mjs tests/read_later.test.mjs tests/oar_bridge.test.mjs
+Result: 56 passed, 0 failed; exit code 0.
+
+UI command: CI=1 npm run test:ui
+Result: 208 passed (2.9m); exit code 0.
+UI server: real temporary SQLite and Flask API, isolated model/runtime responses.
+
+Smoke check: real app.py child process, isolated paths, supplied synthetic examples.
+Startup, sidecar import, repeat indexing, state and note/idea save, Markdown fallback,
+SQLite backup integrity and process restart all passed.
+
+No live model request, real news fetch, real data migration or production update performed.
+Complete local raw logs remain in ignored output/handoff-verification/.
+Portable handoff includes the baseline failure details and concise diagnostics.
+
+Node raw output:
+✔ evidence classes and no keyword attribution (1.172291ms)
+✔ errors are concise and preserve reported details without diagnosis (0.400584ms)
+✔ no arbitrary payload in displayed or copied evidence (2.0965ms)
+✔ HTTP copy fallback when clipboard absent or rejected (0.683333ms)
+✔ plain text rendering with accessible manual fallback (6.185708ms)
+✔ shared errors load before modular controllers (4.453208ms)
+✔ read batches deduplicate IDs and combine new reads during an in-flight save (16.49925ms)
+✔ a failed read batch rejects its own callers and still saves later reads (2.108542ms)
+✔ optimistic flags save serially and ignore unrelated fields in responses (1.6ms)
+✔ rapid toggles retain the latest intent and coalesce unsent clicks (1.255792ms)
+✔ failure rolls back both read-later timestamps and releases saving state (0.197708ms)
+✔ failed older request does not roll back a newer click or another flag (0.602333ms)
+✔ failed later click rolls back to the previous successful save (3.737083ms)
+✔ stale reads cannot overwrite pending, saved or rolled-back flags; fresh reads still sync (0.562667ms)
+✔ different articles save concurrently (0.307459ms)
+✔ removing read-later never implies reading completion, even with cached content (0.308083ms)
+✔ explicit completion is sent separately and rapid re-add clears it (0.77575ms)
+✔ completion reports persistence failure to bulk callers and settle waits for pending saves (1.184208ms)
+✔ completed turn has explicit terminal and private native mapping; subsequent process resumes (20.865666ms)
+✔ missing native session replays saved history, but unrelated runtime errors do not (3.356791ms)
+✔ no login never counts as completed or stores a new mapping (1.02375ms)
+✔ interrupted never counts as completed or stores a new mapping (0.815541ms)
+✔ runtime error never counts as completed or stores a new mapping (1.126958ms)
+✔ empty never counts as completed or stores a new mapping (0.965584ms)
+✔ cancellation signal prevents prompt execution (1.633625ms)
+✔ config/resource copy isolates account writes and keeps sessions, credentials are removable (25.858875ms)
+✔ invalid requests are rejected before creating a runtime (0.669792ms)
+✔ old synchronous Pi session is copied read-only, not reset; missing session fails visibly (5.447958ms)
+✔ original trust false prevents project extensions before OAR opens (749.71725ms)
+✔ original trust null prevents project extensions before OAR opens (7.055667ms)
+✔ explicit trust allows original project resources; source trust remains unchanged (87.841291ms)
+✔ global trust extension veto takes precedence over cached project consent (10.835542ms)
+✔ global trust extension consent and existing default always are respected (30.97025ms)
+✔ failing extension and failing trust handler are explicit, not silently reduced tools (19.741708ms)
+✔ partial private config is removed when preparation itself fails (6.940542ms)
+✔ legacy native mapping never silently resets if the native runtime cannot resume it (2.275917ms)
+✔ routing preserves original trust: trusted to OAR, undecided/denied to CLI; sticky across retry (2.604458ms)
+✔ legacy sync remains native CLI; extension errors are not hidden by route fallback (1.170667ms)
+✔ CLI adapter streams, waits for native completion, resumes same native id without prompts in argv (126.26375ms)
+✔ CLI partial is not success and does not save native mapping (63.87675ms)
+✔ CLI nonzero is not success and does not save native mapping (81.803083ms)
+✔ CLI empty is not success and does not save native mapping (111.725959ms)
+✔ CLI provider error is not success and does not save native mapping (67.998542ms)
+✔ CLI cancellation reaches actual child, never saves completion (103.557958ms)
+✔ copied global relative resources keep their original meaning and package selections (4.748709ms)
+✔ execution families refuse foreign native session mappings (1.245667ms)
+✔ native built-in configurations use stable CLI compatibility instead of dropping tools (6.969542ms)
+✔ private config cleanup tokens are validated and separate invocation directories (16.444084ms)
+✔ lost old session rebuild pins saved model after native defaults change and fails if unknown (2.118666ms)
+✔ research budget deduplicates tool calls and asks for a sourced conclusion once (0.378292ms)
+✔ research timer steers a running turn and cleanup prevents a late steer (61.344708ms)
+✔ cached full text has one state regardless of the legacy queue flag (1.950291ms)
+✔ explicit completion stays done even if a fetch returns later (0.142375ms)
+✔ queued cancellation is immediately idle while saving; running work stays running (0.076625ms)
+✔ failure always offers retry, whether or not an old queue flag exists (0.067791ms)
+✔ missing or stopped historical jobs never pretend to be queued (0.070208ms)
+ℹ tests 56
+ℹ suites 0
+ℹ pass 56
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1854.695083

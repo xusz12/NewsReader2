@@ -1,0 +1,625 @@
+2026-10-21 / v0.0.15 / baseline de1dec7fe15a536ef6fc802df02fbfafbf30566e
+Command: PYTHONPATH=. python3 -m pytest -q
+Temporary absolute paths replaced with <TEMP>.
+
+........................................................................ [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 28%]
+........................................................................ [ 38%]
+..............................................F......................... [ 47%]
+........................................................................ [ 57%]
+........................FF.........FFFFF..FFF..F.F....FF................ [ 67%]
+...FF.........F.....F...........FF.FF......F............................ [ 76%]
+........................................................................ [ 86%]
+........................................................................ [ 95%]
+...............................                                          [100%]
+=================================== FAILURES ===================================
+_ test_supervisor_update_handoff_and_exit_cleanup[update-success-custom-loopback] _
+
+tmp_path = PosixPath('<TEMP>')
+fail_new_health = False, host = 'localhost'
+
+    @pytest.mark.parametrize(
+        ("fail_new_health", "host"),
+        [(False, "localhost"), (True, "127.0.0.1")],
+        ids=["update-success-custom-loopback", "rollback-old-service"],
+    )
+    def test_supervisor_update_handoff_and_exit_cleanup(tmp_path: Path, fail_new_health: bool, host: str):
+        target, old_commit, new_commit = temp_update_repo(tmp_path)
+        token = "confirmation-token-for-isolated-test"
+        latest = {"tag": "v2.1.4.7", "version": "v2.1.4.7", "commit": new_commit}
+        port = free_port()
+        runtime_dir = tmp_path / "runtime"
+        env = {
+            "NEWS_READER_HOST": host,
+            "NEWS_READER_PORT": str(port),
+            "NEWS_READER_DB_PATH": str(tmp_path / "data" / "news.sqlite3"),
+            "NEWS_READER_AGENT_DB_PATH": str(tmp_path / "data" / "agent.sqlite3"),
+            "NEWS_READER_APP_SETTINGS_PATH": str(tmp_path / "data" / "settings.json"),
+            "NEWS_READER_DAILY_NEWS_DIR": str(tmp_path / "data" / "daily"),
+            "NEWS_READER_DAILY_BRIEFING_DIR": str(tmp_path / "data" / "briefings"),
+            "NEWS_READER_MEDIA_CACHE_DIR": str(tmp_path / "data" / "media"),
+            "NEWS_READER_AGENT_RUNTIME_DIR": str(tmp_path / "runtime" / "agent"),
+            "NEWS_READER_UPDATER_DIR": str(runtime_dir),
+            "TEST_PROJECT_ROOT": str(target),
+            "TEST_UPDATE_TOKEN": token,
+            "TEST_UPDATE_TARGET": json.dumps(latest),
+        }
+        if fail_new_health:
+            env["TEST_FAIL_HEALTH_COMMIT"] = new_commit
+        wrapper = tmp_path / "run_test_app.py"
+        make_app_wrapper(wrapper)
+        opened: list[str] = []
+        supervisor = launcher.Supervisor(
+            root=target, host=host, port=port, env=env,
+            opener=opened.append,
+            service_command=lambda child_env: [sys.executable, str(wrapper)],
+            health_timeout=3.0,
+        )
+        result: list[int] = []
+        thread = threading.Thread(target=lambda: result.append(supervisor.run()), daemon=True)
+        thread.start()
+>       wait_until(lambda: bool(opened))
+
+tests/test_launcher.py:189:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+predicate = <function test_supervisor_update_handoff_and_exit_cleanup.<locals>.<lambda> at 0x10c77f6a0>
+timeout = 30.0
+
+    def wait_until(predicate, timeout: float = 30.0):
+        deadline = time.monotonic() + timeout
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                result = predicate()
+                if result:
+                    return result
+            except Exception as exc:  # transient connection failures during restart
+                last_error = exc
+            time.sleep(0.1)
+>       raise AssertionError(f"timed out waiting for condition: {last_error}")
+E       AssertionError: timed out waiting for condition: None
+
+tests/test_launcher.py:128: AssertionError
+----------------------------- Captured stdout call -----------------------------
+正在启动 NewsReader：http://localhost:58885
+ * Serving Flask app 'app'
+ * Debug mode: off
+----------------------------- Captured stderr call -----------------------------
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://localhost:58885
+Press CTRL+C to quit
+启动 NewsReader 失败：NewsReader health check failed; see the server output
+_______________________ test_success_atomic_and_history ________________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_success_atomic_and_history(setup):
+        p, state, s, gate, entered, calls, add, audit = setup
+        j = create(s)
+        r = wait(s, j["id"])
+>       assert r["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:108: AssertionError
+__________________ test_new_news_manual_read_and_idempotency ___________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_new_news_manual_read_and_idempotency(setup):
+        p, state, s, gate, entered, calls, add, audit = setup
+        gate.clear()
+        token = s.listing()["database_token"]
+        key = str(uuid.uuid4())
+        j, _ = s.create(key, token)
+        assert entered.wait(2)
+        same, created = s.create(key, token)
+        assert same["id"] == j["id"] and not created
+        same, created = s.create(str(uuid.uuid4()), token)
+        assert same["id"] == j["id"] and not created
+        c = sqlite3.connect(p)
+        add(c, 4)
+        c.execute(
+            "INSERT INTO item_state(item_id,read_at,important_at,updated_at) VALUES('1','manual','keep','old')"
+        )
+        c.commit()
+        c.close()
+        gate.set()
+>       assert wait(s, j["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:142: AssertionError
+_ test_natural_body_no_audit_report_or_lexical_date_gate[2026-10-01\u62a5\u9053\uff0c\u516c\u53f8\u8ba2\u5355\u6709\u6240\u53d8\u5316\u3002[[N0001]]] _
+
+setup = (PosixPath('<TEMP> object at 0x10c03ecc0>, <threading.Event at 0x10ca93f50: set>, <threading.Event at 0x10ca93ad0: unset>, [], ...)
+body = '2026-10-01报道，公司订单有所变化。[[N0001]]'
+
+    @pytest.mark.parametrize("body", [
+        "2026-10-01报道，公司订单有所变化。[[N0001]]",
+        "公司近期订单有所变化，并无披露更多材料。[[N0001]]",
+        "公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]",
+        "## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]",
+        "报道日期不明；材料只给出了标题。[[N0001]]",
+    ])
+    def test_natural_body_no_audit_report_or_lexical_date_gate(setup, body):
+        p, _, s, _, _, calls, _, _ = setup
+        s.runner = lambda *a: body
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:203: AssertionError
+_ test_natural_body_no_audit_report_or_lexical_date_gate[\u516c\u53f8\u8fd1\u671f\u8ba2\u5355\u6709\u6240\u53d8\u5316\uff0c\u5e76\u65e0\u62ab\u9732\u66f4\u591a\u6750\u6599\u3002[[N0001]]] _
+
+setup = (PosixPath('<TEMP> object at 0x10cb86b10>, <threading.Event at 0x10c67d010: set>, <threading.Event at 0x10c67ecf0: unset>, [], ...)
+body = '公司近期订单有所变化，并无披露更多材料。[[N0001]]'
+
+    @pytest.mark.parametrize("body", [
+        "2026-10-01报道，公司订单有所变化。[[N0001]]",
+        "公司近期订单有所变化，并无披露更多材料。[[N0001]]",
+        "公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]",
+        "## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]",
+        "报道日期不明；材料只给出了标题。[[N0001]]",
+    ])
+    def test_natural_body_no_audit_report_or_lexical_date_gate(setup, body):
+        p, _, s, _, _, calls, _, _ = setup
+        s.runner = lambda *a: body
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:203: AssertionError
+_ test_natural_body_no_audit_report_or_lexical_date_gate[\u516c\u53f8\u8ba2\u5355\u53d8\u5316\u3002[[N0001]]\n\n\u72ec\u7acb\u4e8b\u4ef6\u8fdb\u5c55\u3002[[N0002]]] _
+
+setup = (PosixPath('<TEMP> object at 0x10cb862a0>, <threading.Event at 0x10c67f530: set>, <threading.Event at 0x10c67cc50: unset>, [], ...)
+body = '公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]'
+
+    @pytest.mark.parametrize("body", [
+        "2026-10-01报道，公司订单有所变化。[[N0001]]",
+        "公司近期订单有所变化，并无披露更多材料。[[N0001]]",
+        "公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]",
+        "## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]",
+        "报道日期不明；材料只给出了标题。[[N0001]]",
+    ])
+    def test_natural_body_no_audit_report_or_lexical_date_gate(setup, body):
+        p, _, s, _, _, calls, _, _ = setup
+        s.runner = lambda *a: body
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:203: AssertionError
+_ test_natural_body_no_audit_report_or_lexical_date_gate[## \u672c\u671f\u53d8\u5316[[N0001]]\n\n\u540c\u65e5\uff0c\u516c\u53f8\u8ba2\u5355\u53d8\u5316\u3002[[N0001]]] _
+
+setup = (PosixPath('<TEMP> object at 0x10cb86450>, <threading.Event at 0x10c67e1b0: set>, <threading.Event at 0x10c67eab0: unset>, [], ...)
+body = '## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]'
+
+    @pytest.mark.parametrize("body", [
+        "2026-10-01报道，公司订单有所变化。[[N0001]]",
+        "公司近期订单有所变化，并无披露更多材料。[[N0001]]",
+        "公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]",
+        "## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]",
+        "报道日期不明；材料只给出了标题。[[N0001]]",
+    ])
+    def test_natural_body_no_audit_report_or_lexical_date_gate(setup, body):
+        p, _, s, _, _, calls, _, _ = setup
+        s.runner = lambda *a: body
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:203: AssertionError
+_ test_natural_body_no_audit_report_or_lexical_date_gate[\u62a5\u9053\u65e5\u671f\u4e0d\u660e\uff1b\u6750\u6599\u53ea\u7ed9\u51fa\u4e86\u6807\u9898\u3002[[N0001]]] _
+
+setup = (PosixPath('<TEMP> object at 0x10cb87260>, <threading.Event at 0x10c67f6b0: set>, <threading.Event at 0x10c67f110: unset>, [], ...)
+body = '报道日期不明；材料只给出了标题。[[N0001]]'
+
+    @pytest.mark.parametrize("body", [
+        "2026-10-01报道，公司订单有所变化。[[N0001]]",
+        "公司近期订单有所变化，并无披露更多材料。[[N0001]]",
+        "公司订单变化。[[N0001]]\n\n独立事件进展。[[N0002]]",
+        "## 本期变化[[N0001]]\n\n同日，公司订单变化。[[N0001]]",
+        "报道日期不明；材料只给出了标题。[[N0001]]",
+    ])
+    def test_natural_body_no_audit_report_or_lexical_date_gate(setup, body):
+        p, _, s, _, _, calls, _, _ = setup
+        s.runner = lambda *a: body
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:203: AssertionError
+________________________ test_original_material_change _________________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_original_material_change(setup):
+        p, _, s, gate, entered, _, _, _ = setup
+        gate.clear()
+        j = create(s)
+        assert entered.wait(2)
+        c = sqlite3.connect(p)
+        c.execute("UPDATE items SET title='changed' WHERE id='1'")
+        c.commit()
+        c.close()
+        gate.set()
+>       assert wait(s, j["id"])["error"] == "summary_source_changed" and "1" not in reads(p)
+E       AssertionError: assert ('summary_validation_failed' == 'summary_source_changed'
+E
+E         - summary_source_changed
+E         + summary_validation_failed)
+
+tests/test_news_summaries.py:260: AssertionError
+_______________________ test_save_failure_rolls_back_all _______________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_save_failure_rolls_back_all(setup):
+        p, _, s, gate, entered, _, _, _ = setup
+        gate.clear()
+        j = create(s)
+        assert entered.wait(2)
+        c = sqlite3.connect(p)
+        c.execute(
+            "CREATE TRIGGER reject_read BEFORE INSERT ON item_state WHEN NEW.item_id='2' BEGIN SELECT RAISE(ABORT,'blocked');END"
+        )
+        c.commit()
+        c.close()
+        gate.set()
+>       assert (
+            wait(s, j["id"])["error"] == "summary_save_failed"
+            and "1" not in reads(p)
+            and not s.listing()["items"]
+        )
+E       AssertionError: assert ('summary_validation_failed' == 'summary_save_failed'
+E
+E         - summary_save_failed
+E         + summary_validation_failed)
+
+tests/test_news_summaries.py:275: AssertionError
+_______________________ test_readback_failure_rolls_back _______________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_readback_failure_rolls_back(setup):
+        p, _, s, gate, entered, _, _, _ = setup
+        gate.clear()
+        j = create(s)
+        assert entered.wait(2)
+        c = sqlite3.connect(p)
+        c.execute(
+            "CREATE TRIGGER corrupt_summary AFTER INSERT ON news_summaries BEGIN UPDATE news_summaries SET body='corrupted' WHERE id=NEW.id;END"
+        )
+        c.commit()
+        c.close()
+        gate.set()
+>       assert (
+            wait(s, j["id"])["error"] == "summary_save_failed"
+            and "1" not in reads(p)
+            and not s.listing()["items"]
+        )
+E       AssertionError: assert ('summary_validation_failed' == 'summary_save_failed'
+E
+E         - summary_save_failed
+E         + summary_validation_failed)
+
+tests/test_news_summaries.py:294: AssertionError
+_________________ test_corruption_after_read_insert_rolls_back _________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_corruption_after_read_insert_rolls_back(setup):
+        p, _, s, gate, entered, _, _, _ = setup
+        gate.clear()
+        j = create(s)
+        assert entered.wait(2)
+        c = sqlite3.connect(p)
+        c.execute(
+            "CREATE TRIGGER corrupt_after_mark AFTER INSERT ON item_state BEGIN UPDATE news_summaries SET body='broken';END"
+        )
+        c.commit()
+        c.close()
+        gate.set()
+>       assert (
+            wait(s, j["id"])["error"] == "summary_save_failed"
+            and "1" not in reads(p)
+            and not s.listing()["items"]
+        )
+E       AssertionError: assert ('summary_validation_failed' == 'summary_save_failed'
+E
+E         - summary_save_failed
+E         + summary_validation_failed)
+
+tests/test_news_summaries.py:350: AssertionError
+______________________ test_runtime_config_is_snapshotted ______________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_runtime_config_is_snapshotted(setup):
+        p, _, s, gate, entered, calls, _, _ = setup
+        gate.clear()
+        j = create(s)
+        assert entered.wait(2)
+        values = s.settings_getter()
+        values["agent"]["runtime"] = "pi"
+        values["agent"]["codex"]["model"] = "changed"
+        gate.set()
+>       assert wait(s, j["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:391: AssertionError
+_________________ test_no_second_request_even_if_it_would_fail _________________
+
+setup = (PosixPath('<TEMP> object at 0x10c0b4050>, <threading.Event at 0x10c67dcd0: set>, <threading.Event at 0x10c67ec90: unset>, [], ...)
+
+    def test_no_second_request_even_if_it_would_fail(setup):
+        p, _, service, _, _, _, _, make = setup
+        calls = []
+        def run(*a):
+            calls.append(1)
+            if len(calls) > 1:
+                raise RuntimeError("summary_runtime_failed")
+            return make()["body"]
+        service.runner = run
+        job = create(service)
+>       assert wait(service, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:456: AssertionError
+_______________ test_first_prompt_contains_content_requirements ________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_first_prompt_contains_content_requirements(setup):
+        p, _, service, _, _, calls, _, _ = setup
+        job=create(service)
+>       assert wait(service,job["id"])["status"]=="completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:462: AssertionError
+__________________ test_cancel_after_commit_reports_completed __________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_cancel_after_commit_reports_completed(setup):
+        p, _, s, _, _, _, _, _ = setup
+        j = create(s)
+>       assert wait(s, j["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:825: AssertionError
+________________________ test_cancel_before_commit_wins ________________________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c40e820>
+
+    def test_cancel_before_commit_wins(setup, monkeypatch):
+        p, _, s, _, _, _, _, _ = setup
+        ready = threading.Event()
+        release = threading.Event()
+        original = ns.checked_body
+
+        def review(value, snapshot):
+            result = original(value, snapshot)
+            ready.set()
+            assert release.wait(3)
+            return result
+
+        monkeypatch.setattr(ns, "checked_body", review)
+        j = create(s)
+>       assert ready.wait(2)
+E       assert False
+E        +  where False = wait(2)
+E        +    where wait = <threading.Event at 0x10ca934d0: unset>.wait
+
+tests/test_news_summaries.py:849: AssertionError
+_______________ test_limits_change_after_confirm_keeps_fixed_job _______________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_limits_change_after_confirm_keeps_fixed_job(setup):
+        p,state,s,gate,entered,calls,add,audit=setup
+        gate.clear(); key,token,x=preview(s)
+        j,_=s.create(key,token,x["id"]);assert entered.wait(2)
+        s.settings_getter()["news_summary"]={"max_days":1,"max_items":1}
+        gate.set()
+>       assert wait(s,j["id"])["status"]=="completed" and reads(p)["1"] and reads(p)["2"]
+E       AssertionError: assert ('failed' == 'completed'
+E
+E         - completed
+E         + failed)
+
+tests/test_news_summaries.py:953: AssertionError
+__________________ test_size_excluded_whole_rows_success_only __________________
+
+setup = (PosixPath('<TEMP> object at 0x10cb87890>, <threading.Event at 0x10ca92f90: set>, <threading.Event at 0x10ca917f0: unset>, [], ...)
+
+    def test_size_excluded_whole_rows_success_only(setup):
+        p,state,s,gate,entered,calls,add,audit=setup
+        c=sqlite3.connect(p);c.execute("UPDATE items SET summary=? WHERE id='1'",("文"*800000,));c.commit();c.close()
+        key,token,x=preview(s); material=stored_preview(p,x)
+>       assert material["summary_ids"]==["2"] and material["scope"]["excluded_ids"]["size"]==["1"]
+E       AssertionError: assert (['2'] == ['2']
+E
+E         Use -v to get more diff and [] == ['1']
+E
+E         Right contains one more item: '1'
+E         Use -v to get more diff)
+
+tests/test_news_summaries.py:996: AssertionError
+____________ test_entire_job_has_one_complete_owned_process[codex] _____________
+
+setup = (PosixPath('<TEMP> object at 0x10cb87ec0>, <threading.Event at 0x10c64da90: set>, <threading.Event at 0x10c64c170: unset>, [], ...)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c8259b0>
+tmp_path = PosixPath('<TEMP>')
+runtime = 'codex'
+
+    @pytest.mark.parametrize("runtime",["codex","pi"])
+    def test_entire_job_has_one_complete_owned_process(setup,monkeypatch,tmp_path,runtime):
+        p,_,service,_,_,_,_,make=setup
+        marker=tmp_path/"calls.txt"
+        fake=tmp_path/"once.py"
+        answer=make()["body"]
+        if runtime=="codex":
+            events=[
+                {"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"},
+                {"type":"turn.started"},
+                {"type":"item.completed","item":{"id":"x","type":"agent_message","text":answer}},
+                {"type":"turn.completed"},
+            ]
+        else:
+            events=[{"type":"oar_result","outcome":"completed","answer":answer}]
+        fake.write_text("import sys,json\nfrom pathlib import Path\nsys.stdin.read()\nwith Path("+repr(str(marker))+").open('a') as f:f.write('call\\n')\nfor event in "+repr(events)+":print(json.dumps(event),flush=True)")
+        monkeypatch.setattr(ns.codex_client,"require_ready",lambda:None)
+        monkeypatch.setattr(ns.codex_client,"command",lambda *a,**k:[sys.executable,str(fake)])
+        monkeypatch.setattr(ns,"bridge_command",lambda *a,**k:[sys.executable,str(fake)])
+        service.settings_getter()["agent"]["runtime"]=runtime
+        service.runner=ns.run_native
+        job=create(service)
+>       assert wait(service,job["id"])["status"]=="completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:1093: AssertionError
+______________ test_entire_job_has_one_complete_owned_process[pi] ______________
+
+setup = (PosixPath('<TEMP> object at 0x10cb862a0>, <threading.Event at 0x10cb064b0: set>, <threading.Event at 0x10cb06210: unset>, [], ...)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c827b60>
+tmp_path = PosixPath('<TEMP>')
+runtime = 'pi'
+
+    @pytest.mark.parametrize("runtime",["codex","pi"])
+    def test_entire_job_has_one_complete_owned_process(setup,monkeypatch,tmp_path,runtime):
+        p,_,service,_,_,_,_,make=setup
+        marker=tmp_path/"calls.txt"
+        fake=tmp_path/"once.py"
+        answer=make()["body"]
+        if runtime=="codex":
+            events=[
+                {"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"},
+                {"type":"turn.started"},
+                {"type":"item.completed","item":{"id":"x","type":"agent_message","text":answer}},
+                {"type":"turn.completed"},
+            ]
+        else:
+            events=[{"type":"oar_result","outcome":"completed","answer":answer}]
+        fake.write_text("import sys,json\nfrom pathlib import Path\nsys.stdin.read()\nwith Path("+repr(str(marker))+").open('a') as f:f.write('call\\n')\nfor event in "+repr(events)+":print(json.dumps(event),flush=True)")
+        monkeypatch.setattr(ns.codex_client,"require_ready",lambda:None)
+        monkeypatch.setattr(ns.codex_client,"command",lambda *a,**k:[sys.executable,str(fake)])
+        monkeypatch.setattr(ns,"bridge_command",lambda *a,**k:[sys.executable,str(fake)])
+        service.settings_getter()["agent"]["runtime"]=runtime
+        service.runner=ns.run_native
+        job=create(service)
+>       assert wait(service,job["id"])["status"]=="completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:1093: AssertionError
+_______________ test_legacy_success_validation_is_still_readable _______________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_legacy_success_validation_is_still_readable(setup):
+        p,_,service,_,_,calls,_,_=setup
+        job=create(service)
+>       assert wait(service,job["id"])["status"]=="completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:1115: AssertionError
+____________ test_single_call_has_no_audit_format_or_draft_reserve _____________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_single_call_has_no_audit_format_or_draft_reserve(setup):
+        p,_,service,_,_,calls,_,_=setup
+        key,token,x=preview(service)
+        assert set(x["scope"]["input_budget"])=={"generation_bytes","transport_limit_bytes"}
+        job,_=service.create(key,token,x["id"])
+>       assert wait(service,job["id"])["status"]=="completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:1127: AssertionError
+___________ test_history_search_full_body_date_recent_and_pagination ___________
+
+setup = (PosixPath('<TEMP>":"test","title":"公司报告订单增加3项"}]\n本期全部材料：\nN0002 | 报道日期 2026-10-02 | Synthetic | 仅标题 | 公司报告订单增加2项\n摘要：\n缓存正文：')], ...)
+
+    def test_history_search_full_body_date_recent_and_pagination(setup):
+        p, _, s, *_ = setup
+        job = create(s)
+>       assert wait(s, job["id"])["status"] == "completed"
+E       AssertionError: assert 'failed' == 'completed'
+E
+E         - completed
+E         + failed
+
+tests/test_news_summaries.py:1225: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_launcher.py::test_supervisor_update_handoff_and_exit_cleanup[update-success-custom-loopback]
+FAILED tests/test_news_summaries.py::test_success_atomic_and_history - Assert...
+FAILED tests/test_news_summaries.py::test_new_news_manual_read_and_idempotency
+FAILED tests/test_news_summaries.py::test_natural_body_no_audit_report_or_lexical_date_gate[2026-10-01\u62a5\u9053\uff0c\u516c\u53f8\u8ba2\u5355\u6709\u6240\u53d8\u5316\u3002[[N0001]]]
+FAILED tests/test_news_summaries.py::test_natural_body_no_audit_report_or_lexical_date_gate[\u516c\u53f8\u8fd1\u671f\u8ba2\u5355\u6709\u6240\u53d8\u5316\uff0c\u5e76\u65e0\u62ab\u9732\u66f4\u591a\u6750\u6599\u3002[[N0001]]]
+FAILED tests/test_news_summaries.py::test_natural_body_no_audit_report_or_lexical_date_gate[\u516c\u53f8\u8ba2\u5355\u53d8\u5316\u3002[[N0001]]\n\n\u72ec\u7acb\u4e8b\u4ef6\u8fdb\u5c55\u3002[[N0002]]]
+FAILED tests/test_news_summaries.py::test_natural_body_no_audit_report_or_lexical_date_gate[## \u672c\u671f\u53d8\u5316[[N0001]]\n\n\u540c\u65e5\uff0c\u516c\u53f8\u8ba2\u5355\u53d8\u5316\u3002[[N0001]]]
+FAILED tests/test_news_summaries.py::test_natural_body_no_audit_report_or_lexical_date_gate[\u62a5\u9053\u65e5\u671f\u4e0d\u660e\uff1b\u6750\u6599\u53ea\u7ed9\u51fa\u4e86\u6807\u9898\u3002[[N0001]]]
+FAILED tests/test_news_summaries.py::test_original_material_change - Assertio...
+FAILED tests/test_news_summaries.py::test_save_failure_rolls_back_all - Asser...
+FAILED tests/test_news_summaries.py::test_readback_failure_rolls_back - Asser...
+FAILED tests/test_news_summaries.py::test_corruption_after_read_insert_rolls_back
+FAILED tests/test_news_summaries.py::test_runtime_config_is_snapshotted - Ass...
+FAILED tests/test_news_summaries.py::test_no_second_request_even_if_it_would_fail
+FAILED tests/test_news_summaries.py::test_first_prompt_contains_content_requirements
+FAILED tests/test_news_summaries.py::test_cancel_after_commit_reports_completed
+FAILED tests/test_news_summaries.py::test_cancel_before_commit_wins - assert ...
+FAILED tests/test_news_summaries.py::test_limits_change_after_confirm_keeps_fixed_job
+FAILED tests/test_news_summaries.py::test_size_excluded_whole_rows_success_only
+FAILED tests/test_news_summaries.py::test_entire_job_has_one_complete_owned_process[codex]
+FAILED tests/test_news_summaries.py::test_entire_job_has_one_complete_owned_process[pi]
+FAILED tests/test_news_summaries.py::test_legacy_success_validation_is_still_readable
+FAILED tests/test_news_summaries.py::test_single_call_has_no_audit_format_or_draft_reserve
+FAILED tests/test_news_summaries.py::test_history_search_full_body_date_recent_and_pagination
+24 failed, 727 passed in 129.82s (0:02:09)

@@ -1,0 +1,21 @@
+{
+  "schema_version": "newsreader.daily.v1",
+  "items": [
+    {
+      "item_order": 1,
+      "section": "Reuters · World",
+      "title": "交接演示一 验证新闻导入与收藏",
+      "summary": "这是一条合成新闻，用于验证导入、搜索、排序和阅读状态保存。",
+      "published_at": "2026-10-21 09:00:00",
+      "url": "https://example.com/newsreader-handoff-one"
+    },
+    {
+      "item_order": 2,
+      "section": "Reuters · World",
+      "title": "交接演示二 验证新闻想法与引用",
+      "summary": "这是一条合成新闻，用于验证新闻想法和独立想法工作台；没有真实全文或模型结果。",
+      "published_at": "2026-10-21 10:00:00",
+      "url": "https://example.com/newsreader-handoff-two"
+    }
+  ]
+}

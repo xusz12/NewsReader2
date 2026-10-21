@@ -1,0 +1,27 @@
+{
+  "llm": {
+    "translation": { "provider": "deepseek", "model": "" },
+    "pi_chat": { "provider": "", "model": "" }
+  },
+  "feed": { "hidden_source_subkeys": [] },
+  "tracked": {
+    "default_rule_params": {
+      "title_weight": 1,
+      "note_weight": 1,
+      "summary_weight": 1,
+      "content_weight": 1,
+      "strong_score": 1,
+      "core_score": 1,
+      "context_score": 1,
+      "exclude_penalty": 1,
+      "threshold": 6
+    }
+  },
+  "agent": {
+    "session_ttl_hours": 72,
+    "runtime": "pi",
+    "codex": { "model": "", "profile": "", "sandbox": "read-only" }
+  },
+  "database": { "path": "" },
+  "news_summary": { "max_days": 20, "max_items": 6000 }
+}
