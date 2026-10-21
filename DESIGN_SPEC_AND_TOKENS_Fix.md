@@ -2,7 +2,7 @@
 # (Design System Specification & Tokens Reference)
 
 > **版本**：v2.3.7 生产基线对齐版\
-> **基准原型**：`news-reader-workbench.html`（100% 单一真实源 Single Source of Truth）\
+> **基准原型**：`news-reader-workbench.html`（历史视觉参考；生产优先级见下文）\
 > **设计语言**：Financial & Research Editorial (报刊级沉浸式深度研读与金融研究系统)\
 > **适用平台**：Web / Desktop App (Electron/Tauri) / Tablet / Mobile Web\
 > **标准规范组织参考**：W3C Design Tokens Community Group (DTCG), WCAG 2.1 AAA/AA, Apple HIG
@@ -41,7 +41,9 @@
 
 ## 1. 体系架构与单一真实源契约 (Architecture & SSOT Contract)
 
-本规范与 `news-reader-workbench.html` 中的 CSS 自定义属性（Custom Properties）**100% 严格一致**。原型即为代码落地的单一真实源（Single Source of Truth），所有在规范中出现的 Token 均在原型代码中存在直接对应的变量或类名规则。
+本规范的基础 Token 与原型中的对应声明对齐，但组件规则、移动端覆盖和后续产品调整并非完全一致。生产实现以根 `AGENTS.md`、后续已记录的用户调整和 [当前组件映射](docs/design-token-mapping.md) 为先；未另行调整的部分采用本规范的明确数值。原型用于理解视觉意图，不作为覆盖后续约定的唯一依据。
+
+例如原型手机顶栏为50px、正文为15px/1.75，而本规范明确采用52px、14px/1.7；当前生产选择后者。后续已确认的选中边框、稍后看样式、移动导航、完整精读结论及六类设置以组件映射和 CHANGELOG 为准。2026-10-21新增的按钮成对文字色、墨水终端、编辑器键盘焦点及设置h2字重规则同样见组件映射；基础 CSS/JSON 导出值不变。
 
 ```
 ┌────────────────────────────────────────────────────────┐

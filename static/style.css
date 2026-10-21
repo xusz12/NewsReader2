@@ -13,6 +13,7 @@
   --space-12: 48px;
   --radius-xs: 3px;
   --radius-full: 9999px;
+  --accent-button-fg: #fff;
   --status-favorite: oklch(68% 0.16 75);
   --favorite-bg: color-mix(in oklch, var(--status-favorite) 12%, transparent);
   --favorite-fg: oklch(from var(--fg) clamp(0.42, l, 0.8) 0.12 75);
@@ -27,6 +28,12 @@
   --motion-slow: 320ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* 强调按钮与现有 accent 配对；链接及阅读强调色不变。 */
+[data-theme="dark"] { --accent-button-fg: var(--bg); }
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] { --accent-button-fg: var(--bg); }
 }
 
 /* ─── reset & base ─────────────────────────────────────────────────── */
@@ -2153,7 +2160,7 @@ a {
   border-radius: var(--radius-sm);
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-button-fg);
   font-weight: 600;
   cursor: pointer;
   font-size: 12.5px;
@@ -3063,6 +3070,7 @@ button:disabled {
   line-height: 1.9;
 }
 .standalone-body.ProseMirror { outline: none; overflow-wrap: anywhere; }
+.standalone-body.ProseMirror:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .standalone-body.is-empty::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 .standalone-body > * { margin: 0 0 16px; }
 .standalone-body > :last-child { margin-bottom: 0; }
@@ -3566,6 +3574,7 @@ button:disabled {
   justify-content: flex-start;
 }
 .settings-detail-heading h2 {
+  font-weight: 600;
   font-family: var(--font-display);
   font-size: var(--fs-h2);
   margin: 4px 0 0;
@@ -3707,7 +3716,7 @@ button:disabled {
 .thoughts-write-btn, .thoughts-publish-btn { flex-shrink: 0; min-height: 30px; padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--muted); cursor: pointer; font: inherit; font-size: var(--fs-meta); }
 .thoughts-write-btn > span[aria-hidden] { display: inline-block; width: 1em; text-align: center; }
 .thoughts-write-btn:hover { color: var(--fg); border-color: var(--border-strong); background: var(--surface-subtle); }
-.thoughts-publish-btn { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+.thoughts-publish-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-button-fg); font-weight: 600; }
 .thoughts-publish-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .thoughts-publish-btn:disabled { opacity: .5; cursor: default; }
 .thoughts-timeline { list-style: none; padding: var(--space-4) 0 0; margin: var(--space-3) 0 0; border-top: 1px solid var(--border); }
@@ -4025,6 +4034,7 @@ button:disabled {
   backdrop-filter: none !important;
   -webkit-font-smoothing: none;
 }
+[data-theme="eink"] .terminal-box { background: var(--surface-subtle); color: var(--fg); border: 1px solid var(--border); }
 [data-theme="eink"] .news-card.read { opacity: 1; }
 [data-theme="eink"] .source-icon-badge { background: var(--fg); color: var(--surface); }
 [data-theme="eink"] .reader-highlight { background: #e5e5e5; text-decoration: underline; }

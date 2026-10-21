@@ -1,12 +1,16 @@
-# v0.0.4 设计 Token 与组件映射
+# 设计 Token 与组件映射（含后续调整）
 
-视觉基线为 [DESIGN_SPEC_AND_TOKENS_Fix.md](../DESIGN_SPEC_AND_TOKENS_Fix.md) v2.3.7 生产基线对齐版。仓库中没有该文档提及的 `news-reader-workbench.html`，本轮依据修订文档中的明确数值与代码表实施，未宣称与缺失原型逐像素一致。旧版 [设计文档](DESIGN_SPEC_AND_TOKENS.md) 仅供历史对照。
+视觉基线为 [DESIGN_SPEC_AND_TOKENS_Fix.md](../DESIGN_SPEC_AND_TOKENS_Fix.md) v2.3.7 生产基线对齐版。原型 `news-reader-workbench.html` 未纳入仓库；生产实现以修订文档明确数值及后续约定为准，不宣称与外部原型逐像素一致。旧版 [设计文档](DESIGN_SPEC_AND_TOKENS.md) 仅供历史对照。
+
+## 依据优先级
+
+根 `AGENTS.md` 与后续已记录的用户调整优先，其次为当前组件映射及对应 CHANGELOG，再参考修订规范和原型历史。原型与修订规范并非处处同值：例如原型手机顶栏50px、正文15px/1.75，而生产已按修订规范采用52px、14px/1.7。不得用旧原型覆盖后来确认的产品交互。
 
 ## 交付文件
 
 - [tokens.css](../static/tokens.css)：完整导入修订规范 8.1 的布局、字体、浅／深／墨水屏变量；跟随系统的深色分支与显式深色使用相同变量。
 - [design-tokens.json](../static/design-tokens.json)：逐项保留修订规范 8.2 的名称、数值和格式。该示例覆盖布局、字号、字体、浅／深基础色及圆角；派生色、阴影和墨水屏完整定义以 CSS 为准。
-- [style.css](../static/style.css)：实际组件消费规范变量；应用额外变量包括间距、动效、760px 阅读宽度、Agent 尺寸和收藏派生状态色。字号统一使用 `--fs-*`，额外的 `--fs-card-title: 15px` 对应规范 7.2，`--fs-caption: 11px` 用于紧凑辅助控件。
+- [style.css](../static/style.css)：实际组件消费规范变量；应用额外变量包括间距、动效、760px 阅读宽度、Agent 尺寸和收藏派生状态色。主阅读组件使用 `--fs-*`；部分辅助控件仍有固定字号，尚未统一为角色 Token。额外的 `--fs-card-title: 15px` 对应规范 7.2，`--fs-caption: 11px` 用于紧凑辅助控件。
 
 ## 映射表
 
@@ -17,7 +21,7 @@
 | `--feed-width` | `.feed-column`、`#feedColSettings` | 双栏／三栏固定 430px，最小 360px；单栏宽 100% |
 | 阅读列上限 | `.detail-content` | 最大 760px 居中；外层 `.detail-scroll-area` 占满右栏，隐藏滚动条外观，保留独立滚动 |
 | 主标题 | `.article-title` | `--font-display`、`--fs-h1`、700／1.25 |
-| 卡片标题与摘要 | `.news-card-title`、`.news-card-snippet` | 衬线 15px／600；摘要 13px、muted、两行截断 |
+| 卡片标题与摘要 | `.news-card-title`、`.news-card-snippet` | 衬线 15px／600；摘要 13px、muted、普通摘要两行截断；v0.0.14起已抓取新闻的精读结论完整显示 |
 | 正文 | `.article-body`、`.digest-point-item`、`.saved-note-content` | 14px／1.7；正文段落显式锁定 1.7 |
 | 卡片／浮层圆角 | `.news-card`、`.saved-note`、`.agent-dock` | 8px／8px／12px |
 | 焦点与选中 | `:focus-visible`、`.news-card.is-active` | 2px accent 焦点环、2px 偏移；选中卡片整圈 1px accent 边框及 surface 底色（浅色为白底） |
@@ -32,7 +36,14 @@
 | 顶栏控件 | `.topbar-tool-btn`、`.theme-select` | 桌面高 32px，单栏高 36px，垂直居中且等高 |
 | 全应用下拉框 | `SelectControls(document.body)` | 主题与所有设置共用自绘菜单，保留键盘、触屏、焦点恢复与主题持久化 |
 | 滚动容器 | 新闻列表、阅读区、设置、Agent、菜单等 | 全局隐藏滚动条外观，保留原有 overflow 和滚轮／触屏／键盘滚动 |
-| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 五类配置沿用主布局；窄屏分类／详情流转 |
+| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 六类配置（模型与 Agent、DeepSeek 精读与翻译、信源与采集、数据库与存储、积压新闻总结范围、系统与版本）沿用主布局；窄屏分类／详情流转 |
+
+## 2026-10-21 组件修复规则
+
+- 主按钮与发布想法按钮保留原 `--accent` 底色，使用组件文字色 `--accent-button-fg`：浅色及墨水屏白字，显式深色及跟随系统深色使用该主题 `--bg` 深色字。普通文字的默认与悬停对比目标均不低于4.5:1；不改变链接和正文强调色。
+- 模型及翻译连接测试终端在墨水屏使用 `--surface-subtle` 灰底、`--fg` 黑字和1px `--border`；浅色、深色保留终端现有样式。
+- 独立想法正文仅在 `:focus-visible` 呈现2px accent外圈、2px偏移；失焦恢复无边框轻量编辑。设置详情h2明确600字重，字号与行高不变。
+- 独立想法/总结的新增排版尺度及编辑器节点选择态尚需单独确认，不在本轮修复中改变。
 
 ## 产品范围与刻意保留的差异
 
