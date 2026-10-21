@@ -1,3 +1,4 @@
+import { answerConfirm } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
@@ -59,12 +60,10 @@ test('all-read respects source and read-later completion is independent', async 
   await start(page);
   await page.locator('[data-source="reuters"]').click();
   const ids = (await (await request.get('/api/news?source_filter=reuters&per=100')).json()).items.map(i => i.id);
-  page.once('dialog', async dialog => {
-    expect(dialog.message()).toContain('Reuters');
-    expect(dialog.message()).toContain(`${ids.length} 条未读新闻`);
-    await dialog.accept();
-  });
   await page.locator('#markAllReadBtn').click();
+  const confirmation = await answerConfirm(page);
+  expect(confirmation).toContain('Reuters');
+  expect(confirmation).toContain(`${ids.length} 条未读新闻`);
   await expect.poll(async () => (await (await request.get(`/api/news/${ids.at(-1)}/detail`)).json()).read_at).toBeTruthy();
   await request.post('/__test/reset-reading');
   await request.patch('/api/news/ui-000/state', { data: { read_later: true, read: false } });
@@ -229,8 +228,8 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   await page.locator('#translationTestBtn').click();
   await expect(page.locator('#translationTestTerminal')).toContainText('模型连接成功 · new-model');
   await page.screenshot({ path: '.ui-artifacts/v002-translation-settings.png', animations: 'disabled' });
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('#deleteSecretBtn').click();
+  await answerConfirm(page);
   await expect(page.locator('#deepseekSecret')).toBeVisible();
   await expect(dropdown).toHaveValue('new-model');
 });
@@ -246,7 +245,7 @@ test('source badges count unread news and update after marking read', async ({ p
   }
   await page.locator('[data-source="reuters"]').click();
   await expect(page.locator('#feedCardList .news-card').first()).toContainText('Reuters');
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('#markAllReadBtn').click();
+  await answerConfirm(page);
   await expect(page.locator('[data-source="reuters"] .nav-badge')).toHaveCount(0);
 });

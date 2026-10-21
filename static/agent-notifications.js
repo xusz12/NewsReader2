@@ -49,6 +49,7 @@ export class AgentNotifications {
     this.button = $("#agentNotificationsBtn");
     this.panel = $("#agentNotificationsPanel");
     this.button.onclick = () => this.toggle();
+    document.addEventListener("topbar:popover-open", event => { if (event.detail !== this.panel.id) this.close(); });
     $("#agentNotificationsReadAll").onclick = () => this.markAll();
     this.panel.addEventListener("click", event => {
       const dismiss = event.target.closest("[data-dismiss-notice]");
@@ -104,7 +105,7 @@ export class AgentNotifications {
   toggle() {
     this.panel.hidden = !this.panel.hidden;
     this.button.setAttribute("aria-expanded", String(!this.panel.hidden));
-    if (!this.panel.hidden) { void this.refresh(); this.render(); }
+    if (!this.panel.hidden) { document.dispatchEvent(new CustomEvent("topbar:popover-open", { detail: this.panel.id })); void this.refresh(); this.render(); }
   }
   close() {
     this.panel.hidden = true;

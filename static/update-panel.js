@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirm-dialog.js";
 import { $, api, storage, persist } from "./ui.js";
 
 const RUN_KEY = "newsreader:update-run";
@@ -39,21 +40,31 @@ const explain = error => ERRORS[error?.code || error?.message || error] || "操�
 const request = (path, options = {}) => api(path, { ...options, signal: AbortSignal.timeout(options.method ? 100000 : path.includes("/check") ? 90000 : 5000) });
 
 export class UpdatePanel {
-  constructor({ hasUnsavedChanges }) {
+  constructor({ hasUnsavedChanges, contextStamp = () => "" }) {
     this.hasUnsavedChanges = hasUnsavedChanges;
+    this.contextStamp = contextStamp;
     this.sequence = 0;
     this.runId = storage(RUN_KEY, "");
     this.message = "点击「检查更新」获取最新稳定版本。";
+    this.resultState = "idle";
+  }
+  result(message, state, explanation = "", checkedAt = null) {
+    this.message = message; this.resultState = state;
+    this.explanation = explanation; this.checkedAt = checkedAt;
   }
   render() {
     if (!$("#updateResult")) return;
-    $("#updateResult").textContent = this.message;
+    $("#updateConclusion").textContent = this.message;
+    $("#updateExplanation").textContent = this.explanation || "";
+    $("#updateCheckedAt").textContent = this.checkedAt ? `检查时间：${new Date(this.checkedAt * 1000).toLocaleString()}` : "";
+    $("#updateCheckedAt").dateTime = this.checkedAt ? new Date(this.checkedAt * 1000).toISOString() : "";
+    $("#updateResult").dataset.state = this.checking ? "checking" : this.running ? "working" : this.resultState;
     $("#updateResult").setAttribute("aria-busy", String(!!this.running || !!this.checking));
     $("#updateCurrent").textContent = `News Reader ${this.version?.version || $(".brand-version").textContent}`;
     $("#updateRepository").textContent = this.version ? this.version.repository || "尚未配置更新源" : this.data?.repository || "读取更新源中…";
     $("#checkUpdateBtn").disabled = !!this.running || !!this.checking || !!this.runId;
     $("#checkUpdateBtn").textContent = this.checking ? "正在检查…" : "检查更新";
-    $("#applyUpdateBtn").hidden = !this.data?.available || !this.data?.can_update || !this.data?.check_token || !!this.running || !!this.checking || !!this.runId;
+    $("#applyUpdateBtn").hidden = !this.data?.available || !this.data?.can_update || !this.data?.check_token || !!this.data?.blockers?.length || !!this.running || !!this.checking || !!this.runId;
     $("#refreshUpdateBtn").hidden = !this.refreshReady;
     $("#resumeUpdateBtn").hidden = !this.runId || !!this.running;
   }
@@ -71,13 +82,13 @@ export class UpdatePanel {
         persist(RUN_KEY, this.runId);
         this.poll();
       } else if (!this.runId && TERMINAL.has(status.status)) {
-        this.message = `上次更新：${STAGES[status.status]}${status.error ? " " + explain(status.error) : ""}`;
+        this.result(`上次更新：${STAGES[status.status]}`, status.status === "healthy" ? "success" : "failed", status.error ? explain(status.error) : "");
       } else if (this.runId) {
         this.message = "正在恢复更新状态…";
         this.poll();
       }
     } catch {
-      if (sequence === this.sequence) this.message = "暂时无法读取服务状态，请重试。";
+      if (sequence === this.sequence) this.result("暂时无法读取服务状态，请重试。", "failed");
     } finally {
       this.restoring = false;
       this.render();
@@ -88,20 +99,24 @@ export class UpdatePanel {
     this.sequence++;
     this.checking = true;
     this.data = null;
-    this.message = "正在检查最新稳定版本…";
+    this.result("正在检查最新稳定版本…", "checking");
     this.render();
     try {
       const data = this.data = await request("/api/update/check?force=1");
       this.version = { version: data.current_version, repository: data.repository };
-      this.message = data.enabled === false ? data.message
-        : data.available ? `发现新版本 ${data.latest.version}（${data.latest.commit.slice(0, 8)}）。确认后将更新并重启服务。`
-        : data.status === "no_releases" ? "更新仓库尚未发布稳定版本。"
-        : data.status === "ahead" ? `当前 ${data.current_version} 高于已发布的 ${data.latest.version}，无需更新。`
-        : `当前 ${data.current_version} 已是最新稳定版本。`;
-      if (data.available && data.blockers?.length) this.message += "\n" + data.blockers.map(explain).join("\n");
-      if (data.checked_at) this.message += `\n检查时间：${new Date(data.checked_at * 1000).toLocaleString()}`;
+      const canUpdate = data.can_update && data.check_token && !data.blockers?.length;
+      const details = (data.blockers || []).map(explain).join("\n");
+      if (data.enabled === false) this.result("在线更新未启用", "blocked", data.message, data.checked_at);
+      else if (data.available) this.result(
+        `发现新版本 ${data.latest.version}${canUpdate ? "，可以更新" : "，暂时无法更新"}`,
+        canUpdate ? "available" : "blocked",
+        canUpdate ? `版本提交：${data.latest.commit.slice(0, 8)}。确认后将更新并重启服务。` : details || "尚未满足自动更新条件，请处理后重新检查。", data.checked_at);
+      else if (details) this.result("更新检查受阻", "blocked", details, data.checked_at);
+      else if (data.status === "no_releases") this.result("更新仓库尚未发布稳定版本。", "empty", "", data.checked_at);
+      else if (data.status === "ahead") this.result(`当前 ${data.current_version} 高于已发布的 ${data.latest.version}，无需更新。`, "latest", "", data.checked_at);
+      else this.result(`当前 ${data.current_version} 已是最新稳定版本。`, "latest", "", data.checked_at);
     } catch (error) {
-      this.message = explain(error);
+      this.result("更新检查失败", "failed", explain(error));
     } finally {
       this.checking = false;
       this.render();
@@ -109,15 +124,20 @@ export class UpdatePanel {
   }
   async apply() {
     const data = this.data;
-    if (this.running || this.runId || !data?.available || !data.can_update || !data.check_token) return;
+    if (this.running || this.runId || !data?.available || !data.can_update || !data.check_token || data.blockers?.length) return;
     if (this.hasUnsavedChanges()) {
-      this.message = "设置有未保存的更改，请先保存或重置，再执行更新。";
+      this.result("设置有未保存的更改，请先保存或重置，再执行更新。", "blocked");
       this.render();
       return;
     }
-    if (!confirm(`确认从 ${data.current_version} 更新到 ${data.latest.version}（${data.latest.commit.slice(0, 8)}）并重启？`)) return;
+    const sequence = this.sequence, target = JSON.stringify(data);
+    if (!await confirmAction({ title: "更新并重启应用", trigger: "#applyUpdateBtn", message: `确认从 ${data.current_version} 更新到 ${data.latest.version}（${data.latest.commit.slice(0, 8)}）并重启服务？`, action: "更新并重启" })) return;
+    if (sequence !== this.sequence || this.data !== data || JSON.stringify(this.data) !== target || this.running || this.runId || this.hasUnsavedChanges()) {
+      this.result("更新目标或设置已变化，请重新检查更新。", "blocked"); this.render(); return;
+    }
     this.sequence++;
     this.running = true;
+    this.explanation = ""; this.checkedAt = null;
     this.message = "正在提交更新…";
     this.render();
     try {
@@ -151,6 +171,7 @@ export class UpdatePanel {
             this.message = STAGES[status.status] || "正在等待更新进程…";
             if (status.error) this.message += " " + explain(status.error);
             if (TERMINAL.has(status.status)) {
+              this.resultState = status.status === "healthy" ? "success" : "failed";
               if (status.status === "healthy") {
                 const version = await request("/api/version");
                 if (version.commit !== status.commit || version.version !== status.version) {
@@ -180,8 +201,12 @@ export class UpdatePanel {
       this.render();
     }
   }
-  refresh() {
-    if (this.hasUnsavedChanges() && !confirm("设置有未保存的更改，仍要刷新页面？")) return;
+  async refresh() {
+    const sequence = this.sequence, stamp = this.contextStamp();
+    if (this.hasUnsavedChanges() && !await confirmAction({ title: "放弃未保存设置并刷新", trigger: "#refreshUpdateBtn", message: "设置有未保存的更改。刷新页面会丢弃这些更改，仍要继续？", action: "放弃更改并刷新" })) return;
+    if (sequence !== this.sequence || stamp !== this.contextStamp()) {
+      this.result("设置或更新状态已变化，请重新操作。", "blocked"); this.render(); return;
+    }
     location.reload();
   }
 }

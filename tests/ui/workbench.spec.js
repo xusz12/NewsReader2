@@ -1,3 +1,4 @@
+import { answerConfirm } from "./helpers.js";
 import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
@@ -187,8 +188,8 @@ test("independent ideas create, edit, search and delete", async ({ page }) => {
   await page.locator("#ideaNote").fill("独立测试想法：补充核心证据");
   await page.locator("#saveIdeaBtn").click();
   await expect(page.locator("#ideasCardList")).toContainText("补充核心证据");
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#deleteIdeaBtn").click();
+  await answerConfirm(page);
   await expect(page.locator("#ideasCardList")).not.toContainText(
     "独立测试想法",
   );

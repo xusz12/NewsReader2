@@ -48,7 +48,7 @@ test('upstream prototype layout uses live counts, source/time filters and escape
   await expect(page.locator('.upstream-copy-feedback').last()).toContainText('请手动复制');
   expect(await page.evaluate(() => getSelection().toString())).toBe(entries[2].error);
   await page.keyboard.press('Escape');
-  await expect(page.locator('#upstreamErrorsDialog')).toBeHidden();
+  await expect(page.locator('#upstreamErrorsPanel')).toBeHidden();
   await expect(page.locator('#upstreamErrorsBtn')).toBeFocused();
 });
 
@@ -66,9 +66,9 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
-  const dialogBox = await page.locator('#upstreamErrorsDialog').boundingBox();
+  const dialogBox = await page.locator('#upstreamErrorsPanel').boundingBox();
   await expect(page.locator('#upstreamNextDayBtn')).toBeDisabled();
-  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('max', today);
+  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('data-max', today);
   await page.locator('[data-upstream-day-offset="-1"]').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-10-18');
   await expect(page.locator('[data-upstream-day-offset="-1"]')).toHaveAttribute('aria-pressed', 'true');
@@ -76,13 +76,15 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await expect(page.locator('#upstreamNextDayBtn')).toBeDisabled();
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
-  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
+  expect(await page.locator('#upstreamErrorsPanel').boundingBox()).toEqual(dialogBox);
   await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
   await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
   await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/19)');
   await page.locator('#upstreamErrorDate').fill('2026-10-01');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toHaveAttribute('aria-busy', 'false');
   await page.locator('#upstreamPreviousDayBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-09-30');
@@ -93,14 +95,16 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
   await page.locator('#closeUpstreamErrorsBtn').click();
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await page.locator('#upstreamErrorDate').fill('2026-10-17');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await requested;
-  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
+  expect(await page.locator('#upstreamErrorsPanel').boundingBox()).toEqual(dialogBox);
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   release();
@@ -112,7 +116,7 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('?');
   await expect(page.locator('[data-upstream-retry]')).toBeVisible();
-  expect(await page.locator('#upstreamErrorsDialog').boundingBox()).toEqual(dialogBox);
+  expect(await page.locator('#upstreamErrorsPanel').boundingBox()).toEqual(dialogBox);
   fail = false; rows = [];
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toBeHidden();
@@ -123,7 +127,7 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(currentDay);
   await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/20)');
-  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('max', currentDay);
+  await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('data-max', currentDay);
 });
 
 for (const width of [1440, 320]) {
@@ -138,7 +142,7 @@ for (const width of [1440, 320]) {
     const content = page.locator('#upstreamErrorsContent');
     const message = page.locator('#upstreamLoadMessage');
     const changes = [
-      ['2026-10-18', () => page.locator('#upstreamErrorDate').fill('2026-10-18')],
+      ['2026-10-18', async () => { await page.locator('#upstreamErrorDate').fill('2026-10-18'); await page.locator('#upstreamErrorDate').press('Enter'); }],
       ['2026-10-17', () => page.locator('#upstreamPreviousDayBtn').click()],
       ['2026-10-18', () => page.locator('#upstreamNextDayBtn').click()],
       [today, () => page.locator('#upstreamTodayBtn').click()],

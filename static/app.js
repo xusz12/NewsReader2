@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirm-dialog.js";
 import {
   singlePane,
   drawerNavigation,
@@ -1125,7 +1126,12 @@ async function markAllRead() {
     if (params.q) items = preview.items;
     const sourceScope = params.source_filter === "all" ? sourceName : `「${sourceName}」`;
     const search = params.q ? `\n搜索条件：「${params.q}」` : "";
-    if (!confirm(`确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${search}\n包含当前范围内尚未加载的新闻。`)) return;
+    if (!await confirmAction({ title: "全部标为已读", trigger: "#markAllReadBtn", message: `确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${search}\n包含当前范围内尚未加载的新闻。`, action: "全部标为已读" })) return;
+    if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部已读");
+    const current = params.q ? await searchNews(sequence, undefined, params) : await api(`/api/news?${new URLSearchParams({ ...params, count_only: "1" })}`);
+    if (sequence !== state.sequence || scope !== countScope() || current.total !== preview.total ||
+        (params.q && JSON.stringify(current.items.map(item => item.id).sort()) !== JSON.stringify(items.map(item => item.id).sort())))
+      return toast("新闻范围已变化，请重新点击全部已读");
   }
   if (params.q) {
     if (later) {
@@ -1449,7 +1455,7 @@ function refreshIndex(notify = false) {
 refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
-  if (summaries.modal.open || upstreamErrors.dialog.open) return;
+  if (document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));

@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirm-dialog.js";
 import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
 import { IdeaMarkdownEditor } from "./vendor/idea-markdown-editor.js?v=0.0.15-md1";
 
@@ -218,12 +219,16 @@ export class StandaloneIdeas {
   }
   async remove() {
     const draft = this.current;
-    if (!draft?.item.standalone_id || draft.saving || draft.deleting || !confirm("删除这条独立想法？")) return;
+    if (!draft?.item.standalone_id || draft.saving || draft.deleting) return;
+    const id = draft.item.standalone_id;
+    const stamp = JSON.stringify([draft.title, draft.note, draft.item.updated_at]);
+    if (!await confirmAction({ title: "删除独立想法", trigger: "#deleteIdeaBtn", message: `删除「${standaloneTitle(draft.item)}」？此操作会移除这条独立想法及其正文。`, action: "删除想法" })) return;
+    if (this.current !== draft || draft.item.standalone_id !== id || draft.saving || draft.deleting || stamp !== JSON.stringify([draft.title, draft.note, draft.item.updated_at])) return toast("想法已变化，请重新操作");
     draft.deleting = true;
     draft.error = "";
     this.render();
     try {
-      await api(`/api/standalone-ideas/${draft.item.standalone_id}`, { method: "DELETE" });
+      await api(`/api/standalone-ideas/${id}`, { method: "DELETE" });
       this.drafts.delete(draft.item.idea_id);
       this.onDeleted(draft.item);
       toast("想法已删除");

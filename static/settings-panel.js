@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirm-dialog.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js";
@@ -37,7 +38,7 @@ export class SettingsPanel {
     this.catalogSequence = 0;
     this.catalogs = new Map();
     this.selects = selects;
-    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || !!this.secretDraft });
+    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || !!this.secretDraft, contextStamp: () => JSON.stringify([this.draft, this.secretDraft, this.open]) });
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
@@ -397,7 +398,7 @@ export class SettingsPanel {
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
       ${field("下次启动使用的数据库", "database.configured_path", d.database.configured_path, d.database.environment_override ? "disabled" : 'placeholder="已有 SQLite 文件的完整路径"')}
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
-      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" role="status" aria-live="polite"></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
+      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" role="status" aria-live="polite" aria-atomic="true"><strong id="updateConclusion"></strong><p id="updateExplanation"></p><time id="updateCheckedAt"></time></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
     this.renderTranslation();
     this.updater.render();
@@ -534,10 +535,13 @@ export class SettingsPanel {
         this.onSaved();
       },
       clearSessionsBtn: async () => {
-        if (confirm("清空当前新闻库的临时 Agent 对话与任务？新闻、想法和尚未归属的旧会话会保留。")) {
-          const result = await api("/api/agent/sessions", { method: "DELETE" });
-          toast(result.preserved_legacy ? "当前库临时会话已清空；尚未归属的旧会话已保留" : "当前库临时会话已清空");
-        }
+        const saved = this.saved, path = saved.database.path;
+        if (!await confirmAction({ title: "清空临时 Agent 会话", trigger: "#clearSessionsBtn", message: "清空当前新闻库的临时 Agent 对话与任务？新闻、想法和尚未归属的旧会话会保留。", action: "清空临时会话" })) return;
+        if (this.saved !== saved || this.saved.database.path !== path) return toast("新闻库已变化，请重新操作");
+        const current = await api("/api/settings");
+        if (current.database.path !== path || this.saved !== saved) return toast("新闻库已变化，请重新操作");
+        const result = await api("/api/agent/sessions", { method: "DELETE" });
+        toast(result.preserved_legacy ? "当前库临时会话已清空；尚未归属的旧会话已保留" : "当前库临时会话已清空");
       },
       checkUpdateBtn: () => this.updater.check(),
       applyUpdateBtn: () => this.updater.apply(),
@@ -707,7 +711,9 @@ export class SettingsPanel {
     this.renderTranslation();
   }
   async deleteSecret() {
-    if (!confirm("删除已保存的 DeepSeek API 密钥？")) return;
+    const status = this.saved.api_status, draft = this.draft, secret = this.secretDraft, editing = this.editingSecret;
+    if (!await confirmAction({ title: "删除翻译密钥", trigger: "#deleteSecretBtn", message: "删除已保存的 DeepSeek API 密钥？删除后，依赖该密钥的翻译服务将不可用，需重新配置。", action: "删除密钥" })) return;
+    if (this.saved.api_status !== status || this.draft !== draft || this.secretDraft !== secret || this.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
     const data = await api("/api/settings/secrets/deepseek", { method: "DELETE" });
     toast("密钥已删除");
     this.applySecretResponse(data);

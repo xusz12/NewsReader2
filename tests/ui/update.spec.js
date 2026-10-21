@@ -1,3 +1,4 @@
+import { answerConfirm } from "./helpers.js";
 import { openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
@@ -78,8 +79,8 @@ test('rollback progress survives navigating away and is shown in Chinese', async
     ok: true, run_id: 'rollback-run', status: complete ? 'rolled_back' : 'fetching', error: complete ? 'health_check_failed' : undefined,
   } : { ok: true, status: 'idle' } }));
   await page.locator('#checkUpdateBtn').click();
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('#applyUpdateBtn').click();
+  await answerConfirm(page);
   await expect(page.locator('#updateResult')).toContainText('正在下载目标版本');
   await expect(page.locator('#checkUpdateBtn')).toBeDisabled();
   await page.locator('#closeSettingsBtn').click();
@@ -106,8 +107,8 @@ for (const width of [360, 1440]) {
     } : { ok: true, status: 'idle' } }));
     await page.route('**/api/version', route => route.fulfill({ json: servingTarget ? { ...current, ...latest } : current }));
     await page.locator('#checkUpdateBtn').click();
-    page.once('dialog', dialog => dialog.accept());
     await page.locator('#applyUpdateBtn').click();
+    await answerConfirm(page);
     await expect(page.locator('#updateResult')).toContainText('正在下载目标版本');
     await page.reload();
     await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();

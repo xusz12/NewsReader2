@@ -1,3 +1,4 @@
+import { answerConfirm } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page, request }) => {
@@ -22,31 +23,24 @@ test('confirmation uses fresh unread counts across pages, supports cancel and sk
     if (req.method() === 'POST' && /\/api\/news\/mark-(all-read|read-by-ids)$/.test(new URL(req.url()).pathname))
       writes.push(req.postDataJSON());
   });
-  let confirmations = 0, accept = false;
-  page.on('dialog', async dialog => {
-    confirmations++;
-    expect(dialog.type()).toBe('confirm');
-    expect(dialog.message()).toContain('全部来源的 64 条未读新闻');
-    expect(dialog.message()).toContain('尚未加载');
-    if (accept) await dialog.accept();
-    else await dialog.dismiss();
-  });
   await page.locator('#markAllReadBtn').click();
+  const confirmation = await answerConfirm(page, false);
+  expect(confirmation).toContain('全部来源的 64 条未读新闻');
+  expect(confirmation).toContain('尚未加载');
   await expect(page.locator('#markAllReadBtn')).toBeEnabled();
-  expect(confirmations).toBe(1);
   expect(writes).toHaveLength(0);
   expect(await unreadCount(request)).toBe(64);
 
-  accept = true;
   await page.locator('#markAllReadBtn').click();
+  await answerConfirm(page);
   await expect(page.locator('#toast')).toHaveText('全部来源：已将 64 条新闻标为已读');
-  expect(confirmations).toBe(2);
+  await expect(page.locator('#appConfirmDialog')).toBeHidden();
   expect(writes).toEqual([expect.objectContaining({ collection: 'feed', source_filter: 'all', read_filter: 'unread' })]);
   expect(await unreadCount(request)).toBe(0);
   expect((await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBe(readAt);
   await page.locator('#markAllReadBtn').click();
   await expect(page.locator('#toast')).toHaveText('全部来源：当前范围没有未读新闻');
-  expect(confirmations).toBe(2);
+  await expect(page.locator('#appConfirmDialog')).toBeHidden();
   expect(writes).toHaveLength(1);
 });
 
@@ -67,12 +61,8 @@ test('confirmation includes the selected source and full-text query, and marks o
     sent = route.request().postDataJSON().item_ids;
     await route.continue();
   });
-  let confirmation;
-  page.once('dialog', async dialog => {
-    confirmation = dialog.message();
-    await dialog.accept();
-  });
   await page.locator('#markAllReadBtn').click();
+  const confirmation = await answerConfirm(page);
   await expect(page.locator('#toast')).toContainText(`已将 ${result.total} 条新闻标为已读`);
   expect(confirmation).toContain('Reuters');
   expect(confirmation).toContain(`${result.total} 条未读新闻`);

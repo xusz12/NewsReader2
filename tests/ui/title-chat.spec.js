@@ -1,3 +1,4 @@
+import { answerConfirm } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 const itemId = 'ui-064';
@@ -96,8 +97,8 @@ test('full text arriving during a title conversation retains history and title s
   await expect(stream(page)).toContainText('保留的标题会话回答');
   await expect(input(page)).toHaveValue('正文到达时的下一轮草稿');
   expect((await session(request)).session.id).toBe(submitted.session.id);
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('#agentNewBtn').click();
+  await answerConfirm(page);
   await expect(page.locator('#agentContext')).toBeHidden();
   await expect(input(page)).toHaveValue('正文到达时的下一轮草稿');
   expect((await session(request)).session.context_level).toBe('full_detail');

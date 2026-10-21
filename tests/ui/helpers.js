@@ -15,3 +15,11 @@ export async function openSettings(page) {
   await openNavigation(page);
   await page.locator('#leftNavSettingsBtn').click();
 }
+
+export async function answerConfirm(page, accept = true) {
+  const dialog = page.locator('#appConfirmDialog');
+  await dialog.waitFor({ state: 'visible' });
+  const message = await dialog.locator('#appConfirmMessage').innerText();
+  await dialog.locator(accept ? '#appConfirmAccept' : '#appConfirmCancel').click();
+  return message;
+}

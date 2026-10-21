@@ -1,3 +1,4 @@
+import { confirmAction } from "./confirm-dialog.js";
 import {
   $,
   api,
@@ -44,12 +45,26 @@ export class AgentPanel {
       if (this.open && !event.target.closest("#agentDock")) this.collapse();
     });
     $("#agentPromptInput").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.isComposing) {
+      const mobile = matchMedia("(max-width: 920px)").matches;
+      if (event.key === "Enter" && !event.isComposing && !this.composing && event.keyCode !== 229 &&
+          (event.ctrlKey || event.metaKey || (!mobile && !event.shiftKey))) {
         event.preventDefault();
         this.send();
       }
     });
-    $("#agentPromptInput").addEventListener("input", () => this.draftChanged());
+    const input = $("#agentPromptInput");
+    input.addEventListener("compositionstart", () => { this.composing = true; });
+    input.addEventListener("compositionend", () => { this.composing = false; this.scheduleInputSize(); });
+    input.addEventListener("input", () => { this.draftChanged(); this.scheduleInputSize(); });
+    input.addEventListener("focus", () => this.scheduleInputSize());
+    window.addEventListener("resize", () => this.scheduleInputSize());
+    window.visualViewport?.addEventListener("resize", () => this.scheduleInputSize());
+    window.visualViewport?.addEventListener("scroll", () => this.scheduleInputSize());
+    this.inputObserver = new ResizeObserver(entries => {
+      const width = entries[0].contentRect.width;
+      if (width !== this.inputWidth) { this.inputWidth = width; this.scheduleInputSize(); }
+    });
+    this.inputObserver.observe(input);
     $(".mobile-sheet-handle-bar").onclick = () => this.collapse();
     $("#agentChatStream").addEventListener("click", (event) => {
       const button = event.target.closest("[data-retry-job]");
@@ -67,6 +82,36 @@ export class AgentPanel {
   }
   draftChanged() {
     if (this.item) this.draftVersions.set(this.item.id, (this.draftVersions.get(this.item.id) || 0) + 1);
+  }
+  scheduleInputSize() {
+    cancelAnimationFrame(this.inputSizeFrame);
+    this.inputSizeFrame = requestAnimationFrame(() => this.resizeInput());
+  }
+  resizeInput() {
+    const input = $("#agentPromptInput"), dock = $("#agentDock");
+    const mobile = matchMedia("(max-width: 920px)").matches;
+    const viewport = window.visualViewport;
+    const height = viewport?.height || innerHeight, offset = viewport?.offsetTop || 0;
+    if (mobile && this.open) {
+      const keyboard = height < innerHeight - 100;
+      const nav = keyboard ? 0 : $(".mobile-bottom-nav")?.getBoundingClientRect().height || 0;
+      const bottom = offset + height - nav;
+      const top = Math.max(offset + 8, $(".topbar").getBoundingClientRect().bottom, bottom - innerHeight * .78);
+      // The reader's slide transform establishes a containing block even for fixed children.
+      const containingTop = dock.offsetParent?.getBoundingClientRect().top || 0;
+      dock.style.setProperty("--agent-mobile-top", `${top - containingTop}px`);
+      dock.style.setProperty("--agent-mobile-height", `${Math.max(100, bottom - top)}px`);
+    }
+    if (!input.getClientRects().length) return;
+    const style = getComputedStyle(input), line = parseFloat(style.lineHeight);
+    const extra = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const limit = Math.max(line + extra, Math.min(line * (mobile ? 5 : 8) + extra, height / 3));
+    const scroll = input.scrollTop;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(limit, Math.max(line * 2 + extra, input.scrollHeight + extra - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)))}px`;
+    input.style.overflowY = input.scrollHeight > input.clientHeight ? "auto" : "hidden";
+    input.scrollTop = scroll;
+    $("#agentInputHint").textContent = mobile ? "Enter 换行，点击发送或按 Ctrl / Cmd + Enter 发送" : "Enter 发送，Shift + Enter 换行；Ctrl / Cmd + Enter 也可发送";
   }
   hasHistory() {
     return !!(this.payload.messages?.length || this.payload.jobs?.length);
@@ -185,6 +230,7 @@ export class AgentPanel {
     }
   }
   render() {
+    this.scheduleInputSize();
     const dock = $("#agentDock");
     dock.classList.toggle("minimized", !this.open);
     dock.classList.toggle("mobile-sheet-open", this.open);
@@ -387,13 +433,11 @@ export class AgentPanel {
   }
   async newSession() {
     if (!this.item || this.active()) return;
-    if (
-      this.payload.messages?.length &&
-      !confirm("新建会话会删除本篇的旧临时对话，是否继续？")
-    )
-      return;
-    const id = this.item.id,
-      sequence = this.sequence;
+    const id = this.item.id, sequence = this.sequence, sessionId = this.payload.session?.id;
+    const stamp = JSON.stringify([this.payload.messages, this.payload.jobs]);
+    if (this.payload.messages?.length && !await confirmAction({ title: "新建 Agent 会话", trigger: "#agentNewBtn", message: "新建会话会删除本篇新闻的旧临时对话与任务。新闻和已保存的想法不受影响。", action: "删除旧对话并新建" })) return;
+    if (this.item?.id !== id || sequence !== this.sequence || this.payload.session?.id !== sessionId || stamp !== JSON.stringify([this.payload.messages, this.payload.jobs]) || this.active() || this.sending)
+      return toast("新闻或会话已变化，请重新操作");
     const data = await api(
       `/api/news/${encodeURIComponent(id)}/agent/session`,
       { method: "POST", body: { new_session: true } },

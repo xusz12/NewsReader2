@@ -1,3 +1,4 @@
+import { DatePicker, dateKey, localDate } from "./date-picker.js";
 import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
 
 const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
@@ -14,36 +15,45 @@ function errorBadge(log) {
   return /timeout|timed?\s*out|超时/i.test(log) ? "连接超时" : "采集异常";
 }
 
-function dateKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
 function shiftDay(day, offset) {
-  const date = new Date(`${day}T12:00:00`);
+  const date = localDate(day);
   date.setDate(date.getDate() + offset);
   return dateKey(date);
 }
 
 export class UpstreamErrors {
   constructor() {
-    this.dialog = $("#upstreamErrorsDialog");
+    this.panel = $("#upstreamErrorsPanel");
     this.button = $("#upstreamErrorsBtn");
     this.content = $("#upstreamErrorsContent");
     this.loadMessage = $("#upstreamLoadMessage");
-    this.retryButton = $("[data-upstream-retry]", this.dialog);
+    this.retryButton = $("[data-upstream-retry]", this.panel);
     this.retryButton.onclick = () => this.load(this.requestedDay);
     this.loadedDay = "";
     this.sequence = 0;
     this.dimension = "time";
     this.filter = "";
     this.today = dateKey(new Date());
-    this.button.onclick = () => {
-      this.dialog.showModal();
-      this.button.setAttribute("aria-expanded", "true");
-      this.showToday();
-    };
-    $("#closeUpstreamErrorsBtn").onclick = () => this.dialog.close();
-    $("#upstreamErrorDate").onchange = () => this.selectDay($("#upstreamErrorDate").value);
+    this.button.onclick = event => this.open ? this.close() : this.show(event.detail === 0);
+    this.button.addEventListener("keydown", event => {
+      if (event.key === "ArrowDown") { event.preventDefault(); this.show(true); }
+    });
+    $("#closeUpstreamErrorsBtn").onclick = () => this.close(true);
+    document.addEventListener("pointerdown", event => {
+      if (this.open && !this.panel.contains(event.target) && !this.button.contains(event.target)) this.close();
+    });
+    document.addEventListener("keydown", event => {
+      if (this.open && event.key === "Escape") {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (this.datePicker.open) this.datePicker.close(true);
+        else this.close(true);
+      }
+    }, true);
+    document.addEventListener("topbar:popover-open", event => { if (event.detail !== this.panel.id) this.close(); });
+    window.addEventListener("resize", () => this.position());
+    window.visualViewport?.addEventListener("resize", () => this.position());
+    window.visualViewport?.addEventListener("scroll", () => this.position());
+    this.datePicker = new DatePicker({ input: $("#upstreamErrorDate"), button: $("#upstreamCalendarBtn"), panel: $("#upstreamCalendar"), error: $("#upstreamDateError"), getToday: () => this.today, onSelect: day => this.selectDay(day), onInvalid: () => { ++this.sequence; this.content.setAttribute("aria-busy", "false"); this.setLoadStatus(""); } });
     $(".upstream-date-shortcuts").onclick = event => {
       const shortcut = event.target.closest("[data-upstream-day-offset]");
       if (shortcut) {
@@ -52,22 +62,13 @@ export class UpstreamErrors {
         else this.selectDay(shiftDay(this.today, offset));
       }
     };
-    $("#upstreamPreviousDayBtn").onclick = () => this.selectDay(shiftDay($("#upstreamErrorDate").value || this.today, -1));
-    $("#upstreamNextDayBtn").onclick = () => this.selectDay(shiftDay($("#upstreamErrorDate").value || this.today, 1));
+    const stepDate = offset => {
+      const day = $("#upstreamErrorDate").value;
+      if (this.datePicker.setValue(day)) this.selectDay(shiftDay(day, offset));
+    };
+    $("#upstreamPreviousDayBtn").onclick = () => stepDate(-1);
+    $("#upstreamNextDayBtn").onclick = () => stepDate(1);
     this.updateDateControls();
-    this.dialog.addEventListener("close", () => {
-      ++this.sequence;
-      this.content.setAttribute("aria-busy", "false");
-      this.setLoadStatus("");
-      this.button.setAttribute("aria-expanded", "false");
-      this.button.focus({ preventScroll: true });
-    });
-    this.dialog.addEventListener("click", event => {
-      if (event.target === this.dialog) {
-        const box = this.dialog.getBoundingClientRect();
-        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) this.dialog.close();
-      }
-    });
     this.content.onclick = event => {
       const dimension = event.target.closest("[data-upstream-dimension]");
       const filter = event.target.closest("[data-upstream-filter]");
@@ -83,24 +84,59 @@ export class UpstreamErrors {
     sync();
   }
 
+  get open() { return !this.panel.hidden; }
+
+  show(keyboard = false) {
+    document.dispatchEvent(new CustomEvent("topbar:popover-open", { detail: this.panel.id }));
+    this.panel.hidden = false;
+    this.button.setAttribute("aria-expanded", "true");
+    this.position(); this.showToday();
+    if (keyboard) $("#upstreamErrorDate").focus({ preventScroll: true });
+  }
+
+  close(restoreFocus = false) {
+    if (!this.open) return;
+    this.datePicker.close();
+    this.panel.hidden = true;
+    ++this.sequence;
+    this.content.setAttribute("aria-busy", "false");
+    this.setLoadStatus("");
+    this.button.setAttribute("aria-expanded", "false");
+    if (restoreFocus) this.button.focus({ preventScroll: true });
+    document.dispatchEvent(new Event("agent:rendered"));
+  }
+
+  position() {
+    if (!this.open) return;
+    const anchor = this.button.getBoundingClientRect(), viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+    const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
+    this.panel.style.width = `${Math.min(640, width - 24)}px`;
+    this.panel.style.left = `${Math.max(left + 12, Math.min(anchor.left + anchor.width / 2 - this.panel.offsetWidth / 2, left + width - this.panel.offsetWidth - 12))}px`;
+    this.panel.style.top = `${Math.max(top + 12, anchor.bottom + 10)}px`;
+    const available = Math.max(0, top + height - this.panel.getBoundingClientRect().top - 12);
+    this.panel.style.height = `${Math.min(760, available)}px`;
+    this.panel.style.maxHeight = `${available}px`;
+  }
+
   showToday() {
     // Omit the day so the server resolves today's date afresh, including after midnight.
-    $("#upstreamErrorDate").value = this.today;
+    this.datePicker.setValue(this.today);
     this.updateDateControls();
     this.refreshBadge();
     this.load("");
   }
 
   selectDay(day) {
-    if (!day) return this.showToday();
-    $("#upstreamErrorDate").value = day > this.today ? this.today : day;
-    this.load();
+    if (!this.datePicker.setValue(day)) return;
+    this.load(day);
   }
 
   updateDateControls() {
     const date = $("#upstreamErrorDate");
     const selected = date.value || this.today;
-    date.max = this.today;
+    date.dataset.max = this.today;
+    this.datePicker.render();
     document.querySelectorAll("[data-upstream-day-offset]").forEach(button => {
       const offset = Number(button.dataset.upstreamDayOffset);
       const day = shiftDay(this.today, offset);
@@ -116,7 +152,7 @@ export class UpstreamErrors {
     if (this.badgeRequest) return this.badgeRequest;
     this.badgeRequest = (async () => {
       try {
-        // The top bar counts today's recorded errors, independent of the dialog's date/filter.
+        // The top bar counts today's recorded errors, independent of the panel's date/filter.
         const data = await api("/api/error-stats?details=0");
         const count = recordsFrom(data).length;
         const badge = $("#upstreamErrorBadge");
@@ -147,6 +183,7 @@ export class UpstreamErrors {
 
   async load(day = $("#upstreamErrorDate").value) {
     const sequence = ++this.sequence;
+    const dateRevision = this.datePicker.inputRevision;
     this.requestedDay = day;
     const date = $("#upstreamErrorDate");
     this.updateDateControls();
@@ -158,9 +195,10 @@ export class UpstreamErrors {
       const params = new URLSearchParams({ details: "1" });
       if (day) params.set("day", day);
       const data = await api(`/api/error-stats?${params}`);
-      if (sequence !== this.sequence || !this.dialog.open) return;
-      date.value = data.day;
+      if (sequence !== this.sequence || !this.open) return;
       this.today = data.today || this.today;
+      if (dateRevision === this.datePicker.inputRevision) this.datePicker.setValue(data.day);
+      else this.datePicker.selectedDay = data.day;
       this.updateDateControls();
       this.records = recordsFrom(data);
       this.stats = data.stats || {};
@@ -172,7 +210,7 @@ export class UpstreamErrors {
       this.content.setAttribute("aria-label", `${data.day} 的上游报错记录`);
       this.setLoadStatus("");
     } catch (error) {
-      if (sequence === this.sequence && this.dialog.open) {
+      if (sequence === this.sequence && this.open) {
         this.setLoadStatus(`${errorText(error)}${this.loadedDay ? `；仍显示 ${this.loadedDay}` : ""}`, true);
         if (!this.loadedDay) this.content.innerHTML = '<div class="upstream-empty">暂时无法显示上游报错，请重新读取。</div>';
       }

@@ -157,7 +157,7 @@ test('new keyboard mapping and input guard', async ({ page, request }) => {
   await expect(page.locator('#shortcutsModal')).toContainText('q');
 });
 
-test('upstream errors support dates, escaped details, retry and modal keyboard isolation', async ({ page }) => {
+test('upstream errors support dates, escaped details, retry and popover keyboard isolation', async ({ page }) => {
   let fail = false;
   await page.route('**/api/error-stats?*', route => {
     const day = new URL(route.request().url()).searchParams.get('day') || '2026-10-19';
@@ -172,23 +172,25 @@ test('upstream errors support dates, escaped details, retry and modal keyboard i
   await page.keyboard.press('s');
   await expect(page.locator('[data-id="ui-064"]')).toHaveAttribute('aria-current', 'true');
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
   fail = true;
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('[data-upstream-retry]')).toBeVisible();
   fail = false;
   await page.locator('#upstreamErrorDate').fill('2026-10-19');
+  await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('Reuters world');
   await page.screenshot({ path: '.ui-artifacts/v011-upstream-errors.png' });
   await page.keyboard.press('Escape');
-  await expect(page.locator('#upstreamErrorsDialog')).not.toBeVisible();
+  await expect(page.locator('#upstreamErrorsPanel')).not.toBeVisible();
   for (const width of [390, 360, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await chooseTheme(page, 'dark');
     const themeBox = await page.locator('#themeSelect').boundingBox();
     expect(themeBox.x + themeBox.width).toBeLessThanOrEqual(width);
     await page.locator('#upstreamErrorsBtn').click();
-    const box = await page.locator('#upstreamErrorsDialog').boundingBox();
+    const box = await page.locator('#upstreamErrorsPanel').boundingBox();
     expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.screenshot({ path: `.ui-artifacts/v011-upstream-${width}.png` });
