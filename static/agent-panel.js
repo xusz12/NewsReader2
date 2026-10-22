@@ -52,7 +52,21 @@ export class AgentPanel {
         this.send();
       }
     });
-    const input = $("#agentPromptInput");
+    const input = $("#agentPromptInput"), dock = $("#agentDock");
+    this.dockHome = dock.parentElement;
+    this.dockAnchor = document.createComment("Agent dock home");
+    dock.before(this.dockAnchor);
+    this.inputMeasure = input.cloneNode();
+    this.inputMeasure.removeAttribute("id");
+    this.inputMeasure.removeAttribute("aria-label");
+    this.inputMeasure.removeAttribute("aria-describedby");
+    this.inputMeasure.className = "agent-input agent-input-measure";
+    this.inputMeasure.tabIndex = -1;
+    this.inputMeasure.inert = true;
+    this.inputMeasure.setAttribute("aria-hidden", "true");
+    this.inputMeasure.placeholder = "";
+    this.inputMeasure.rows = 1;
+    document.body.append(this.inputMeasure);
     input.addEventListener("compositionstart", () => { this.composing = true; });
     input.addEventListener("compositionend", () => { this.composing = false; this.scheduleInputSize(); });
     input.addEventListener("input", () => { this.draftChanged(); this.scheduleInputSize(); });
@@ -65,7 +79,6 @@ export class AgentPanel {
       if (width !== this.inputWidth) { this.inputWidth = width; this.scheduleInputSize(); }
     });
     this.inputObserver.observe(input);
-    $(".mobile-sheet-handle-bar").onclick = () => this.collapse();
     $("#agentChatStream").addEventListener("click", (event) => {
       const button = event.target.closest("[data-retry-job]");
       if (button) busy(button, () => this.retry(button.dataset.retryJob));
@@ -87,30 +100,65 @@ export class AgentPanel {
     cancelAnimationFrame(this.inputSizeFrame);
     this.inputSizeFrame = requestAnimationFrame(() => this.resizeInput());
   }
+  syncPlacement() {
+    const dock = $("#agentDock"), feed = $("#feedView");
+    const floating = matchMedia("(max-width: 920px)").matches && this.open && !dock.hidden &&
+      this.dockHome.classList.contains("active") && feed.classList.contains("mobile-reader-active") &&
+      !feed.classList.contains("settings-active");
+    // A fixed child of the transformed reader is still reader-relative and
+    // clipped by its scrolling ancestors. Mount the mobile sheet at body level.
+    // Only move it when entering/leaving the sheet, never during keyboard events.
+    if (floating && dock.parentElement !== document.body) document.body.append(dock);
+    else if (!floating && dock.parentElement !== this.dockHome) this.dockAnchor.after(dock);
+    dock.classList.toggle("mobile-agent-overlay", floating);
+    this.scheduleInputSize();
+  }
   resizeInput() {
     const input = $("#agentPromptInput"), dock = $("#agentDock");
     const mobile = matchMedia("(max-width: 920px)").matches;
     const viewport = window.visualViewport;
     const height = viewport?.height || innerHeight, offset = viewport?.offsetTop || 0;
-    if (mobile && this.open) {
-      const keyboard = height < innerHeight - 100;
-      const nav = keyboard ? 0 : $(".mobile-bottom-nav")?.getBoundingClientRect().height || 0;
-      const bottom = offset + height - nav;
-      const top = Math.max(offset + 8, $(".topbar").getBoundingClientRect().bottom, bottom - innerHeight * .78);
-      // The reader's slide transform establishes a containing block even for fixed children.
-      const containingTop = dock.offsetParent?.getBoundingClientRect().top || 0;
-      dock.style.setProperty("--agent-mobile-top", `${top - containingTop}px`);
-      dock.style.setProperty("--agent-mobile-height", `${Math.max(100, bottom - top)}px`);
+    const rows = mobile ? 1 : 2;
+    if (input.rows !== rows) input.rows = rows;
+    if (mobile && dock.classList.contains("mobile-agent-overlay")) {
+      const nav = $(".mobile-bottom-nav")?.getBoundingClientRect();
+      let bottom = offset + height;
+      if (nav?.height && nav.top < bottom && nav.bottom > offset) bottom = nav.top;
+      const top = Math.max(offset + 8, $(".topbar").getBoundingClientRect().bottom, bottom - document.documentElement.clientHeight * .70);
+      for (const [name, value] of Object.entries({ top, height: Math.max(0, bottom - top), left: viewport?.offsetLeft || 0, width: viewport?.width || innerWidth })) {
+        const pixels = `${value}px`;
+        if (dock.style.getPropertyValue(`--agent-mobile-${name}`) !== pixels) dock.style.setProperty(`--agent-mobile-${name}`, pixels);
+      }
     }
     if (!input.getClientRects().length) return;
     const style = getComputedStyle(input), line = parseFloat(style.lineHeight);
     const extra = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
-    const limit = Math.max(line + extra, Math.min(line * (mobile ? 5 : 8) + extra, height / 3));
-    const scroll = input.scrollTop;
-    input.style.height = "auto";
-    input.style.height = `${Math.min(limit, Math.max(line * 2 + extra, input.scrollHeight + extra - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)))}px`;
-    input.style.overflowY = input.scrollHeight > input.clientHeight ? "auto" : "hidden";
-    input.scrollTop = scroll;
+    let limit = Math.max(line + extra, Math.min(line * (mobile ? 5 : 8) + extra, height / 3));
+    if (mobile && this.open) {
+      const body = $(".agent-body");
+      const spacing = node => {
+        if (!node.getClientRects().length) return 0;
+        const css = getComputedStyle(node);
+        return ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth", "marginTop", "marginBottom"]
+          .reduce((sum, property) => sum + (parseFloat(css[property]) || 0), 0);
+      };
+      const reserved = Array.from(body.children).reduce((sum, node) => sum + spacing(node), spacing(body));
+      // Short landscape/keyboard viewports must also leave room for the
+      // surrounding chrome, including the chat/context padding.
+      limit = Math.max(line + extra, Math.min(limit, body.clientHeight - reserved));
+    }
+    // Never shrink the focused control to auto/zero for measurement: WebKit
+    // reveals the caret while the keyboard pans, creating a scroll/layout loop.
+    const measure = this.inputMeasure;
+    for (const property of ["width", "font", "lineHeight", "letterSpacing", "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "borderTopWidth", "borderBottomWidth", "borderLeftWidth", "borderRightWidth", "boxSizing"]) {
+      if (measure.style[property] !== style[property]) measure.style[property] = style[property];
+    }
+    measure.value = input.value || " ";
+    const measured = measure.scrollHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const target = Math.min(limit, Math.max(line * input.rows + extra, measured));
+    if (input.style.height !== `${target}px`) input.style.height = `${target}px`;
+    const overflow = measured > target ? "auto" : "hidden";
+    if (input.style.overflowY !== overflow) input.style.overflowY = overflow;
     $("#agentInputHint").textContent = mobile ? "Enter 换行，点击发送或按 Ctrl / Cmd + Enter 发送" : "Enter 发送，Shift + Enter 换行；Ctrl / Cmd + Enter 也可发送";
   }
   hasHistory() {
@@ -172,12 +220,15 @@ export class AgentPanel {
     persist("newsreader_workbench_agent_collapsed", "false");
     const sequence = this.sequence;
     await this.refresh();
-    if (sequence === this.sequence && this.open) $("#agentPromptInput").focus({ preventScroll: true });
+    if (sequence === this.sequence && this.open && !matchMedia("(max-width: 920px)").matches)
+      $("#agentPromptInput").focus({ preventScroll: true });
   }
   collapse() {
+    const restoreFocus = $("#agentDock").contains(document.activeElement);
     this.open = false;
     persist("newsreader_workbench_agent_collapsed", "true");
     this.render();
+    if (restoreFocus) $("#agentDockToggleBtn").focus({ preventScroll: true });
     this.clearStream();
   }
   async refresh() {
@@ -230,7 +281,7 @@ export class AgentPanel {
     }
   }
   render() {
-    this.scheduleInputSize();
+    this.syncPlacement();
     const dock = $("#agentDock");
     dock.classList.toggle("minimized", !this.open);
     dock.classList.toggle("mobile-sheet-open", this.open);

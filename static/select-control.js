@@ -77,12 +77,19 @@ export class SelectControls {
         if (select.classList.contains("theme-select")) {
           button.insertAdjacentHTML("afterbegin", '<svg class="theme-symbol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>');
         }
+        if (select.classList.contains("font-size-select")) {
+          button.insertAdjacentHTML("afterbegin", '<span class="font-size-symbol" aria-hidden="true">Aa</span>');
+        }
         select.after(button);
       }
       const label = select.selectedOptions[0]?.label || "请选择";
       button.querySelector(".select-value").textContent = label;
       button.title = label;
       button.disabled = select.disabled;
+      if (select.classList.contains("font-size-select")) {
+        button.title = `阅读字号：${label}`;
+        button.setAttribute("aria-description", label);
+      }
       const symbol = button.querySelector(".theme-symbol");
       if (symbol) {
         symbol.innerHTML = themeSymbols[select.value] || themeSymbols.system;

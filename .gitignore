@@ -8,6 +8,7 @@ app_settings.json
 *.model-catalogs/
 
 # Local design and experiment artifacts
+/AGENTS.md
 .impeccable/
 tmp/
 scripts/experiment_*.py

@@ -58,6 +58,6 @@
 
 ## 资料优先级
 
-交付源码及本次测试结果用于判断当前实现；根 [README](../../README.md) 和 [CHANGELOG](../../CHANGELOG.md) 说明当前产品及版本演进。界面约束遵循 [AGENTS.md](../../AGENTS.md)，视觉基线遵循 [修订设计规范](../../DESIGN_SPEC_AND_TOKENS_Fix.md) 和 [Token 映射](../design-token-mapping.md)。
+交付源码及本次测试结果用于判断当前实现；根 [README](../../README.md) 和 [CHANGELOG](../../CHANGELOG.md) 说明当前产品及版本演进。界面约束遵循 [项目设计与协作规范](../design-guidelines.md)，视觉基线遵循 [修订设计规范](../../DESIGN_SPEC_AND_TOKENS_Fix.md) 和 [Token 映射](../design-token-mapping.md)。
 
 [UI 重构说明](../ui-refactor.md) 含多版本历史记录，例如早期曾移除新闻总结，v0.0.8 已恢复。阅读旧段落时应结合对应版本，不能把历史描述当成当前功能清单。设计文档提及的 `news-reader-workbench.html` 原型未纳入当前 Git 文件；接手时以实际页面和已纳入的规范为准。

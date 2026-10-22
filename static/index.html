@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.1.1</title>
+    <title>News Reader v0.1.2</title>
     <script>
       try {
         const m =
@@ -40,11 +40,15 @@
           ? m
           : "system";
       } catch {}
+      try {
+        const size = localStorage.getItem("newsreader_workbench_font_size");
+        document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
+      } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.1.1-md1" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.1.1" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.1.2-md1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.1.2" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.1.1&amp;build=ideas-md2"
+      href="/static/style.css?v=0.1.2"
       rel="stylesheet"
     />
   </head>
@@ -88,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.1.1</span>
+            <span class="brand-version">v0.1.2</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -128,6 +132,12 @@
               <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"></path>
             </svg>
           </button>
+          <select aria-label="阅读字号" class="font-size-select" id="fontSizeSelect">
+            <option value="small">小（90%）</option>
+            <option value="standard" selected>标准（100%）</option>
+            <option value="large">大（115%）</option>
+            <option value="extra-large">特大（130%）</option>
+          </select>
           <select aria-label="外观主题" class="theme-select" id="themeSelect">
             <option value="system">跟随系统</option>
             <option value="light">经典浅色 (暖纸)</option>
@@ -478,9 +488,6 @@
               class="agent-dock minimized"
               id="agentDock"
             >
-              <div class="mobile-sheet-handle-bar">
-                <div class="mobile-sheet-handle"></div>
-              </div>
               <div
                 class="agent-header"
                 id="agentHeader"
@@ -992,7 +999,7 @@
             >
               <path d="M4 6h16M4 12h16M4 18h10"></path>
             </svg>
-            <span class="mob-badge" id="mobUnreadBadge"></span>
+            <span class="mob-badge" id="mobUnreadBadge" aria-hidden="true" hidden></span>
           </div>
           <span>新闻流</span>
         </button>
@@ -1001,16 +1008,13 @@
           data-collection="read_later"
           type="button"
         >
-          <svg
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            viewBox="0 0 24 24"
-          >
-            <path
-              d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
-            ></path></svg
-          ><span>稍后再看</span>
+          <div class="mob-icon-wrap">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="mob-badge" id="mobReadLaterBadge" aria-hidden="true" hidden></span>
+          </div>
+          <span>稍后再看</span>
         </button>
         <button class="mobile-nav-btn" data-collection="favorites" type="button">
           <svg
@@ -1256,9 +1260,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.1.1"></script>
+    <script src="/static/error_ui.js?v=0.1.2"></script>
     <script
-      src="/static/app.js?v=0.1.1&amp;build=ideas-md4"
+      src="/static/app.js?v=0.1.2"
       type="module"
     ></script>
   </body>

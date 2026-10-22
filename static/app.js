@@ -21,8 +21,8 @@ import {
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js";
 import { SummaryPanel } from "./summary-panel.js";
-import { SelectControls } from "./select-control.js";
-import { AgentPanel } from "./agent-panel.js";
+import { SelectControls } from "./select-control.js?v=0.1.2";
+import { AgentPanel } from "./agent-panel.js?v=0.1.2";
 import { AgentNotifications } from "./agent-notifications.js";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
@@ -536,8 +536,17 @@ const countsAreCurrent = snapshot => snapshot.clean && !stateWrites.pending.size
 function renderNavCounts() {
   if (!navSummary) return;
   $("#unreadBadge").textContent = navSummary.feed_unread || "";
-  $("#mobUnreadBadge").textContent = navSummary.feed_unread || "0";
   $("#readLaterNavBadge").textContent = navSummary.read_later_unread || "";
+  for (const [id, count, label] of [
+    ["mobUnreadBadge", navSummary.feed_unread, "新闻流"],
+    ["mobReadLaterBadge", navSummary.read_later_unread, "稍后再看"],
+  ]) {
+    const badge = $(`#${id}`);
+    const unread = Math.max(0, Number(count) || 0);
+    badge.hidden = unread === 0;
+    badge.textContent = unread > 99 ? "99+" : unread || "";
+    badge.closest("button").setAttribute("aria-label", unread ? `${label}，${unread} 条未读` : label);
+  }
   $("#starredNavBadge").textContent = navSummary.favorites || "";
   state.favoritesTotal = navSummary.favorites;
   renderFavoritesAction();
@@ -890,10 +899,12 @@ function renderReader() {
     $("#detailContent").innerHTML =
       '<div class="reader-empty"><span class="empty-book">▤</span><h2>从一篇新闻开始</h2><p>选择左侧新闻，阅读正文、查看分析。</p></div>';
     $("#agentDock").hidden = true;
+    agent.syncPlacement();
     return;
   }
   const detail = payload?.detail;
   $("#agentDock").hidden = false;
+  agent.syncPlacement();
   $("#detailPanelFeed .cache-label").textContent = pipelineLabel(payload);
   $("#detailPanelFeed .cache-label").title = $("#detailPanelFeed .cache-label").textContent;
   $("#detailPanelFeed .cache-time").textContent = detail?.fetched_at
@@ -1248,6 +1259,7 @@ function syncMobileLayers() {
   const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
   $("#detailPanelSettings").inert = singlePane.matches && !settingsDetail;
+  agent.syncPlacement();
 }
 let detailSwipe = null;
 function resetDetailSwipe() {
@@ -1418,6 +1430,11 @@ $("#themeSelect").value = document.documentElement.dataset.theme || "system";
 $("#themeSelect").onchange = (event) => {
   document.documentElement.dataset.theme = event.target.value;
   persist("newsreader_workbench_theme_mode", event.target.value);
+};
+$("#fontSizeSelect").value = document.documentElement.dataset.fontSize || "standard";
+$("#fontSizeSelect").onchange = (event) => {
+  document.documentElement.dataset.fontSize = event.target.value;
+  persist("newsreader_workbench_font_size", event.target.value);
 };
 selects.refresh();
 $("#leftNavSettingsBtn").onclick = () => settings.toggle();

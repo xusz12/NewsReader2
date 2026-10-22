@@ -69,12 +69,15 @@ test('error dropdown is nonmodal, mutually exclusive, keyboard reachable and ign
   await entry.click(); await page.locator('#agentNotificationsBtn').click();
   await expect(panel).toBeHidden(); await expect(page.locator('#agentNotificationsPanel')).toBeVisible();
   await entry.click(); await expect(panel).toBeVisible(); await expect(page.locator('#agentNotificationsPanel')).toBeHidden();
-  await page.locator('#feedSearchInput').click({ position: { x: 10, y: 10 } });
-  await expect(panel).toBeHidden(); await expect(page.locator('#feedSearchInput')).toBeFocused();
+  // The centered topbar menu can cover the search field; use an exposed control
+  // to verify outside clicks reach their target without forcing through the menu.
+  const outside = page.locator('#navFeedBtn');
+  await outside.click();
+  await expect(panel).toBeHidden(); await expect(entry).not.toBeFocused();
   hold = true; await entry.click();
   await expect.poll(() => !!release).toBe(true);
-  await page.locator('#feedSearchInput').click({ position: { x: 10, y: 10 } }); release();
-  await expect(panel).toBeHidden(); await expect(page.locator('#feedSearchInput')).toBeFocused();
+  await outside.click(); release();
+  await expect(panel).toBeHidden(); await expect(entry).not.toBeFocused();
 });
 
 test('desktop multiline input grows, preserves line breaks and drafts, and protects IME and failed sends', async ({ page }) => {

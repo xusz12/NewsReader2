@@ -321,7 +321,7 @@ test.describe('original sliding transitions', () => {
     await page.locator('#agentPromptInput').fill('定位检查');
     for (const [width, height] of [[360, 800], [390, 844], [812, 375], [360, 450]]) {
       await page.setViewportSize({ width, height });
-      await expect.poll(async () => (await page.locator('#agentDock').boundingBox()).height).toBeCloseTo(Math.min(height * 0.78, height - 52 - 56), 0);
+      await expect.poll(async () => (await page.locator('#agentDock').boundingBox()).height).toBeCloseTo(Math.min(height * 0.70, height - 52 - 56), 0);
       const rects = await page.locator('#agentPromptInput').evaluate(node => {
         const input = node.getBoundingClientRect();
         const dock = document.querySelector('#agentDock').getBoundingClientRect();
