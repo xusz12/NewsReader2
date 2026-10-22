@@ -4486,7 +4486,10 @@ def test_release_notes_parser_scans_all_sections_and_filters_invalid_entries(tmp
 - 这不是一个已发布版本。
 
 ### 2026-10-02 — v2.2.6 最新发布
+#### feat
 - 当前版本正文。
+#### improve
+- 现有体验改进。
 
 ### 2026-10-01 — v2.2.6 重复记录
 - 重复版本应只展示一次。
@@ -4512,7 +4515,7 @@ def test_release_notes_parser_scans_all_sections_and_filters_invalid_entries(tmp
 
     assert [note["version"] for note in notes] == ["v2.2.6", "v2.2.5", "v2.2.3"]
     assert notes[0]["date"] == "2026-10-02"
-    assert notes[0]["lines"] == ["当前版本正文。"]
+    assert notes[0]["lines"] == ["新增功能", "当前版本正文。", "体验优化", "现有体验改进。"]
     assert notes[1]["lines"] == ["历史正文。"]
 
 
@@ -4972,9 +4975,9 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
 
     initial = client.get("/api/settings").get_json()
     assert set(initial["llm"]) == {"translation", "pi_chat"}
-    assert set(initial["api_status"]) == {"deepseek", "pi", "codex"}
+    assert set(initial["api_status"]) == {"deepseek", "jev", "pi", "codex"}
     assert initial["agent"]["runtime"] == "pi"
-    assert set(initial["model_catalogs"]) == {"translation", "pi_chat", "codex"}
+    assert set(initial["model_catalogs"]) == {"translation", "jev", "pi_chat", "codex"}
     assert initial["llm"]["translation"]["model"] == "deepseek-saved"
 
     saved = client.put(

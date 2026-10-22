@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.1.2</title>
+    <title>News Reader v0.2.0</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.1.2-md1" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.1.2" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.2.0-md1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.2.0" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.1.2"
+      href="/static/style.css?v=0.2.0"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.1.2</span>
+            <span class="brand-version">v0.2.0</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -739,9 +739,9 @@
                 class="settings-category-card"
                 id="settingsCategory-deepseek"
                 data-settings-tab="deepseek"
-                data-title="DeepSeek 精读与翻译"
-                data-description="管理翻译模型与 API 密钥，配置单篇新闻精读。"
-                data-search="deepseek 翻译 精读 摘要 密钥 api"
+                data-title="API 管理"
+                data-description="管理 DeepSeek、Jev 的 API 密钥与模型，测试服务连接。"
+                data-search="deepseek jev typesafe 翻译 精读 摘要 密钥 api 模型 测试"
                 type="button"
                 aria-controls="settingsContent"
                 aria-current="false"
@@ -759,10 +759,10 @@
                     <polyline points="14 2 14 8 20 8"></polyline></svg
                 ></span>
                 <span class="settings-category-copy"
-                  ><span class="settings-category-meta">中文阅读</span
-                  ><strong>DeepSeek 精读与翻译</strong
+                  ><span class="settings-category-meta">模型服务</span
+                  ><strong>API 管理</strong
                   ><span class="settings-category-description"
-                    >管理翻译模型与 API 密钥，配置单篇新闻精读。</span
+                    >管理 DeepSeek、Jev 的 API 密钥与模型，测试服务连接。</span
                   ></span
                 >
                 <svg
@@ -1260,9 +1260,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.1.2"></script>
+    <script src="/static/error_ui.js?v=0.2.0"></script>
     <script
-      src="/static/app.js?v=0.1.2"
+      src="/static/app.js?v=0.2.0"
       type="module"
     ></script>
   </body>

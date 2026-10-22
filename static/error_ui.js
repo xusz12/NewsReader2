@@ -5,9 +5,12 @@
   function register(category, codes, message) {
     for (const code of codes.split(' ')) groups[code] = {category, message};
   }
-  register('credentials', 'missing_api_key', '尚未配置 DeepSeek API 密钥。');
+  register('credentials', 'missing_api_key', '尚未配置当前服务的 API 密钥。');
+  register('model', 'api_test_failed', '模型连接测试失败。');
+  register('model', 'api_test_timeout', '模型连接测试超时。');
+  register('input', 'invalid_api_models', 'API 模型配置格式无效。');
   register('credentials', 'credentials codex_auth_required oar_auth_required authentication_error invalid_api_key', '身份验证失败。');
-  register('model', 'models_unavailable', '获取翻译模型列表失败。');
+  register('model', 'models_unavailable', '获取模型列表失败。');
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');
   register('model', 'model model_not_found model_not_supported oar_model_unavailable', '所选模型不存在或不可用。');
   register('model', 'pi_model_not_selected', '尚未选择模型。');

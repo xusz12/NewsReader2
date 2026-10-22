@@ -1,4 +1,5 @@
 {
+  "api_models": { "jev": { "model": "" } },
   "llm": {
     "translation": { "provider": "deepseek", "model": "" },
     "pi_chat": { "provider": "", "model": "" }

@@ -2,6 +2,7 @@ from __future__ import annotations
 from contextlib import closing
 import model_catalogs
 import connection_tests
+import model_apis
 
 import math
 import hashlib
@@ -294,7 +295,7 @@ AGENT_SYSTEM_PROMPT = (
 RELEASE_NOTE_HEADING_RE = re.compile(r"^###\s+(?P<date>\d{4}-\d{2}-\d{2})\s+—\s+(?P<title>.+?)\s*$")
 VERSION_RE = re.compile(r"\bv\d+(?:\.\d+){1,3}\b", re.IGNORECASE)
 SECRET_PROVIDER_MAP = {
-    "deepseek": "DEEPSEEK_API_KEY",
+    **{provider: config["secret_name"] for provider, config in model_apis.API_PROVIDERS.items()},
     "openai": "OPENAI_API_KEY",
 }
 DEEPSEEK_MODEL_FALLBACKS = [
@@ -1950,6 +1951,10 @@ def parse_release_notes() -> list[dict]:
         if current is None or not line.strip():
             continue
         cleaned = line.strip()
+        # Release groups use level-4 Markdown headings; the settings view is
+        # plain text, so expose readable labels rather than Markdown markers.
+        group_labels = {"#### feat": "新增功能", "#### improve": "体验优化", "#### fix": "问题修复"}
+        cleaned = group_labels.get(cleaned.lower(), cleaned)
         if cleaned.startswith("- "):
             cleaned = cleaned[2:].strip()
         cleaned = cleaned.replace("**", "")
@@ -2004,6 +2009,7 @@ def current_runtime_settings() -> dict:
     if isinstance(database, dict) and isinstance(database.get("path"), str):
         merged["database"]["path"] = database["path"].strip()
     merged["news_summary"] = news_summaries.selection.limits(raw.get("news_summary"))
+    merged["api_models"] = model_apis.normalize_api_models(raw.get("api_models", {}))
     return merged
 
 
@@ -2391,26 +2397,72 @@ def database_runtime_snapshot(settings: dict | None = None) -> dict:
     }
 
 
+def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool = False) -> dict:
+    if provider == "deepseek":
+        return deepseek_settings_snapshot(saved_model)
+    config = model_apis.API_PROVIDERS[provider]
+    key = provider_secret_value(provider)
+    configured = bool(key) or provider_has_configured_key(provider)
+    options = fallback_model_options([config["default_model"]], source="fallback") if configured else []
+    service = {
+        "configured": configured,
+        "masked_key": (key[:4] + "••••••••" + key[-4:]) if len(key) > 12 else ("••••••••" if configured else ""),
+        "environment_override": bool(os.getenv(config["secret_name"], "").strip()),
+        "models_endpoint_reachable": None,
+        "status_text": "点击获取模型以读取可用目录。" if configured else "尚未配置 API 密钥。",
+    }
+    source = "fallback" if configured else "unavailable"
+    if refresh and configured:
+        service["models_endpoint_reachable"] = False
+        try:
+            if not key:
+                raise ValueError("unreadable_key")
+            probe = Request(config["models_url"], headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
+            with urlopen(probe, timeout=5) as response:
+                parsed = model_apis.parse_model_options(provider, json.loads(response.read().decode("utf-8")))
+            if not parsed:
+                raise ValueError("empty_models")
+            options, source = parsed, "official"
+            service.update(models_endpoint_reachable=True, status_text="模型目录已获取。")
+        except HTTPError as exc:
+            service["status_text"] = f"获取模型失败（HTTP {exc.code}）。"
+        except Exception:
+            service["status_text"] = "暂时无法获取模型目录，请稍后重试。"
+    return {"service": service, "catalog": {
+        "source": source, "saved_model": saved_model, "custom_allowed": True,
+        "resolved_default_model": config["default_model"],
+        "options": merge_model_options(options, saved_model),
+    }}
+
+
 def serialize_runtime_settings() -> dict:
     settings = current_runtime_settings()
     translation_model = (settings["llm"]["translation"].get("model") or "").strip()
     pi_chat_model = (settings["llm"]["pi_chat"].get("model") or "").strip()
     pi_chat_provider = (settings["llm"]["pi_chat"].get("provider") or "").strip()
     deepseek_snapshot = deepseek_settings_snapshot(translation_model)
+    api_snapshots = {
+        provider: managed_api_snapshot(provider, settings["api_models"][provider]["model"])
+        for provider in model_apis.API_PROVIDERS if provider != "deepseek"
+    }
     pi_snapshot = pi_chat_settings_snapshot(pi_chat_model, pi_chat_provider)
     feed_source_snapshot = build_feed_source_settings_snapshot(settings["feed"].get("hidden_source_subkeys") or [])
     return {
         "api_status": {
             "deepseek": deepseek_snapshot["service"],
+            **{provider: snapshot["service"] for provider, snapshot in api_snapshots.items()},
             "pi": pi_snapshot["service"],
             "codex": {},
         },
         "model_catalogs": {
             "translation": deepseek_snapshot["catalog"],
+            **{provider: snapshot["catalog"] for provider, snapshot in api_snapshots.items()},
             "pi_chat": pi_snapshot["catalog"],
             "codex": model_catalogs.cached_catalog(settings["agent"]["codex"]),
         },
         "llm": settings["llm"],
+        "api_models": settings["api_models"],
+        "api_providers": [{"id": provider, **config} for provider, config in model_apis.API_PROVIDERS.items()],
         "feed": settings["feed"],
         "feed_source_subkeys": feed_source_snapshot,
         "tracked": settings["tracked"],
@@ -2478,6 +2530,7 @@ def validate_runtime_settings(payload: object) -> dict:
         raise ValueError("invalid_summary_limits")
     summary_limits = news_summaries.selection.limits(payload.get("news_summary", current_settings["news_summary"]))
     normalized = {
+        "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"])),
         "news_summary": summary_limits,
         "llm": {
             "translation": {
@@ -8171,9 +8224,12 @@ def api_release_notes():
     return jsonify({"ok": True, "items": parse_release_notes()})
 
 
+@app.post("/api/settings/apis/<provider>/models")
 @app.post("/api/settings/translation/models")
-def api_translation_models():
-    snapshot = deepseek_settings_snapshot("")
+def api_translation_models(provider: str = "deepseek"):
+    if provider not in model_apis.API_PROVIDERS:
+        return jsonify(ok=False, error="unsupported_provider"), 400
+    snapshot = managed_api_snapshot(provider, refresh=True)
     if not snapshot["service"]["configured"]:
         return jsonify(ok=False, error="missing_api_key"), 400
     if snapshot["service"].get("models_endpoint_reachable") is not True:
@@ -8181,31 +8237,38 @@ def api_translation_models():
     return jsonify(ok=True, **snapshot)
 
 
+@app.post("/api/settings/apis/<provider>/test")
 @app.post("/api/settings/translation/test")
-def api_translation_test():
-    body = request.get_json(silent=True) or {}
+def api_translation_test(provider: str = "deepseek"):
+    if provider not in model_apis.API_PROVIDERS:
+        return jsonify(ok=False, error="unsupported_provider"), 400
+    body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify(ok=False, error="invalid_payload"), 400
-    model = body.get("model") or resolve_translation_default_model()
-    if not isinstance(model, str) or len(model) > 120 or not model.strip():
+    config = model_apis.API_PROVIDERS[provider]
+    model = body.get("model", "")
+    if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
         return jsonify(ok=False, error="invalid_model"), 400
-    key = provider_secret_value("deepseek")
+    model = model.strip() or (resolve_translation_default_model() if provider == "deepseek" else config["default_model"])
+    key = provider_secret_value(provider)
     if not key:
         return jsonify(ok=False, error="missing_api_key"), 400
-    probe = Request("https://api.deepseek.com/beta/chat/completions",
-                    data=json.dumps({"model": model.strip(), "messages": [{"role": "user", "content": "Reply OK."}], "max_tokens": 16}).encode(),
+    probe = Request(config["test_url"],
+                    data=json.dumps(model_apis.probe_payload(provider, model)).encode(),
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
     started = time.monotonic()
     try:
         with urlopen(probe, timeout=30) as response:
             result = json.loads(response.read().decode())
-        if not result.get("choices"):
+        if not model_apis.valid_probe_response(provider, result):
             return jsonify(ok=False, error="empty_model_response"), 502
-        return jsonify(ok=True, message="模型连接成功", model=model, elapsed_ms=round((time.monotonic()-started)*1000))
+        return jsonify(ok=True, message="模型连接成功", provider=provider, model=model, elapsed_ms=round((time.monotonic()-started)*1000))
     except HTTPError as exc:
-        return jsonify(ok=False, error="translation_test_failed", message=f"模型测试失败（HTTP {exc.code}）"), 502
+        return jsonify(ok=False, error="api_test_failed", message=f"模型测试失败（HTTP {exc.code}）"), 502
+    except TimeoutError:
+        return jsonify(ok=False, error="api_test_timeout", message="模型连接测试超时。"), 504
     except Exception:
-        return jsonify(ok=False, error="translation_test_failed", message="翻译模型连接测试失败。"), 502
+        return jsonify(ok=False, error="api_test_failed", message="模型连接测试失败。"), 502
 
 
 @app.post("/api/settings/models")
@@ -8285,7 +8348,9 @@ def api_settings_tracked_default_rule_params_update():
 
 @app.put("/api/settings/secrets/<provider>")
 def api_settings_secret_save(provider: str):
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
     try:
         save_provider_secret(provider, body.get("key"))
     except ValueError as exc:

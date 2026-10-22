@@ -46,6 +46,8 @@ def fixture_summary(config, prompt, cancel, diagnostics):
             "## 继续观察\n\n当前材料不足以判断后续效果，需要继续跟踪披露。[[" + ref + "]]")
 module.NEWS_SUMMARY_SERVICE.runner = fixture_summary
 # Do not inspect local credentials or call model catalogs in UI tests.
+module.provider_secret_value = lambda provider: ''
+module.provider_has_configured_key = lambda provider: False
 module.deepseek_settings_snapshot = lambda model: {
     'service': {'configured': False, 'status_text': '未配置密钥'},
     'catalog': {'options': []},

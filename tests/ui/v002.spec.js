@@ -200,8 +200,8 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   saved.model_catalogs.translation = { options: [{ value: 'known', source: 'official' }] };
   await page.route('**/api/settings', route => route.request().method() === 'GET' ? route.fulfill({ json: saved }) : route.continue());
   await page.route('**/api/settings/secrets/deepseek', route => route.fulfill({ json: { ...saved, api_status: { ...saved.api_status, deepseek: { configured: route.request().method() !== 'DELETE', masked_key: 'sk-n••••••••5678' } } } }));
-  await page.route('**/api/settings/translation/models', route => route.fulfill({ json: { ok: true, catalog: { options: [{ value: 'known', source: 'official' }, { value: 'new-model', source: 'official' }] } } }));
-  await page.route('**/api/settings/translation/test', route => route.fulfill({ json: { ok: true, message: '模型连接成功', model: route.request().postDataJSON().model, elapsed_ms: 15 } }));
+  await page.route('**/api/settings/apis/deepseek/models', route => route.fulfill({ json: { ok: true, catalog: { options: [{ value: 'known', source: 'official' }, { value: 'new-model', source: 'official' }] } } }));
+  await page.route('**/api/settings/apis/deepseek/test', route => route.fulfill({ json: { ok: true, message: '模型连接成功', model: route.request().postDataJSON().model, elapsed_ms: 15 } }));
   await start(page);
   await page.locator('#leftNavSettingsBtn').click();
   await page.locator('[data-settings-tab="deepseek"]').click();

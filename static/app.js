@@ -19,10 +19,10 @@ import {
   inlineMarkdown,
   focusTrap,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js";
+import { SettingsPanel } from "./settings-panel.js?v=0.2.0";
 import { SummaryPanel } from "./summary-panel.js";
-import { SelectControls } from "./select-control.js?v=0.1.2";
-import { AgentPanel } from "./agent-panel.js?v=0.1.2";
+import { SelectControls } from "./select-control.js?v=0.2.0";
+import { AgentPanel } from "./agent-panel.js?v=0.2.0";
 import { AgentNotifications } from "./agent-notifications.js";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";

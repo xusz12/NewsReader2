@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+from model_apis import normalize_api_models
 
 
 DEFAULT_DAILY_NEWS_DIR = Path(
@@ -26,6 +27,7 @@ DEFAULT_PI_CHAT_PROVIDER = ""
 DEFAULT_PI_CHAT_MODEL = ""
 
 DEFAULT_APP_SETTINGS = {
+    "api_models": normalize_api_models({}),
     "llm": {
         "translation": {
             "provider": "deepseek",
@@ -153,6 +155,11 @@ def load_app_settings() -> dict:
             base["llm"]["pi_chat"]["provider"] = provider
         if isinstance(model, str):
             base["llm"]["pi_chat"]["model"] = model.strip()
+
+    try:
+        base["api_models"] = normalize_api_models(payload.get("api_models", {}) if isinstance(payload, dict) else {})
+    except ValueError:
+        pass
 
     feed = payload.get("feed") if isinstance(payload, dict) else None
     if isinstance(feed, dict):

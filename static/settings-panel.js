@@ -23,7 +23,7 @@ function select(label, path, value, options, placeholder = "沿用默认") {
   if (value && !values.some((x) => x.value === value))
     values.push({ value, label: value, custom: true });
   const id = `setting-${path.replaceAll(".", "-")}`;
-  return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label"><option value="">${placeholder}</option>${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
+  return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label">${placeholder === null ? "" : `<option value="">${placeholder}</option>`}${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
   constructor({ onSaved, onSources, onOpen, onViewChange, selects }) {
@@ -37,8 +37,10 @@ export class SettingsPanel {
     this.connectionSequence = 0;
     this.catalogSequence = 0;
     this.catalogs = new Map();
+    this.apiProvider = "deepseek";
+    this.apiStates = new Map();
     this.selects = selects;
-    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || !!this.secretDraft, contextStamp: () => JSON.stringify([this.draft, this.secretDraft, this.open]) });
+    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || [...this.apiStates.values()].some(s => !!s.secretDraft), contextStamp: () => JSON.stringify([this.draft, [...this.apiStates], this.open]) });
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
@@ -255,12 +257,7 @@ export class SettingsPanel {
     if (!this.saved) return;
     this.draft = clone(this.saved);
     this.dirty = false;
-    this.translationCatalog = null;
-    this.translationSequence = (this.translationSequence || 0) + 1;
-    this.translationNotice = "";
-    this.translationTestResult = "";
-    this.editingSecret = false;
-    this.secretDraft = "";
+    this.apiStates.clear();
     this.catalogNotice = "";
     this.catalogSequence++;
     this.connectionSequence++;
@@ -272,6 +269,7 @@ export class SettingsPanel {
     const d = this.draft;
     return {
       llm: clone(d.llm),
+      api_models: clone(d.api_models || { jev: { model: "" } }),
       feed: clone(d.feed),
       agent: clone(d.agent),
       news_summary: clone(d.news_summary || { max_days: 20, max_items: 6000 }),
@@ -287,7 +285,15 @@ export class SettingsPanel {
   }
   updateDraft(event) {
     const input = event.target;
-    if (input.id === "deepseekSecret") { this.secretDraft = input.value; return; }
+    if (input.matches("[data-api-secret]")) { this.apiState().secretDraft = input.value; return; }
+    if (input.name === "managedApiProvider") {
+      if (this.apiProvider !== input.value) {
+        this.apiProvider = input.value;
+        this.renderTranslation();
+        $('[data-select-trigger="managedApiProvider"]').focus({ preventScroll: true });
+      }
+      return;
+    }
     if (!input.name || !this.draft) return;
     const value = input.type === "number" || input.name === "agent.session_ttl_hours"
       ? Number(input.value) : input.value;
@@ -295,12 +301,13 @@ export class SettingsPanel {
     // Numeric fields emit change again on blur, after input already updated the draft.
     if (unchanged && (input.name.startsWith("news_summary.") || event.type !== "change")) return;
     set(this.draft, input.name, value);
-    if (input.name === "llm.translation.model") {
-      this.translationSequence = (this.translationSequence || 0) + 1;
-      this.translationNotice = "模型已变化，可以测试当前选择。";
-      this.translationTestResult = "[READY] 模型已变化，请重新测试当前选择。";
-      $("#translationTestTerminal").textContent = this.translationTestResult;
-      $("#translationStatus").textContent = this.translationNotice;
+    if (input.name === this.apiConfig().model_path) {
+      const state = this.apiState();
+      state.sequence++;
+      state.notice = "模型已变化，可以测试当前选择。";
+      state.testResult = "[READY] 模型已变化，请重新测试当前选择。";
+      $("#translationTestTerminal").textContent = state.testResult;
+      $("#translationStatus").textContent = state.notice;
       this.syncModelFields(input, this.translationOptions());
     }
     if (input.name === "agent.codex.model") {
@@ -409,45 +416,76 @@ export class SettingsPanel {
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
   }
   translationOptions() {
-    if (!this.draft.api_status?.deepseek?.configured) return [];
-    return (this.translationCatalog || this.draft.model_catalogs?.translation)?.options?.filter(option => option.source !== "saved") || [];
+    if (!this.draft.api_status?.[this.apiProvider]?.configured) return [];
+    const key = this.apiProvider === "deepseek" ? "translation" : this.apiProvider;
+    return (this.apiState().catalog || this.draft.model_catalogs?.[key])?.options?.filter(option => option.source !== "saved") || [];
+  }
+  apiState(provider = this.apiProvider) {
+    if (!this.apiStates.has(provider)) this.apiStates.set(provider, {
+      secretDraft: "", editingSecret: false, catalog: null, notice: "", testResult: "", sequence: 0,
+      testing: false, refreshing: false, savingSecret: false,
+    });
+    return this.apiStates.get(provider);
+  }
+  apiConfig(provider = this.apiProvider) {
+    return this.draft.api_providers.find(config => config.id === provider);
   }
   renderTranslation() {
-    const d = this.draft, service = d.api_status?.deepseek || {};
-    const configured = service.configured, editing = !configured || this.editingSecret;
+    const d = this.draft, provider = this.apiProvider, config = this.apiConfig(), state = this.apiState();
+    const service = d.api_status?.[provider] || {};
+    const configured = service.configured, editing = !configured || state.editingSecret;
     const options = this.translationOptions();
-    const custom = options.some(option => option.value === d.llm.translation.model) ? "" : d.llm.translation.model;
-    $("#translationSettings").innerHTML = `<div class="section-card-title"><span>DeepSeek 结构化精读与翻译管道</span></div>
-      <p class="muted">为单篇新闻提供中文正文与结构化精读。</p>
-      <div class="translation-model-row">${select("翻译模型", "llm.translation.model", d.llm.translation.model, options, configured ? "使用默认模型" : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"}>获取模型</button></div>
-      ${field("自定义模型（可选）", "llm.translation.model", custom, 'maxlength="120"')}
-      <p class="muted" id="translationStatus" role="status">${e(configured ? this.translationNotice || "选择目录中的模型，或填写自定义模型。测试使用当前选择，无需先保存。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。")}</p>
-      <div class="field-item"><label class="field-label" for="deepseekSecret">API 密钥</label>
+    const model = get(d, config.model_path) || "";
+    const custom = options.some(option => option.value === model) ? "" : model;
+    $("#translationSettings").innerHTML = `${select("API 服务", "managedApiProvider", provider, d.api_providers.map(p => ({ value: p.id, label: p.label })), null)}
+      <p class="muted">${e(config.description)}</p>
+      <div class="translation-model-row">${select(provider === "deepseek" ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
+      ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
+      <p class="muted" id="translationStatus" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
+      <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
-      ${service.environment_override ? '<p class="muted">当前由 DEEPSEEK_API_KEY 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>' : ""}
-      ${editing ? `<input class="field-input" id="deepseekSecret" type="password" autocomplete="new-password" value="${e(this.secretDraft || "")}" placeholder="输入新的 API 密钥"><div class="button-row"><button class="btn-secondary" id="saveSecretBtn" type="button">保存密钥</button>${configured ? '<button class="btn-secondary" id="cancelSecretBtn" type="button">取消</button>' : ""}</div>` : '<div class="button-row"><button class="btn-secondary" id="editSecretBtn" type="button">更新密钥</button><button class="reader-action-btn danger" id="deleteSecretBtn" type="button">删除密钥</button></div>'}</div>
-      <div class="connection-test-section"><div><strong>翻译模型独立连接测试</strong><p class="muted">使用当前选择测试，无需先保存。</p></div><button class="btn-primary" id="translationTestBtn" type="button" ${configured ? "" : "disabled"}>测试模型</button><div class="terminal-box" id="translationTestTerminal" role="status">${e(this.translationTestResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
+      ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
+      ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" id="saveSecretBtn" type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? '<button class="btn-secondary" id="cancelSecretBtn" type="button">取消</button>' : ""}</div>` : `<div class="button-row"><button class="btn-secondary" id="editSecretBtn" type="button">更新密钥</button><button class="reader-action-btn danger" id="deleteSecretBtn" type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
+      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" id="translationTestBtn" type="button" ${configured && !state.testing ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="translationTestTerminal" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
     this.selects.refresh($("#translationSettings"));
   }
   async refreshTranslationModels() {
-    const seq = this.translationSequence = (this.translationSequence || 0) + 1;
-    const data = await api("/api/settings/translation/models", { method: "POST", body: {} });
-    if (seq !== this.translationSequence) return;
-    this.translationCatalog = data.catalog;
-    this.translationNotice = `已获取 ${data.catalog.options.length} 个模型`;
-    this.renderTranslation();
+    const provider = this.apiProvider, state = this.apiState();
+    if (state.refreshing) return;
+    const seq = state.sequence;
+    state.refreshing = true;
+    try {
+      const data = await api(`/api/settings/apis/${provider}/models`, { method: "POST", body: {} });
+      if (state !== this.apiState(provider) || seq !== state.sequence) return;
+      state.catalog = data.catalog;
+      state.notice = `已获取 ${data.catalog.options.length} 个模型`;
+    } catch (error) {
+      if (state === this.apiState(provider) && seq === state.sequence) state.notice = errorText(error);
+    } finally {
+      state.refreshing = false;
+      if (provider === this.apiProvider && state === this.apiState(provider)) this.renderTranslation();
+    }
   }
   async testTranslation() {
-    const model = this.draft.llm.translation.model;
-    const seq = this.translationSequence = (this.translationSequence || 0) + 1;
-    $("#translationTestTerminal").textContent = "[RUNNING] 正在测试当前模型…";
+    const provider = this.apiProvider, state = this.apiState(), model = get(this.draft, this.apiConfig().model_path) || "";
+    if (state.testing) return;
+    const seq = state.sequence;
+    state.testing = true;
+    state.testResult = "[RUNNING] 正在测试当前模型…";
+    $("#translationTestTerminal").textContent = state.testResult;
     try {
-      const data = await api("/api/settings/translation/test", { method: "POST", body: { model } });
-      if (seq === this.translationSequence && model === this.draft.llm.translation.model) this.translationTestResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
+      const data = await api(`/api/settings/apis/${provider}/test`, { method: "POST", body: { model } });
+      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
     } catch (error) {
-      if (seq === this.translationSequence) this.translationTestResult = `[FAIL] ${errorText(error)}`;
+      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[FAIL] ${errorText(error)}`;
+    } finally {
+      state.testing = false;
+      if (provider === this.apiProvider && state === this.apiState(provider)) {
+        $("#translationTestTerminal").textContent = state.testResult;
+        $("#translationTestBtn").disabled = !this.draft.api_status?.[provider]?.configured;
+        $("#translationTestBtn").textContent = "测试模型";
+      }
     }
-    if (seq === this.translationSequence) $("#translationTestTerminal").textContent = this.translationTestResult;
   }
   renderModels() {
     if (!$("#modelSettings")) return;
@@ -522,8 +560,8 @@ export class SettingsPanel {
       retrySettingsBtn: () => this.load(),
       refreshModelsBtn: () => this.refreshModels(),
       testConnectionBtn: () => this.testConnection(),
-      editSecretBtn: () => { this.editingSecret = true; this.renderTranslation(); $("#deepseekSecret").focus(); },
-      cancelSecretBtn: () => { this.secretDraft = ""; this.editingSecret = false; this.renderTranslation(); },
+      editSecretBtn: () => { this.apiState().editingSecret = true; this.renderTranslation(); $("[data-api-secret]").focus(); },
+      cancelSecretBtn: () => { this.apiState().secretDraft = ""; this.apiState().editingSecret = false; this.renderTranslation(); },
       translationModelsBtn: () => this.refreshTranslationModels(),
       translationTestBtn: () => this.testTranslation(),
       saveSecretBtn: () => this.saveSecret(),
@@ -682,41 +720,58 @@ export class SettingsPanel {
     }
   }
   async saveSecret() {
-    const input = $("#deepseekSecret");
-    const key = input.value.trim();
+    const provider = this.apiProvider, state = this.apiState(), submitted = state.secretDraft;
+    if (state.savingSecret) return;
+    const key = submitted.trim();
     if (!key) {
       toast("请输入新的 API 密钥");
       return;
     }
-    const data = await api("/api/settings/secrets/deepseek", {
-      method: "PUT",
-      body: { key },
-    });
-    input.value = "";
-    toast("密钥已保存");
-    this.applySecretResponse(data);
+    state.savingSecret = true;
+    try {
+      const data = await api(`/api/settings/secrets/${provider}`, { method: "PUT", body: { key } });
+      toast(`${this.apiConfig(provider).label} 密钥已保存`);
+      this.applySecretResponse(data, provider);
+      if (state === this.apiState(provider) && state.secretDraft === submitted) {
+        state.secretDraft = "";
+        state.editingSecret = false;
+      }
+    } finally {
+      state.savingSecret = false;
+      if (provider === this.apiProvider) this.renderTranslation();
+    }
   }
-  applySecretResponse(data) {
-    this.secretDraft = "";
-    this.rememberModelCatalogs(data);
-    this.saved.api_status = clone(data.api_status);
-    this.draft.api_status = clone(data.api_status);
-    this.saved.model_catalogs = clone(data.model_catalogs);
-    this.draft.model_catalogs = clone(data.model_catalogs);
-    this.editingSecret = false;
-    this.translationCatalog = null;
-    this.translationSequence = (this.translationSequence || 0) + 1;
-    this.translationNotice = "";
-    this.translationTestResult = "";
-    this.renderTranslation();
+  applySecretResponse(data, provider) {
+    const catalogKey = provider === "deepseek" ? "translation" : provider;
+    for (const settings of [this.saved, this.draft]) {
+      settings.api_status[provider] = clone(data.api_status[provider]);
+      settings.model_catalogs[catalogKey] = clone(data.model_catalogs[catalogKey]);
+    }
+    const state = this.apiState(provider);
+    state.catalog = null;
+    state.sequence++;
+    state.notice = "";
+    state.testResult = "";
   }
   async deleteSecret() {
-    const status = this.saved.api_status, draft = this.draft, secret = this.secretDraft, editing = this.editingSecret;
-    if (!await confirmAction({ title: "删除翻译密钥", trigger: "#deleteSecretBtn", message: "删除已保存的 DeepSeek API 密钥？删除后，依赖该密钥的翻译服务将不可用，需重新配置。", action: "删除密钥" })) return;
-    if (this.saved.api_status !== status || this.draft !== draft || this.secretDraft !== secret || this.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
-    const data = await api("/api/settings/secrets/deepseek", { method: "DELETE" });
-    toast("密钥已删除");
-    this.applySecretResponse(data);
+    const provider = this.apiProvider, state = this.apiState(), config = this.apiConfig();
+    if (state.savingSecret) return;
+    const status = this.saved.api_status[provider], draft = this.draft, secret = state.secretDraft, editing = state.editingSecret;
+    if (!await confirmAction({ title: `删除 ${config.label} 密钥`, trigger: "#deleteSecretBtn", message: `删除已保存的 ${config.label} API 密钥？删除后，依赖该密钥的服务需重新配置。${status?.environment_override ? "环境变量提供的密钥仍会生效。" : ""}`, action: "删除密钥" })) return;
+    if (this.apiProvider !== provider || this.apiState(provider) !== state || this.saved.api_status[provider] !== status || this.draft !== draft || state.secretDraft !== secret || state.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
+    state.savingSecret = true;
+    try {
+      const data = await api(`/api/settings/secrets/${provider}`, { method: "DELETE" });
+      toast(`${config.label} 密钥已删除`);
+      this.applySecretResponse(data, provider);
+      if (state.secretDraft === secret && state.editingSecret === editing) {
+        state.secretDraft = "";
+        state.editingSecret = false;
+      }
+    } finally {
+      state.savingSecret = false;
+      if (provider === this.apiProvider) this.renderTranslation();
+    }
   }
   async pickDatabase() {
     const data = await api("/api/settings/database/pick", { method: "POST" });
