@@ -750,15 +750,6 @@ a {
   flex: 0 0 auto;
 }
 
-.classification-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  font-size: var(--fs-meta);
-  color: var(--muted);
-}
-
 .news-category-tag {
   color: var(--muted);
   font-size: 11px;
@@ -4323,6 +4314,23 @@ button:disabled {
 }
 
 /* 全局 Agent 回复通知，沿用阅读工作台的主题和控件尺度。 */
+.classification-progress { position: relative; flex-shrink: 0; }
+.classification-progress-indicator { display: flex; align-items: center; justify-content: center; width: 32px; height: var(--topbar-control-height); border-radius: var(--radius-sm); cursor: default; }
+.classification-progress-indicator svg { width: 22px; height: 22px; fill: none; stroke-width: 2; }
+.classification-progress-track { stroke: var(--border-strong); stroke-width: 1; }
+.classification-progress-arc { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 100; stroke-dashoffset: 100; stroke-linecap: round; }
+.classification-progress-panel { position: absolute; z-index: 250; top: 100%; right: 0; width: min(300px, calc(100vw - 24px)); padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); box-shadow: var(--shadow-float); text-align: left; font-size: var(--fs-meta); line-height: 1.6; }
+.classification-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.classification-progress-heading strong { font-size: var(--fs-body); }
+.classification-progress-heading span { color: var(--muted); }
+.classification-progress-panel p { margin: var(--space-2) 0 0; }
+.classification-progress-panel .classification-progress-count { font-size: var(--fs-h3); font-variant-numeric: tabular-nums; }
+.classification-progress-actions { display: flex; justify-content: flex-end; gap: var(--space-1); }
+.classification-progress-actions:has(button:not([hidden])) { margin-top: var(--space-2); }
+@media (max-width: 920px) {
+  .classification-progress-indicator { height: 36px; }
+  .classification-progress-panel { position: fixed; top: var(--header-height); right: 12px; }
+}
 .agent-notifications { position: relative; }
 .topbar-ghost-btn { background: transparent; border-color: transparent; }
 .topbar-ghost-btn:hover, .topbar-ghost-btn:focus-visible { border-color: var(--border-strong); background: var(--surface); }

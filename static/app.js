@@ -24,6 +24,7 @@ import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.0";
 import { AgentNotifications } from "./agent-notifications.js";
+import { ClassificationProgress } from "./classification-progress.js?v=0.2.1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
@@ -228,9 +229,14 @@ const summaries = new SummaryPanel({
 });
 
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
-let classificationProgress = null;
-let classificationLoading = false;
-let classificationViewRevision = 0;
+const classification = new ClassificationProgress({
+  onSettings: async () => {
+    if (!settings.open) await settings.toggle();
+    settings.apiProvider = "jev";
+    settings.renderTranslation();
+    settings.selectSection("deepseek");
+  },
+});
 
 function renderCategories() {
   const row = $("#newsCategoryFilters");
@@ -243,42 +249,9 @@ function renderCategories() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  const notice = $("#classificationNotice"), p = classificationProgress;
-  const fresh = p && p.completed_revision > classificationViewRevision;
-  notice.hidden = state.collection !== "feed" || !p || !(p.pending || p.running || p.failed || fresh);
-  if (notice.hidden) return;
-  const text = !p.configured ? "新闻分类需要配置 Jev"
-    : p.error ? "新闻分类已暂停，请检查 Jev 设置后重试"
-    : p.throttle?.rate_limited ? `限流降速 · 并发 ${p.throttle.effective_concurrency}/${p.throttle.configured_concurrency}${p.throttle.cooldown_seconds ? ` · ${p.throttle.cooldown_seconds} 秒后继续` : ""}`
-    : p.pending || p.running ? `正在分类${p.unread_only ? "未读新闻" : ""} ${p.done}/${p.total}${p.failed ? ` · ${p.failed} 条失败` : ""}`
-    : p.failed ? `${p.failed} 条分类失败` : "新闻分类已更新";
-  $("span", notice).textContent = text;
-  const button = $("button", notice);
-  button.textContent = !p.configured ? "设置" : p.failed || p.error ? "重试" : "刷新";
-  button.onclick = () => busy(button, async () => {
-    if (!p.configured) {
-      if (!settings.open) await settings.toggle();
-      settings.apiProvider = "jev";
-      settings.renderTranslation();
-      settings.selectSection("deepseek");
-      return;
-    }
-    if (p.failed || p.error) await api("/api/news/classification/retry", { method: "POST" });
-    await loadFeed();
-    await refreshClassification();
-  });
 }
 
-async function refreshClassification() {
-  if (classificationLoading || document.hidden || state.collection !== "feed") return;
-  classificationLoading = true;
-  try {
-    classificationProgress = await api("/api/news/classification");
-    renderCategories();
-  } catch {
-    // Reading stays usable if progress cannot be fetched. The next poll retries.
-  } finally { classificationLoading = false; }
-}
+function refreshClassification() { return classification.refresh(); }
 
 $("#newsCategoryFilters").addEventListener("keydown", event => {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -510,7 +483,6 @@ async function loadFeed(append = false) {
     state.more = data.has_more;
     state.cursor = data.next_cursor;
     state.loading = false;
-    if (!append) classificationViewRevision = data.classification_revision || 0;
     void refreshClassification();
     if (state.selected)
       state.selected =
@@ -1550,7 +1522,7 @@ function refreshIndex(notify = false) {
 refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
-  if (document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden) return;
+  if (document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !classification.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));
