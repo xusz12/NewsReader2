@@ -15,9 +15,37 @@ async function setup(page, request, configured = true) {
 }
 
 async function chooseProvider(page, name) {
-  await page.getByRole('combobox', { name: 'API 服务', exact: true }).click();
+  const provider = page.getByRole('combobox', { name: 'API 服务', exact: true });
+  // Finish scrolling from the connection test before opening the menu;
+  // scrolling outside a dropdown deliberately dismisses it.
+  await provider.scrollIntoViewIfNeeded();
+  await provider.click();
   await page.getByRole('option', { name, exact: true }).click();
 }
+
+test('Jev classification concurrency defaults to eight, validates limits and saves across providers', async ({ page, request }) => {
+  await setup(page, request, false);
+  await chooseProvider(page, 'Jev');
+  const concurrency = page.getByRole('spinbutton', { name: '分类并发上限' });
+  await expect(concurrency).toHaveValue('8');
+  await concurrency.fill('33');
+  await page.locator('#settingsSaveBtn').click();
+  await expect(page.locator('#settingsStatus')).toHaveText('分类并发上限必须是 1–32 的整数');
+  await concurrency.fill('12');
+  await chooseProvider(page, 'DeepSeek');
+  await expect(concurrency).toHaveCount(0);
+  const saving = page.waitForRequest(r => r.url().endsWith('/api/settings') && r.method() === 'PUT');
+  await page.locator('#settingsSaveBtn').click();
+  expect((await saving).postDataJSON().api_models.jev.concurrency).toBe(12);
+  await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
+  expect((await (await request.get('/api/news/classification')).json()).throttle.configured_concurrency).toBe(12);
+  await chooseProvider(page, 'Jev');
+  await expect(concurrency).toHaveValue('12');
+  // Restore the shared fixture's default for subsequent API management tests.
+  await concurrency.fill('8');
+  await page.locator('#settingsSaveBtn').click();
+  await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
+});
 
 test('provider models and secret drafts remain independent across navigation and save', async ({ page, request }) => {
   await setup(page, request, false);

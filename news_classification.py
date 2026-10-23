@@ -14,11 +14,13 @@ import threading
 import time
 import uuid
 from contextlib import closing
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import certifi
+from model_apis import DEFAULT_CLASSIFICATION_CONCURRENCY, classification_concurrency
 
 RULES = json.loads((Path(__file__).parent / "classification/rules.json").read_text())
 RULE_VERSION = RULES["version"]
@@ -72,9 +74,93 @@ def enqueue(conn: sqlite3.Connection) -> int:
 
 
 class ClassificationError(Exception):
-    def __init__(self, code: str, *, retryable: bool = False, block_config: bool = False):
+    def __init__(self, code: str, *, retryable: bool = False, block_config: bool = False, retry_after: float = 0):
         super().__init__(code)
         self.code, self.retryable, self.block_config = code, retryable, block_config
+        self.rate_limited = code in {"http_429", "http_529"}
+        self.retry_after = retry_after
+
+
+def retry_after_seconds(value: str | None, now: float | None = None) -> float:
+    if not value:
+        return 0
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            seconds = parsedate_to_datetime(value).timestamp() - (time.time() if now is None else now)
+        except (ValueError, TypeError, OverflowError):
+            return 0
+    return max(0, seconds) if math.isfinite(seconds) else 0
+
+
+class AdaptiveConcurrency:
+    """One shared gate for all workers; delayed responses cannot undo a slowdown."""
+    def __init__(self, limit=DEFAULT_CLASSIFICATION_CONCURRENCY, clock=time.monotonic):
+        self.condition = threading.Condition()
+        self.clock = clock
+        self.limit = self.effective = classification_concurrency(limit)
+        self.active = self.generation = self.backoff_level = self.successes = 0
+        self.cooldown_until = self.recovery_at = 0
+
+    def configure(self, limit: int):
+        limit = classification_concurrency(limit)
+        with self.condition:
+            self.limit = limit
+            self.effective = min(self.effective, limit) if self.backoff_level else limit
+            self.condition.notify_all()
+
+    def acquire(self, stop: threading.Event) -> int | None:
+        with self.condition:
+            while not stop.is_set():
+                now = self.clock()
+                if self.active < self.effective and now >= self.cooldown_until:
+                    self.active += 1
+                    return self.generation
+                self.condition.wait(timeout=min(1, max(.01, self.cooldown_until - now))
+                                    if now < self.cooldown_until else 1)
+        return None
+
+    def release(self):
+        with self.condition:
+            self.active -= 1
+            self.condition.notify_all()
+
+    def result(self, generation: int, error: ClassificationError | None):
+        with self.condition:
+            now = self.clock()
+            if error and error.rate_limited:
+                # A burst of 429s from the same wave halves concurrency only once.
+                if generation == self.generation:
+                    self.effective = max(1, self.effective // 2)
+                    self.backoff_level = min(7, self.backoff_level + 1)
+                    self.generation += 1
+                self.backoff_level = max(1, self.backoff_level)
+                delay = max(error.retry_after, min(300, 5 * 2 ** max(0, self.backoff_level - 1)))
+                self.cooldown_until = max(self.cooldown_until, now + delay)
+                self.recovery_at = self.cooldown_until + 30
+                self.successes = 0
+                # Persist the same cooldown on this job, including Retry-After.
+                error.retry_after = self.cooldown_until - now
+            elif error:
+                self.successes = 0
+                self.recovery_at = max(self.recovery_at, now + 30)
+            elif generation == self.generation and now >= self.cooldown_until:
+                self.successes += 1
+                if (self.backoff_level and now >= self.recovery_at
+                        and self.successes >= max(8, self.effective * 2)):
+                    self.effective = min(self.limit, self.effective + 1)
+                    self.successes = 0
+                    self.recovery_at = now + 30
+                    if self.effective == self.limit:
+                        self.backoff_level = 0
+            self.condition.notify_all()
+
+    def snapshot(self) -> dict:
+        with self.condition:
+            return {"configured_concurrency": self.limit, "effective_concurrency": self.effective,
+                    "active_requests": self.active, "rate_limited": bool(self.backoff_level),
+                    "cooldown_seconds": max(0, math.ceil(self.cooldown_until - self.clock()))}
 
 
 def _probability(value: object) -> bool:
@@ -116,7 +202,8 @@ def classify(title: str, key: str, model: str) -> dict:
     except HTTPError as exc:
         # Never persist response bodies, request headers or credentials.
         raise ClassificationError(f"http_{exc.code}", retryable=exc.code in (408, 429, 500, 502, 503, 504, 529),
-                                  block_config=exc.code in (400, 401, 402, 403, 404, 422)) from None
+                                  block_config=exc.code in (400, 401, 402, 403, 404, 422),
+                                  retry_after=retry_after_seconds(exc.headers.get("Retry-After") if exc.headers else None)) from None
     except (URLError, TimeoutError, OSError):
         raise ClassificationError("network_error", retryable=True) from None
     except (ValueError, UnicodeError):
@@ -149,10 +236,10 @@ def finish(conn: sqlite3.Connection, job: dict, result: dict | None, error: Clas
     fields = dict(result or {})
     if error:
         retry = error.retryable and job["attempts"] < MAX_ATTEMPTS
-        fields.update(status="pending" if retry or error.block_config else "failed", last_error=error.code,
-                      next_attempt_at=now + RETRY_DELAYS[min(job["attempts"] - 1, 2)])
-        if error.block_config:
-            # Configuration errors pause the service, without exhausting the queue.
+        fields.update(status="pending" if retry or error.block_config or error.rate_limited else "failed", last_error=error.code,
+                      next_attempt_at=now + max(error.retry_after, RETRY_DELAYS[min(job["attempts"] - 1, 2)]))
+        if error.block_config or error.rate_limited:
+            # Rate/config errors must not exhaust an individual title's budget.
             fields["attempts"] = job["attempts"] - 1
     else:
         fields.update(status="done", last_error=None, next_attempt_at=0)
@@ -200,19 +287,22 @@ def attach(conn: sqlite3.Connection, items: list[dict]) -> None:
 
 
 class Service:
-    def __init__(self, connect, config, runner=classify):
+    def __init__(self, connect, config, runner=classify, *, concurrency=DEFAULT_CLASSIFICATION_CONCURRENCY):
         self.connect, self.config, self.runner = connect, config, runner
         self.stop = threading.Event()
         self.threads = []
         self.lock = threading.Lock()
         self.blocked_config = None
         self.error = ""
+        self.gate = AdaptiveConcurrency(concurrency)
 
-    def process_one(self, key: str, model: str) -> bool:
+    def process_one(self, key: str, model: str, generation: int | None = None) -> bool:
         with closing(self.connect()) as conn:
             job = claim(conn)
         if not job:
             return False
+        if generation is None:
+            generation = self.gate.generation
         try:
             result = self.runner(job["title"], key, model)
             error = None
@@ -223,32 +313,46 @@ class Service:
                 self.error = exc.code
         except Exception:
             result, error = None, ClassificationError("classification_failed", retryable=True)
+        self.gate.result(generation, error)
         with closing(self.connect()) as conn:
             finish(conn, job, result, error)
         return True
 
     def loop(self):
         while not self.stop.is_set():
+            generation = self.gate.acquire(self.stop)
+            if generation is None:
+                return
+            worked = False
             try:
                 key, model = self.config()
-                if not key or self.blocked_config == (fingerprint(key), model):
-                    self.stop.wait(5)
-                    continue
-                self.error = ""
-                worked = self.process_one(key, model)
-                self.stop.wait(.15 if worked else 5)
+                if key and self.blocked_config != (fingerprint(key), model):
+                    self.error = ""
+                    worked = self.process_one(key, model, generation)
             except Exception:
                 # DB contention/config errors must not kill the durable queue.
                 self.error = "worker_unavailable"
-                self.stop.wait(5)
+            finally:
+                self.gate.release()
+            self.stop.wait(.15 if worked else 5)
+
+    def _grow_workers(self):
+        for index in range(len(self.threads), self.gate.limit):
+            thread = threading.Thread(target=self.loop, daemon=True, name=f"classification-{index}")
+            self.threads.append(thread)
+            thread.start()
+
+    def configure(self, concurrency: int):
+        with self.lock:
+            self.gate.configure(concurrency)
+            if self.threads:
+                self._grow_workers()
 
     def start(self):
         with self.lock:
             if self.threads:
                 return
-            self.threads = [threading.Thread(target=self.loop, daemon=True, name=f"classification-{i}") for i in range(2)]
-            for thread in self.threads:
-                thread.start()
+            self._grow_workers()
 
     def resume(self):
         self.blocked_config = None

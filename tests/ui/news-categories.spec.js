@@ -66,6 +66,17 @@ test('missing key and failed classification remain explicit, retry uses the queu
   await expect(page.locator('#settingsCategory-deepseek')).toHaveAttribute('aria-current', 'true');
 });
 
+test('shared rate limiting is shown as cooldown without replacing the news list', async ({ page }) => {
+  await page.route('**/api/news/classification', route => route.fulfill({ json: {
+    ok: true, total: 65, done: 30, pending: 35, running: 0, failed: 0, configured: true,
+    throttle: { configured_concurrency: 8, effective_concurrency: 4, rate_limited: true, cooldown_seconds: 20 },
+  } }));
+  const first = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
+  await page.clock.runFor(31000);
+  await expect(page.locator('#classificationNotice')).toContainText('限流降速 · 并发 4/8 · 20 秒后继续');
+  await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', first);
+});
+
 for (const theme of ['light', 'dark', 'eink']) {
   test(`mobile ${theme}: category row scrolls without page overflow`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

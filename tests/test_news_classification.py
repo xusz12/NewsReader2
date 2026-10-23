@@ -100,7 +100,7 @@ def test_finite_retry_backoff_manual_retry_and_config_pause(conn):
         nc.enqueue(conn)
     for i in range(nc.MAX_ATTEMPTS):
         job = nc.claim(conn)
-        nc.finish(conn, job, None, nc.ClassificationError("http_429", retryable=True))
+        nc.finish(conn, job, None, nc.ClassificationError("http_503", retryable=True))
         assert nc.claim(conn) is None
         with conn:
             conn.execute("UPDATE item_classifications SET next_attempt_at=0")

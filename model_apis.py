@@ -5,6 +5,16 @@ Credentials stay in the existing environment/Keychain store, never in settings.
 """
 from __future__ import annotations
 
+DEFAULT_CLASSIFICATION_CONCURRENCY = 8
+MAX_CLASSIFICATION_CONCURRENCY = 32
+
+
+def classification_concurrency(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_CLASSIFICATION_CONCURRENCY:
+        raise ValueError("invalid_classification_concurrency")
+    return value
+
+
 API_PROVIDERS = {
     "deepseek": {
         "label": "DeepSeek", "secret_name": "DEEPSEEK_API_KEY",
@@ -23,7 +33,7 @@ API_PROVIDERS = {
 }
 
 
-def normalize_api_models(value: object) -> dict:
+def normalize_api_models(value: object, *, defaults: dict | None = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError("invalid_api_models")
     normalized = {}
@@ -37,6 +47,9 @@ def normalize_api_models(value: object) -> dict:
         if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
             raise ValueError("invalid_model")
         normalized[provider] = {"model": model.strip()}
+        if provider == "jev":
+            normalized[provider]["concurrency"] = classification_concurrency(
+                config.get("concurrency", (defaults or {}).get(provider, {}).get("concurrency", DEFAULT_CLASSIFICATION_CONCURRENCY)))
     return normalized
 
 

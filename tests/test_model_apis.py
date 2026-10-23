@@ -32,7 +32,7 @@ class Reply:
 def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, tmp_path):
     app, client, _ = api_fixture
     initial = client.get('/api/settings').json
-    assert initial['api_models'] == {'jev': {'model': ''}}
+    assert initial['api_models'] == {'jev': {'model': '', 'concurrency': 8}}
     assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev']
     assert initial['api_status']['jev']['configured'] is False
     assert initial['model_catalogs']['jev']['options'] == []
@@ -45,6 +45,32 @@ def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, t
     client.put('/api/settings', json={'llm': initial['llm']})
     assert client.get('/api/settings').json['api_models']['jev']['model'] == 'jev-custom'
     assert app.current_runtime_settings()['llm']['translation'] == initial['llm']['translation']
+
+
+def test_concurrency_persists_and_applies_live_without_starting_a_stopped_service(api_fixture):
+    app, client, _ = api_fixture
+    llm = app.load_app_settings()['llm']
+    saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-test', 'concurrency': 16}}})
+    assert saved.status_code == 200
+    assert app.load_app_settings()['api_models']['jev']['concurrency'] == 16
+    assert app.CLASSIFICATION_SERVICE.gate.snapshot()['configured_concurrency'] == 16
+    assert app.CLASSIFICATION_SERVICE.gate.snapshot()['effective_concurrency'] == 16
+    assert app.CLASSIFICATION_SERVICE.threads == []
+    # A model-only write from an older client preserves the new setting.
+    saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
+    assert saved.status_code == 200
+    assert saved.json['api_models']['jev']['concurrency'] == 16
+    assert client.get('/api/news/classification').json['throttle']['configured_concurrency'] == 16
+
+
+@pytest.mark.parametrize('concurrency', [0, 33, -1, True, '8', 1.5, None])
+def test_invalid_classification_concurrency_is_not_saved(api_fixture, concurrency):
+    app, client, _ = api_fixture
+    before = app.load_app_settings()
+    result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'jev': {'concurrency': concurrency}}})
+    assert result.status_code == 400
+    assert result.json['error'] == 'invalid_classification_concurrency'
+    assert app.load_app_settings() == before
 
 
 @pytest.mark.parametrize('value', [None, [], {'jev': []}, {'jev': {'model': 42}}, {'jev': {'model': 'a' * 121}}, {'jev': {'model': 'bad\nname'}}])

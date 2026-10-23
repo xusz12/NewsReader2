@@ -19,7 +19,7 @@ import {
   inlineMarkdown,
   focusTrap,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.2.0";
+import { SettingsPanel } from "./settings-panel.js?v=0.2.1-concurrency";
 import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.0";
@@ -249,6 +249,7 @@ function renderCategories() {
   if (notice.hidden) return;
   const text = !p.configured ? "新闻分类需要配置 Jev"
     : p.error ? "新闻分类已暂停，请检查 Jev 设置后重试"
+    : p.throttle?.rate_limited ? `限流降速 · 并发 ${p.throttle.effective_concurrency}/${p.throttle.configured_concurrency}${p.throttle.cooldown_seconds ? ` · ${p.throttle.cooldown_seconds} 秒后继续` : ""}`
     : p.pending || p.running ? `正在分类 ${p.done}/${p.total}${p.failed ? ` · ${p.failed} 条失败` : ""}`
     : p.failed ? `${p.failed} 条分类失败` : "新闻分类已更新";
   $("span", notice).textContent = text;

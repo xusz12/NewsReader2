@@ -9,6 +9,7 @@
   register('model', 'api_test_failed', '模型连接测试失败。');
   register('model', 'api_test_timeout', '模型连接测试超时。');
   register('input', 'invalid_api_models', 'API 模型配置格式无效。');
+  register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
   register('credentials', 'credentials codex_auth_required oar_auth_required authentication_error invalid_api_key', '身份验证失败。');
   register('model', 'models_unavailable', '获取模型列表失败。');
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');

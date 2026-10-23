@@ -442,6 +442,7 @@ export class SettingsPanel {
       <div class="translation-model-row">${select(provider === "deepseek" ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
       <p class="muted" id="translationStatus" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
+      ${provider === "jev" ? `${field("分类并发上限", "api_models.jev.concurrency", d.api_models.jev.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}<p class="muted">默认 8，可设置 1–32。保存后生效；遇到限流自动降速，稳定后逐步恢复。</p>` : ""}
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
@@ -596,7 +597,7 @@ export class SettingsPanel {
     if (invalid) {
       this.selectSection(invalid.closest("[data-section]").dataset.section);
       invalid.reportValidity();
-      this.status("总结范围必须填写有效的正整数", true);
+      this.status(invalid.name === "api_models.jev.concurrency" ? "分类并发上限必须是 1–32 的整数" : "总结范围必须填写有效的正整数", true);
       return;
     }
     const payload = this.payload();

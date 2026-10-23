@@ -2538,7 +2538,7 @@ def validate_runtime_settings(payload: object) -> dict:
         raise ValueError("invalid_summary_limits")
     summary_limits = news_summaries.selection.limits(payload.get("news_summary", current_settings["news_summary"]))
     normalized = {
-        "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"])),
+        "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"]), defaults=current_settings["api_models"]),
         "news_summary": summary_limits,
         "llm": {
             "translation": {
@@ -8354,6 +8354,7 @@ def api_settings_update():
     # Serialize routing changes with summary commit: the first action wins cleanly.
     with NEWS_SUMMARY_SERVICE.lock:
         save_app_settings(normalized)
+        CLASSIFICATION_SERVICE.configure(normalized["api_models"]["jev"]["concurrency"])
     refresh_agent_session_expiries()
     return jsonify({"ok": True, **serialize_runtime_settings()})
 
@@ -12284,6 +12285,7 @@ def api_classification_status():
         progress = news_classification.status(conn)
     return jsonify(ok=True, **progress, configured=provider_has_configured_key("jev"),
                    error=CLASSIFICATION_SERVICE.error,
+                   throttle=CLASSIFICATION_SERVICE.gate.snapshot(),
                    categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
 
 
@@ -12299,6 +12301,7 @@ def main() -> None:
     ensure_db()
     start_detail_worker()
     start_agent_worker()
+    CLASSIFICATION_SERVICE.configure(current_runtime_settings()["api_models"]["jev"]["concurrency"])
     CLASSIFICATION_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
