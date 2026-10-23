@@ -24,7 +24,7 @@ import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.0";
 import { AgentNotifications } from "./agent-notifications.js";
-import { ClassificationProgress } from "./classification-progress.js?v=0.2.1";
+import { ClassificationProgress } from "./classification-progress.js?v=0.2.1-mode";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";

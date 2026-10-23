@@ -31,15 +31,18 @@ test('non-button ring lives beside notifications, follows real counts and hides 
   const first = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
   await indicator(page).hover();
   await expect(panel(page)).toContainText('25/100 条');
+  await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：全部');
   await panel(page).hover();
   await page.clock.runFor(300);
   await expect(panel(page)).toBeVisible();
   state.progress.done = 60;
   state.progress.pending = 32;
+  state.progress.unread_only = true;
   await page.clock.runFor(2100);
   await expect(indicator(page)).toHaveAttribute('aria-valuenow', '60');
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('stroke-dashoffset', '40px');
   await expect(panel(page)).toContainText('60/100 条');
+  await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', first);
   Object.assign(state.progress, { done: 100, pending: 0, running: 0 });
   await page.clock.runFor(2100);
@@ -112,7 +115,7 @@ test('zero percent, failures and unread scope stay explicit without pretending c
   const state = await start(page, { ...base(), done: 0, pending: 100, running: 0, unread_only: true });
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('opacity', '0');
   await indicator(page).hover();
-  await expect(panel(page)).toContainText('仅未读新闻');
+  await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
   Object.assign(state.progress, { done: 98, pending: 0, failed: 2 });
   await page.clock.runFor(2100);
   await expect(indicator(page)).toHaveAttribute('aria-valuenow', '98');

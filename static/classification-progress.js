@@ -101,7 +101,7 @@ export class ClassificationProgress {
     $("#classificationProgressArc").style.strokeDashoffset = String(100 - percent);
     $("#classificationProgressArc").style.opacity = done ? "1" : "0";
     $("#classificationProgressCount").textContent = `${done.toLocaleString()}/${p.total.toLocaleString()} 条`;
-    $("#classificationProgressScope").textContent = p.unread_only ? "仅未读新闻" : "全部新闻";
+    $("#classificationProgressScope").textContent = `当前模式：${p.unread_only ? "仅未读" : "全部"}`;
     $("#classificationProgressDetails").textContent = `待处理 ${p.pending} · 处理中 ${p.running} · 失败 ${p.failed}`;
     const throttle = p.throttle;
     const status = this.error || (!p.configured ? "等待配置 Jev"

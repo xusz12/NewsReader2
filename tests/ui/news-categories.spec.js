@@ -74,7 +74,7 @@ test('unread-only progress uses its scope and hides when eligible work is comple
   await page.route('**/api/news/classification', route => route.fulfill({ json: progress }));
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
-  await expect(page.locator('#classificationProgressPanel')).toContainText('仅未读新闻');
+  await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
   await expect(page.locator('#classificationProgressCount')).toHaveText('7/10 条');
   progress.done = 10;
   progress.pending = 0;
