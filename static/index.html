@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.2.0</title>
+    <title>News Reader v0.2.1</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.2.0-md1" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.2.0" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.2.1-md1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.2.1" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.2.0"
+      href="/static/style.css?v=0.2.1"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.2.0</span>
+            <span class="brand-version">v0.2.1</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -355,6 +355,8 @@
                 </div>
               </div>
               <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button></div></div>
+              <div id="newsCategoryFilters" class="news-category-filters" role="group" aria-label="新闻分类"></div>
+              <div id="classificationNotice" class="classification-notice" hidden><span role="status"></span><button class="filter-chip" type="button"></button></div>
             </div>
 
             <ul class="news-list" id="feedCardList" role="feed"></ul>
@@ -1260,9 +1262,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.2.0"></script>
+    <script src="/static/error_ui.js?v=0.2.1"></script>
     <script
-      src="/static/app.js?v=0.2.0"
+      src="/static/app.js?v=0.2.1"
       type="module"
     ></script>
   </body>

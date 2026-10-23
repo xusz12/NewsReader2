@@ -392,3 +392,28 @@ AFTER DELETE ON article_note_entries
 BEGIN
     DELETE FROM article_note_metadata WHERE note_id = OLD.id;
 END;
+-- Independent of item_state and investment tags. No cascade: full reindex can
+-- reuse an unchanged title's classification without spending another API call.
+CREATE TABLE IF NOT EXISTS item_classifications (
+  item_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  title_hash TEXT NOT NULL,
+  rule_version TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','done','failed')),
+  category TEXT CHECK(category IN ('china','ai','politics','economy','business','science','other')),
+  topic TEXT,
+  china_probability REAL,
+  probabilities_json TEXT,
+  confidence REAL,
+  needs_review INTEGER NOT NULL DEFAULT 0,
+  model TEXT,
+  usage_json TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at REAL NOT NULL DEFAULT 0,
+  lease_token TEXT,
+  lease_until REAL NOT NULL DEFAULT 0,
+  last_error TEXT,
+  updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_classification_queue ON item_classifications(status,next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_classification_category ON item_classifications(category,status);

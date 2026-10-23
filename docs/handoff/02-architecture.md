@@ -4,6 +4,17 @@
 
 ## 组件关系
 
+### v0.2.1 新闻分类
+
+- `news_classification.py` 负责原生 Jev 请求、响应校验、确定性主分类选择及持久队列；`classification/rules.json` 保存第二轮评估后的规则（`news-category-v2`）。主题 Choice 与中国主体 Noul 同次请求，只有主题是 AI 时优先选 AI，否则中国概率严格大于 0.5 归中国，其余按主题选择。
+- `item_classifications` 以 `item_id` 为主键，保存标题原文／SHA-256、规则版本、类别、模型、概率、复核标记、token 用量、任务状态与租约。与投资标签和阅读状态独立；不设置删除级联，以便全量索引复用相同 ID 和标题的分类。
+- `ensure_db()` 首次补齐历史任务；`scanner.reindex()` 结束时只排队新增、标题变化或规则过期的记录并清理已删除新闻。索引事务内不调用外部服务。升级规则需显式修改规则版本；只改模型配置不会使已完成结果全部重跑，实际使用的模型逐条留存。
+- `main()` 启动两个后台分类线程，复用 API 管理的 Jev 密钥／模型。SQLite 写事务领取任务，180 秒租约允许崩溃恢复；完成时核验租约令牌、标题指纹、规则与当前标题，拒绝过期结果。网络、限流、服务错误按 5／30／120 秒退避，最多 4 次；凭据／模型配置错误暂停该配置，修复或重试后恢复，不将失败归入其他。
+- `GET /api/news/classification` 返回队列进度；`POST /api/news/classification/retry` 重排失败任务并恢复暂停服务。接口不返回密钥或上游错误正文。无密钥时等待，阅读和索引仍正常。
+- `/api/news`、`/api/search`、`/api/news/mark-all-read` 接受 `category=all|china|ai|politics|economy|business|science|other`；未知类别返回 400。服务端先筛选当前标题和规则下的完成结果，再做计数、日期分组、分页或批量操作。新闻序列化增加 `category`、`category_label`、`classification_status`。未完成记录只出现在全部，侧栏全局计数不跟随分类。
+
+### 原有数据流
+
 ```mermaid
 flowchart LR
   C[仓库外采集程序] --> D[DailyNews Markdown 与 JSON]

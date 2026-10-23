@@ -91,6 +91,13 @@ with module.db_conn() as conn:
             conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES (?,?,?,?)',(url,'关注准备金变化与流动性传导。',published,published))
         if index == 4:
             conn.execute('INSERT INTO item_state(item_id,favorite_at,updated_at) VALUES (?,?,?)',(ident,published,published))
+with module.db_conn() as conn:
+    module.news_classification.enqueue(conn)
+    for index in range(65):
+        category = 'economy' if index < 40 else ['china', 'ai', 'politics', 'business', 'science', 'other'][(index - 40) % 6]
+        conn.execute("UPDATE item_classifications SET status='done',category=?,model='fixture',updated_at=? WHERE item_id=?",
+                     (category, time.time(), f'ui-{index:03}'))
+
 @module.app.post('/__test/reset-reading')
 def reset_reading():
     with module.db_conn() as conn:

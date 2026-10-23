@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from parser import DAILY_FILE_RE, parse_daily_file, parse_daily_json_file, sidecar_path_for_daily
+import news_classification
 
 INGEST_MODE_SIDECAR_JSON = "sidecar_json"
 INGEST_MODE_MARKDOWN_FALLBACK = "markdown_fallback"
@@ -19,6 +20,7 @@ class ReindexStats:
     changed_files: int = 0
     upserted: int = 0
     deleted_stale: int = 0
+    classification_queued: int = 0
     ingest_counts: dict[str, int] = field(
         default_factory=lambda: {
             INGEST_MODE_SIDECAR_JSON: 0,
@@ -274,4 +276,6 @@ def reindex(
             )
 
     conn.commit()
+    with conn:
+        stats.classification_queued = news_classification.enqueue(conn)
     return stats

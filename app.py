@@ -54,6 +54,7 @@ from updater import github_tags_url, local_health_url, request_supervisor
 import codex_client
 import news_summaries
 import agent_notifications
+import news_classification
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
 
 from settings import (
@@ -665,12 +666,13 @@ def count_news_items(
     read_filter: str = "all",
     source_filter: str = "all",
     q: str = "",
+    category: str = "all",
 ) -> int:
     join_sql = """
     LEFT JOIN item_state st ON st.item_id = items.id
     LEFT JOIN article_details ad ON ad.url = items.url
     """
-    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter)
+    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
     row = conn.execute(
         f"SELECT COUNT(DISTINCT items.id) AS c FROM items {join_sql} {where_sql}",
         args,
@@ -707,9 +709,14 @@ def _build_news_where_clause(
     read_filter: str,
     collection: str,
     source_filter: str,
+    category: str = "all",
 ) -> tuple[str, list]:
     where = [visible_news_sql()]
     args: list = []
+    category_clause, category_args = news_classification.filter_sql(category)
+    if category_clause:
+        where.append(category_clause)
+        args.extend(category_args)
     if q:
         where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
         like = f"%{q}%"
@@ -1094,6 +1101,7 @@ def ensure_db() -> None:
         migrate_market_trend_notes(conn)
         migrate_news_reminders_review_chain_id(conn)
         seed_market_tag_definitions(conn)
+        news_classification.enqueue(conn)
         _cleanup_media_cache(conn)
         conn.commit()
     finally:
@@ -4279,6 +4287,9 @@ def find_daily_briefing_path(date_key: str) -> Path | None:
 
 
 def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]]) -> list[dict]:
+    if items:
+        with closing(db_conn()) as conn:
+            news_classification.attach(conn, items)
     # Batch comment counts and respect aggregate edits from the original reader.
     urls = list({item.get("url") for item in items if item.get("has_note") and item.get("url")})
     entries: dict[str, list[str]] = {}
@@ -7133,10 +7144,11 @@ def api_news():
     ):
         cursor_mode = False
     try:
+        category = news_classification.parse_category(request.args.get("category"))
         sort_order = parse_news_sort_order(request.args)
         cursor = parse_feed_unread_cursor(request.args) if cursor_mode else None
     except ValueError as exc:
-        error = "invalid_sort_order" if str(exc) == "invalid_sort_order" else "invalid_cursor"
+        error = str(exc) if str(exc) in {"invalid_sort_order", "invalid_category"} else "invalid_cursor"
         return jsonify({"ok": False, "error": error}), 400
     join_sql = """
     LEFT JOIN item_state st ON st.item_id = items.id
@@ -7144,7 +7156,7 @@ def api_news():
     LEFT JOIN article_details ad ON ad.url = items.url
     LEFT JOIN article_notes an ON an.url = items.url
     """
-    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter)
+    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
     if request.args.get("has_note") == "1":
         where_sql += " AND EXISTS (SELECT 1 FROM article_notes n WHERE n.url = items.url)"
     order_by_sql = news_order_by_sql(collection, sort_order)
@@ -7154,6 +7166,7 @@ def api_news():
 
     conn = db_conn()
     try:
+        classification_revision = news_classification.completed_revision(conn)
         total = conn.execute(
             f"SELECT COUNT(*) FROM items {join_sql} {where_sql}",
             args,
@@ -7262,6 +7275,7 @@ def api_news():
     return jsonify(
         {
             "items": items,
+            "classification_revision": classification_revision,
             "total": total,
             "date_counts": date_counts,
             "page": page,
@@ -7803,6 +7817,10 @@ def api_search():
     per = min(100, max(10, int(request.args.get("per", "30"))))
     valid_ranges = {"all", "important", "notes", "market_tags", "detail_ready"}
     valid_times = {"all", "today", "7d", "30d"}
+    try:
+        category = news_classification.parse_category(request.args.get("category"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_category"}), 400
     if range_value not in valid_ranges:
         return jsonify({"ok": False, "error": "invalid_range"}), 400
     if time_value not in valid_times:
@@ -7842,6 +7860,10 @@ def api_search():
     AND is_bloomberg_video_url(items.url) = 0
     """
     filter_sql, filter_args = _build_search_filter_clause(range_value, time_value)
+    category_clause, category_args = news_classification.filter_sql(category)
+    if category_clause:
+        filter_sql += " AND " + category_clause
+        filter_args.extend(category_args)
     if request.args.get("feed_filters") == "1":
         collection_where, collection_args = _build_news_where_clause(
             "", request.args.get("read_filter", "all"), request.args.get("collection", "feed"),
@@ -7855,6 +7877,7 @@ def api_search():
 
     conn = db_conn()
     try:
+        classification_revision = news_classification.completed_revision(conn)
         total = conn.execute(
             f"SELECT COUNT(DISTINCT items.id) FROM items {join_sql} {where_sql}{filter_sql}",
             all_args,
@@ -7906,7 +7929,8 @@ def api_search():
     items = serialize_news_rows([dict(r) for r in rows], market_tags_map)
     date_counts = {row["date_key"]: row["total"] for row in date_count_rows if row["date_key"]}
     pages = max(1, math.ceil(total / per)) if total else 1
-    return jsonify({"items": items, "total": total, "date_counts": date_counts, "page": page, "pages": pages})
+    return jsonify({"items": items, "total": total, "date_counts": date_counts, "page": page, "pages": pages,
+                    "classification_revision": classification_revision})
 
 
 @app.get("/api/sources")
@@ -9386,6 +9410,7 @@ def api_reindex():
             "scanned_files": stats.scanned_files,
             "changed_files": stats.changed_files,
             "upserted": stats.upserted,
+            "classification_queued": stats.classification_queued,
             "deleted_stale": stats.deleted_stale,
             "ingest_counts": stats.ingest_counts,
             "tracked_incremental_matches": tracked_incremental_matches,
@@ -11084,6 +11109,13 @@ def api_mark_all_read():
 
     where = [visible_news_sql()]
     args: list = []
+    try:
+        category_clause, category_args = news_classification.filter_sql(body.get("category", "all"))
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_category"}), 400
+    if category_clause:
+        where.append(category_clause)
+        args.extend(category_args)
     if q:
         where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
         like = f"%{q}%"
@@ -12237,10 +12269,37 @@ def api_news_summary_detail(summary_id):
         return _summary_error(exc)
 
 
+def classification_config() -> tuple[str, str]:
+    settings = current_runtime_settings()
+    model = settings["api_models"]["jev"]["model"] or model_apis.API_PROVIDERS["jev"]["default_model"]
+    return provider_secret_value("jev"), model
+
+
+CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config)
+
+
+@app.get("/api/news/classification")
+def api_classification_status():
+    with closing(db_conn()) as conn:
+        progress = news_classification.status(conn)
+    return jsonify(ok=True, **progress, configured=provider_has_configured_key("jev"),
+                   error=CLASSIFICATION_SERVICE.error,
+                   categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
+
+
+@app.post("/api/news/classification/retry")
+def api_classification_retry():
+    with closing(db_conn()) as conn:
+        retried = news_classification.retry_failed(conn)
+    CLASSIFICATION_SERVICE.resume()
+    return jsonify(ok=True, retried=retried)
+
+
 def main() -> None:
     ensure_db()
     start_detail_worker()
     start_agent_worker()
+    CLASSIFICATION_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:

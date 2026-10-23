@@ -36,6 +36,7 @@ const state = {
   filter: "unread",
   sortOrder: "default",
   source: "all",
+  category: "all",
   query: "",
   items: [],
   selected: null,
@@ -226,6 +227,68 @@ const summaries = new SummaryPanel({
   },
 });
 
+const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
+let classificationProgress = null;
+let classificationLoading = false;
+let classificationViewRevision = 0;
+
+function renderCategories() {
+  const row = $("#newsCategoryFilters");
+  row.hidden = state.collection !== "feed";
+  // Keep the buttons mounted: keyboard focus and horizontal scroll survive counts updating.
+  if (!row.children.length) row.innerHTML = Object.entries(categoryLabels).map(([key, label]) =>
+    `<button type="button" class="filter-chip" data-category="${key}">${label}</button>`).join("");
+  for (const button of row.children) {
+    const active = button.dataset.category === state.category;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  const notice = $("#classificationNotice"), p = classificationProgress;
+  const fresh = p && p.completed_revision > classificationViewRevision;
+  notice.hidden = state.collection !== "feed" || !p || !(p.pending || p.running || p.failed || fresh);
+  if (notice.hidden) return;
+  const text = !p.configured ? "新闻分类需要配置 Jev"
+    : p.error ? "新闻分类已暂停，请检查 Jev 设置后重试"
+    : p.pending || p.running ? `正在分类 ${p.done}/${p.total}${p.failed ? ` · ${p.failed} 条失败` : ""}`
+    : p.failed ? `${p.failed} 条分类失败` : "新闻分类已更新";
+  $("span", notice).textContent = text;
+  const button = $("button", notice);
+  button.textContent = !p.configured ? "设置" : p.failed || p.error ? "重试" : "刷新";
+  button.onclick = () => busy(button, async () => {
+    if (!p.configured) {
+      if (!settings.open) await settings.toggle();
+      settings.apiProvider = "jev";
+      settings.renderTranslation();
+      settings.selectSection("deepseek");
+      return;
+    }
+    if (p.failed || p.error) await api("/api/news/classification/retry", { method: "POST" });
+    await loadFeed();
+    await refreshClassification();
+  });
+}
+
+async function refreshClassification() {
+  if (classificationLoading || document.hidden || state.collection !== "feed") return;
+  classificationLoading = true;
+  try {
+    classificationProgress = await api("/api/news/classification");
+    renderCategories();
+  } catch {
+    // Reading stays usable if progress cannot be fetched. The next poll retries.
+  } finally { classificationLoading = false; }
+}
+
+$("#newsCategoryFilters").addEventListener("keydown", event => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const buttons = [...event.currentTarget.children], index = buttons.indexOf(event.target);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+    : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+  buttons[next].focus();
+});
+
 function feedParams() {
   return {
     collection: state.collection,
@@ -237,12 +300,14 @@ function feedParams() {
           ? "read"
           : "all",
     source_filter: state.source,
+    category: state.collection === "feed" ? state.category : "all",
     q: state.query,
     sort_order: state.sortOrder,
     per: "30",
   };
 }
 function renderFilters() {
+  renderCategories();
   renderFavoritesAction();
   const filters =
     state.collection === "read_later"
@@ -345,7 +410,7 @@ function card(item) {
     <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTimestamp(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet${item.detail_ready ? " news-card-conclusion" : ""}">${e(text)}</p>` : ""}
-    <div class="news-card-footer"><div class="card-footer-left">${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
+    <div class="news-card-footer"><div class="card-footer-left">${item.category_label ? `<span class="news-category-tag" aria-label="分类：${e(item.category_label)}">${e(item.category_label)}</span>` : ""}${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
     <div class="card-actions">${["important", "read_later", "favorite"].map((flag) => {
       const action = cardAction(item, flag);
       return `<button class="${action.className}" type="button" data-state="${flag}" aria-pressed="${action.active}" aria-busy="${action.saving}" title="${action.title}" ${flag === "favorite" && state.removingFavorites ? "disabled" : ""}>${icon(flag)}<span>${action.label}</span></button>`;
@@ -444,6 +509,8 @@ async function loadFeed(append = false) {
     state.more = data.has_more;
     state.cursor = data.next_cursor;
     state.loading = false;
+    if (!append) classificationViewRevision = data.classification_revision || 0;
+    void refreshClassification();
     if (state.selected)
       state.selected =
         state.items.find((item) => item.id === state.selected.id) ||
@@ -473,6 +540,7 @@ async function loadFeed(append = false) {
 }
 async function searchNews(sequence, signal, params = feedParams()) {
   const matches = [];
+  let classificationRevision = 0;
   let page = 1,
     pages = 1;
   do {
@@ -481,6 +549,7 @@ async function searchNews(sequence, signal, params = feedParams()) {
       { signal },
     );
     matches.push(...data.items);
+    if (page === 1) classificationRevision = data.classification_revision || 0;
     pages = data.pages;
     page++;
   } while (page <= pages && sequence === state.sequence);
@@ -508,6 +577,7 @@ async function searchNews(sequence, signal, params = feedParams()) {
   items.sort((a, b) => (ascending ? 1 : -1) * `${a.date_key || a.date || ""} ${a.published_at || ""} ${a.id}`.localeCompare(`${b.date_key || b.date || ""} ${b.published_at || ""} ${b.id}`));
   return {
     items,
+    classification_revision: classificationRevision,
     total: items.length,
     page: 1,
     has_more: false,
@@ -529,7 +599,7 @@ function renderIndexStatus() {
   dot.classList.toggle("syncing", syncing);
 }
 let navSummary = null, totalScope = "", readCountsFrame;
-const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
+const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query, state.collection === "feed" ? state.category : "all"]);
 const countSnapshot = () => ({ version: stateWrites.version, clean: !stateWrites.pending.size });
 const countsAreCurrent = snapshot => snapshot.clean && !stateWrites.pending.size && snapshot.version === stateWrites.version;
 
@@ -597,6 +667,7 @@ function applyReadCountChange(id, patch) {
   if (state.collection === "feed" && state.filter === "unread" &&
       totalScope === countScope() && state.total !== null &&
       (state.source === "all" || state.source === operation.source) &&
+      (state.category === "all" || state.category === operation.category) &&
       (!state.query || state.query === operation.query))
     state.total = Math.max(0, state.total + delta);
   if (!readCountsFrame) readCountsFrame = requestAnimationFrame(renderReadCounts);
@@ -606,7 +677,7 @@ function setReadState(item, value, silent) {
   if (!readOperations.has(item.id))
     readOperations.set(item.id, {
       read_at: item.read_at, fromFeed: state.collection === "feed",
-      source: sourceKey(item), label: item.source, query: state.query,
+      source: sourceKey(item), label: item.source, query: state.query, category: item.category,
     });
   return stateWrites.set(item, "read", value, silent).then(saved => {
     if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
@@ -1137,7 +1208,8 @@ async function markAllRead() {
     if (params.q) items = preview.items;
     const sourceScope = params.source_filter === "all" ? sourceName : `「${sourceName}」`;
     const search = params.q ? `\n搜索条件：「${params.q}」` : "";
-    if (!await confirmAction({ title: "全部标为已读", trigger: "#markAllReadBtn", message: `确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${search}\n包含当前范围内尚未加载的新闻。`, action: "全部标为已读" })) return;
+    const category = params.category !== "all" ? `\n新闻分类：「${categoryLabels[params.category]}」` : "";
+    if (!await confirmAction({ title: "全部标为已读", trigger: "#markAllReadBtn", message: `确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${category}${search}\n包含当前范围内尚未加载的新闻。`, action: "全部标为已读" })) return;
     if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部已读");
     const current = params.q ? await searchNews(sequence, undefined, params) : await api(`/api/news?${new URLSearchParams({ ...params, count_only: "1" })}`);
     if (sequence !== state.sequence || scope !== countScope() || current.total !== preview.total ||
@@ -1353,6 +1425,10 @@ document.addEventListener("click", (event) => {
     state.filter = button.dataset.filter;
     loadFeed();
   }
+  if (button?.dataset.category) {
+    state.category = button.dataset.category;
+    loadFeed();
+  }
   if (button?.dataset.ideaType) {
     state.ideaType = button.dataset.ideaType;
     renderFilters();
@@ -1421,6 +1497,7 @@ function syncVisibleCounts() {
   if (document.hidden) return;
   sourceCatalogByCollection.clear();
   refreshBadges();
+  void refreshClassification();
 }
 document.addEventListener("visibilitychange", syncVisibleCounts);
 window.addEventListener("focus", syncVisibleCounts);

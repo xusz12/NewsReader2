@@ -1,0 +1,83 @@
+import { test, expect } from '@playwright/test';
+import { answerConfirm } from './helpers.js';
+
+test.beforeEach(async ({ page, request }) => {
+  await request.post('/__test/reset-reading');
+  await page.clock.install();
+  await page.goto('/');
+  await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (65)');
+});
+
+test('category scope includes unmounted pages and confirmation only marks that category', async ({ page, request }) => {
+  const row = page.getByRole('group', { name: '新闻分类' });
+  await expect(row.getByRole('button')).toHaveText(['全部', '中国', 'AI', '政治与国际', '经济与金融', '商业', '科技与科学', '其他']);
+  await row.getByRole('button', { name: '经济与金融', exact: true }).click();
+  await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (40)');
+  await expect(page.locator('#feedCardList .news-card')).toHaveCount(30);
+  await expect(page.locator('#feedCardList .news-category-tag')).toHaveText(Array(30).fill('经济与金融'));
+  await page.screenshot({ path: '.ui-artifacts/categories-desktop.png' });
+  await page.locator('#markAllReadBtn').click();
+  expect(await answerConfirm(page)).toContain('新闻分类：「经济与金融」');
+  await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (0)');
+  const total = await (await request.get('/api/news?read_filter=unread&count_only=1')).json();
+  expect(total.total).toBe(25);
+  await row.getByRole('button', { name: 'AI', exact: true }).click();
+  await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (4)');
+});
+
+test('search and category intersect, leaving feed removes category from collection requests', async ({ page }) => {
+  await page.locator('[data-category="economy"]').click();
+  await page.locator('#feedSearchInput').fill('isolated interface test fixture');
+  await page.clock.runFor(300);
+  await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
+  for (const tag of await page.locator('#feedCardList .news-category-tag').allTextContents()) expect(tag).toBe('经济与金融');
+  const request = page.waitForRequest(req => req.url().includes('/api/news?') && req.url().includes('collection=favorites'));
+  await page.locator('#navFavoritesBtn').click();
+  expect(new URL((await request).url()).searchParams.get('category')).toBe('all');
+  await expect(page.locator('#newsCategoryFilters')).toBeHidden();
+  await page.locator('#navFeedBtn').click();
+  await expect(page.locator('[data-category="economy"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('keyboard focus survives count refresh and can reach the last horizontally clipped category', async ({ page }) => {
+  await page.locator('[data-category="all"]').focus();
+  await page.keyboard.press('End');
+  await expect(page.locator('[data-category="other"]')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (4)');
+  await expect(page.locator('[data-category="other"]')).toBeFocused();
+  await expect(page.locator('[data-category="other"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.clock.runFor(31000);
+  await expect(page.locator('[data-category="other"]')).toBeFocused();
+});
+
+test('missing key and failed classification remain explicit, retry uses the queue endpoint', async ({ page }) => {
+  const progress = { ok: true, total: 65, done: 60, failed: 5, pending: 0, running: 0, configured: true, completed_revision: 0 };
+  await page.route('**/api/news/classification', route => route.fulfill({ json: progress }));
+  await page.clock.runFor(31000);
+  await expect(page.locator('#classificationNotice')).toContainText('5 条分类失败');
+  const retry = page.waitForRequest('**/api/news/classification/retry');
+  await page.locator('#classificationNotice button').click();
+  expect((await retry).method()).toBe('POST');
+  progress.configured = false;
+  await page.clock.runFor(31000);
+  await expect(page.locator('#classificationNotice')).toContainText('新闻分类需要配置 Jev');
+  await page.locator('#classificationNotice button').click();
+  await expect(page.locator('#settingsCategory-deepseek')).toHaveAttribute('aria-current', 'true');
+});
+
+for (const theme of ['light', 'dark', 'eink']) {
+  test(`mobile ${theme}: category row scrolls without page overflow`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+    const row = page.locator('#newsCategoryFilters');
+    const metrics = await row.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth,
+      overflow: document.documentElement.scrollWidth > innerWidth }));
+    expect(metrics.scroll).toBeGreaterThan(metrics.width);
+    expect(metrics.overflow).toBe(false);
+    await row.locator('[data-category="science"]').click();
+    await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (4)');
+    await expect(page.locator('#feedCardList .news-category-tag').first()).toHaveText('科技与科学');
+    await page.screenshot({ path: `.ui-artifacts/categories-${theme}-mobile.png` });
+  });
+}
