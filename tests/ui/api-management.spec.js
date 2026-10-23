@@ -47,6 +47,38 @@ test('Jev classification concurrency defaults to eight, validates limits and sav
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
 });
 
+test('unread-only switch preserves drafts, saves live, reloads and can be disabled', async ({ page, request }) => {
+  await setup(page, request, false);
+  await chooseProvider(page, 'Jev');
+  const toggle = page.getByRole('switch', { name: '仅对未读新闻分类' });
+  await expect(toggle).not.toBeChecked();
+  await toggle.focus();
+  await toggle.press('Space');
+  await expect(toggle).toBeChecked();
+  await expect(page.locator('#settingsStatus')).toHaveText('有未保存的更改');
+  await chooseProvider(page, 'DeepSeek');
+  await expect(toggle).toHaveCount(0);
+  await chooseProvider(page, 'Jev');
+  await expect(toggle).toBeChecked();
+  await page.locator('#settingsResetBtn').click();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await chooseProvider(page, 'DeepSeek');
+  await page.locator('#settingsSaveBtn').click();
+  await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
+  expect((await (await request.get('/api/news/classification')).json()).unread_only).toBe(true);
+  await page.unroute('**/api/settings');
+  await page.reload();
+  await openSettings(page);
+  await page.locator('[data-settings-tab="deepseek"]').click();
+  await chooseProvider(page, 'Jev');
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await page.locator('#settingsSaveBtn').click();
+  await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
+  expect((await (await request.get('/api/news/classification')).json()).unread_only).toBe(false);
+});
+
 test('provider models and secret drafts remain independent across navigation and save', async ({ page, request }) => {
   await setup(page, request, false);
   await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
@@ -180,6 +212,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'eink']) 
     await expect(provider).toContainText('Jev');
     await expect(provider).toBeFocused();
     await expect(page.locator('#translationSettings')).toContainText('TypeSafe');
+    const toggle = page.getByRole('switch', { name: '仅对未读新闻分类' });
+    await toggle.check();
+    await expect(toggle).toBeChecked();
+    await toggle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `.ui-artifacts/classification-unread-${width}-${theme}.png` });
     await page.locator('#translationTestTerminal').scrollIntoViewIfNeeded();
     await expect(page.locator('#translationTestBtn')).toBeVisible();
     const panel = await page.locator('#detailPanelSettings').boundingBox();

@@ -8354,7 +8354,8 @@ def api_settings_update():
     # Serialize routing changes with summary commit: the first action wins cleanly.
     with NEWS_SUMMARY_SERVICE.lock:
         save_app_settings(normalized)
-        CLASSIFICATION_SERVICE.configure(normalized["api_models"]["jev"]["concurrency"])
+        CLASSIFICATION_SERVICE.configure(normalized["api_models"]["jev"]["concurrency"],
+                                         unread_only=normalized["api_models"]["jev"]["unread_only"])
     refresh_agent_session_expiries()
     return jsonify({"ok": True, **serialize_runtime_settings()})
 
@@ -12282,7 +12283,7 @@ CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_con
 @app.get("/api/news/classification")
 def api_classification_status():
     with closing(db_conn()) as conn:
-        progress = news_classification.status(conn)
+        progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
     return jsonify(ok=True, **progress, configured=provider_has_configured_key("jev"),
                    error=CLASSIFICATION_SERVICE.error,
                    throttle=CLASSIFICATION_SERVICE.gate.snapshot(),
@@ -12292,7 +12293,7 @@ def api_classification_status():
 @app.post("/api/news/classification/retry")
 def api_classification_retry():
     with closing(db_conn()) as conn:
-        retried = news_classification.retry_failed(conn)
+        retried = news_classification.retry_failed(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
     CLASSIFICATION_SERVICE.resume()
     return jsonify(ok=True, retried=retried)
 
@@ -12301,7 +12302,9 @@ def main() -> None:
     ensure_db()
     start_detail_worker()
     start_agent_worker()
-    CLASSIFICATION_SERVICE.configure(current_runtime_settings()["api_models"]["jev"]["concurrency"])
+    classification_settings = current_runtime_settings()["api_models"]["jev"]
+    CLASSIFICATION_SERVICE.configure(classification_settings["concurrency"],
+                                     unread_only=classification_settings["unread_only"])
     CLASSIFICATION_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()

@@ -33,6 +33,8 @@ TOPICS = {"AI": "ai", "政治与国际": "politics", "经济与金融": "economy
 MAX_ATTEMPTS = 4
 RETRY_DELAYS = (5, 30, 120)
 LEASE_SECONDS = 180
+UNREAD_SCOPE_SQL = """ AND NOT EXISTS (SELECT 1 FROM item_state st
+    WHERE st.item_id=c.item_id AND st.read_at IS NOT NULL)"""
 
 
 def fingerprint(title: str) -> str:
@@ -210,7 +212,7 @@ def classify(title: str, key: str, model: str) -> dict:
         raise ClassificationError("invalid_response", retryable=True) from None
 
 
-def claim(conn: sqlite3.Connection) -> dict | None:
+def claim(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict | None:
     now = time.time()
     with conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -219,8 +221,9 @@ def claim(conn: sqlite3.Connection) -> dict | None:
                      (now, now, MAX_ATTEMPTS))
         row = conn.execute("""SELECT c.* FROM item_classifications c JOIN items i ON i.id=c.item_id
             WHERE c.title=i.title AND c.rule_version=? AND c.attempts<?
-            AND ((c.status='pending' AND c.next_attempt_at<=?) OR (c.status='running' AND c.lease_until<=?))
-            ORDER BY i.published_at DESC,i.id DESC LIMIT 1""", (RULE_VERSION, MAX_ATTEMPTS, now, now)).fetchone()
+            AND ((c.status='pending' AND c.next_attempt_at<=?) OR (c.status='running' AND c.lease_until<=?))"""
+            + (UNREAD_SCOPE_SQL if unread_only else "")
+            + " ORDER BY i.published_at DESC,i.id DESC LIMIT 1", (RULE_VERSION, MAX_ATTEMPTS, now, now)).fetchone()
         if row is None:
             return None
         job = dict(row)
@@ -252,22 +255,24 @@ def finish(conn: sqlite3.Connection, job: dict, result: dict | None, error: Clas
     return bool(changed)
 
 
-def retry_failed(conn: sqlite3.Connection) -> int:
+def retry_failed(conn: sqlite3.Connection, *, unread_only: bool = False) -> int:
     with conn:
-        return conn.execute("""UPDATE item_classifications SET status='pending',attempts=0,
-            next_attempt_at=0,last_error=NULL,updated_at=? WHERE status='failed'""", (time.time(),)).rowcount
+        return conn.execute("""UPDATE item_classifications AS c SET status='pending',attempts=0,
+            next_attempt_at=0,last_error=NULL,updated_at=? WHERE status='failed'"""
+            + (UNREAD_SCOPE_SQL if unread_only else ""), (time.time(),)).rowcount
 
 
 def completed_revision(conn: sqlite3.Connection) -> float:
     return conn.execute("SELECT COALESCE(MAX(updated_at),0) FROM item_classifications WHERE status='done'").fetchone()[0]
 
 
-def status(conn: sqlite3.Connection) -> dict:
+def status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:
     rows = conn.execute("""SELECT c.status,COUNT(*) AS n FROM item_classifications c
-        JOIN items i ON i.id=c.item_id AND i.title=c.title WHERE c.rule_version=? GROUP BY c.status""", (RULE_VERSION,)).fetchall()
+        JOIN items i ON i.id=c.item_id AND i.title=c.title WHERE c.rule_version=?"""
+        + (UNREAD_SCOPE_SQL if unread_only else "") + " GROUP BY c.status", (RULE_VERSION,)).fetchall()
     counts = {s: 0 for s in ("pending", "running", "done", "failed")}
     counts.update({r[0]: r[1] for r in rows})
-    return {**counts, "total": sum(counts.values()), "rule_version": RULE_VERSION,
+    return {**counts, "total": sum(counts.values()), "rule_version": RULE_VERSION, "unread_only": unread_only,
             "completed_revision": completed_revision(conn),
             "revision": conn.execute("SELECT COALESCE(MAX(updated_at),0) FROM item_classifications").fetchone()[0]}
 
@@ -295,10 +300,12 @@ class Service:
         self.blocked_config = None
         self.error = ""
         self.gate = AdaptiveConcurrency(concurrency)
+        self.unread_only = False
 
     def process_one(self, key: str, model: str, generation: int | None = None) -> bool:
-        with closing(self.connect()) as conn:
-            job = claim(conn)
+        # Serialize scope changes with claiming, not with the network request.
+        with self.lock, closing(self.connect()) as conn:
+            job = claim(conn, unread_only=self.unread_only)
         if not job:
             return False
         if generation is None:
@@ -342,9 +349,13 @@ class Service:
             self.threads.append(thread)
             thread.start()
 
-    def configure(self, concurrency: int):
+    def configure(self, concurrency: int, *, unread_only: bool | None = None):
+        if unread_only is not None and type(unread_only) is not bool:
+            raise ValueError("invalid_classification_unread_only")
         with self.lock:
             self.gate.configure(concurrency)
+            if unread_only is not None:
+                self.unread_only = unread_only
             if self.threads:
                 self._grow_workers()
 

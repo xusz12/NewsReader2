@@ -50,6 +50,10 @@ def normalize_api_models(value: object, *, defaults: dict | None = None) -> dict
         if provider == "jev":
             normalized[provider]["concurrency"] = classification_concurrency(
                 config.get("concurrency", (defaults or {}).get(provider, {}).get("concurrency", DEFAULT_CLASSIFICATION_CONCURRENCY)))
+            unread_only = config.get("unread_only", (defaults or {}).get(provider, {}).get("unread_only", False))
+            if type(unread_only) is not bool:
+                raise ValueError("invalid_classification_unread_only")
+            normalized[provider]["unread_only"] = unread_only
     return normalized
 
 

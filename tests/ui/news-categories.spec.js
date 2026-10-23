@@ -66,6 +66,18 @@ test('missing key and failed classification remain explicit, retry uses the queu
   await expect(page.locator('#settingsCategory-deepseek')).toHaveAttribute('aria-current', 'true');
 });
 
+test('unread-only progress uses its scope and hides when eligible work is complete', async ({ page }) => {
+  const progress = { ok: true, total: 10, done: 7, pending: 3, running: 0, failed: 0,
+    configured: true, unread_only: true, completed_revision: 0 };
+  await page.route('**/api/news/classification', route => route.fulfill({ json: progress }));
+  await page.clock.runFor(31000);
+  await expect(page.locator('#classificationNotice')).toContainText('正在分类未读新闻 7/10');
+  progress.done = 10;
+  progress.pending = 0;
+  await page.clock.runFor(31000);
+  await expect(page.locator('#classificationNotice')).toBeHidden();
+});
+
 test('shared rate limiting is shown as cooldown without replacing the news list', async ({ page }) => {
   await page.route('**/api/news/classification', route => route.fulfill({ json: {
     ok: true, total: 65, done: 30, pending: 35, running: 0, failed: 0, configured: true,

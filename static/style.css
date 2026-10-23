@@ -3259,6 +3259,15 @@ button:disabled {
   align-items: center;
   gap: 10px;
 }
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-small);
+  color: var(--fg);
+  cursor: pointer;
+}
+.settings-toggle input { flex-shrink: 0; accent-color: var(--accent); }
 .settings-source-group {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

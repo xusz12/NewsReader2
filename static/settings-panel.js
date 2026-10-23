@@ -295,7 +295,7 @@ export class SettingsPanel {
       return;
     }
     if (!input.name || !this.draft) return;
-    const value = input.type === "number" || input.name === "agent.session_ttl_hours"
+    const value = input.type === "checkbox" ? input.checked : input.type === "number" || input.name === "agent.session_ttl_hours"
       ? Number(input.value) : input.value;
     const unchanged = Object.is(get(this.draft, input.name), value);
     // Numeric fields emit change again on blur, after input already updated the draft.
@@ -443,6 +443,7 @@ export class SettingsPanel {
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
       <p class="muted" id="translationStatus" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
       ${provider === "jev" ? `${field("分类并发上限", "api_models.jev.concurrency", d.api_models.jev.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}<p class="muted">默认 8，可设置 1–32。保存后生效；遇到限流自动降速，稳定后逐步恢复。</p>` : ""}
+      ${provider === "jev" ? `<label class="settings-toggle"><input type="checkbox" role="switch" name="api_models.jev.unread_only" ${d.api_models.jev.unread_only ? "checked" : ""}><span>仅对未读新闻分类</span></label><p class="muted">开启后跳过已读新闻；已在处理的请求会继续完成。</p>` : ""}
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}

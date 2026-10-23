@@ -786,7 +786,7 @@ def test_settings_save_serializes_with_summary_commit(setup, monkeypatch, tmp_pa
     monkeypatch.setattr(
         module,
         "validate_runtime_settings",
-        lambda body: {"database": {"path": "new-route"}, "api_models": {"jev": {"concurrency": 8}}},
+        lambda body: {"database": {"path": "new-route"}, "api_models": {"jev": {"concurrency": 8, "unread_only": False}}},
     )
 
     def save(value):
