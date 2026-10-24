@@ -54,7 +54,7 @@ test('mobile starts at one line without opening the keyboard, grows and returns 
   await input.fill('第一行'); await input.press('Enter'); await input.pressSequentially('第二行');
   await expect(input).toHaveValue('第一行\n第二行');
   await expect.poll(async () => (await input.boundingBox()).height).toBeGreaterThan(line);
-  await expectUsable(page, 52, 788);
+  await expectUsable(page, 50, 788);
   await input.fill('');
   await expect.poll(async () => (await input.boundingBox()).height).toBeCloseTo(line, 0);
 });
@@ -66,7 +66,7 @@ test('keyboard resizing, panning and focus scrolling keep the draft and send but
   await input.fill(draft);
   for (const [height, offset] of [[410, 0], [320, 120], [410, 20]]) {
     await viewport(page, height, offset);
-    await expectUsable(page, Math.max(52, offset + 8), height + offset);
+    await expectUsable(page, Math.max(50, offset + 8), height + offset);
     await expect(input).toBeFocused();
     await expect(input).toHaveValue(draft);
   }
@@ -81,12 +81,12 @@ test('keyboard resizing, panning and focus scrolling keep the draft and send but
     reader.scrollTop = 100;
   });
   await expect(page.locator('#detailPanelFeed')).toHaveJSProperty('scrollTop', 100);
-  await expectUsable(page, 52, 430);
+  await expectUsable(page, 50, 430);
   await expect(input).toBeFocused();
   await expect(input).toHaveValue(draft);
   await page.evaluate(() => { document.querySelector('#focus-scroll-fixture').remove(); document.querySelector('#detailPanelFeed').scrollTop = 0; });
   await viewport(page, 844);
-  await expectUsable(page, 52, 788);
+  await expectUsable(page, 50, 788);
   await expect(input).toHaveValue(draft);
 });
 
@@ -96,7 +96,7 @@ test('a resized layout viewport keeps the panel open and input reachable', async
   await page.locator('#agentPromptInput').fill(draft);
   for (const height of [450, 375, 844]) {
     await page.setViewportSize({ width: 390, height });
-    await expectUsable(page, 52, height - 56);
+    await expectUsable(page, 50, height - 56);
     await expect(page.locator('#agentPromptInput')).toBeFocused();
     await expect(page.locator('#agentPromptInput')).toHaveValue(draft);
   }
@@ -112,7 +112,7 @@ test('the handle is removed and the existing collapse button preserves drafts', 
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
   await page.locator('#agentDockToggleBtn').tap();
   await expect(input).toHaveValue('收起再展开仍保留的问题');
-  await expectUsable(page, 52, 788);
+  await expectUsable(page, 50, 788);
   await page.locator('#agentDockToggleBtn').focus();
   await page.keyboard.press('Enter');
   await expect(dock).toHaveClass(/minimized/);
@@ -124,15 +124,21 @@ test('the mobile overlay follows reader/settings navigation and desktop resizing
   await input.fill('切换页面不丢草稿');
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await page.locator('#mobileReaderBackBtn').tap();
+  await expect(page.locator('#agentDock')).toHaveClass(/minimized/);
+  await expect(page.locator('#feedView')).toHaveClass(/mobile-reader-active/);
+  await page.locator('#mobileReaderBackBtn').tap();
   await expect(page.locator('#agentDock')).toBeHidden();
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
   await page.locator('[data-id="ui-064"]').click();
+  await page.locator('#agentDockToggleBtn').tap();
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await expect(input).toHaveValue('切换页面不丢草稿');
+  await page.locator('#agentDockToggleBtn').tap();
   await openSettings(page);
   await expect(page.locator('#agentDock')).toBeHidden();
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
   await page.keyboard.press('Escape');
+  await page.locator('#agentDockToggleBtn').tap();
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
@@ -140,18 +146,20 @@ test('the mobile overlay follows reader/settings navigation and desktop resizing
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await expect(input).toHaveValue('切换页面不丢草稿');
-  await expectUsable(page, 52, 788);
+  await expectUsable(page, 50, 788);
 });
 
 test('keyboard layout changes never animate in any theme', async ({ page }) => {
   const dock = page.locator('#agentDock');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   for (const theme of ['light', 'dark', 'eink']) {
+    await page.locator('#agentDockToggleBtn').tap();
     await chooseTheme(page, theme);
+    await page.locator('#agentDockToggleBtn').tap();
     await expect(dock).toHaveCSS('transition-duration', '0s');
   }
   await viewport(page, 410);
-  await expectUsable(page, 52, 410);
+  await expectUsable(page, 50, 410);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(dock).toHaveCSS('transition-duration', '0s');
 });

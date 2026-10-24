@@ -148,6 +148,10 @@ test('expanding an untouched article prepares one session and reuses it on reope
   await expect.poll(() => posts.length).toBe(2);
   expect((await (await request.get(path + '/agent/session')).json()).session.id).toBe(first);
   await page.locator('[data-id="ui-063"] .news-card-title').click();
+  await expect(page.locator('#agentDock')).toHaveClass(/minimized/);
+  expect(posts).toHaveLength(2);
+  await page.locator('[data-id="ui-063"] .news-card-title').click();
+  await page.locator('#agentDockToggleBtn').click();
   await expect.poll(() => posts.length).toBe(3);
   expect(posts[2].url()).toContain('ui-063');
   expect(posts.every(req => !req.postDataJSON().new_session)).toBe(true);
@@ -214,7 +218,8 @@ test('saving settings updates the model of an already expanded unused Agent', as
   await expect(page.locator('#agentPromptInput')).toBeEnabled();
   await expect(page.locator('#agentSendBtn')).toBeEnabled();
   const original = (await (await request.get(path + '/agent/session')).json()).session.id;
-  await page.locator('#leftNavSettingsBtn').click();
+  // Keyboard navigation leaves the Agent expanded while settings are saved.
+  await page.locator('#leftNavSettingsBtn').press('Enter');
   await page.locator('input[name="agent.codex.model"]').fill('saved-through-settings');
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#agentRuntimeBadge')).toContainText('saved-through-settings');

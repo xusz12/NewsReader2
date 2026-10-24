@@ -15,10 +15,9 @@ import sys
 import tempfile
 import threading
 import time
-from urllib.request import urlopen
 import uuid
 
-from updater import local_health_url, _write_state as write_update_state
+from updater import local_health_url, open_local_url as urlopen, _write_state as write_update_state
 
 ROOT = Path(__file__).resolve().parent
 ACTIVE_UPDATE_STATES = {
@@ -97,6 +96,8 @@ class Supervisor:
         opener=_open_url,
         service_command=None,
         health_timeout: float = 30.0,
+        replace_existing: bool = False,
+        replacement_timeout: float = 90.0,
     ):
         self.root = Path(root).resolve()
         source_env = dict(os.environ if env is None else env)
@@ -111,6 +112,8 @@ class Supervisor:
         self.opener = opener
         self.service_command = service_command or (lambda env: [sys.executable, str(self.root / "app.py")])
         self.health_timeout = health_timeout
+        self.replace_existing = replace_existing
+        self.replacement_timeout = replacement_timeout
         self.runtime_dir = Path(tempfile.gettempdir()) / f"news-reader-{os.getuid()}-{hashlib.sha256(str(self.root).encode()).hexdigest()[:16]}"
         self.socket_path = str(self.runtime_dir / "control.sock")
         self.lock_path = self.runtime_dir / "supervisor.lock"
@@ -131,6 +134,7 @@ class Supervisor:
         self.stop_requested = False
         self.listener: socket.socket | None = None
         self.lock_file = None
+        self.launch_lock = None
         self.exit_code = 0
         self._old_handlers: dict[int, object] = {}
 
@@ -155,7 +159,146 @@ class Supervisor:
         server.listen(8)
         server.settimeout(0.2)
         self.listener = server
+        self.lock_file.seek(0)
+        self.lock_file.truncate()
+        json.dump({"pid": os.getpid(), "root": str(self.root), "token": self.token}, self.lock_file)
+        self.lock_file.flush()
         return True
+
+    def _serialize_launch(self) -> None:
+        """Keep simultaneous Finder launches from interrupting each other's startup."""
+        self.runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.launch_lock = (self.runtime_dir / "launch.lock").open("a+")
+        os.chmod(self.runtime_dir / "launch.lock", 0o600)
+        deadline = time.monotonic() + self.replacement_timeout
+        while not self.stop_requested:
+            try:
+                fcntl.flock(self.launch_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("另一个启动请求尚未完成，请稍后重试")
+                time.sleep(0.1)
+        raise RuntimeError("启动已取消")
+
+    def _release_launch(self) -> None:
+        if self.launch_lock is not None:
+            fcntl.flock(self.launch_lock.fileno(), fcntl.LOCK_UN)
+            self.launch_lock.close()
+            self.launch_lock = None
+
+    def _legacy_owner(self) -> tuple[int, str] | None:
+        """Recognize a pre-handoff launcher by its open project lock and command.
+
+        Never infer ownership from a listening port, a health response or a PID file.
+        The lock is in this user's private, project-specific runtime directory.
+        """
+        result = subprocess.run(["lsof", "-t", "--", str(self.lock_path)],
+                                capture_output=True, text=True, timeout=2, check=False)
+        owners = set(result.stdout.split())
+        if len(owners) != 1:
+            return None
+        value = owners.pop()
+        if not value.isdecimal() or int(value) in {0, 1, os.getpid()}:
+            return None
+        pid = int(value)
+        snapshot = self._project_process(pid, ("launcher.py", "launcher.py --replace-existing", "updater.py --serve"))
+        return (pid, snapshot) if snapshot else None
+
+    def _project_process(self, pid: int, scripts: tuple[str, ...]) -> str | None:
+        if pid in {0, 1, os.getpid()}:
+            return None
+        executable = subprocess.run(["ps", "-p", str(pid), "-o", "comm="],
+                                    capture_output=True, text=True, timeout=2, check=False)
+        if not Path(executable.stdout.strip()).name.lower().startswith("python"):
+            return None
+        result = subprocess.run(["ps", "-p", str(pid), "-o", "uid=,lstart=,command="],
+                                capture_output=True, text=True, timeout=2, check=False)
+        snapshot = result.stdout.strip()
+        fields = snapshot.split(maxsplit=6)
+        if len(fields) != 7 or fields[0] != str(os.getuid()):
+            return None
+        command = fields[6]
+        endings = tuple(str(self.root / script) for script in scripts)
+        if not any(command.endswith(" " + ending) for ending in endings):
+            # Terminal launches may use a relative script name; verify their cwd too.
+            if not command.endswith(tuple(" " + script for script in scripts)):
+                return None
+            cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+                                 capture_output=True, text=True, timeout=2, check=False)
+            if not any(line.startswith("n") and Path(line[1:]).resolve() == self.root
+                       for line in cwd.stdout.splitlines()):
+                return None
+        return snapshot
+
+    def _stop_leftover_service(self) -> None:
+        """With the supervisor lock owned, retire only a verified project app.py."""
+        try:
+            result = subprocess.run(["lsof", "-nP", f"-iTCP:{self.port}", "-sTCP:LISTEN", "-t"],
+                                    capture_output=True, text=True, timeout=2, check=False)
+        except FileNotFoundError:
+            return  # Without process ownership evidence, let normal startup report a conflict.
+        for value in set(result.stdout.split()):
+            if not value.isdecimal():
+                continue
+            pid = int(value)
+            snapshot = self._project_process(pid, ("app.py",))
+            if not snapshot:
+                continue
+            print(f"发现当前项目遗留的服务进程（PID {pid}），正在关闭…", flush=True)
+            for signum, timeout in ((signal.SIGTERM, 5.0), (signal.SIGKILL, 2.0)):
+                if self._project_process(pid, ("app.py",)) != snapshot:
+                    break
+                try:
+                    os.kill(pid, signum)
+                except ProcessLookupError:
+                    break
+                deadline = time.monotonic() + timeout
+                while time.monotonic() < deadline:
+                    if self._project_process(pid, ("app.py",)) != snapshot:
+                        break
+                    time.sleep(.1)
+                else:
+                    continue
+                break
+            else:
+                raise RuntimeError(f"当前项目的旧服务进程 {pid} 未退出，未启动新服务")
+
+    def _replace_existing(self) -> None:
+        print("检测到当前项目的旧启动器，正在停止旧实例并接管…", flush=True)
+        deadline = time.monotonic() + self.replacement_timeout
+        requested = False
+        last_error = "旧启动器尚未释放服务锁"
+        while not self.stop_requested and time.monotonic() < deadline:
+            if self._acquire():
+                return
+            if not requested:
+                try:
+                    try:
+                        owner = json.loads(self.lock_path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        owner = {}
+                    response = {}
+                    if isinstance(owner, dict) and owner.get("root") == str(self.root) and owner.get("token"):
+                        try:
+                            response = _json_request(self.socket_path, {"action": "shutdown", "token": owner["token"]}, timeout=2)
+                        except (OSError, RuntimeError, ValueError):
+                            response = {"error": "control_unavailable"}
+                        requested = response.get("ok") is True
+                        if response.get("status") == "waiting_for_update":
+                            print("旧实例正在更新，等待更新安全完成后替换。", flush=True)
+                        last_error = str(response.get("error") or last_error)
+                    if not response or response.get("error") in {"unsupported_action", "control_unavailable"}:
+                        legacy = self._legacy_owner()
+                        # Recheck process identity immediately before signalling; never
+                        # signal a recycled PID or an unrelated port occupant.
+                        if legacy and self._legacy_owner() == legacy:
+                            os.kill(legacy[0], signal.SIGTERM)
+                            requested = True
+                except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+                    last_error = str(exc)
+            time.sleep(0.1)
+        raise RuntimeError(f"旧实例未能安全退出：{last_error}；未启动第二个服务")
 
     def _reuse_existing(self) -> int:
         deadline = time.monotonic() + 15
@@ -302,6 +445,8 @@ class Supervisor:
                     self._restart(client, request)
                 elif action == "stop_service":
                     self._stop_update_service(client, request)
+                elif action == "shutdown":
+                    self._shutdown(client, request)
                 else:
                     self._reply(client, {"ok": False, "error": "unsupported_action"})
             except (OSError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
@@ -328,6 +473,9 @@ class Supervisor:
     def _start_update(self, client: socket.socket, request: dict) -> None:
         if not self._authorized(request):
             self._reply(client, {"ok": False, "error": "unauthorized"})
+            return
+        if self.stop_requested:
+            self._reply(client, {"ok": False, "error": "launcher_stopping"})
             return
         if (self.child is None or self.child.poll() is not None
                 or request.get("pid") != self.child.pid):
@@ -362,6 +510,14 @@ class Supervisor:
             return
         self.update_run_id = run_id
         self._reply(client, {"ok": True, "status": "updating", "run_id": run_id})
+
+    def _shutdown(self, client: socket.socket, request: dict) -> None:
+        if not self._authorized(request):
+            self._reply(client, {"ok": False, "error": "unauthorized"})
+            return
+        updating = self.update_process is not None and self.update_process.poll() is None
+        self.stop_requested = True
+        self._reply(client, {"ok": True, "status": "waiting_for_update" if updating else "stopping"})
 
     def _restart(self, client: socket.socket, request: dict) -> None:
         if not self._authorized(request):
@@ -453,10 +609,16 @@ class Supervisor:
         self.update_run_id = None
 
     def run(self) -> int:
-        if not self._acquire():
-            return self._reuse_existing()
         self._install_signals()
         try:
+            if self.replace_existing:
+                self._serialize_launch()
+            if not self._acquire():
+                if not self.replace_existing:
+                    return self._reuse_existing()
+                self._replace_existing()
+            if self.replace_existing:
+                self._stop_leftover_service()
             expected_commit = _git_head(self.root)
             print(f"正在启动 NewsReader：{self.browser_url}", flush=True)
             self._spawn_service(expected_commit)
@@ -464,6 +626,7 @@ class Supervisor:
                 self.opener(self.browser_url)
             except (OSError, subprocess.CalledProcessError) as exc:
                 print(f"服务已就绪，但无法打开浏览器：{exc}", file=sys.stderr, flush=True)
+            self._release_launch()
             while True:
                 self._serve_control()
                 self._observe_update()
@@ -482,7 +645,7 @@ class Supervisor:
                     print(f"NewsReader 服务退出（代码 {self.child.returncode}）", file=sys.stderr)
                     self.exit_code = self.child.returncode or 1
                     break
-        except (OSError, RuntimeError, ValueError) as exc:
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             print(f"启动 NewsReader 失败：{exc}", file=sys.stderr, flush=True)
             self.exit_code = 1
         finally:
@@ -499,26 +662,30 @@ class Supervisor:
             if self.listener is not None:
                 self.listener.close()
                 self.listener = None
-            try:
-                os.unlink(self.socket_path)
-            except FileNotFoundError:
-                pass
             if self.lock_file is not None:
+                try:
+                    os.unlink(self.socket_path)
+                except FileNotFoundError:
+                    pass
                 fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
                 self.lock_file.close()
                 self.lock_file = None
+            self._release_launch()
             self._restore_signals()
         return self.exit_code
 
 
-def main() -> int:
+def main(*, replace_existing: bool = False) -> int:
     try:
         host, port, _, _ = resolve_config()
-        return Supervisor(host=host, port=port).run()
+        return Supervisor(host=host, port=port, replace_existing=replace_existing).run()
     except (OSError, ValueError) as exc:
         print(f"启动 NewsReader 失败：{exc}", file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--replace-existing", action="store_true", help="stop the previous project instance before starting")
+    raise SystemExit(main(replace_existing=parser.parse_args().replace_existing))

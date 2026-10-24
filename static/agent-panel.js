@@ -1,4 +1,5 @@
 import { confirmAction } from "./confirm-dialog.js";
+import { dismissOnOutsidePress } from "./outside-dismiss.js?v=0.2.3";
 import {
   $,
   api,
@@ -41,9 +42,6 @@ export class AgentPanel {
       busy(event.currentTarget, () => this.archive());
     $("#archiveAgentBtn").setAttribute("aria-label", "提炼结论追加到想法");
     $("#agentSendBtn").onclick = () => this.active() ? this.stop() : this.send();
-    $("#detailPanelFeed").addEventListener("pointerdown", event => {
-      if (this.open && !event.target.closest("#agentDock")) this.collapse();
-    });
     $("#agentPromptInput").addEventListener("keydown", (event) => {
       const mobile = matchMedia("(max-width: 920px)").matches;
       if (event.key === "Enter" && !event.isComposing && !this.composing && event.keyCode !== 229 &&
@@ -53,6 +51,12 @@ export class AgentPanel {
       }
     });
     const input = $("#agentPromptInput"), dock = $("#agentDock");
+    dismissOnOutsidePress({
+      panel: dock,
+      isOpen: () => this.open && !dock.hidden && !dock.closest('[inert]') &&
+        dock.getClientRects().length > 0 && getComputedStyle(dock).visibility === 'visible',
+      dismiss: () => this.collapse(),
+    });
     this.dockHome = dock.parentElement;
     this.dockAnchor = document.createComment("Agent dock home");
     dock.before(this.dockAnchor);

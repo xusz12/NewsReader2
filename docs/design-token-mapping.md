@@ -26,7 +26,7 @@
 | 卡片／浮层圆角 | `.news-card`、`.saved-note`、`.agent-dock` | 6px／8px／12px |
 | 新闻卡片内边距 | `.news-card` | 桌面12px；手机14px 14px 12px；内部gap桌面7px／手机6px |
 | 焦点与选中 | `:focus-visible`、`.news-card.is-active` | 2px accent 焦点环、2px 偏移；选中卡片整圈1px accent边框、额外1px accent外圈阴影及surface底色（浅色为白底，墨水屏为黑色边框与外圈） |
-| 三联动作条 | `.card-action-btn[data-state]` | 重要为 accent，稍后看为 fg 底色／surface 文字，收藏图标为 `oklch(68% 0.16 75)`；状态仍与 API 单源同步 |
+| 三联动作条 | `.card-action-btn[data-state]` | 重要为 accent，稍后看为 fg 底色／surface 文字，收藏图标为 `oklch(68% 0.16 75)`；2026-10-24起卡片收藏按钮在两种状态下均显示「收藏」，通过现有颜色和 `aria-pressed` 区分状态；状态仍与 API 单源同步 |
 | 离散阅读控件 | `.reader-tool-btn` | 桌面高 28px、圆角 6px；移动端扩大触控区域 |
 | 收折 Agent | `.agent-dock.minimized` | 高 42px，使用 `--shadow-float`；展开高 520px，受可用高度约束；移动端展开为 Bottom Sheet |
 | 想法展示区 | `.digest-thoughts` | `1px dashed var(--border)`，悬停切换 strong；空状态保留既有紧凑入口 |
@@ -38,6 +38,13 @@
 | 全应用下拉框 | `SelectControls(document.body)` | 主题与所有设置共用自绘菜单，保留键盘、触屏、焦点恢复与主题持久化 |
 | 滚动容器 | 新闻列表、阅读区、设置、Agent、菜单等 | 全局隐藏滚动条外观，保留原有 overflow 和滚轮／触屏／键盘滚动 |
 | 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 六类配置（模型与 Agent、API 管理、信源与采集、数据库与存储、积压新闻总结范围、系统与版本）沿用主布局；窄屏分类／详情流转 |
+
+## 2026-10-24 面板外部点击
+
+- `#agentDock` 展开且可见、`#upstreamErrorsPanel` 打开时，通过共享 `outside-dismiss.js` 在捕获阶段消费首次外部按下及随后释放／点击；范围覆盖阅读区、列表、导航与顶栏。首次点击只收起面板，不聚焦、不打开菜单、不触发外部按钮或链接；下一次独立点击正常操作。
+- 面板内输入、按钮和报错日历正常使用；报错入口仍可再次点击关闭。报错面板关闭后焦点返回入口，Agent 沿用收起时的焦点处理并保留草稿。上层业务确认框、总结确认和快捷键帮助不受拦截；隐藏的 Agent 不阻挡页面操作。
+- 鼠标和触屏共用同一规则；取消手势或改用键盘后不残留点击拦截。不改变面板的视觉样式、滚轮滚动及键盘导航规则。
+- `#upstreamErrorsBackdrop` 与报错面板同步显示／隐藏，固定覆盖整个视口，位于面板和日历下方（z-index 249／250／260）。浅色、深色及跟随系统使用4px背景模糊与12%黑色遮罩，面板和日历保持清晰；墨水屏取消模糊和半透明遮罩。虚化层不捕获事件，外部点击继续由共享拦截器完整消费。
 
 ## 2026-10-24 移动端新闻搜索
 

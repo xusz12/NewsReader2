@@ -1,5 +1,6 @@
 import { DatePicker, dateKey, localDate } from "./date-picker.js?v=0.2.2";
 import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
+import { dismissOnOutsidePress } from "./outside-dismiss.js?v=0.2.3";
 
 const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
 
@@ -24,6 +25,7 @@ function shiftDay(day, offset) {
 export class UpstreamErrors {
   constructor() {
     this.panel = $("#upstreamErrorsPanel");
+    this.backdrop = $("#upstreamErrorsBackdrop");
     this.button = $("#upstreamErrorsBtn");
     this.content = $("#upstreamErrorsContent");
     this.loadMessage = $("#upstreamLoadMessage");
@@ -39,8 +41,10 @@ export class UpstreamErrors {
       if (event.key === "ArrowDown") { event.preventDefault(); this.show(true); }
     });
     $("#closeUpstreamErrorsBtn").onclick = () => this.close(true);
-    document.addEventListener("pointerdown", event => {
-      if (this.open && !this.panel.contains(event.target) && !this.button.contains(event.target)) this.close();
+    dismissOnOutsidePress({
+      panel: this.panel, trigger: this.button, priority: 1,
+      isOpen: () => this.open,
+      dismiss: () => this.close(true),
     });
     document.addEventListener("keydown", event => {
       if (this.open && event.key === "Escape") {
@@ -92,6 +96,7 @@ export class UpstreamErrors {
   show(keyboard = false) {
     document.dispatchEvent(new CustomEvent("topbar:popover-open", { detail: this.panel.id }));
     this.panel.hidden = false;
+    this.backdrop.hidden = false;
     this.button.setAttribute("aria-expanded", "true");
     this.position(); this.showToday();
     if (keyboard) $("#upstreamErrorDate").focus({ preventScroll: true });
@@ -101,6 +106,7 @@ export class UpstreamErrors {
     if (!this.open) return;
     this.datePicker.close();
     this.panel.hidden = true;
+    this.backdrop.hidden = true;
     ++this.sequence;
     this.content.setAttribute("aria-busy", "false");
     this.setLoadStatus("");

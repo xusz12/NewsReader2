@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.2.2`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.2.3`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 团队接手请从 [项目交接总览](docs/handoff/README.md) 开始，包含产品范围、架构接口、安装维护、数据迁移、实测结果及移交验收清单。
 
@@ -47,13 +47,15 @@ npm ci --ignore-scripts
 ./启动NewsReader.command
 ```
 
-macOS 也可在 Finder 中双击 `启动NewsReader.command`。脚本优先使用本项目 `.venv`，检查依赖和服务健康后打开浏览器；同一项目重复启动会复用自身服务。终端等价入口为 `python3 updater.py --serve`，也可用 `python3 app.py` 直接启动。
+macOS 也可在 Finder 中双击 `启动NewsReader.command`。脚本优先使用本项目 `.venv`，检查依赖后自动停止同一项目的旧受管实例，待其退出再启动新实例，并在健康检查通过后打开浏览器；旧实例正在更新时先等待更新安全结束。对应终端入口为 `python3 launcher.py --replace-existing`。`python3 updater.py --serve` 保留复用现有健康实例的行为，也可用 `python3 app.py` 直接启动。
 
 默认端口为 `8080`。Finder 启动器在未指定 host 时会尝试可用的 Tailscale IPv4，否则使用 `127.0.0.1`。与其他本机服务并行运行时可指定另一端口：
 
 ```bash
 NEWS_READER_HOST=127.0.0.2 NEWS_READER_PORT=8081 ./启动NewsReader.command
 ```
+
+若旧启动器已退出但服务仍占用目标端口，启动脚本会核验用户身份、项目路径和进程启动信息后清理本项目遗留的 `app.py`；不会因端口被占用而结束其他项目或程序。
 
 可选安装并配置 `opencli`，用于新闻正文抓取。Node 依赖使用锁文件中的固定版本，不会在启动时自动安装或升级。
 
@@ -142,7 +144,7 @@ Agent 会话默认保留 72 小时，可在设置中改为 24 小时；运行中
 
 ## 版本与更新
 
-版本统一为 `v0.2.2`；npm 包版本为 `0.2.2`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
+版本统一为 `v0.2.3`；npm 包版本为 `0.2.3`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
 
 在设置 → 系统状态与版本升级中点击「检查更新」，会重新读取 GitHub 的稳定版本 tag（`vN.N.N` 或 `vN.N.N.N`，不含预发布后缀），显示目标版本、检查时间和本地更新条件。没有稳定版本、已是最新版和本地版本领先会分别提示。GitHub 连接或访问限制导致检查失败时可稍后重试。
 

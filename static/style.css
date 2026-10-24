@@ -4315,6 +4315,9 @@ button:disabled {
 .upstream-badge { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; min-width: 19px; padding: 2px 7px; border-radius: 12px; font: 600 11px/1.4 var(--font-body); background: var(--surface); color: var(--muted); text-align: center; }
 .upstream-badge[hidden] { display: none; }
 .has-errors .upstream-badge { color: var(--status-warning); background: color-mix(in oklch, var(--status-warning) 12%, transparent); }
+.upstream-backdrop { position: fixed; inset: 0; z-index: 249; background: rgb(0 0 0 / 12%); backdrop-filter: blur(4px); pointer-events: none; }
+.upstream-backdrop[hidden] { display: none; }
+[data-theme="eink"] .upstream-backdrop { background: transparent; backdrop-filter: none; }
 .upstream-panel { position: fixed; z-index: 250; display: flex; flex-direction: column; width: min(640px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 76px)); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); box-shadow: var(--shadow-float); overflow: hidden; }
 .upstream-panel[hidden] { display: none; }
 .upstream-panel .modal-header { flex-shrink: 0; gap: var(--space-2); padding: var(--space-3) var(--space-4); }

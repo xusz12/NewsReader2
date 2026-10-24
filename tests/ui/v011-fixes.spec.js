@@ -67,17 +67,18 @@ test('error dropdown is nonmodal, mutually exclusive, keyboard reachable and ign
   await page.keyboard.press('Escape'); await expect(panel).toBeHidden(); await expect(entry).toBeFocused();
   await entry.click(); await entry.click(); await expect(panel).toBeHidden();
   await entry.click(); await page.locator('#agentNotificationsBtn').click();
+  await expect(panel).toBeHidden(); await expect(page.locator('#agentNotificationsPanel')).toBeHidden();
+  await page.locator('#agentNotificationsBtn').click();
   await expect(panel).toBeHidden(); await expect(page.locator('#agentNotificationsPanel')).toBeVisible();
   await entry.click(); await expect(panel).toBeVisible(); await expect(page.locator('#agentNotificationsPanel')).toBeHidden();
-  // The centered topbar menu can cover the search field; use an exposed control
-  // to verify outside clicks reach their target without forcing through the menu.
+  // The first outside press only dismisses and restores focus to the entry.
   const outside = page.locator('#navFeedBtn');
   await outside.click();
-  await expect(panel).toBeHidden(); await expect(entry).not.toBeFocused();
+  await expect(panel).toBeHidden(); await expect(entry).toBeFocused();
   hold = true; await entry.click();
   await expect.poll(() => !!release).toBe(true);
   await outside.click(); release();
-  await expect(panel).toBeHidden(); await expect(entry).not.toBeFocused();
+  await expect(panel).toBeHidden(); await expect(entry).toBeFocused();
 });
 
 test('desktop multiline input grows, preserves line breaks and drafts, and protects IME and failed sends', async ({ page }) => {
@@ -93,6 +94,7 @@ test('desktop multiline input grows, preserves line breaks and drafts, and prote
   await page.screenshot({ path: '.ui-artifacts/task425-desktop-input-long.png' });
   await input.evaluate(node => { node.scrollTop = node.scrollHeight; });
   expect(await input.evaluate(node => node.scrollTop)).toBeGreaterThan(0);
+  await page.locator('#agentDockToggleBtn').click();
   await page.locator('[data-id="ui-063"]').click(); await page.locator('[data-id="ui-064"]').click();
   if (await page.locator('#agentDock').evaluate(node => node.classList.contains('minimized'))) await page.locator('#agentDockToggleBtn').click();
   await expect(input).toHaveValue(text);
@@ -148,7 +150,9 @@ for (const width of [1440, 390]) {
     await agent(page, width);
     const input = page.locator('#agentPromptInput');
     for (const theme of ['light', 'dark', 'eink']) {
+      await page.locator('#agentDockToggleBtn').click();
       await chooseTheme(page, theme);
+      await page.locator('#agentDockToggleBtn').click();
       await input.fill('每一行问题都可以滚动查看，发送按钮保持可用。\n'.repeat(24));
       await expect(input).toHaveCSS('overflow-y', 'auto');
       await expect(page.locator('#agentSendBtn')).toBeEnabled();

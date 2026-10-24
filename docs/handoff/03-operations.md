@@ -50,12 +50,17 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | --- | --- |
 | `python3 app.py` | 直接启动 Flask、初始化数据库和工作线程；适合首次演练，不支持受控升级 |
 | `python3 updater.py --serve` | 通过 supervisor 管理实例、重启、健康检查和升级；默认本机监听 |
-| `./启动NewsReader.command` | macOS 入口，优先使用项目 `.venv`，检查依赖并打开浏览器；未指定 host 时尝试 Tailscale IPv4 |
+| `./启动NewsReader.command` | macOS 入口，优先使用项目 `.venv`，检查依赖后停止并替换同项目旧受管实例，健康检查通过后打开浏览器；未指定 host 时尝试 Tailscale IPv4 |
+| `python3 launcher.py --replace-existing` | 同样执行旧受管实例替换；直接从终端使用当前 Python，监听地址按环境配置 |
 | `python3 tests/ui/server.py` | 临时测试库和模型替身；端口 8765，仅用于演示及测试 |
 
 日常受控启动前，加载接手方环境文件，再执行 `python3 updater.py --serve` 或 `.command`。新开终端不会继承上一终端的导出变量；Finder 双击也不会自动加载 shell 环境文件。**本项目不自动读取 `.env`**，示例文件必须显式 `source`，或由服务管理器注入环境。
 
 需要固定本机访问时显式设置 `NEWS_READER_HOST=127.0.0.1`。Tailscale 仅改变网络可达性，不提供应用内用户权限。停止测试服务时在启动终端按 Ctrl+C；不要用按进程名批量结束 Python 的方式停服务。
+
+重复双击 `.command` 会请求旧启动器关闭它拥有的服务，等待服务锁释放后，由新终端接管新实例；连续启动请求按顺序处理。旧实例不健康也可替换，旧实例正在更新时先等待更新及回退流程结束。交接等待上限90秒，超时不启动第二个服务并报告失败，不强杀更新；已收到关闭请求的旧启动器仍会在更新完成后退出。旧版启动器通过同用户、同项目的私有锁文件和进程命令核验后接收 SIGTERM。
+
+拿到服务锁后，若目标端口仍有本项目的 `app.py`（包括启动器异常退出后的遗留服务或手工直接启动的实例），核验用户、Python 命令、项目路径与启动时间后先发送 SIGTERM；5秒未退出则再次核验身份后发送 SIGKILL。不会仅凭端口或健康接口结束进程，其他项目和程序保持运行。`updater.py --serve` 和不带参数的 `launcher.py` 继续复用已有健康服务。启动器与更新器的本地健康检查主动绕过系统及环境代理，远端更新请求沿用原有代理配置。
 
 ## 配置清单
 

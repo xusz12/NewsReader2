@@ -113,7 +113,7 @@ if [[ -z "${NEWS_READER_HOST:-}" ]] && command -v tailscale >/dev/null 2>&1; the
   fi
 fi
 
-"$PYTHON_BIN" "$SCRIPT_DIR/launcher.py"
+"$PYTHON_BIN" "$SCRIPT_DIR/launcher.py" --replace-existing
 exit_code=$?
 if (( exit_code != 0 )); then
   show_startup_error "NewsReader 启动失败（退出码 $exit_code）。请查看此终端中的错误信息。"

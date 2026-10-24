@@ -63,6 +63,11 @@ def local_health_url(host: str, port: int) -> str:
     return f"http://{unwrapped}:{int(port)}/api/version"
 
 
+def open_local_url(url: str, *, timeout: float):
+    """Health probes address our own listener, never a system/environment proxy."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=timeout)
+
+
 def request_supervisor(action: str, **payload: object) -> dict:
     """Send a private control request to the launcher that owns this service."""
     socket_path = os.getenv("NEWS_READER_SUPERVISOR_SOCKET")
@@ -165,7 +170,7 @@ def _wait_healthy(url: str, commit: str, child: subprocess.Popen, timeout: float
         if _health_check(url, commit):
             try:
                 for path in ("/", "/static/app.js", "/static/style.css"):
-                    with urllib.request.urlopen(base + path, timeout=2) as response:
+                    with open_local_url(base + path, timeout=2) as response:
                         if response.status != 200:
                             raise OSError("static_health_failed")
                 return True
@@ -177,7 +182,7 @@ def _wait_healthy(url: str, commit: str, child: subprocess.Popen, timeout: float
 
 def _health_check(url: str, expected_commit: str, timeout: float = 1.5) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with open_local_url(url, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         return payload.get("ok") is True and payload.get("commit") == expected_commit
     except (OSError, ValueError, json.JSONDecodeError):

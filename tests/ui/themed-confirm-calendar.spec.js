@@ -100,6 +100,7 @@ test('new Agent session cancels, guards article changes, and confirms only once'
   await page.locator('#agentNewBtn').click(); await expect(modal(page)).toBeVisible();
   await page.locator('[data-id="ui-063"]').evaluate(node => node.click());
   await answerConfirm(page); await expect(page.locator('#toast')).toContainText('会话已变化'); expect(resets).toBe(0);
+  await page.locator('#agentDockToggleBtn').click();
   await page.locator('[data-id="ui-064"]').click();
   if (await page.locator('#agentDock').evaluate(node => node.classList.contains('minimized'))) await page.locator('#agentDockToggleBtn').click();
   await page.locator('#agentNewBtn').click(); await expect(modal(page)).toBeVisible();

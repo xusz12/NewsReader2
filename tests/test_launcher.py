@@ -9,11 +9,13 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, ProxyHandler
 
 import pytest
 
 import launcher
+
+urlopen = build_opener(ProxyHandler({})).open
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -417,6 +419,7 @@ def _run_startup_script_with_fake_python(
     fake_python = tmp_path / "fake-python"
     captured_host = tmp_path / "captured-host"
     captured_port = tmp_path / "captured-port"
+    captured_args = tmp_path / "captured-args"
     fake_python.write_text(
         """#!/bin/sh
 if [ \"$1\" = \"-\" ]; then
@@ -425,6 +428,7 @@ if [ \"$1\" = \"-\" ]; then
 fi
 printf '%%s' \"${NEWS_READER_HOST-}\" > \"$TEST_CAPTURE_HOST\"
 printf '%%s' \"${NEWS_READER_PORT-}\" > \"$TEST_CAPTURE_PORT\"
+printf '%%s\\n' \"$@\" > \"$TEST_CAPTURE_ARGS\"
 exit %d
 """ % (preflight_status, launcher_status),
         encoding="utf-8",
@@ -436,6 +440,7 @@ exit %d
         "NEWS_READER_NO_ALERT": "1",
         "TEST_CAPTURE_HOST": str(captured_host),
         "TEST_CAPTURE_PORT": str(captured_port),
+        "TEST_CAPTURE_ARGS": str(captured_args),
     })
     if explicit_host is not None:
         env["NEWS_READER_HOST"] = explicit_host
@@ -466,6 +471,7 @@ exit %d
     )
     result.captured_host = captured_host.read_text() if captured_host.exists() else None
     result.captured_port = captured_port.read_text() if captured_port.exists() else None
+    result.captured_args = captured_args.read_text().splitlines() if captured_args.exists() else []
     return result
 
 
@@ -484,6 +490,12 @@ def test_startup_script_uses_non_reserved_exit_code_variable(tmp_path: Path):
     assert result.returncode == 7
     assert "退出码 7" in output
     assert "read-only variable: status" not in output
+
+
+def test_startup_script_requests_replacement(tmp_path: Path):
+    result = _run_startup_script_with_fake_python(tmp_path, preflight_status=0, launcher_status=0)
+    assert result.returncode == 0
+    assert result.captured_args == [str(PROJECT_ROOT / "launcher.py"), "--replace-existing"]
 
 
 def test_startup_script_uses_tailscale_ipv4_when_host_is_not_explicit(tmp_path: Path):

@@ -22,13 +22,13 @@ import {
 import { SettingsPanel } from "./settings-panel.js?v=0.2.2";
 import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
-import { AgentPanel } from "./agent-panel.js?v=0.2.0";
+import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
 import { ClassificationProgress } from "./classification-progress.js?v=0.2.2";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.2.2";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.2.3";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 
@@ -370,7 +370,7 @@ function cardAction(item, flag) {
     };
   }
   const active = !!item[`${flag}_at`];
-  const label = flag === "favorite" && active ? "取消收藏" : stateLabels[flag];
+  const label = stateLabels[flag];
   return { active, saving, label, className: `card-action-btn ${active ? "active" : ""}`, title: `${label}${saving ? " · 正在保存" : ""}` };
 }
 function cardSnippet(item) {

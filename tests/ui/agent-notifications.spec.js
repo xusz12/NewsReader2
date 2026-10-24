@@ -21,6 +21,7 @@ async function start(page, width = 1440) {
 }
 async function dropdown(page) {
   if (!(await panel(page).isVisible())) {
+    if (await page.locator('#agentDock:not(.minimized):visible').count()) await page.locator('#agentDockToggleBtn').click();
     if (!(await bell(page).isVisible())) await wake(page);
     await bell(page).click();
   }
@@ -96,7 +97,9 @@ test('leaving an article keeps the Agent input draft during notification navigat
   const result = await complete(request, { item_id: 'ui-000', answer: '另一篇新闻的回答' });
   await openNotice(page, result.job_id);
   await expect(page.locator('#agentChatStream')).toContainText('另一篇新闻的回答');
+  await page.locator('#agentDockToggleBtn').click();
   await page.locator('[data-id="ui-064"] .news-card-title').click();
+  await page.locator('#agentDockToggleBtn').click();
   await expect(page.locator('#agentPromptInput')).toHaveValue('尚未发送的下一轮问题');
 });
 
@@ -112,10 +115,12 @@ test('streaming completes in the background; old scroll position and opening the
   expect(job.status).toBe('queued');
   await complete(request, { item_id: 'ui-064', job_id: job.id, answer: '刚完成的新回复，尚未滚动查看。' });
   await expect(page.locator(`[data-job-id="${job.id}"][data-role="assistant"]`)).toContainText('刚完成的新回复');
-  await wake(page); await dropdown(page);
+  // Keyboard access keeps the Agent expanded so its existing scroll position
+  // remains the subject of this visibility/acknowledgement regression.
+  await wake(page); await bell(page).focus(); await page.keyboard.press('Enter');
   await expect(bell(page)).toHaveClass(/has-unread/);
   expect((await snapshot(request)).notifications.map(row => row.id)).toContain(job.id);
-  await bell(page).click();
+  await bell(page).focus(); await page.keyboard.press('Enter');
   await page.locator('#agentChatStream').evaluate((stream, id) => {
     const reply = stream.querySelector(`[data-job-id="${id}"][data-role="assistant"]`);
     stream.scrollTop += reply.getBoundingClientRect().top - stream.getBoundingClientRect().bottom + 12;
@@ -242,7 +247,7 @@ test('mobile bell appears for new replies and hides after reading or dismissing,
   await page.locator('.topbar').screenshot({ path: '.ui-artifacts/mobile-notifications-empty.png' });
   await page.setViewportSize({ width: 921, height: 900 });
   await expect(bell(page)).toBeVisible();
-  await bell(page).click(); await expect(panel(page)).toBeVisible();
+  await dropdown(page); await expect(panel(page)).toBeVisible();
   await page.setViewportSize({ width: 920, height: 900 });
   await expect(bell(page)).toBeHidden();
   await expect(panel(page)).toBeHidden();
