@@ -17,7 +17,6 @@ async function ready(page) {
   await page.goto("/");
   await expect(page.locator("#feedCardList .news-card").first()).toBeVisible();
   await page.locator('#feedColFeed [data-filter="all"]').click();
-  await page.locator("#sortNewsBtn").click();
   await expect(page.locator('[data-id="ui-000"]')).toBeVisible();
   await expect(page.locator("#articleBodyContent")).toBeVisible();
 }
@@ -202,6 +201,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await page.keyboard.press(",");
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).toBeVisible();
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('[data-runtime="codex"]').click();
   await page.locator('[name="agent.codex.provider"]').fill("fixture-provider");
   await page.locator('[name="agent.codex.profile"]').fill("test-profile");
@@ -519,6 +519,7 @@ for (const [width, height] of viewports)
     } else {
       if (width >= 1280) await expect(page.locator("#leftNavDrawer")).toBeVisible();
       await expect(page.locator("#feedColSettings")).toBeVisible();
+      await page.locator('[data-settings-tab="models"]').click();
     }
     await expect(page.locator("#modelSettings")).toBeVisible();
     expect(await overflow()).toEqual([]);
@@ -544,6 +545,7 @@ test("late catalog and connection results cannot replace a changed draft", async
 }) => {
   await ready(page);
   await page.keyboard.press(",");
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('[data-runtime="codex"]').click();
   let releaseCatalog;
   const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
@@ -643,6 +645,7 @@ test("database picker draft survives redraw and is submitted unchanged", async (
 test("failed settings save keeps draft and allows retry", async ({ page }) => {
   await ready(page);
   await page.keyboard.press(",");
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('[data-runtime="codex"]').click();
   await page.locator('[name="agent.codex.profile"]').fill("unsaved-draft");
   await page.route("**/api/settings", (route) =>
@@ -700,7 +703,7 @@ test("mobile list scroll position survives opening and closing reader", async ({
   await expect(page.locator("#leftNavDrawer")).toHaveAttribute("inert", "");
 });
 
-test("settings is an inline three-column workspace with searchable categories", async ({
+test("settings is an inline three-column workspace with compact categories", async ({
   page,
 }) => {
   await ready(page);
@@ -716,7 +719,7 @@ test("settings is an inline three-column workspace with searchable categories", 
   const categories = await page.locator("#feedColSettings").boundingBox();
   const detail = await page.locator("#detailPanelSettings").boundingBox();
   expect(navigation.width).toBe(248);
-  expect(categories.width).toBe(430);
+  expect(categories.width).toBe(280);
   expect(categories.x).toBe(navigation.x + navigation.width);
   expect(detail.x).toBe(categories.x + categories.width);
   expect(detail.y).toBe(categories.y);
@@ -728,18 +731,12 @@ test("settings is an inline three-column workspace with searchable categories", 
     "aria-current",
     "page",
   );
-  await page.keyboard.press("/");
-  await expect(page.locator("#settingsSearchInput")).toBeFocused();
-  await page.locator("#settingsSearchInput").fill("SQLite");
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(1);
+  await expect(page.locator("#settingsSearchInput, .settings-category-meta, .settings-category-description, .settings-list-footer")).toHaveCount(0);
+  await expect(page.locator(".settings-category-card:visible")).toHaveCount(8);
+  await expect(page.locator("[data-settings-tab]").first()).toHaveAttribute("data-settings-tab", "system");
   await page.locator('[data-settings-tab="storage"]').click();
   await expect(page.locator("#settingsDetailTitle")).toHaveText("数据库与存储");
-  await expect(page.locator('[data-section="models"]')).not.toBeVisible();
   await expect(page.locator('[data-section="storage"]')).toBeVisible();
-  await page.locator("#settingsSearchInput").fill("没有这个分类");
-  await expect(page.locator("#settingsSearchEmpty")).toBeVisible();
-  await page.locator("#clearSettingsSearchBtn").click();
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(6);
   for (const category of ["deepseek", "pipeline", "system", "models"]) {
     await page.locator(`[data-settings-tab="${category}"]`).click();
     await expect(
@@ -775,6 +772,7 @@ test("settings navigation preserves unsaved fields and the reading position", as
     .locator("#detailScrollArea")
     .evaluate((node) => node.scrollTop);
   await page.locator("#leftNavSettingsBtn").click();
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('[data-runtime="codex"]').click();
   await page.locator('[name="agent.codex.profile"]').fill("three-column-draft");
   await page.locator('[data-settings-tab="deepseek"]').click();

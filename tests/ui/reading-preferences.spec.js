@@ -4,6 +4,10 @@ import { answerConfirm, chooseTheme, openNavigation } from './helpers.js';
 const fontBox = page => page.getByRole('combobox', { name: '阅读字号', exact: true });
 async function chooseFont(page, value) {
   const label = await page.locator(`#fontSizeSelect-native option[value="${value}"]`).textContent();
+  if (await page.locator('#agentDockToggleBtn').getAttribute('aria-expanded') === 'true') {
+    await fontBox(page).click();
+    await expect(page.locator('#agentDockToggleBtn')).toHaveAttribute('aria-expanded', 'false');
+  }
   await fontBox(page).click();
   await page.getByRole('option', { name: label, exact: true }).click();
 }
@@ -150,7 +154,7 @@ test('font menu and topbar fit small screens and responsive boundaries in every 
   test.setTimeout(90000);
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  for (const width of [320, 360, 390, 920, 921, 1279, 1280, 1440]) {
+  for (const width of [320, 360, 390, 920, 921, 1100, 1101, 1279, 1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [theme, scheme] of [['light', 'light'], ['dark', 'light'], ['system', 'dark'], ['system', 'light'], ['eink', 'light']]) {
       await page.emulateMedia({ colorScheme: scheme });
@@ -161,7 +165,11 @@ test('font menu and topbar fit small screens and responsive boundaries in every 
       expect(boxes[0].right).toBeLessThanOrEqual(boxes[1].left);
       expect(boxes[1].right).toBeLessThanOrEqual(boxes[2].left);
       expect(boxes[2].right).toBeLessThanOrEqual(width);
-      if (width > 920) expect(await fontBox(page).locator('.select-value').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+      if (width > 920) {
+        expect(await fontBox(page).locator('.select-value').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        const status = await page.locator('#upstreamErrorsBtn').boundingBox();
+        expect(status.x + status.width / 2).toBeCloseTo(width / 2, 0);
+      }
       await fontBox(page).click();
       const menu = page.getByRole('listbox');
       await expect(menu.getByRole('option')).toHaveCount(4);

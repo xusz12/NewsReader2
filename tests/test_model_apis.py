@@ -32,7 +32,8 @@ class Reply:
 def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, tmp_path):
     app, client, _ = api_fixture
     initial = client.get('/api/settings').json
-    assert initial['api_models'] == {'jev': {'model': '', 'concurrency': 8, 'unread_only': False}}
+    assert initial['api_models'] == {'jev': {'model': ''}}
+    assert initial['classification'] == {'enabled': True, 'concurrency': 8, 'unread_only': False}
     assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev']
     assert initial['api_status']['jev']['configured'] is False
     assert initial['model_catalogs']['jev']['options'] == []
@@ -52,14 +53,14 @@ def test_concurrency_persists_and_applies_live_without_starting_a_stopped_servic
     llm = app.load_app_settings()['llm']
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-test', 'concurrency': 16}}})
     assert saved.status_code == 200
-    assert app.load_app_settings()['api_models']['jev']['concurrency'] == 16
+    assert app.load_app_settings()['classification']['concurrency'] == 16
     assert app.CLASSIFICATION_SERVICE.gate.snapshot()['configured_concurrency'] == 16
     assert app.CLASSIFICATION_SERVICE.gate.snapshot()['effective_concurrency'] == 16
     assert app.CLASSIFICATION_SERVICE.threads == []
     # A model-only write from an older client preserves the new setting.
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
     assert saved.status_code == 200
-    assert saved.json['api_models']['jev']['concurrency'] == 16
+    assert saved.json['classification']['concurrency'] == 16
     assert client.get('/api/news/classification').json['throttle']['configured_concurrency'] == 16
 
 
@@ -68,11 +69,11 @@ def test_unread_only_persists_applies_live_and_survives_legacy_writes(api_fixtur
     llm = app.load_app_settings()['llm']
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': True}}})
     assert saved.status_code == 200
-    assert app.load_app_settings()['api_models']['jev']['unread_only'] is True
+    assert app.load_app_settings()['classification']['unread_only'] is True
     assert app.CLASSIFICATION_SERVICE.unread_only is True
     assert app.CLASSIFICATION_SERVICE.threads == []
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
-    assert saved.status_code == 200 and saved.json['api_models']['jev']['unread_only'] is True
+    assert saved.status_code == 200 and saved.json['classification']['unread_only'] is True
     assert client.get('/api/news/classification').json['unread_only'] is True
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': False}}})
     assert saved.status_code == 200 and app.CLASSIFICATION_SERVICE.unread_only is False

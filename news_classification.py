@@ -20,7 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import certifi
-from model_apis import DEFAULT_CLASSIFICATION_CONCURRENCY, classification_concurrency
+from settings import DEFAULT_CLASSIFICATION_CONCURRENCY, classification_concurrency
 
 RULES = json.loads((Path(__file__).parent / "classification/rules.json").read_text())
 RULE_VERSION = RULES["version"]
@@ -301,11 +301,15 @@ class Service:
         self.error = ""
         self.gate = AdaptiveConcurrency(concurrency)
         self.unread_only = False
+        self.enabled = True
 
     def process_one(self, key: str, model: str, generation: int | None = None) -> bool:
         # Serialize scope changes with claiming, not with the network request.
-        with self.lock, closing(self.connect()) as conn:
-            job = claim(conn, unread_only=self.unread_only)
+        with self.lock:
+            if not self.enabled:
+                return False
+            with closing(self.connect()) as conn:
+                job = claim(conn, unread_only=self.unread_only)
         if not job:
             return False
         if generation is None:
@@ -327,6 +331,9 @@ class Service:
 
     def loop(self):
         while not self.stop.is_set():
+            if not self.enabled:
+                self.stop.wait(5)
+                continue
             generation = self.gate.acquire(self.stop)
             if generation is None:
                 return
@@ -349,13 +356,17 @@ class Service:
             self.threads.append(thread)
             thread.start()
 
-    def configure(self, concurrency: int, *, unread_only: bool | None = None):
+    def configure(self, concurrency: int, *, unread_only: bool | None = None, enabled: bool | None = None):
         if unread_only is not None and type(unread_only) is not bool:
             raise ValueError("invalid_classification_unread_only")
+        if enabled is not None and type(enabled) is not bool:
+            raise ValueError("invalid_classification_enabled")
         with self.lock:
             self.gate.configure(concurrency)
             if unread_only is not None:
                 self.unread_only = unread_only
+            if enabled is not None:
+                self.enabled = enabled
             if self.threads:
                 self._grow_workers()
 

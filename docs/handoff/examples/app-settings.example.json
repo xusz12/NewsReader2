@@ -1,5 +1,6 @@
 {
   "api_models": { "jev": { "model": "" } },
+  "classification": { "enabled": true, "concurrency": 8, "unread_only": false },
   "llm": {
     "translation": { "provider": "deepseek", "model": "" },
     "pi_chat": { "provider": "", "model": "" }

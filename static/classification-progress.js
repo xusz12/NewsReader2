@@ -84,14 +84,14 @@ export class ClassificationProgress {
       this.refreshing = false;
       if (this.refreshAgain) { this.refreshAgain = false; void this.refresh(); }
       else if (!document.hidden) {
-        const working = this.progress?.pending || this.progress?.running;
+        const working = this.progress?.enabled !== false && (this.progress?.pending || this.progress?.running);
         this.timer = setTimeout(() => this.refresh(), working ? 2000 : 30000);
       }
     }
   }
   render() {
     const p = this.progress;
-    this.root.hidden = !p || !p.total || !(p.pending || p.running || p.failed);
+    this.root.hidden = !p || p.enabled === false || !p.total || !(p.pending || p.running || p.failed);
     if (this.root.hidden) { this.close(); return; }
     const done = Math.min(p.total, Math.max(0, p.done));
     const percent = done / p.total * 100;
@@ -104,8 +104,8 @@ export class ClassificationProgress {
     $("#classificationProgressScope").textContent = `当前模式：${p.unread_only ? "仅未读" : "全部"}`;
     $("#classificationProgressDetails").textContent = `待处理 ${p.pending} · 处理中 ${p.running} · 失败 ${p.failed}`;
     const throttle = p.throttle;
-    const status = this.error || (!p.configured ? "等待配置 Jev"
-      : p.error ? "分类已暂停，请检查 Jev 设置后重试"
+    const status = this.error || (!p.configured ? "等待在 API 管理中配置 Jev"
+      : p.error ? "分类已暂停，请检查 API 管理中的 Jev 配置后重试"
       : throttle?.rate_limited ? `限流降速 · 并发 ${throttle.effective_concurrency}/${throttle.configured_concurrency}${throttle.cooldown_seconds ? ` · ${throttle.cooldown_seconds} 秒后继续` : ""}`
       : p.pending || p.running ? "正在分类" : "有失败项待重试");
     $("#classificationProgressStatus").textContent = status;

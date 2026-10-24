@@ -37,7 +37,7 @@ for (const [theme, scheme, palette] of [['light', 'light', 'light'], ['dark', 'l
     await expect(page.locator('#btnToggleStar')).toHaveCSS('height', '28px');
     await expect(page.locator('#btnToggleStar')).toHaveCSS('border-radius', '6px');
     await page.locator('#articleMainTitle').click();
-    await page.keyboard.press('j');
+    await page.keyboard.press('s');
     await expect(page.locator('.news-card.is-active')).toHaveCSS('border-left-width', '1px');
     await expect(page.locator('#agentDock')).toHaveCSS('height', '42px');
     const shadow = await page.locator('#agentDock').evaluate(node => getComputedStyle(node).boxShadow);
@@ -98,13 +98,13 @@ for (const width of [920, 921, 1279, 1280]) {
       await page.locator('#mobileReaderBackBtn').click();
       await openSettings(page);
       await expect(page.locator('#detailPanelSettings')).toBeHidden();
-      await page.locator('[data-settings-tab="models"]').click();
+      await page.locator('[data-settings-tab="system"]').click();
     } else {
       if (drawer) await page.locator('#openNavBtn').click();
       await page.locator('#leftNavSettingsBtn').click();
-      await expect(page.locator('#feedColSettings')).toHaveCSS('width', '430px');
+      await expect(page.locator('#feedColSettings')).toHaveCSS('width', '280px');
     }
-    await expect(page.locator('#modelSettings')).toBeVisible();
+    await expect(page.locator('[data-section="system"]')).toBeVisible();
     expect(await page.evaluate(() => [document.documentElement, ...document.querySelectorAll('.feed-column.active,.detail-panel.active')].filter(n => n.getClientRects().length).every(n => n.scrollWidth <= n.clientWidth + 1))).toBe(true);
     await page.screenshot({ path: `.ui-artifacts/v004-settings-${width}.png`, animations: 'disabled' });
     if (drawer && !mobile) {
@@ -124,7 +124,7 @@ test('v004 resize restores desktop selection and unlocks navigation', async ({ p
   await expect(page.locator('#leftNavDrawer')).toHaveJSProperty('inert', false);
   await expect(page.locator('#navDrawerBackdrop')).not.toHaveClass(/active/);
   await page.locator('#leftNavSettingsBtn').click();
-  await expect(page.locator('#modelSettings')).toBeVisible();
+  await expect(page.locator('[data-section="system"]')).toBeVisible();
 });
 
 test('v004 e-ink: opaque grayscale, hard shadow and no motion', async ({ page }) => {

@@ -80,9 +80,9 @@ test('missing key and failed classification remain explicit, retry uses the queu
   progress.configured = false;
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
-  await expect(page.locator('#classificationProgressPanel')).toContainText('等待配置 Jev');
+  await expect(page.locator('#classificationProgressPanel')).toContainText('等待在 API 管理中配置 Jev');
   await page.locator('#classificationProgressSettings').click();
-  await expect(page.locator('#settingsCategory-deepseek')).toHaveAttribute('aria-current', 'true');
+  await expect(page.locator('#settingsCategory-classification')).toHaveAttribute('aria-current', 'true');
 });
 
 test('unread-only progress uses its scope and hides when eligible work is complete', async ({ page }) => {

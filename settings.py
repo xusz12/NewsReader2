@@ -26,8 +26,35 @@ DEFAULT_APP_SETTINGS_PATH = Path(__file__).resolve().parent / "app_settings.json
 DEFAULT_PI_CHAT_PROVIDER = ""
 DEFAULT_PI_CHAT_MODEL = ""
 
+DEFAULT_CLASSIFICATION_CONCURRENCY = 8
+MAX_CLASSIFICATION_CONCURRENCY = 32
+
+
+def classification_concurrency(value: object) -> int:
+    if type(value) is not int or not 1 <= value <= MAX_CLASSIFICATION_CONCURRENCY:
+        raise ValueError("invalid_classification_concurrency")
+    return value
+
+
+def normalize_classification(value: object, *, defaults: dict | None = None, legacy: object = None) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("invalid_classification_settings")
+    result = {"enabled": True, "concurrency": DEFAULT_CLASSIFICATION_CONCURRENCY, "unread_only": False}
+    result.update(defaults or {})
+    # Read old Jev settings without retaining feature controls in API management.
+    if isinstance(legacy, dict):
+        result.update({key: legacy[key] for key in ("concurrency", "unread_only") if key in legacy})
+    result.update({key: value[key] for key in result if key in value})
+    result["concurrency"] = classification_concurrency(result["concurrency"])
+    for key in ("enabled", "unread_only"):
+        if type(result[key]) is not bool:
+            raise ValueError(f"invalid_classification_{key}")
+    return result
+
+
 DEFAULT_APP_SETTINGS = {
     "api_models": normalize_api_models({}),
+    "classification": normalize_classification({}),
     "llm": {
         "translation": {
             "provider": "deepseek",
@@ -158,6 +185,14 @@ def load_app_settings() -> dict:
 
     try:
         base["api_models"] = normalize_api_models(payload.get("api_models", {}) if isinstance(payload, dict) else {})
+    except ValueError:
+        pass
+
+    api_models = payload.get("api_models") if isinstance(payload, dict) else None
+    legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
+    try:
+        base["classification"] = normalize_classification(
+            payload.get("classification", {}) if isinstance(payload, dict) else {}, legacy=legacy_classification)
     except ValueError:
         pass
 

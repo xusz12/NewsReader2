@@ -150,7 +150,8 @@ export class UpstreamErrors {
       const offset = Number(button.dataset.upstreamDayOffset);
       const day = shiftDay(this.today, offset);
       const shortDate = `${Number(day.slice(5, 7))}/${Number(day.slice(8, 10))}`;
-      button.textContent = offset === 0 ? `今天 (${shortDate})` : offset === -1 ? `昨天 (${shortDate})` : shortDate;
+      const label = button.querySelector(".upstream-date-label") || button;
+      label.textContent = offset === 0 ? `今天 (${shortDate})` : offset === -1 ? `昨天 (${shortDate})` : shortDate;
       button.setAttribute("aria-pressed", String(selected === day));
       button.setAttribute("aria-label", `${offset === 0 ? "今天" : offset === -1 ? "昨天" : "前天"}，${day}`);
     });

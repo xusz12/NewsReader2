@@ -163,7 +163,7 @@ test('scope settings persist, validate and retain drafts across navigation', asy
   await page.locator('#catchupSettingsBtn').click();
   await expect(page.locator('[data-section="catchup"]')).toBeVisible();
   await expect(page.locator('#settingsCatchupScope')).toContainText('候选未读 65 条');
-  expect(await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.settingsTab))).toEqual(['models', 'deepseek', 'pipeline', 'storage', 'catchup', 'system']);
+  expect(await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.settingsTab))).toEqual(['system', 'models', 'deepseek', 'classification', 'pipeline', 'storage', 'catchup', 'shortcuts']);
   await expect(page.locator('[data-section="catchup"]')).not.toContainText('全局默认值');
   await page.locator('[name="news_summary.max_days"]').fill('0');
   await page.locator('#settingsSaveBtn').click();

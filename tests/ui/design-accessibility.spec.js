@@ -31,6 +31,8 @@ for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'light'], ['ein
     await publish.hover();
     await expect.poll(() => contrast(publish)).toBeGreaterThanOrEqual(4.5);
     await openSettings(page);
+    await page.locator('[data-settings-tab="classification"]').click();
+    await page.getByRole('switch', { name: '启用自动分类', exact: true }).click();
     const save = page.locator('#settingsSaveBtn');
     await page.mouse.move(0, 0);
     await expect.poll(() => contrast(save)).toBeGreaterThanOrEqual(4.5);

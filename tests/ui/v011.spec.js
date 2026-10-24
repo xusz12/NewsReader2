@@ -223,11 +223,13 @@ test('visible polling catches other-device changes and hidden pages pause pollin
 
 test('quoted user text is posted separately and rendered distinctly in every theme', async ({ page }) => {
   const session = { id: 'quote-session', runtime: 'codex', model: 'fixture' };
-  await page.route('**/api/news/*/agent/session', route => route.fulfill({ json: { ok: true, session, context_available: true, messages: [], jobs: [] } }));
+  let messages = [];
+  await page.route('**/api/news/*/agent/session', route => route.fulfill({ json: { ok: true, session, context_available: true, messages, jobs: [] } }));
   let sent;
   await page.route('**/api/news/*/agent/jobs', route => {
     sent = route.request().postDataJSON();
-    return route.fulfill({ json: { ok: true, session, context_available: true, messages: [{ role: 'user', content: sent.question, quote_text: sent.quote_text }], jobs: [] } });
+    messages = [{ role: 'user', content: sent.question, quote_text: sent.quote_text }];
+    return route.fulfill({ json: { ok: true, session, context_available: true, messages, jobs: [] } });
   });
   await start(page);
   await page.locator('.digest-lead').evaluate(element => {
@@ -243,7 +245,10 @@ test('quoted user text is posted separately and rendered distinctly in every the
   expect(sent.quote_text).toBeTruthy(); expect(sent.question).not.toContain(sent.quote_text);
   await expect(page.locator('.agent-message-quote')).toContainText(sent.quote_text);
   for (const theme of ['light', 'dark', 'eink']) {
+    await page.locator('#agentDockToggleBtn').click();
     await chooseTheme(page, theme);
+    await page.locator('#agentDockToggleBtn').click();
+    await expect(page.locator('.agent-message-quote')).toBeVisible();
     await expect(page.locator('.agent-message-quote')).toHaveCSS('border-left-width', '3px');
     await page.screenshot({ path: `.ui-artifacts/v011-quote-${theme}.png` });
   }

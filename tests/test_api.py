@@ -1686,7 +1686,7 @@ def test_feed_and_non_feed_sorting_split(tmp_path: Path, monkeypatch):
 
     assert client.post("/api/reindex", json={}).status_code == 200
 
-    feed_items = client.get("/api/news?per=20").get_json()["items"]
+    feed_items = client.get("/api/news?read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in feed_items] == ["Morning", "Noon", "Evening"]
 
     for item in feed_items:
@@ -1710,7 +1710,7 @@ def test_feed_and_non_feed_sorting_split(tmp_path: Path, monkeypatch):
         res = client.patch(f"/api/news/{item['id']}/state", json={"read_later": True})
         assert res.status_code == 200
 
-    read_later_items = client.get("/api/news?collection=read_later&per=20").get_json()["items"]
+    read_later_items = client.get("/api/news?collection=read_later&read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in read_later_items] == ["Morning", "Noon", "Evening"]
 
 
@@ -1743,14 +1743,14 @@ def test_read_later_cross_date_order_matches_feed_old_to_new(tmp_path: Path, mon
     client = app_module.app.test_client()
 
     assert client.post("/api/reindex", json={}).status_code == 200
-    feed_items = client.get("/api/news?per=20").get_json()["items"]
+    feed_items = client.get("/api/news?read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in feed_items] == ["D2-early", "D2-later", "D1-early", "D1-middle"]
 
     for item in feed_items:
         res = client.patch(f"/api/news/{item['id']}/state", json={"read_later": True})
         assert res.status_code == 200
 
-    read_later_items = client.get("/api/news?collection=read_later&per=20").get_json()["items"]
+    read_later_items = client.get("/api/news?collection=read_later&read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in read_later_items] == ["D2-early", "D2-later", "D1-early", "D1-middle"]
 
 
@@ -1931,10 +1931,10 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     assert client.post("/api/reindex", json={}).status_code == 200
 
     feed_default = client.get("/api/news?collection=feed&read_filter=all&per=20").get_json()["items"]
-    assert [item["title"] for item in feed_default[:4]] == ["Alpha Early", "Alpha Late", "Beta Early", "Beta Late"]
+    assert [item["title"] for item in feed_default[:4]] == ["Beta Late", "Beta Early", "Alpha Late", "Alpha Early"]
 
     feed_reverse = client.get("/api/news?collection=feed&read_filter=all&sort_order=reverse&per=20").get_json()["items"]
-    assert [item["title"] for item in feed_reverse[:4]] == ["Beta Late", "Beta Early", "Alpha Late", "Alpha Early"]
+    assert [item["title"] for item in feed_reverse[:4]] == ["Alpha Early", "Alpha Late", "Beta Early", "Beta Late"]
 
     title_to_id = {item["title"]: item["id"] for item in feed_default}
     assert client.patch(f"/api/news/{title_to_id['Alpha Early']}/state", json={"important": True, "read_later": True}).status_code == 200
@@ -1961,9 +1961,9 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     assert [item["title"] for item in important_reverse] == ["Alpha Early", "Beta Early", "Beta Late"]
 
     read_later_default = client.get("/api/news?collection=read_later&per=20").get_json()["items"]
-    assert [item["title"] for item in read_later_default] == ["Alpha Early", "Beta Late"]
+    assert [item["title"] for item in read_later_default] == ["Beta Late", "Alpha Early"]
     read_later_reverse = client.get("/api/news?collection=read_later&sort_order=reverse&per=20").get_json()["items"]
-    assert [item["title"] for item in read_later_reverse] == ["Beta Late", "Alpha Early"]
+    assert [item["title"] for item in read_later_reverse] == ["Alpha Early", "Beta Late"]
 
     notes_default = client.get("/api/news?collection=notes&per=20").get_json()["items"]
     assert [item["title"] for item in notes_default] == ["Beta Early", "Alpha Late"]
@@ -1974,6 +1974,28 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     assert [item["title"] for item in tags_default] == ["Beta Early", "Alpha Early"]
     tags_reverse = client.get("/api/news?collection=market_tags&sort_order=reverse&per=20").get_json()["items"]
     assert [item["title"] for item in tags_reverse] == ["Alpha Early", "Beta Early"]
+
+    for collection, unread_titles in [
+        ("feed", ["Alpha Early", "Alpha Late", "Beta Early", "Beta Late"]),
+        ("read_later", ["Alpha Early", "Beta Late"]),
+    ]:
+        for order, expected in [("default", unread_titles), ("reverse", unread_titles[::-1])]:
+            unread = client.get("/api/news", query_string={
+                "collection": collection, "read_filter": "unread", "sort_order": order,
+            }).get_json()["items"]
+            assert [item["title"] for item in unread] == expected
+
+    for title in ["Alpha Early", "Beta Late"]:
+        assert client.patch(f"/api/news/{title_to_id[title]}/state", json={"read": True}).status_code == 200
+        assert client.patch(f"/api/news/{title_to_id[title]}/state", json={
+            "read_later": False, "read_later_done": True,
+        }).status_code == 200
+    for collection in ["feed", "read_later"]:
+        for order, expected in [("default", ["Beta Late", "Alpha Early"]), ("reverse", ["Alpha Early", "Beta Late"])]:
+            read = client.get("/api/news", query_string={
+                "collection": collection, "read_filter": "read", "sort_order": order,
+            }).get_json()["items"]
+            assert [item["title"] for item in read] == expected
 
     invalid = client.get("/api/news?collection=feed&sort_order=sideways")
     assert invalid.status_code == 400
@@ -2820,7 +2842,7 @@ def test_news_section_order_date_asc_and_intra_date_asc_for_feed(tmp_path: Path,
     client = app_module.app.test_client()
     assert client.post("/api/reindex", json={}).status_code == 200
 
-    res = client.get("/api/news?per=20")
+    res = client.get("/api/news?read_filter=unread&per=20")
     assert res.status_code == 200
     items = res.get_json()["items"]
     titles = [x["title"] for x in items]

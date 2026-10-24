@@ -19,18 +19,19 @@ import {
   inlineMarkdown,
   focusTrap,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.2.2";
-import { SummaryPanel } from "./summary-panel.js";
+import { SettingsPanel } from "./settings-panel.js?v=0.2.4";
+import { SummaryPanel } from "./summary-panel.js?v=0.2.4";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=0.2.2";
+import { ClassificationProgress } from "./classification-progress.js?v=0.2.4";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.2.3";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.2.4";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
+import { keyboard } from "./keyboard-shortcuts.js";
 
 const state = {
   collection: "feed",
@@ -77,8 +78,6 @@ const stateLabels = {
   read_later: "稍后再看",
   favorite: "收藏",
 };
-const shortcuts = { m: "read", a: "important", d: "read_later", f: "favorite" };
-const shortcutAliases = { ArrowUp: "w", ArrowDown: "s", ArrowLeft: "a", ArrowRight: "d" };
 const readWrites = new ReadBatchWriter(ids =>
   api("/api/news/mark-read-by-ids", { method: "POST", body: { item_ids: ids } }));
 const readOperations = new Map();
@@ -118,6 +117,16 @@ let requestController,
   searchTimer,
   lastFocus;
 const selects = new SelectControls(document.body);
+// Reserve equal room on both sides so status stays at the window's center,
+// including when classification progress appears or the theme menu compacts.
+const topbar = $(".topbar");
+const topbarSides = [$(".topbar-left"), $(".topbar-right")];
+const topbarObserver = new ResizeObserver(() => {
+  const sideWidth = Math.max(...topbarSides.map(node => node.getBoundingClientRect().width));
+  topbar.style.setProperty("--topbar-side-width", `${Math.ceil(sideWidth)}px`);
+  if (!$("#upstreamErrorsPanel").hidden) upstreamErrors.position();
+});
+topbarSides.forEach(node => topbarObserver.observe(node));
 const settings = new SettingsPanel({
   selects,
   onOpen: () => {
@@ -133,6 +142,7 @@ const settings = new SettingsPanel({
   },
   onSaved: () => {
     sourceCatalogByCollection.clear();
+    refreshClassification();
     loadFeed();
     refreshBadges();
     if (agent.open) agent.refresh();
@@ -235,9 +245,7 @@ const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "�
 const classification = new ClassificationProgress({
   onSettings: async () => {
     if (!settings.open) await settings.toggle();
-    settings.apiProvider = "jev";
-    settings.renderTranslation();
-    settings.selectSection("deepseek");
+    settings.selectSection("classification");
   },
 });
 
@@ -283,6 +291,10 @@ function feedParams() {
     per: "30",
   };
 }
+function newsSortAscending(params = feedParams()) {
+  const ascending = ["feed", "read_later"].includes(params.collection) && params.read_filter === "unread";
+  return params.sort_order === "reverse" ? !ascending : ascending;
+}
 function renderFilters() {
   renderCategories();
   renderFavoritesAction();
@@ -298,7 +310,7 @@ function renderFilters() {
         : state.collection === "important"
           ? [["all", "全部"], ["notes", "含想法"]]
           : [["all", "全部"]];
-  const ascending = ["feed", "read_later"].includes(state.collection) === (state.sortOrder === "default");
+  const ascending = newsSortAscending();
   const sortLabel = `排序：${ascending ? "旧到新" : "新到旧"}，点击切换`;
   $("#sortNewsBtn").innerHTML = icon(ascending ? "sortAsc" : "sortDesc");
   $("#sortNewsBtn").setAttribute("aria-label", sortLabel);
@@ -593,7 +605,7 @@ async function searchNews(sequence, signal, params = feedParams()) {
       (params.read_filter === "unread" ? !item.read_at : !!item.read_at)
     );
   });
-  const ascending = ["feed", "read_later"].includes(state.collection) === (state.sortOrder === "default");
+  const ascending = newsSortAscending(params);
   items.sort((a, b) => (ascending ? 1 : -1) * `${a.date_key || a.date || ""} ${a.published_at || ""} ${a.id}`.localeCompare(`${b.date_key || b.date || ""} ${b.published_at || ""} ${b.id}`));
   return {
     items,
@@ -1461,12 +1473,14 @@ function shortcutsDialog(open) {
     $("button", dialog).focus();
   } else lastFocus?.focus();
 }
+$("#keyboardHelpBtn").onclick = () => shortcutsDialog(true);
 
 // Delegated handlers keep the dynamic cards and editor actions on one state source.
 document.addEventListener("click", (event) => {
   const button = event.target.closest("button,a,input");
   if (button?.dataset.collection) switchCollection(button.dataset.collection);
   if (button?.dataset.filter) {
+    if (state.filter !== button.dataset.filter) state.sortOrder = "default";
     state.filter = button.dataset.filter;
     loadFeed();
   }
@@ -1636,6 +1650,7 @@ function refreshIndex(notify = false) {
 refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented || event.isComposing) return;
   if (document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !classification.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
@@ -1656,6 +1671,12 @@ document.addEventListener("keydown", (event) => {
     closeNav();
     return;
   }
+  const action = keyboard.action(event);
+  if (action === "help") {
+    event.preventDefault();
+    shortcutsDialog(true);
+    return;
+  }
   if (settings.open) {
     settings.handleKey(event);
     return;
@@ -1669,44 +1690,37 @@ document.addEventListener("keydown", (event) => {
   }
   if (
     event.target.closest('input,textarea,select,[role="combobox"],[contenteditable="true"]') ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.altKey ||
     event.isComposing
   )
     return;
-  const key = shortcutAliases[event.key] || event.key.toLowerCase();
-  if (key === ",") {
+  if (action === "settings") {
     event.preventDefault();
     settings.toggle();
-  } else if (state.collection === "summaries" && key !== "?") {
-    summaries.handleKey(event);
-  } else if (key === "/") {
+  } else if (state.collection === "summaries") {
+    summaries.handleKey(event, action);
+  } else if (action === "search") {
     event.preventDefault();
     if (state.collection === "notes") $("#ideasSearchInput").focus();
     else {
       if (singlePane.matches) exitReader();
       setFeedSearchOpen(true, true);
     }
-  } else if (key === "?") {
-    event.preventDefault();
-    shortcutsDialog(true);
-  } else if (key === "q" && readingArticle()) {
+  } else if (action === "agent" && readingArticle()) {
     event.preventDefault();
     agent.toggle();
-  } else if (shortcuts[key] && readingArticle()) {
+  } else if (["read", "important", "read_later", "favorite"].includes(action) && readingArticle()) {
     event.preventDefault();
-    if (key === "m" && state.collection === "read_later") toggleState(state.selected, "read_later", false, false, true);
-    else toggleState(state.selected, shortcuts[key]);
-  } else if (["w", "s", "j", "k"].includes(key) && state.collection === "notes") {
+    if (action === "read" && state.collection === "read_later") toggleState(state.selected, "read_later", false, false, true);
+    else toggleState(state.selected, action);
+  } else if (["previous", "next"].includes(action) && state.collection === "notes") {
     event.preventDefault();
     const ideas = visibleIdeas(), index = ideas.findIndex(idea => idea.idea_id === state.idea?.idea_id);
-    const next = ideas[Math.max(0, Math.min(ideas.length - 1, index + (["s", "j"].includes(key) ? 1 : -1)))];
+    const next = ideas[Math.max(0, Math.min(ideas.length - 1, index + (action === "next" ? 1 : -1)))];
     if (next) {
       selectIdea(next, false);
       $(`[data-idea-id="${CSS.escape(next.idea_id)}"]`)?.scrollIntoView({ block: "nearest" });
     }
-  } else if (["w", "s", "j", "k"].includes(key) && state.collection !== "notes") {
+  } else if (["previous", "next"].includes(action) && state.collection !== "notes") {
     event.preventDefault();
     const index = state.items.findIndex(
       (item) => item.id === state.selected?.id,
@@ -1715,7 +1729,7 @@ document.addEventListener("keydown", (event) => {
       state.items[
         Math.max(
           0,
-          Math.min(state.items.length - 1, index + (["s", "j"].includes(key) ? 1 : -1)),
+          Math.min(state.items.length - 1, index + (action === "next" ? 1 : -1)),
         )
       ];
     if (next) {
@@ -1724,9 +1738,9 @@ document.addEventListener("keydown", (event) => {
         block: "nearest",
       });
     }
-  } else if (key === "enter" && event.target.matches("[data-id]"))
+  } else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && event.target.matches("[data-id]"))
     selectNews(state.items.find((item) => item.id === event.target.dataset.id), true, true);
-  else if (key === "enter" && event.target.matches("[data-idea-id]"))
+  else if (event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && event.target.matches("[data-idea-id]"))
     selectIdea(
       state.ideas.find((idea) => idea.idea_id === event.target.dataset.ideaId),
     );

@@ -4,7 +4,7 @@ import { chooseTheme } from './helpers.js';
 const indicator = page => page.getByRole('progressbar', { name: '新闻分类进度' });
 const panel = page => page.getByRole('region', { name: '新闻分类进度详情' });
 const base = () => ({ ok: true, total: 100, done: 25, pending: 67, running: 8, failed: 0,
-  configured: true, unread_only: false, completed_revision: 200,
+  configured: true, enabled: true, unread_only: false, completed_revision: 200,
   throttle: { configured_concurrency: 8, effective_concurrency: 8, cooldown_seconds: 0, rate_limited: false } });
 
 async function start(page, progress = base()) {
@@ -71,6 +71,26 @@ test('hover, keyboard and other header popovers share a dismissible card', async
   await expect(panel(page)).toBeHidden();
 });
 
+test('index status stays centered when progress appears and disappears across desktop widths', async ({ page }) => {
+  const state = await start(page);
+  for (const width of [921, 1100, 1101, 1279, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const enabled of [false, true]) {
+      state.progress.enabled = enabled;
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await expect(page.locator('#classificationProgress')).toBeVisible({ visible: enabled });
+      await expect(async () => {
+        const status = await page.locator('#upstreamErrorsBtn').boundingBox();
+        expect(status.x + status.width / 2).toBeCloseTo(width / 2, 0);
+        const boxes = await page.locator('.topbar-left, .topbar-center, .topbar-right').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+        expect(boxes[0].right).toBeLessThanOrEqual(boxes[1].left);
+        expect(boxes[1].right).toBeLessThanOrEqual(boxes[2].left);
+        expect(boxes[2].right).toBeLessThanOrEqual(width);
+      }).toPass({ timeout: 5000 });
+    }
+  }
+});
+
 test('progress refreshes in other collections and keeps last counts on request failure', async ({ page }) => {
   const state = await start(page);
   await page.locator('#navFavoritesBtn').click();
@@ -109,6 +129,29 @@ test('hidden pages stop polling and visibility resumes from current counts', asy
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await expect(indicator(page)).toHaveAttribute('aria-valuenow', '75');
+});
+
+test('disabled classification hides pending progress and resumes after it is enabled', async ({ page }) => {
+  const state = await start(page);
+  state.progress.enabled = false;
+  await page.clock.runFor(2100);
+  await expect(page.locator('#classificationProgress')).toBeHidden();
+  const count = state.requests;
+  await page.clock.runFor(5000);
+  expect(state.requests).toBe(count);
+  state.progress.enabled = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(indicator(page)).toBeVisible();
+});
+
+test('classification recovery opens its own module with a link to Jev API management', async ({ page }) => {
+  await start(page, { ...base(), configured: false });
+  await indicator(page).hover();
+  await page.locator('#classificationProgressSettings').click();
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+  await page.locator('#classificationApiSettingsBtn').click();
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
+  await expect(page.getByRole('combobox', { name: 'API 服务', exact: true })).toContainText('Jev');
 });
 
 test('zero percent, failures and unread scope stay explicit without pretending completion', async ({ page }) => {

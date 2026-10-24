@@ -8,6 +8,13 @@ async function start(page) {
   await expect(card(page)).toBeVisible();
   await expect(page.locator('#articleMainTitle')).toBeVisible();
 }
+async function showOldestFirst(page) {
+  // Completed/all lists now start newest first; these state tests use the oldest fixtures.
+  const sort = page.locator('#sortNewsBtn');
+  await expect(sort).toHaveAttribute('aria-label', '排序：新到旧，点击切换');
+  await sort.click();
+  await expect(sort).toHaveAttribute('aria-label', '排序：旧到新，点击切换');
+}
 test.beforeEach(async ({ request }) => {
   await request.post('/__test/reset-reading');
   await request.post('/api/news/clear-read-later', { data: {} });
@@ -44,6 +51,7 @@ for (const explicit of [false, true]) {
       expect(completed.read_at).toBeNull();
       await expect(page.locator('#readLaterNavBadge')).toBeHidden();
       await page.locator('#feedColFeed [data-filter="read"]').click();
+      await showOldestFirst(page);
       await expect(card(page)).toBeVisible();
       await page.reload();
       await expect(later(page)).toHaveText('已看完');
@@ -251,6 +259,7 @@ test('bulk completion waits for a previous re-add to save', async ({ page, reque
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.locator('#feedColFeed [data-filter="all"]').click();
+  await showOldestFirst(page);
   await expect(later(page)).toHaveText('已看完');
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -304,6 +313,7 @@ test('read-later preserves feed read flags, card appearance, keyboard completion
   expect((await detail(request, 'ui-063')).read_later_at).toBeTruthy();
   // A selected source limits both displayed pending items and bulk completion.
   await page.locator('#feedColFeed [data-filter="read"]').click();
+  await showOldestFirst(page);
   await expect(card(page)).toBeVisible();
   await later(page).click();
   await expect(later(page)).toHaveAttribute('aria-busy', 'false');
@@ -323,6 +333,7 @@ test('delayed unopened-card status cannot undo bulk completion after the list re
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.locator('#feedColFeed [data-filter="all"]').click();
+  await showOldestFirst(page);
   await expect(later(page, 'ui-063')).toHaveText('已看完');
   let release, captured;
   const gate = new Promise(resolve => { release = resolve; });

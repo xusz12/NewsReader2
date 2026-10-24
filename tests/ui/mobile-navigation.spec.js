@@ -145,7 +145,7 @@ test('every settings subpage swipes back to its category and preserves the origi
   const title = await page.locator('#articleMainTitle').textContent();
   await openSettings(page);
   const list = page.locator('.settings-category-list');
-  for (const section of ['models', 'deepseek', 'pipeline', 'storage', 'system']) {
+  for (const section of ['models', 'deepseek', 'classification', 'pipeline', 'storage', 'system']) {
     const category = page.locator(`[data-settings-tab="${section}"]`);
     await category.click();
     await expect(page.locator(`#settingsContent > [data-section="${section}"]`)).toBeVisible();
@@ -167,10 +167,9 @@ test('every settings subpage swipes back to its category and preserves the origi
   await expect(page.locator('#articleMainTitle')).toHaveText(title);
 });
 
-test('settings swipe preserves the draft and search while ignoring editing and canceled gestures', async ({ page }) => {
+test('settings swipe preserves the draft while ignoring editing and canceled gestures', async ({ page }) => {
   await page.goto('/');
   await openSettings(page);
-  await page.locator('#settingsSearchInput').fill('翻译');
   await page.locator('[data-settings-tab="deepseek"]').click();
   const input = page.locator('input[name="llm.translation.model"]');
   await input.fill('settings-swipe-draft');
@@ -182,8 +181,7 @@ test('settings swipe preserves the draft and search while ignoring editing and c
   }
   await swipe(page, { target: '.settings-main' });
   await expect(page.locator('#detailPanelSettings')).toBeHidden();
-  await expect(page.locator('#settingsSearchInput')).toHaveValue('翻译');
-  await expect(page.locator('.settings-category-card:visible')).toHaveCount(1);
+  await expect(page.locator('.settings-category-card:visible')).toHaveCount(8);
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(input).toHaveValue('settings-swipe-draft');
   await expect(page.locator('#settingsStatus')).toHaveClass(/dirty-state/);
@@ -198,7 +196,7 @@ test.describe('original sliding transitions', () => {
     await openSettings(page);
     await expect(page.locator('#modelSettings')).toBeAttached();
     const panel = page.locator('#detailPanelSettings');
-    for (const section of ['models', 'pipeline', 'deepseek', 'catchup', 'storage', 'system']) {
+    for (const section of ['models', 'pipeline', 'deepseek', 'classification', 'catchup', 'storage', 'system']) {
       await page.evaluate(() => {
         window.settingsFrames = [];
         window.samplingSettings = true;

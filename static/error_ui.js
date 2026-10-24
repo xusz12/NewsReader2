@@ -11,6 +11,9 @@
   register('input', 'invalid_api_models', 'API 模型配置格式无效。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
   register('input', 'invalid_classification_unread_only', '仅对未读新闻分类必须为开启或关闭。');
+  register('input', 'invalid_classification_enabled', '自动分类必须为开启或关闭。');
+  register('input', 'invalid_classification_settings', '新闻分类设置格式无效。');
+  register('input', 'classification_disabled', '自动分类已关闭，请先在新闻分类设置中开启。');
   register('credentials', 'credentials codex_auth_required oar_auth_required authentication_error invalid_api_key', '身份验证失败。');
   register('model', 'models_unavailable', '获取模型列表失败。');
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');

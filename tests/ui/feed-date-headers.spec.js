@@ -49,7 +49,7 @@ for (const width of [1440, 390]) {
       await page.goto('/');
       await chooseTheme(page, theme);
       await page.locator('#feedColFeed [data-filter="all"]').click();
-      await expect(dayCount(page, '2026-10-10')).toHaveText('5 条');
+      await expect(dayCount(page, '2026-10-14')).toHaveText('15 条');
       const first = groups(page).first().locator('.feed-date-heading');
       const second = groups(page).nth(1).locator('.feed-date-heading');
       const bounds = await list(page).boundingBox();
@@ -69,12 +69,12 @@ for (const width of [1440, 390]) {
       });
       await expect.poll(async () => (await second.boundingBox()).y).toBeCloseTo(bounds.y, 0);
       expect((await first.boundingBox()).y).toBeLessThan(bounds.y);
-      await expect(second.locator('.feed-date-title')).toHaveText('2026-10-11');
+      await expect(second.locator('.feed-date-title')).toHaveText('2026-10-13');
       await list(page).evaluate(node => { node.scrollTop = 100; });
       await expect.poll(async () => (await first.boundingBox()).y).toBeCloseTo(bounds.y, 0);
       await page.locator('#sortNewsBtn').click();
-      await expect(groups(page).first()).toHaveAttribute('data-date', '2026-10-14');
-      await expect(dayCount(page, '2026-10-14')).toHaveText('15 条');
+      await expect(groups(page).first()).toHaveAttribute('data-date', '2026-10-10');
+      await expect(dayCount(page, '2026-10-10')).toHaveText('5 条');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     });
   }

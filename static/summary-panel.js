@@ -334,16 +334,16 @@ export class SummaryPanel {
     } catch (error) { if (token === this.token) this.showError(error); }
     finally { this.busy = ""; this.controls(); }
   }
-  handleKey(event) {
+  handleKey(event, action) {
     const key = event.key.toLowerCase();
-    if (key === "/") { event.preventDefault(); $("#summariesSearchInput").focus(); }
-    if (["enter", " "].includes(key) && event.target.matches("[data-summary-id]")) {
+    if (action === "search") { event.preventDefault(); $("#summariesSearchInput").focus(); }
+    if (!action && !event.ctrlKey && !event.metaKey && !event.altKey && ["enter", " "].includes(key) && event.target.matches("[data-summary-id]")) {
       event.preventDefault(); this.select(event.target.dataset.summaryId, true);
     }
-    if (["j", "k"].includes(key)) {
+    if (["previous", "next"].includes(action)) {
       event.preventDefault();
       const index = this.entries.findIndex(item => item.id === this.selected);
-      const item = this.entries[Math.max(0, Math.min(this.entries.length - 1, index + (key === "j" ? 1 : -1)))];
+      const item = this.entries[Math.max(0, Math.min(this.entries.length - 1, index + (action === "next" ? 1 : -1)))];
       if (item) { this.select(item.id); $(`[data-summary-id="${CSS.escape(item.id)}"]`)?.scrollIntoView({ block: "nearest" }); }
     }
   }

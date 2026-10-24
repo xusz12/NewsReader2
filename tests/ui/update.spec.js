@@ -22,6 +22,24 @@ async function openSystem(page) {
   await expect(page.locator('#updateRepository')).toHaveText(current.repository);
 }
 
+test('update results stay hidden until checking, then show progress and the result', async ({ page }) => {
+  await setup(page);
+  await expect(page.locator('#updateResult')).toBeHidden();
+  await expect(page.locator('#settingsSaveBtn')).toBeHidden();
+  await expect(page.locator('#settingsResetBtn')).toBeHidden();
+  let finish;
+  await page.route('**/api/update/check?force=1', async route => {
+    await new Promise(resolve => { finish = resolve; });
+    await route.fulfill({ json: available });
+  });
+  await page.locator('#checkUpdateBtn').click();
+  await expect(page.locator('#updateResult')).toBeVisible();
+  await expect(page.locator('#updateResult')).toHaveAttribute('data-state', 'checking');
+  finish();
+  await expect(page.locator('#applyUpdateBtn')).toBeVisible();
+  await expect(page.locator('#updateResult')).toBeVisible();
+});
+
 for (const [status, text, remote] of [
   ['no_releases', '尚未发布稳定版本', null],
   ['up_to_date', '已是最新稳定版本', { ...latest, version: 'v0.0.6' }],

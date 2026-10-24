@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.2.3</title>
+    <title>News Reader v0.2.4</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.2.3" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.2.3" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.2.4" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.2.4" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.2.3"
+      href="/static/style.css?v=0.2.4"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.2.3</span>
+            <span class="brand-version">v0.2.4</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -115,7 +115,7 @@
               <p class="classification-progress-count" id="classificationProgressCount"></p>
               <p id="classificationProgressDetails"></p>
               <p id="classificationProgressStatus"></p>
-              <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="classificationProgressSettings" type="button" hidden>Jev 设置</button><button class="agent-notice-dismiss" id="classificationProgressRetry" type="button" hidden>重试失败项</button></div>
+              <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="classificationProgressSettings" type="button" hidden>分类设置</button><button class="agent-notice-dismiss" id="classificationProgressRetry" type="button" hidden>重试失败项</button></div>
             </section>
           </div>
           <div class="agent-notifications" id="agentNotifications">
@@ -367,7 +367,7 @@
                       placeholder="搜索新闻标题、全文、想法或来源…"
                       type="text"
                     />
-                    <span class="search-shortcut-hint">/</span>
+                    <span class="search-shortcut-hint" data-shortcut-hint="search">/</span>
                   </div>
                 </div>
               </div>
@@ -401,7 +401,7 @@
                     placeholder="搜索想法与灵感笔记…"
                     type="text"
                   />
-                  <span class="search-shortcut-hint">/</span>
+                  <span class="search-shortcut-hint" data-shortcut-hint="search">/</span>
                 </div>
               </div>
               <div class="feed-filter-chips"></div>
@@ -471,7 +471,7 @@
                       <line x1="4" x2="4" y1="22" y2="15"></line>
                     </svg>
                     <span id="importantBtnLabel">重要</span>
-                    <kbd class="reader-btn-kbd">A</kbd>
+                    <kbd class="reader-btn-kbd" data-shortcut-hint="important">A</kbd>
                   </button>
 
                   <button
@@ -493,7 +493,7 @@
                       ></polygon>
                     </svg>
                     <span id="starBtnLabel">收藏</span>
-                    <kbd class="reader-btn-kbd">F</kbd>
+                    <kbd class="reader-btn-kbd" data-shortcut-hint="favorite">F</kbd>
                   </button>
                 </div>
               </div>
@@ -517,7 +517,7 @@
                 </div>
                 <div class="agent-minimized-hint">
                   <span>点击展开</span>
-                  <kbd class="reader-btn-kbd">Q</kbd>
+                  <kbd class="reader-btn-kbd" data-shortcut-hint="agent">Q</kbd>
                 </div>
                 <div class="agent-actions"><button class="agent-btn expanded-only" id="agentNewBtn" type="button" title="新会话" aria-label="新会话"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
                   <button
@@ -654,7 +654,7 @@
           </section>
           <section class="feed-column" id="feedColSummaries" aria-label="新闻总结历史列表">
             <div class="feed-header">
-              <label class="feed-search-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg><input class="feed-search-input" id="summariesSearchInput" type="search" aria-label="搜索新闻总结" placeholder="搜索历史总结、主线或日期…"><span class="search-shortcut-hint">/</span></label>
+              <label class="feed-search-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg><input class="feed-search-input" id="summariesSearchInput" type="search" aria-label="搜索新闻总结" placeholder="搜索历史总结、主线或日期…"><span class="search-shortcut-hint" data-shortcut-hint="search">/</span></label>
               <div class="feed-filter-row"><div class="feed-filter-chips" id="summaryFilters"><button class="filter-chip active" data-summary-filter="all" type="button" aria-pressed="true">全部</button></div></div>
             </div>
             <div class="summary-list-scroll">
@@ -678,217 +678,9 @@
             id="feedColSettings"
             aria-labelledby="settingsListTitle"
           >
-            <div class="feed-header settings-list-header">
-              <div class="settings-list-heading">
-                <div>
-                  <span class="settings-eyebrow">工作台偏好</span>
-                  <h1 id="settingsListTitle" tabindex="-1">设置</h1>
-                </div>
-                <button
-                  class="reader-action-btn"
-                  id="closeSettingsBtn"
-                  type="button"
-                  title="返回阅读 (Esc)"
-                >
-                  返回阅读 <kbd>Esc</kbd>
-                </button>
-              </div>
-              <label class="feed-search-box"
-                ><svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m16 16 4 4" /></svg
-                ><input
-                  class="feed-search-input"
-                  id="settingsSearchInput"
-                  type="search"
-                  placeholder="搜索设置…"
-                  aria-label="搜索设置分类"
-                /><span class="search-shortcut-hint">/</span></label
-              >
-            </div>
+            <div class="feed-header settings-list-header"><div class="settings-list-heading"><h1 id="settingsListTitle" tabindex="-1">设置</h1><button class="reader-action-btn" id="closeSettingsBtn" type="button" title="返回阅读 (Esc)">返回阅读 <kbd>Esc</kbd></button></div></div>
             <div class="settings-category-list" aria-label="设置分类">
-              <button
-                class="settings-category-card"
-                id="settingsCategory-models"
-                data-settings-tab="models"
-                data-title="模型与 Agent"
-                data-description="选择运行方式、模型与推理强度，测试连接。"
-                data-search="model runtime provider profile 模型 推理 连接 chat agent codex pi oar"
-                type="button"
-                aria-controls="settingsContent"
-                aria-current="true"
-              >
-                <span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                    ></path></svg
-                ></span>
-                <span class="settings-category-copy"
-                  ><span class="settings-category-meta">Pi / Codex</span
-                  ><strong>模型与 Agent</strong
-                  ><span class="settings-category-description"
-                    >选择运行方式、模型与推理强度，测试连接。</span
-                  ></span
-                >
-                <svg
-                  class="settings-category-arrow"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="m9 5 7 7-7 7" />
-                </svg></button
-              ><button
-                class="settings-category-card"
-                id="settingsCategory-deepseek"
-                data-settings-tab="deepseek"
-                data-title="API 管理"
-                data-description="管理 DeepSeek、Jev 的 API 密钥与模型，测试服务连接。"
-                data-search="deepseek jev typesafe 翻译 精读 摘要 密钥 api 模型 测试"
-                type="button"
-                aria-controls="settingsContent"
-                aria-current="false"
-              >
-                <span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                    ></path>
-                    <polyline points="14 2 14 8 20 8"></polyline></svg
-                ></span>
-                <span class="settings-category-copy"
-                  ><span class="settings-category-meta">模型服务</span
-                  ><strong>API 管理</strong
-                  ><span class="settings-category-description"
-                    >管理 DeepSeek、Jev 的 API 密钥与模型，测试服务连接。</span
-                  ></span
-                >
-                <svg
-                  class="settings-category-arrow"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="m9 5 7 7-7 7" />
-                </svg></button
-              ><button
-                class="settings-category-card"
-                id="settingsCategory-pipeline"
-                data-settings-tab="pipeline"
-                data-title="信源与采集"
-                data-description="管理来源开关，增量扫描新闻输入。"
-                data-search="source 信源 采集 管线 opencli dailynews 扫描"
-                type="button"
-                aria-controls="settingsContent"
-                aria-current="false"
-              >
-                <span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline
-                      points="22 12 18 12 15 21 9 3 6 12 2 12"
-                    ></polyline></svg
-                ></span>
-                <span class="settings-category-copy"
-                  ><span class="settings-category-meta"
-                    >DailyNews / opencli</span
-                  ><strong>信源与采集</strong
-                  ><span class="settings-category-description"
-                    >管理来源开关，增量扫描新闻输入。</span
-                  ></span
-                >
-                <svg
-                  class="settings-category-arrow"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="m9 5 7 7-7 7" />
-                </svg></button
-              ><button
-                class="settings-category-card"
-                id="settingsCategory-storage"
-                data-settings-tab="storage"
-                data-title="数据库与存储"
-                data-description="接入原有新闻库，查看与设置存储路径。"
-                data-search="database sqlite 数据库 存储 路径 数据 文件"
-                type="button"
-                aria-controls="settingsContent"
-                aria-current="false"
-              >
-                <span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg
-                ></span>
-                <span class="settings-category-copy"
-                  ><span class="settings-category-meta">SQLite</span
-                  ><strong>数据库与存储</strong
-                  ><span class="settings-category-description"
-                    >接入原有新闻库，查看与设置存储路径。</span
-                  ></span
-                >
-                <svg
-                  class="settings-category-arrow"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="m9 5 7 7-7 7" />
-                </svg></button
-              ><button class="settings-category-card" id="settingsCategory-catchup" data-settings-tab="catchup" data-title="积压新闻总结范围" data-description="设置总结的最大自然日与最多未读条数。" data-search="summary catchup 积压 新闻 总结 范围 日期 条数 已读" type="button" aria-controls="settingsContent" aria-current="false">
-                <span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg></span>
-                <span class="settings-category-copy"><span class="settings-category-meta">未读补课</span><strong>积压新闻总结范围</strong><span class="settings-category-description">设置回溯日期与新闻数量，查看当前积压范围。</span></span>
-                <svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg>
-              </button>
-              <button
-                class="settings-category-card"
-                id="settingsCategory-system"
-                data-settings-tab="system"
-                data-title="系统与版本"
-                data-description="查看当前版本、更新状态与版本记录。"
-                data-search="system 系统 更新 版本 升级 记录"
-                type="button"
-                aria-controls="settingsContent"
-                aria-current="false"
-              >
-                <span class="settings-category-icon"
+              <button class="settings-category-card" id="settingsCategory-system" data-settings-tab="system" data-title="系统与版本" data-description="查看当前版本、更新状态与版本记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
                   ><svg
                     fill="none"
                     stroke="currentColor"
@@ -905,38 +697,56 @@
                     ></rect>
                     <line x1="8" x2="16" y1="21" y2="21"></line>
                     <line x1="12" x2="12" y1="17" y2="21"></line></svg
-                ></span>
-                <span class="settings-category-copy"
-                  ><span class="settings-category-meta">News Reader</span
-                  ><strong>系统与版本</strong
-                  ><span class="settings-category-description"
-                    >查看当前版本、更新状态与版本记录。</span
-                  ></span
-                >
-                <svg
-                  class="settings-category-arrow"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                >
-                  <path d="m9 5 7 7-7 7" />
-                </svg>
-              </button>
-              <div class="list-message" id="settingsSearchEmpty" hidden>
-                没有匹配的设置分类。<button
-                  class="btn-secondary"
-                  id="clearSettingsSearchBtn"
-                  type="button"
-                >
-                  清除搜索
-                </button>
-              </div>
-            </div>
-            <div class="settings-list-footer">
-              <span id="settingsCategoryCount" role="status">6 个配置分类</span
-              ><span>更改后点击保存</span>
+                ></span><span class="settings-category-copy"><strong>系统与版本</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-models" data-settings-tab="models" data-title="模型与 Agent" data-description="选择运行方式、模型与推理强度，测试连接。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                    ></path></svg
+                ></span><span class="settings-category-copy"><strong>模型与 Agent</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-deepseek" data-settings-tab="deepseek" data-title="API 管理" data-description="管理 DeepSeek、Jev 的 API 密钥与模型，测试服务连接。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                    ></path>
+                    <polyline points="14 2 14 8 20 8"></polyline></svg
+                ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="管理自动分类开关、分类范围与并发上限。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="管理来源开关，增量扫描新闻输入。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <polyline
+                      points="22 12 18 12 15 21 9 3 6 12 2 12"
+                    ></polyline></svg
+                ></span><span class="settings-category-copy"><strong>信源与采集</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-storage" data-settings-tab="storage" data-title="数据库与存储" data-description="接入原有新闻库，查看与设置存储路径。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
+                  ><svg
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg
+                ></span><span class="settings-category-copy"><strong>数据库与存储</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-catchup" data-settings-tab="catchup" data-title="积压新闻总结范围" data-description="设置总结的最大自然日与最多未读条数。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg></span><span class="settings-category-copy"><strong>积压新闻总结范围</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-shortcuts" data-settings-tab="shortcuts" data-title="快捷键" data-description="自定义快捷键与底部快捷键栏，保存在当前浏览器，保存后生效。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M7 15h10"/></svg></span><span class="settings-category-copy"><strong>快捷键</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
             </div>
           </section>
           <section
@@ -963,11 +773,11 @@
                   </svg>
                 </button>
                 <div>
-                  <span class="settings-eyebrow">设置工作台</span>
-                  <h2 id="settingsDetailTitle" tabindex="-1">模型与 Agent</h2>
+
+                  <h2 id="settingsDetailTitle" tabindex="-1">系统与版本</h2>
                 </div>
               </div>
-              <div class="settings-detail-actions">
+              <div class="settings-detail-actions" hidden>
                 <button
                   class="btn-secondary"
                   id="settingsResetBtn"
@@ -1047,21 +857,9 @@
           <span>收藏</span>
         </button>
       </nav>
-      <footer class="keyboard-bar">
-        <div class="kbd-group">
-          <span class="kbd-item"><kbd>w</kbd>/<kbd>s</kbd> 或 <kbd>↑</kbd>/<kbd>↓</kbd> 上下移动</span>
-          <span class="kbd-item"><kbd>a</kbd>/<kbd>←</kbd> 标记重要</span>
-          <span class="kbd-item"><kbd>d</kbd>/<kbd>→</kbd> 稍后再读</span>
-          <span class="kbd-item"><kbd>f</kbd> 收藏高光</span>
-          <span class="kbd-item"><kbd>m</kbd> 标为已读</span>
-          <span class="kbd-item"><kbd>q</kbd> 展开/收起 Agent</span>
-          <span class="kbd-item"><kbd>/</kbd> 搜索</span>
-          <span class="kbd-item"><kbd>,</kbd> 设置</span>
-        </div>
-        <div class="kbd-group">
-          <span class="kbd-item"><kbd>?</kbd> 查看全部快捷键</span>
-          <span>按 <kbd>Esc</kbd> 退出弹窗</span>
-        </div>
+      <footer class="keyboard-bar" id="keyboardBar" hidden>
+        <div class="kbd-group" id="keyboardBarKeys"></div>
+        <div class="kbd-group keyboard-bar-actions"><button class="keyboard-help-btn" id="keyboardHelpBtn" type="button"><span id="keyboardHelpKey"></span> 查看全部快捷键</button><span>按 <kbd>Esc</kbd> 退出弹窗</span><button class="keyboard-close-btn" id="closeKeyboardBarBtn" type="button" aria-label="关闭底部快捷键栏" title="关闭底部快捷键栏，可在设置中重新开启">×</button></div>
       </footer>
       <div class="upstream-backdrop" id="upstreamErrorsBackdrop" aria-hidden="true" hidden></div>
       <section class="upstream-panel" id="upstreamErrorsPanel" role="dialog" aria-modal="false" aria-labelledby="upstreamErrorsTitle" hidden>
@@ -1084,7 +882,7 @@
               <button class="upstream-date-arrow" id="upstreamPreviousDayBtn" type="button" aria-label="查看前一天" title="前一天">‹</button>
               <button class="upstream-date-btn" type="button" data-upstream-day-offset="-2" aria-pressed="false">前天</button>
               <button class="upstream-date-btn" type="button" data-upstream-day-offset="-1" aria-pressed="false">昨天</button>
-              <button class="upstream-date-btn" id="upstreamTodayBtn" type="button" data-upstream-day-offset="0" aria-pressed="true" title="回到今日并重新读取">今天</button>
+              <button class="upstream-date-btn" id="upstreamTodayBtn" type="button" data-upstream-day-offset="0" aria-pressed="true" title="回到今日并重新读取"><span class="upstream-date-label">今天</span><span class="upstream-today-short" aria-hidden="true">今日</span></button>
               <button class="upstream-date-arrow" id="upstreamNextDayBtn" type="button" aria-label="查看后一天" title="后一天" disabled>›</button>
             </div>
           </div>
@@ -1120,149 +918,7 @@
               ✕
             </button>
           </div>
-          <div class="modal-body">
-            <div
-              style="
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 12px;
-                font-size: 12.5px;
-              "
-            >
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>向下移动新闻聚焦</span>
-                <span><kbd>s</kbd> / <kbd>↓</kbd></span>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>向上移动新闻聚焦</span>
-                <span><kbd>w</kbd> / <kbd>↑</kbd></span>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>标记重要新闻切换</span>
-                <span><kbd>a</kbd> / <kbd>←</kbd></span>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>稍后再读切换</span>
-                <span><kbd>d</kbd> / <kbd>→</kbd></span>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>收藏高光切换</span>
-                <kbd>f</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>标记已读 / 未读</span>
-                <kbd>m</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>展开 / 折叠 Agent</span>
-                <kbd>q</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>打开 / 关闭设置右侧栏</span>
-                <kbd>,</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>聚焦搜索框</span>
-                <kbd>/</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>关闭弹窗 / 浮层</span>
-                <kbd>Esc</kbd>
-              </div>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  padding: 6px 0;
-                  border-bottom: 1px solid var(--border);
-                "
-              >
-                <span>打开快捷键帮助</span>
-                <kbd>?</kbd>
-              </div>
-            </div>
-          </div>
+          <div class="modal-body"><div class="shortcut-help-grid" id="shortcutHelpRows"></div></div>
           <div class="modal-footer">
             <button class="btn-primary" data-close-shortcuts="" type="button">
               我知道了
@@ -1279,9 +935,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.2.3"></script>
+    <script src="/static/error_ui.js?v=0.2.4"></script>
     <script
-      src="/static/app.js?v=0.2.3"
+      src="/static/app.js?v=0.2.4"
       type="module"
     ></script>
   </body>

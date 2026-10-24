@@ -220,6 +220,7 @@ test('saving settings updates the model of an already expanded unused Agent', as
   const original = (await (await request.get(path + '/agent/session')).json()).session.id;
   // Keyboard navigation leaves the Agent expanded while settings are saved.
   await page.locator('#leftNavSettingsBtn').press('Enter');
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('input[name="agent.codex.model"]').fill('saved-through-settings');
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#agentRuntimeBadge')).toContainText('saved-through-settings');

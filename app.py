@@ -62,6 +62,7 @@ from settings import (
     DEFAULT_PI_CHAT_PROVIDER,
     default_app_settings,
     load_app_settings,
+    normalize_classification,
     resolve_daily_briefing_dir,
     resolve_daily_news_dir,
     resolve_db_path,
@@ -318,10 +319,13 @@ SETTINGS_MODEL_OPTION_LIMIT = 40
 DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 
 
-def news_order_by_sql(collection: str, sort_order: str = "default") -> str:
-    ascending = collection in ("feed", "read_later")
-    if sort_order == "reverse":
-        ascending = not ascending
+def news_sort_ascending(collection: str, read_filter: str, sort_order: str = "default") -> bool:
+    ascending = collection in ("feed", "read_later") and read_filter == "unread"
+    return not ascending if sort_order == "reverse" else ascending
+
+
+def news_order_by_sql(collection: str, sort_order: str = "default", read_filter: str = "all") -> str:
+    ascending = news_sort_ascending(collection, read_filter, sort_order)
     direction = "ASC" if ascending else "DESC"
     return f"""
     {ITEM_DATE_SQL} {direction},
@@ -2018,6 +2022,7 @@ def current_runtime_settings() -> dict:
         merged["database"]["path"] = database["path"].strip()
     merged["news_summary"] = news_summaries.selection.limits(raw.get("news_summary"))
     merged["api_models"] = model_apis.normalize_api_models(raw.get("api_models", {}))
+    merged["classification"] = normalize_classification(raw.get("classification", {}))
     return merged
 
 
@@ -2470,6 +2475,7 @@ def serialize_runtime_settings() -> dict:
         },
         "llm": settings["llm"],
         "api_models": settings["api_models"],
+        "classification": settings["classification"],
         "api_providers": [{"id": provider, **config} for provider, config in model_apis.API_PROVIDERS.items()],
         "feed": settings["feed"],
         "feed_source_subkeys": feed_source_snapshot,
@@ -2537,8 +2543,12 @@ def validate_runtime_settings(payload: object) -> dict:
     if "news_summary" in payload and not isinstance(payload["news_summary"], dict):
         raise ValueError("invalid_summary_limits")
     summary_limits = news_summaries.selection.limits(payload.get("news_summary", current_settings["news_summary"]))
+    api_models = payload.get("api_models")
+    legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
     normalized = {
         "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"]), defaults=current_settings["api_models"]),
+        "classification": normalize_classification(payload.get("classification", {}),
+            defaults=current_settings["classification"], legacy=legacy_classification),
         "news_summary": summary_limits,
         "llm": {
             "translation": {
@@ -7159,10 +7169,8 @@ def api_news():
     where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
     if request.args.get("has_note") == "1":
         where_sql += " AND EXISTS (SELECT 1 FROM article_notes n WHERE n.url = items.url)"
-    order_by_sql = news_order_by_sql(collection, sort_order)
-    ascending_order = collection in ("feed", "read_later")
-    if sort_order == "reverse":
-        ascending_order = not ascending_order
+    order_by_sql = news_order_by_sql(collection, sort_order, read_filter)
+    ascending_order = news_sort_ascending(collection, read_filter, sort_order)
 
     conn = db_conn()
     try:
@@ -8354,8 +8362,7 @@ def api_settings_update():
     # Serialize routing changes with summary commit: the first action wins cleanly.
     with NEWS_SUMMARY_SERVICE.lock:
         save_app_settings(normalized)
-        CLASSIFICATION_SERVICE.configure(normalized["api_models"]["jev"]["concurrency"],
-                                         unread_only=normalized["api_models"]["jev"]["unread_only"])
+        CLASSIFICATION_SERVICE.configure(**normalized["classification"])
     refresh_agent_session_expiries()
     return jsonify({"ok": True, **serialize_runtime_settings()})
 
@@ -12278,13 +12285,15 @@ def classification_config() -> tuple[str, str]:
 
 
 CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config)
+CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
 
 
 @app.get("/api/news/classification")
 def api_classification_status():
     with closing(db_conn()) as conn:
         progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
-    return jsonify(ok=True, **progress, configured=provider_has_configured_key("jev"),
+    return jsonify(ok=True, **progress, enabled=CLASSIFICATION_SERVICE.enabled,
+                   configured=provider_has_configured_key("jev"),
                    error=CLASSIFICATION_SERVICE.error,
                    throttle=CLASSIFICATION_SERVICE.gate.snapshot(),
                    categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
@@ -12292,9 +12301,12 @@ def api_classification_status():
 
 @app.post("/api/news/classification/retry")
 def api_classification_retry():
-    with closing(db_conn()) as conn:
-        retried = news_classification.retry_failed(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
-    CLASSIFICATION_SERVICE.resume()
+    with CLASSIFICATION_SERVICE.lock:
+        if not CLASSIFICATION_SERVICE.enabled:
+            return jsonify(ok=False, error="classification_disabled"), 409
+        with closing(db_conn()) as conn:
+            retried = news_classification.retry_failed(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
+        CLASSIFICATION_SERVICE.resume()
     return jsonify(ok=True, retried=retried)
 
 
@@ -12302,9 +12314,7 @@ def main() -> None:
     ensure_db()
     start_detail_worker()
     start_agent_worker()
-    classification_settings = current_runtime_settings()["api_models"]["jev"]
-    CLASSIFICATION_SERVICE.configure(classification_settings["concurrency"],
-                                     unread_only=classification_settings["unread_only"])
+    CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
     CLASSIFICATION_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()

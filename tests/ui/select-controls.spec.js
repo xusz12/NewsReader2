@@ -120,6 +120,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   page.on('request', req => { if (req.url().endsWith('/api/settings/models')) refreshes++; });
   await page.goto('/');
   await page.locator('#leftNavSettingsBtn').click();
+  await page.locator('[data-settings-tab="models"]').click();
   await page.locator('#refreshModelsBtn').click();
   await expect(customModel(page)).toHaveValue('');
   await modelBox(page).click();
@@ -130,11 +131,14 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
   await page.reload();
   await page.locator('#leftNavSettingsBtn').click();
+  await page.locator('[data-settings-tab="models"]').click();
   await expect(modelBox(page)).toHaveText('ui-catalog-b');
   await expect(customModel(page)).toHaveValue('');
   await expect(page.getByRole('combobox', { name: '推理强度 (Reasoning Effort)', exact: true })).toHaveText('medium');
   await page.locator('[data-runtime="pi"]').click();
   await page.locator('[data-runtime="codex"]').click();
+  await expect(page.locator('#settingsResetBtn')).toBeHidden();
+  await page.locator('[data-runtime="pi"]').click();
   await page.locator('#settingsResetBtn').click();
   await modelBox(page).click();
   await expect(page.getByRole('option', { name: 'ui-catalog-a', exact: true })).toBeVisible();

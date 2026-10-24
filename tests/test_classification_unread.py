@@ -115,7 +115,7 @@ def test_status_and_retry_api_follow_saved_scope_without_hiding_classified_read_
         mark_read(db, 'n35')
         db.execute("UPDATE item_classifications SET status='failed',attempts=4 WHERE item_id IN ('n00','n01')")
     saved = client.put('/api/settings', json={'llm': module.load_app_settings()['llm'],
-                                            'api_models': {'jev': {'unread_only': True}}})
+                                            'classification': {'unread_only': True}})
     assert saved.status_code == 200
     progress = client.get('/api/news/classification').json
     assert progress['unread_only'] is True
@@ -127,7 +127,7 @@ def test_status_and_retry_api_follow_saved_scope_without_hiding_classified_read_
     assert client.post('/api/news/mark-all-read', json={'read_filter': 'unread'}).status_code == 200
     assert client.get('/api/news/classification').json['total'] == 0
     saved = client.put('/api/settings', json={'llm': module.load_app_settings()['llm'],
-                                            'api_models': {'jev': {'unread_only': False}}})
+                                            'classification': {'unread_only': False}})
     assert saved.status_code == 200
     progress = client.get('/api/news/classification').json
     assert (progress['total'], progress['done'], progress['pending'], progress['failed']) == (36, 34, 1, 1)

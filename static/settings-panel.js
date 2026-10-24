@@ -1,8 +1,9 @@
 import { confirmAction } from "./confirm-dialog.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
-import { UpdatePanel } from "./update-panel.js";
-import { visibilityText } from "./summary-panel.js";
+import { UpdatePanel } from "./update-panel.js?v=0.2.4";
+import { visibilityText } from "./summary-panel.js?v=0.2.4";
+import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);
 const get = (object, path) =>
@@ -33,7 +34,7 @@ export class SettingsPanel {
     this.onSources = onSources;
     this.open = false;
     this.dirty = false;
-    this.section = "models";
+    this.section = "system";
     this.connectionSequence = 0;
     this.catalogSequence = 0;
     this.catalogs = new Map();
@@ -44,12 +45,19 @@ export class SettingsPanel {
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
-    $("#settingsSearchInput").oninput = () => this.filterCategories();
-    $("#clearSettingsSearchBtn").onclick = () => {
-      $("#settingsSearchInput").value = "";
-      this.filterCategories();
-      $("#settingsSearchInput").focus();
-    };
+    document.addEventListener("shortcuts:changed", () => {
+      if (!this.saved) return;
+      const next = keyboard.snapshot(), saved = this.saved.keyboard || next;
+      this.draft.keyboard ??= clone(saved);
+      if (this.draft.keyboard.show_bar === saved.show_bar) this.draft.keyboard.show_bar = next.show_bar;
+      for (const action of shortcutActions) {
+        if (JSON.stringify(this.draft.keyboard.bindings[action.id]) === JSON.stringify(saved.bindings[action.id]))
+          this.draft.keyboard.bindings[action.id] = clone(next.bindings[action.id]);
+      }
+      this.saved.keyboard = next;
+      this.renderShortcuts();
+      this.status("有未保存的更改");
+    });
     $("#settingsSaveBtn").onclick = (event) =>
       busy(event.currentTarget, () => this.save());
     $$("[data-settings-tab]").forEach(
@@ -71,6 +79,7 @@ export class SettingsPanel {
     this.loading = (async () => {
       try {
         const data = await api("/api/settings");
+        data.keyboard = keyboard.snapshot();
         this.saved = data;
         this.rememberModelCatalogs(data);
         if (!this.dirty) this.draft = clone(data);
@@ -159,22 +168,11 @@ export class SettingsPanel {
       this.close();
       return;
     }
-    if (
-      event.target.closest('input,textarea,select,[role="combobox"],[contenteditable="true"]') ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.altKey ||
-      event.isComposing
-    )
-      return;
-    if (event.key === ",") {
+    const action = keyboard.action(event);
+    if (action === "settings") {
       event.preventDefault();
       this.close();
-    } else if (event.key === "/") {
-      event.preventDefault();
-      this.showCategories(false);
-      $("#settingsSearchInput").focus();
-    } else if (["j", "k"].includes(event.key.toLowerCase())) {
+    } else if (["previous", "next"].includes(action)) {
       event.preventDefault();
       const buttons = $$("[data-settings-tab]").filter(
         (button) => !button.hidden,
@@ -188,7 +186,7 @@ export class SettingsPanel {
             0,
             Math.min(
               buttons.length - 1,
-              current + (event.key.toLowerCase() === "j" ? 1 : -1),
+              current + (action === "next" ? 1 : -1),
             ),
           )
         ];
@@ -200,22 +198,23 @@ export class SettingsPanel {
     }
   }
   status(text, failed = false) {
-    $("#settingsStatus").textContent = text;
+    this.syncDirty();
+    $("#settingsStatus").textContent = !this.dirty && text === "有未保存的更改" ? "无未保存的更改" : text;
     $("#settingsStatus").classList.toggle("error-state", failed);
     $("#settingsStatus").classList.toggle("dirty-state", this.dirty);
     $("#settingsResetBtn").disabled = !this.dirty;
+    const actions = $(".settings-detail-actions");
+    if (!this.dirty && actions.contains(document.activeElement)) $("#settingsDetailTitle").focus({ preventScroll: true });
+    actions.hidden = !this.dirty;
   }
-  filterCategories() {
-    const query = $("#settingsSearchInput").value.trim().toLocaleLowerCase();
-    const buttons = $$("[data-settings-tab]");
-    for (const button of buttons) {
-      const text =
-        `${button.textContent} ${button.dataset.search}`.toLocaleLowerCase();
-      button.hidden = !query.split(/\s+/).every((word) => text.includes(word));
-    }
-    const count = buttons.filter((button) => !button.hidden).length;
-    $("#settingsCategoryCount").textContent = `${count} 个配置分类`;
-    $("#settingsSearchEmpty").hidden = count > 0;
+  syncDirty() {
+    if (!this.saved || !this.draft) return;
+    const comparable = data => {
+      const payload = this.payload(data);
+      payload.feed.hidden_source_subkeys = [...(payload.feed.hidden_source_subkeys || [])].sort();
+      return JSON.stringify([payload, normalizeShortcuts(data.keyboard)]);
+    };
+    this.dirty = comparable(this.draft) !== comparable(this.saved);
   }
   selectSection(section, { reveal = true } = {}) {
     const selected = $(`[data-settings-tab="${section}"]`);
@@ -232,6 +231,7 @@ export class SettingsPanel {
       panel.hidden = panel.dataset.section !== section;
     });
     $("#settingsDetailTitle").textContent = selected.dataset.title;
+    $("#settingsDetailTitle").title = selected.dataset.title;
     $("#settingsDetailDescription").textContent = selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
     if (section === "system" && $("#updateResult")) this.updater.restore();
@@ -250,7 +250,7 @@ export class SettingsPanel {
     this.onViewChange?.();
     if (focus) {
       const selected = $(`[data-settings-tab="${this.section}"]`);
-      (selected.hidden ? $("#settingsSearchInput") : selected).focus({ preventScroll: true });
+      selected.focus({ preventScroll: true });
     }
   }
   resetDraft() {
@@ -265,11 +265,11 @@ export class SettingsPanel {
     this.render();
     this.status("已恢复已保存的配置");
   }
-  payload() {
-    const d = this.draft;
+  payload(d = this.draft) {
     return {
       llm: clone(d.llm),
       api_models: clone(d.api_models || { jev: { model: "" } }),
+      classification: clone(d.classification || { enabled: true, concurrency: 8, unread_only: false }),
       feed: clone(d.feed),
       agent: clone(d.agent),
       news_summary: clone(d.news_summary || { max_days: 20, max_items: 6000 }),
@@ -285,6 +285,13 @@ export class SettingsPanel {
   }
   updateDraft(event) {
     const input = event.target;
+    if (input.name?.startsWith("keyboard.")) {
+      set(this.draft, input.name, input.type === "checkbox" ? input.checked : input.value);
+      this.status("有未保存的更改");
+      $("#shortcutValidation").textContent = "";
+      $$("#shortcutSettings [aria-invalid]").forEach(node => node.removeAttribute("aria-invalid"));
+      return;
+    }
     if (input.matches("[data-api-secret]")) { this.apiState().secretDraft = input.value; return; }
     if (input.name === "managedApiProvider") {
       if (this.apiProvider !== input.value) {
@@ -301,6 +308,7 @@ export class SettingsPanel {
     // Numeric fields emit change again on blur, after input already updated the draft.
     if (unchanged && (input.name.startsWith("news_summary.") || event.type !== "change")) return;
     set(this.draft, input.name, value);
+    if (input.name === "classification.enabled") $("#classificationOptions").disabled = !value;
     if (input.name === this.apiConfig().model_path) {
       const state = this.apiState();
       state.sequence++;
@@ -317,8 +325,6 @@ export class SettingsPanel {
         this.renderReasoning();
       }
     }
-    this.dirty = true;
-    this.status("有未保存的更改");
     if (input.name.startsWith("news_summary.")) this.loadCatchupScope(250);
     this.connectionSequence++;
     this.connectionResult = "[READY] 配置已变化，请重新测试。";
@@ -334,6 +340,7 @@ export class SettingsPanel {
       this.draft.llm.pi_chat.model = "";
       this.renderModels();
     }
+    this.status("有未保存的更改");
   }
   syncModelFields(input, options) {
     const dropdown = $(`select[name="${input.name}"]`, $("#settingsContent"));
@@ -395,7 +402,19 @@ export class SettingsPanel {
     this.selects.close(false);
     $("#settingsContent").innerHTML =
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
+      <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
       <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
+      <section class="settings-section-card" data-section="classification" id="classificationSettings">
+      <div class="section-card-title"><span>自动分类</span></div>
+      <label class="settings-toggle settings-switch"><span>启用自动分类</span><input type="checkbox" role="switch" name="classification.enabled" ${d.classification?.enabled !== false ? "checked" : ""}></label>
+      <p class="muted">保存后生效。关闭后停止新的分类请求，已完成的结果保留；正在处理的请求会继续完成。</p>
+      <fieldset id="classificationOptions" class="classification-options" aria-label="自动分类选项" ${d.classification?.enabled === false ? "disabled" : ""}>
+      <label class="settings-toggle"><input type="checkbox" role="switch" name="classification.unread_only" ${d.classification?.unread_only ? "checked" : ""}><span>仅对未读新闻分类</span></label>
+      ${field("分类并发上限", "classification.concurrency", d.classification?.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}
+      <p class="muted">默认 8，可设置 1–32。遇到限流自动降速，稳定后逐步恢复。</p>
+      </fieldset>
+      <p class="muted">分类使用 API 管理中的 Jev 密钥与模型。</p>
+      <button class="btn-secondary" id="classificationApiSettingsBtn" type="button">管理 Jev API</button></section>
       <section class="settings-section-card" data-section="catchup"><div class="section-card-title"><span>积压新闻总结范围</span></div>
       <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
       <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
@@ -405,15 +424,68 @@ export class SettingsPanel {
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
       ${field("下次启动使用的数据库", "database.configured_path", d.database.configured_path, d.database.environment_override ? "disabled" : 'placeholder="已有 SQLite 文件的完整路径"')}
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
-      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" role="status" aria-live="polite" aria-atomic="true"><strong id="updateConclusion"></strong><p id="updateExplanation"></p><time id="updateCheckedAt"></time></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
+      <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" hidden role="status" aria-live="polite" aria-atomic="true"><strong id="updateConclusion"></strong><p id="updateExplanation"></p><time id="updateCheckedAt"></time></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
     this.renderTranslation();
+    this.renderShortcuts();
     this.updater.render();
     this.selectSection(this.section, { reveal: false });
     $("#settingsContent details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
     };
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
+  }
+  renderShortcuts() {
+    const panel = $("#shortcutSettings");
+    if (!panel || !this.draft) return;
+    const prefs = this.draft.keyboard || keyboard.snapshot();
+    panel.innerHTML = `<label class="settings-toggle settings-switch"><span>显示底部快捷键栏</span><input type="checkbox" role="switch" name="keyboard.show_bar" ${prefs.show_bar ? "checked" : ""}></label>
+      <p class="muted" id="shortcutInstructions">点击输入框后，直接按下按键或组合键。每项最多两个快捷键，清空两个框可停用。按 Esc 结束录入，Tab 切换输入框。</p>
+      <div class="shortcut-settings-list">${shortcutActions.map(action => `<div class="shortcut-setting-row" role="group" aria-labelledby="shortcut-label-${action.id}"><span id="shortcut-label-${action.id}">${e(action.label)}</span>${[0, 1].map(index => `<div class="shortcut-key-field"><input id="shortcut-${action.id}-${index}" class="field-input" data-shortcut-action="${action.id}" data-shortcut-slot="${index}" value="${e(displayKey(prefs.bindings[action.id]?.[index] || ""))}" aria-label="${e(action.label)}快捷键 ${index + 1}" aria-describedby="shortcutInstructions shortcutValidation" autocomplete="off" spellcheck="false" readonly inputmode="none" placeholder="按下快捷键"><button class="shortcut-clear-btn" data-clear-shortcut="${action.id}" data-shortcut-slot="${index}" aria-label="清除${e(action.label)}快捷键 ${index + 1}" type="button" ${prefs.bindings[action.id]?.[index] ? "" : "disabled"}>×</button></div>`).join("")}</div>`).join("")}</div>
+      <p class="inline-error" id="shortcutValidation" role="alert"></p>
+      <button class="btn-secondary" id="resetShortcutsBtn" type="button">恢复默认快捷键</button>`;
+    $("#resetShortcutsBtn").onclick = () => {
+      this.draft.keyboard.bindings = defaultShortcuts().bindings;
+      this.renderShortcuts();
+      this.status("有未保存的更改");
+    };
+    $$("[data-shortcut-action]", panel).forEach(input => {
+      input.onkeydown = event => {
+        event.stopPropagation();
+        if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) return;
+        event.preventDefault();
+        if (event.key === "Escape") { input.blur(); return; }
+        if (event.repeat) return;
+        try {
+          const key = shortcutKeyFromEvent(event);
+          if (key) this.setShortcut(input, key);
+        } catch (error) { this.shortcutError(input, error.message); }
+      };
+    });
+    $$("[data-clear-shortcut]", panel).forEach(button => { button.onclick = () => {
+      const input = $(`#shortcut-${button.dataset.clearShortcut}-${button.dataset.shortcutSlot}`);
+      this.setShortcut(input, "");
+      input.focus();
+    }; });
+  }
+  shortcutError(input, message) {
+    $("#shortcutValidation").textContent = message;
+    input.setAttribute("aria-invalid", "true");
+  }
+  setShortcut(input, key) {
+    const action = input.dataset.shortcutAction, index = Number(input.dataset.shortcutSlot);
+    const prefs = clone(this.draft.keyboard);
+    const conflict = key && shortcutActions.find(other => prefs.bindings[other.id].some((value, slot) => value === key && (other.id !== action || slot !== index)));
+    if (conflict) return this.shortcutError(input, `${displayKey(key)} 已用于「${conflict.label}」，请先清除原绑定或选择其他按键`);
+    const slots = [prefs.bindings[action][0] || "", prefs.bindings[action][1] || ""];
+    slots[index] = key;
+    prefs.bindings[action] = slots;
+    this.draft.keyboard = normalizeShortcuts(prefs);
+    input.value = displayKey(key);
+    input.nextElementSibling.disabled = !key;
+    $("#shortcutValidation").textContent = "";
+    $$("#shortcutSettings [aria-invalid]").forEach(node => node.removeAttribute("aria-invalid"));
+    this.status("有未保存的更改");
   }
   translationOptions() {
     if (!this.draft.api_status?.[this.apiProvider]?.configured) return [];
@@ -442,8 +514,6 @@ export class SettingsPanel {
       <div class="translation-model-row">${select(provider === "deepseek" ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
       <p class="muted" id="translationStatus" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
-      ${provider === "jev" ? `${field("分类并发上限", "api_models.jev.concurrency", d.api_models.jev.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}<p class="muted">默认 8，可设置 1–32。保存后生效；遇到限流自动降速，稳定后逐步恢复。</p>` : ""}
-      ${provider === "jev" ? `<label class="settings-toggle"><input type="checkbox" role="switch" name="api_models.jev.unread_only" ${d.api_models.jev.unread_only ? "checked" : ""}><span>仅对未读新闻分类</span></label><p class="muted">开启后跳过已读新闻；已在处理的请求会继续完成。</p>` : ""}
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
@@ -553,6 +623,11 @@ export class SettingsPanel {
       return;
     }
     const actions = {
+      classificationApiSettingsBtn: () => {
+        this.apiProvider = "jev";
+        this.renderTranslation();
+        this.selectSection("deepseek");
+      },
       retryCatchupScopeBtn: () => this.loadCatchupScope(),
       resetCatchupDefaultsBtn: () => {
         this.draft.news_summary = { max_days: 20, max_items: 6000 };
@@ -594,29 +669,52 @@ export class SettingsPanel {
   }
   async save() {
     if (!this.draft) return;
-    const invalid = $$('#settingsContent input[type="number"]').find(input => !input.checkValidity());
+    let keyboardDraft;
+    try { keyboardDraft = normalizeShortcuts(this.draft.keyboard); }
+    catch (error) {
+      this.selectSection("shortcuts");
+      $("#shortcutValidation").textContent = error.message;
+      $(`#shortcut-${error.action}-0`).setAttribute("aria-invalid", "true");
+      $(`#shortcut-${error.action}-0`).focus();
+      this.status("快捷键配置有误，请检查后保存", true);
+      return;
+    }
+    // Disabled fields skip browser validation, but their retained values are still saved.
+    const invalid = $$('#settingsContent input[type="number"]').find(input => input.name === "classification.concurrency"
+      ? !Number.isInteger(input.valueAsNumber) || input.valueAsNumber < Number(input.min) || input.valueAsNumber > Number(input.max)
+      : !input.checkValidity());
     if (invalid) {
       this.selectSection(invalid.closest("[data-section]").dataset.section);
+      if (invalid.matches(":disabled") && invalid.name === "classification.concurrency") {
+        $('[name="classification.enabled"]').focus();
+        this.status("请先启用自动分类，将分类并发上限设为 1–32 的整数后再保存", true);
+        return;
+      }
       invalid.reportValidity();
-      this.status(invalid.name === "api_models.jev.concurrency" ? "分类并发上限必须是 1–32 的整数" : "总结范围必须填写有效的正整数", true);
+      this.status(invalid.name === "classification.concurrency" ? "分类并发上限必须是 1–32 的整数" : "总结范围必须填写有效的正整数", true);
       return;
     }
     const payload = this.payload();
-    const fingerprint = JSON.stringify(payload);
+    const fingerprint = JSON.stringify([payload, this.draft.keyboard]);
+    const keyboardUnchanged = JSON.stringify(keyboardDraft) === JSON.stringify(keyboard.snapshot());
     this.status("正在保存…");
     try {
-      const data = await api("/api/settings", { method: "PUT", body: payload });
+      // Browser-only preferences do not need an unrelated model/database write.
+      const serverUnchanged = !keyboardUnchanged && JSON.stringify(payload) === JSON.stringify(this.payload(this.saved));
+      const data = serverUnchanged ? clone(this.saved) : await api("/api/settings", { method: "PUT", body: payload });
+      const unchanged = fingerprint === JSON.stringify([this.payload(), this.draft.keyboard]);
+      data.keyboard = keyboardUnchanged ? keyboard.snapshot() : keyboard.save(keyboardDraft);
       this.saved = data;
       this.rememberModelCatalogs(data);
-      if (fingerprint === JSON.stringify(this.payload())) {
+      if (unchanged) {
         this.draft = clone(data);
         this.dirty = false;
       }
+      this.syncDirty();
       this.status(
         this.dirty ? "已保存提交的配置，仍有新的更改未保存" : "设置已保存",
       );
-      this.onSources();
-      this.onSaved();
+      if (!serverUnchanged) { this.onSources(); this.onSaved(); }
       if (this.section === "catchup") this.loadCatchupScope();
       toast("设置已保存");
     } catch (error) {
@@ -813,6 +911,7 @@ export class SettingsPanel {
           feed: { hidden_source_subkeys: [...hidden] },
         },
       });
+      data.keyboard = keyboard.snapshot();
       this.saved = data;
       if (!this.dirty) this.draft = clone(data);
       this.onSources();

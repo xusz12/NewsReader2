@@ -43,8 +43,11 @@ for (const width of [1440, 390]) {
     await expect(page.locator('#agentContext')).toContainText('尚未提供全文');
     expect((await session(request)).messages).toHaveLength(0);
     await input(page).fill('标题聊天尚未发送的草稿');
+    // Outside presses dismiss the Agent without activating controls underneath it.
+    await page.locator('#agentDockToggleBtn').click();
     if (width < 920) await page.locator('#mobileReaderBackBtn').click();
     await page.locator('[data-id="ui-063"]').click();
+    await expect(page.locator('[data-id="ui-063"]')).toHaveAttribute('aria-current', 'true');
     if (width < 920) await page.locator('#mobileReaderBackBtn').click();
     await page.locator(`[data-id="${itemId}"]`).click();
     if (await page.locator('#agentDock').evaluate(node => node.classList.contains('minimized'))) await page.locator('#agentDockToggleBtn').click();

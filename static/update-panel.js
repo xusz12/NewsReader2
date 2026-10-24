@@ -45,7 +45,7 @@ export class UpdatePanel {
     this.contextStamp = contextStamp;
     this.sequence = 0;
     this.runId = storage(RUN_KEY, "");
-    this.message = "点击「检查更新」获取最新稳定版本。";
+    this.message = "";
     this.resultState = "idle";
   }
   result(message, state, explanation = "", checkedAt = null) {
@@ -54,6 +54,7 @@ export class UpdatePanel {
   }
   render() {
     if (!$("#updateResult")) return;
+    $("#updateResult").hidden = !this.message;
     $("#updateConclusion").textContent = this.message;
     $("#updateExplanation").textContent = this.explanation || "";
     $("#updateCheckedAt").textContent = this.checkedAt ? `检查时间：${new Date(this.checkedAt * 1000).toLocaleString()}` : "";

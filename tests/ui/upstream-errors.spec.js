@@ -85,7 +85,7 @@ test('historical queries, stale responses and read failures never replace the cu
   await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
   await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
-  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/19)');
+  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/19)', { useInnerText: true });
   await page.locator('#upstreamErrorDate').fill('2026-10-01');
   await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toHaveAttribute('aria-busy', 'false');
@@ -129,7 +129,7 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.locator('#closeUpstreamErrorsBtn').click();
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(currentDay);
-  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/20)');
+  await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/20)', { useInnerText: true });
   await expect(page.locator('#upstreamErrorDate')).toHaveAttribute('data-max', currentDay);
 });
 
@@ -213,14 +213,26 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
     const box = await entry.boundingBox();
-    const center = await page.locator('.topbar-center').boundingBox();
-    expect(box.x + box.width / 2).toBeCloseTo(center.x + center.width / 2, 0);
+    expect(box.x + box.width / 2).toBeCloseTo(page.viewportSize().width / 2, 0);
     await entry.screenshot({ path: `.ui-artifacts/upstream-entry-${theme}.png` });
     await entry.hover();
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await entry.screenshot({ path: `.ui-artifacts/upstream-entry-${theme}-hover.png` });
     await page.locator('#upstreamErrorsBtn').click();
     await expect(page.locator('.upstream-error-card')).toHaveCount(3);
+    const todayButton = await page.locator('#upstreamTodayBtn').boundingBox();
+    expect(todayButton.width).toBeLessThan(100);
+    const rightGap = await page.locator('.upstream-error-controls').evaluate(node => {
+      const style = getComputedStyle(node);
+      return node.getBoundingClientRect().right - node.querySelector('#upstreamNextDayBtn').getBoundingClientRect().right
+        - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+    });
+    expect(Math.abs(rightGap)).toBeLessThan(1);
+    const stats = await page.locator('.upstream-health-strip > div').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
+    expect(Math.max(...stats) - Math.min(...stats)).toBeLessThan(1);
+    await expect(page.locator('.upstream-health-strip')).toHaveCSS('text-align', 'center');
+    const dimensions = await page.locator('.upstream-dim-btn').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
+    expect(Math.max(...dimensions) - Math.min(...dimensions)).toBeLessThan(1);
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${theme}.png` });
   }
   for (const [width, mobileTheme] of [[390, 'light'], [390, 'dark'], [390, 'eink'], [360, 'light'], [320, 'light']]) {
@@ -239,6 +251,20 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await page.locator('.upstream-dialog-body').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     const controls = page.locator('.upstream-error-controls');
+    const alignedControls = await controls.evaluate(node => {
+      const style = getComputedStyle(node), bounds = node.getBoundingClientRect();
+      return {
+        leftGap: node.querySelector('.upstream-date-input').getBoundingClientRect().left - bounds.left - parseFloat(style.paddingLeft) - parseFloat(style.borderLeftWidth),
+        rightGap: bounds.right - node.querySelector('.upstream-date-shortcuts').getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
+      };
+    });
+    expect(Math.abs(alignedControls.leftGap)).toBeLessThan(1);
+    expect(Math.abs(alignedControls.rightGap)).toBeLessThan(1);
+    await expect(page.locator('#upstreamTodayBtn')).toHaveCSS('width', '40px');
+    await expect(page.locator('.upstream-date-shortcuts button:visible')).toHaveCount(3);
+    await expect(page.locator('#upstreamPreviousDayBtn')).toBeVisible();
+    await expect(page.locator('#upstreamNextDayBtn')).toBeVisible();
+    await expect(page.locator('#upstreamTodayBtn')).toHaveText('今日', { useInnerText: true });
     const dateBox = await page.locator('.upstream-date-input').boundingBox();
     const shortcutsBox = await page.locator('.upstream-date-shortcuts').boundingBox();
     expect(dateBox.y + dateBox.height / 2).toBeCloseTo(shortcutsBox.y + shortcutsBox.height / 2, 0);
@@ -247,9 +273,9 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     for (const label of await page.locator('.upstream-stat-label').all()) await expect(label).toHaveCSS('white-space', 'nowrap');
     expect(await page.locator('#upstreamErrorsContent').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}-${mobileTheme}.png` });
-    // Keyboard focus reveals offscreen date shortcuts without moving the panel.
+    // Keyboard focus skips yesterday/the day before and keeps arrows and today reachable.
     await page.locator('#upstreamErrorDate').focus();
-    for (let step = 0; step < 5; step++) await page.keyboard.press('Tab');
+    for (let step = 0; step < 3; step++) await page.keyboard.press('Tab');
     await expect(page.locator('#upstreamTodayBtn')).toBeFocused();
     const todayBox = await page.locator('#upstreamTodayBtn').boundingBox();
     const controlsBox = await controls.boundingBox();
@@ -274,6 +300,9 @@ for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]])
     const emptyBox = await panel.boundingBox();
     expect(emptyBox.height).toBeLessThanOrEqual(640);
     expect(emptyBox.y + emptyBox.height).toBeLessThanOrEqual(height - 12);
+    const filter = await page.locator('.upstream-chip-btn').boundingBox();
+    const filters = await page.locator('.upstream-filter-chips').boundingBox();
+    expect(filter.x).toBeCloseTo(filters.x + 3, 0);
     await page.screenshot({ path: `.ui-artifacts/upstream-empty-${width}.png` });
 
     // The calendar may extend beyond a short empty panel, but remains clickable in the viewport.
