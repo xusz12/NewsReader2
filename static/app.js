@@ -19,16 +19,16 @@ import {
   inlineMarkdown,
   focusTrap,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.2.1-unread";
+import { SettingsPanel } from "./settings-panel.js?v=0.2.2";
 import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.0";
-import { AgentNotifications } from "./agent-notifications.js?v=0.2.1-mobile-notifications";
-import { ClassificationProgress } from "./classification-progress.js?v=0.2.1-mode";
+import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
+import { ClassificationProgress } from "./classification-progress.js?v=0.2.2";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.2.1-upstream-density";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.2.2";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 
@@ -47,6 +47,8 @@ const state = {
   cursor: null,
   more: true,
   total: null,
+  dateCounts: null,
+  dateCountsScope: "",
   loading: false,
   sequence: 0,
   collectionSequence: 0,
@@ -325,10 +327,37 @@ function renderFilters() {
       .join("") +
     '<button class="filter-chip" id="newIdeaBtn" type="button">＋ 新想法</button>';
 }
-function cardTimestamp(item) {
-  const date = item.published_at?.slice(0, 10) || item.date || item.date_key || "日期未知";
-  const time = item.published_at?.slice(11, 16) || item.time;
-  return [date, time].filter(Boolean).join(" ");
+function newsDate(item) {
+  return item.date_key || item.date || item.published_at?.slice(0, 10) || "unknown";
+}
+function cardTime(item) {
+  return item.published_at?.match(/[T ](\d{2}:\d{2})/)?.[1] || item.time?.slice(0, 5) || "时间未知";
+}
+function feedDateCount(date) {
+  const count = state.dateCountsScope === countScope() && state.dateCounts ? state.dateCounts[date] || 0 : null;
+  return count == null ? "… 条" : `${count} 条`;
+}
+function renderFeedDateCounts() {
+  for (const group of $$("#feedCardList .feed-date-group")) {
+    $(".feed-date-count", group).textContent = feedDateCount(group.dataset.date);
+  }
+}
+let dateHeadersFrame;
+function scheduleFeedDateHeaders() {
+  if (dateHeadersFrame) return;
+  dateHeadersFrame = requestAnimationFrame(() => {
+    dateHeadersFrame = null;
+    const list = $("#feedCardList");
+    if (!list.getClientRects().length) return;
+    // Clip cards beneath each transparent sticky heading instead of adding a background.
+    const clips = $$(".feed-date-group", list).map(group => {
+      const heading = $(".feed-date-heading", group), cards = $(".feed-date-cards", group);
+      const rect = cards.getBoundingClientRect();
+      const clip = Math.max(0, Math.min(rect.height, heading.getBoundingClientRect().bottom - rect.top));
+      return [cards, clip ? `inset(${clip}px -8px -8px)` : ""];
+    });
+    for (const [cards, clip] of clips) cards.style.clipPath = clip;
+  });
 }
 function cardAction(item, flag) {
   const saving = stateWrites.has(item.id, flag);
@@ -375,6 +404,7 @@ function updateCard(item) {
     $("span", button).textContent = action.label;
     button.disabled = button.dataset.state === "favorite" && state.removingFavorites;
   }
+  scheduleFeedDateHeaders();
 }
 function card(item) {
   const active = item.id === state.selected?.id;
@@ -382,7 +412,7 @@ function card(item) {
   const showUnreadDot = state.collection !== "read_later" && !item.read_at;
   const text = cardSnippet(item);
   return `<li class="news-card ${active ? "active is-active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
-    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTimestamp(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
+    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span>${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTime(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet${item.detail_ready ? " news-card-conclusion" : ""}">${e(text)}</p>` : ""}
     <div class="news-card-footer"><div class="card-footer-left">${item.category_label ? `<span class="news-category-tag" aria-label="分类：${e(item.category_label)}">${e(item.category_label)}</span>` : ""}${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
@@ -394,8 +424,16 @@ function card(item) {
 function renderFeed() {
   const list = $("#feedCardList");
   const scroll = list.scrollTop;
+  const groups = new Map();
+  for (const item of state.items) {
+    const date = newsDate(item);
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(item);
+  }
   list.innerHTML =
-    state.items.map(card).join("") +
+    [...groups].map(([date, items]) => `<li class="feed-date-group" data-date="${e(date)}">
+      <div class="feed-date-heading"><h2 class="feed-date-title">${e(date === "unknown" ? "日期未知" : date)}</h2><span class="feed-date-count">${feedDateCount(date)}</span></div>
+      <ul class="feed-date-cards">${items.map(card).join("")}</ul></li>`).join("") +
     (state.loading
       ? '<li class="list-message" role="status">正在读取新闻…</li>'
       : !state.items.length
@@ -404,6 +442,7 @@ function renderFeed() {
           ? '<li class="load-more-row"><button class="btn-secondary" id="loadMoreBtn" type="button">加载更多</button></li>'
           : '<li class="list-message feed-end">已读到列表末尾</li>');
   list.scrollTop = scroll;
+  scheduleFeedDateHeaders();
   renderFilters();
   requestAnimationFrame(trackFeedReading);
 }
@@ -451,6 +490,8 @@ async function loadFeed(append = false) {
   if (totalScope !== scope) { totalScope = scope; state.total = null; }
   if (!append) {
     state.items = [];
+    state.dateCounts = null;
+    state.dateCountsScope = "";
     state.page = 0;
     state.cursor = null;
     enteredCards.clear();
@@ -479,6 +520,10 @@ async function loadFeed(append = false) {
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
     state.page = data.page;
+    if (countsAreCurrent(countsSnapshot)) {
+      state.dateCounts = data.date_counts || {};
+      state.dateCountsScope = countScope();
+    } else refreshBadges();
     // Primary filter counts span categories; a category-limited page cannot replace them.
     if (countsAreCurrent(countsSnapshot) && params.get("category") === "all") state.total = data.total;
     else refreshBadges();
@@ -552,6 +597,11 @@ async function searchNews(sequence, signal, params = feedParams()) {
   items.sort((a, b) => (ascending ? 1 : -1) * `${a.date_key || a.date || ""} ${a.published_at || ""} ${a.id}`.localeCompare(`${b.date_key || b.date || ""} ${b.published_at || ""} ${b.id}`));
   return {
     items,
+    date_counts: items.reduce((counts, item) => {
+      const date = newsDate(item);
+      counts[date] = (counts[date] || 0) + 1;
+      return counts;
+    }, {}),
     classification_revision: classificationRevision,
     total: items.length,
     page: 1,
@@ -603,6 +653,7 @@ function renderReadCounts() {
   renderNavCounts();
   // Updating only the count text preserves keyboard focus and the list position.
   if (state.collection !== "feed") return;
+  renderFeedDateCounts();
   const chip = $('#feedColFeed .filter-chip.active[data-filter="unread"]');
   if (chip && (!state.loading || state.total !== null)) chip.textContent = `未读 (${state.total ?? "…"})`;
   const sources = sourceCountsByCollection.get("feed");
@@ -645,6 +696,12 @@ function applyReadCountChange(id, patch) {
       (state.source === "all" || state.source === operation.source) &&
       (!state.query || state.query === operation.query))
     state.total = Math.max(0, state.total + delta);
+  if (state.collection === "feed" && state.filter === "unread" &&
+      state.dateCountsScope === countScope() && state.dateCounts &&
+      (state.source === "all" || state.source === operation.source) &&
+      (state.category === "all" || state.category === operation.category) &&
+      (!state.query || state.query === operation.query))
+    state.dateCounts[operation.date] = Math.max(0, (state.dateCounts[operation.date] || 0) + delta);
   if (!readCountsFrame) readCountsFrame = requestAnimationFrame(renderReadCounts);
 }
 
@@ -653,6 +710,7 @@ function setReadState(item, value, silent) {
     readOperations.set(item.id, {
       read_at: item.read_at, fromFeed: state.collection === "feed",
       source: sourceKey(item), label: item.source, query: state.query, category: item.category,
+      date: newsDate(item),
     });
   return stateWrites.set(item, "read", value, silent).then(saved => {
     if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
@@ -684,8 +742,17 @@ async function updateBadges() {
   const snapshot = countSnapshot();
   const feedSequence = state.sequence;
   const scope = filterCountScope();
+  const dateScope = countScope();
   const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
   const hasFeed = !["notes", "summaries"].includes(state.collection);
+  const scopedDates = state.collection === "feed" && state.category !== "all";
+  if (hasFeed && !scopedDates) params.set("date_counts", "1");
+  const updateDates = data => {
+    if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || dateScope !== countScope()) return;
+    state.dateCounts = data.date_counts || {};
+    state.dateCountsScope = dateScope;
+    renderFeedDateCounts();
+  };
   if (state.collection === "summaries") summaries.refreshScope();
   void loadSources();
   try {
@@ -699,8 +766,10 @@ async function updateBadges() {
         if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== filterCountScope()) return;
         totalScope = scope;
         state.total = count.total;
+        if (!scopedDates) updateDates(count);
         renderFilters();
       }) : null,
+      scopedDates ? api(`/api/${state.query ? "search" : "news"}?${new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1", date_counts: "1" })}`).then(updateDates) : null,
     ]);
   } finally {
     badgesRunning = false;
@@ -1497,6 +1566,7 @@ $("#feedSearchInput").addEventListener("input", (event) => {
 });
 $("#ideasSearchInput").addEventListener("input", renderIdeas);
 $("#feedCardList").addEventListener("scroll", () => {
+  scheduleFeedDateHeaders();
   trackFeedReading();
   const list = $("#feedCardList");
   if (
@@ -1505,6 +1575,7 @@ $("#feedCardList").addEventListener("scroll", () => {
   )
     loadFeed(true);
 });
+new ResizeObserver(scheduleFeedDateHeaders).observe($("#feedCardList"));
 $("#sortNewsBtn").onclick = () => { state.sortOrder = state.sortOrder === "default" ? "reverse" : "default"; loadFeed(); };
 $("#markAllReadBtn").onclick = event => busy(event.currentTarget, markAllRead);
 document.addEventListener("visibilitychange", trackFeedReading);
@@ -1526,6 +1597,7 @@ $("#themeSelect").onchange = (event) => {
 $("#fontSizeSelect").value = document.documentElement.dataset.fontSize || "standard";
 $("#fontSizeSelect").onchange = (event) => {
   document.documentElement.dataset.fontSize = event.target.value;
+  scheduleFeedDateHeaders();
   persist("newsreader_workbench_font_size", event.target.value);
 };
 selects.refresh();

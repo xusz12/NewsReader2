@@ -889,6 +889,28 @@ a {
   gap: 6px;
 }
 
+#feedCardList { padding-top: 0; }
+.feed-date-group { flex: 0 0 auto; list-style: none; }
+.feed-date-group + .feed-date-group { margin-top: var(--space-2); }
+.feed-date-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 22px;
+  padding: var(--space-0-5);
+  background: transparent;
+  color: var(--muted);
+  font: var(--fs-meta)/1.5 var(--font-body);
+}
+.feed-date-title { margin: 0; font: inherit; font-weight: 600; }
+.feed-date-count { flex-shrink: 0; font-family: var(--font-mono); font-size: var(--fs-caption); }
+.feed-date-cards { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.feed-date-cards .news-card { scroll-margin-top: 30px; }
+
 .news-card {
   padding: 12px;
   border-radius: var(--radius-sm);
@@ -4324,6 +4346,7 @@ button:disabled {
 .upstream-date-shortcuts .upstream-date-arrow { width: 28px; flex-shrink: 0; padding-inline: 0; font-size: 17px; line-height: 1; }
 .upstream-date-shortcuts button:disabled { opacity: .35; cursor: default; }
 .upstream-health-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); padding: var(--space-3); background: var(--surface-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: var(--space-3); }
+.upstream-health-strip:focus-visible { outline-offset: -2px; }
 .upstream-stat-label { display: block; font-size: var(--fs-caption); color: var(--muted); }
 .upstream-stat-value { display: block; margin-top: var(--space-1); font: 600 var(--fs-h3)/1.4 var(--font-mono); }
 .upstream-stat-value.warning { color: var(--status-warning); }
@@ -4374,15 +4397,14 @@ button:disabled {
 @media (max-width: 600px) {
   .upstream-panel .modal-header, .upstream-panel .upstream-dialog-body { padding: var(--space-3); }
   .upstream-panel .modal-close-btn { width: 32px; height: 32px; }
-  .upstream-error-controls { flex-wrap: wrap; }
-  .upstream-date-input { width: 100%; min-height: 40px; }
+  .upstream-error-controls { flex-wrap: nowrap; overflow-x: auto; scroll-padding-inline: var(--space-2); }
+  .upstream-date-input { flex: 0 0 auto; min-height: 40px; }
   .upstream-date-input .calendar-trigger { min-height: 32px; }
-  .upstream-error-controls input { flex: 1; width: 100%; }
-  .upstream-date-shortcuts { width: 100%; gap: 4px; }
-  .upstream-date-shortcuts button { flex: 1; min-height: 36px; padding-inline: 5px; font-size: 11px; }
+  .upstream-error-controls input { flex: 0 0 auto; width: 10ch; }
+  .upstream-date-shortcuts { flex: 1 0 auto; gap: var(--space-1); }
+  .upstream-date-shortcuts button { flex: 1 0 auto; min-height: 36px; padding-inline: 5px; font-size: var(--fs-caption); }
   .upstream-date-shortcuts .upstream-date-arrow { flex: 0 0 24px; width: 24px; font-size: 17px; }
-  .upstream-date-btn:not(:last-of-type) { white-space: normal; }
-  .upstream-health-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .upstream-health-strip { grid-template-columns: repeat(4, minmax(max-content, 1fr)); gap: var(--space-1); padding: var(--space-2); overflow-x: auto; white-space: nowrap; }
   .upstream-dim-switcher { display: flex; width: 100%; }
   .upstream-dim-btn { flex: 1; min-height: 36px; padding: var(--space-1); font-size: var(--fs-caption); }
   .upstream-chip-btn { min-height: 30px; padding: 5px 12px; font-size: var(--fs-meta); }
@@ -4497,6 +4519,5 @@ button:disabled {
 .calendar-grid [aria-current="date"] { border-color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .calendar-grid [aria-selected="true"] { background: var(--fg); color: var(--surface); font-weight: 600; }
 .calendar-today { width: 100%; margin-top: 8px; border-top-color: var(--border) !important; }
-@media (max-width: 600px) { .upstream-error-controls input { width: 0; } .upstream-date-input { min-width: 0; } }
 
 .calendar-row { display: contents; }

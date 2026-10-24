@@ -223,10 +223,10 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(page.locator('.upstream-error-card')).toHaveCount(3);
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${theme}.png` });
   }
-  for (const width of [390, 360, 320]) {
+  for (const [width, mobileTheme] of [[390, 'light'], [390, 'dark'], [390, 'eink'], [360, 'light'], [320, 'light']]) {
     await page.locator('#closeUpstreamErrorsBtn').click();
     await page.setViewportSize({ width, height: 844 });
-    await chooseTheme(page, 'light');
+    await chooseTheme(page, mobileTheme);
     const button = await page.locator('#upstreamErrorsBtn').boundingBox();
     await expect(page.locator('#pipelineStatus')).toBeHidden();
     await expect(page.locator('.upstream-pulse-dot')).toBeVisible();
@@ -238,9 +238,27 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(page.locator('.upstream-error-card')).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await page.locator('.upstream-dialog-body').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-    expect(await page.locator('.upstream-error-controls').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const controls = page.locator('.upstream-error-controls');
+    const dateBox = await page.locator('.upstream-date-input').boundingBox();
+    const shortcutsBox = await page.locator('.upstream-date-shortcuts').boundingBox();
+    expect(dateBox.y + dateBox.height / 2).toBeCloseTo(shortcutsBox.y + shortcutsBox.height / 2, 0);
+    const statTops = await page.locator('.upstream-health-strip > div').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().top));
+    expect(new Set(statTops).size).toBe(1);
+    for (const label of await page.locator('.upstream-stat-label').all()) await expect(label).toHaveCSS('white-space', 'nowrap');
     expect(await page.locator('#upstreamErrorsContent').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}.png` });
+    await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}-${mobileTheme}.png` });
+    // Keyboard focus reveals offscreen date shortcuts without moving the panel.
+    await page.locator('#upstreamErrorDate').focus();
+    for (let step = 0; step < 5; step++) await page.keyboard.press('Tab');
+    await expect(page.locator('#upstreamTodayBtn')).toBeFocused();
+    const todayBox = await page.locator('#upstreamTodayBtn').boundingBox();
+    const controlsBox = await controls.boundingBox();
+    expect(todayBox.x).toBeGreaterThanOrEqual(controlsBox.x);
+    expect(todayBox.x + todayBox.width).toBeLessThanOrEqual(controlsBox.x + controlsBox.width);
+    await page.locator('#upstreamCalendarBtn').click();
+    await expect(page.locator('#upstreamCalendar')).toBeVisible();
+    await page.locator('[data-calendar-today]').click();
+    await expect(page.locator('#upstreamCalendar')).toBeHidden();
   }
 });
 

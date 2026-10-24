@@ -7,14 +7,14 @@ async function start(page) {
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
 }
 
-test('default unread ascending, collection filters and full card dates', async ({ page }) => {
+test('default unread ascending, collection filters and grouped card dates', async ({ page }) => {
   await start(page);
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#sortNewsBtn')).toHaveAttribute('aria-label', '排序：旧到新，点击切换');
   await expect(page.locator('#feedColFeed [data-filter]')).toHaveCount(2);
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', 'ui-064');
-  await expect(page.locator('.feed-date-heading')).toHaveCount(0);
-  await expect(page.locator('#feedCardList .news-card .meta-time-row').first()).toHaveText('2026-10-10 10:02');
+  await expect(page.locator('.feed-date-heading').first()).toContainText('2026-10-10');
+  await expect(page.locator('#feedCardList .news-card .meta-time-row').first()).toHaveText('10:02');
   const row = await page.locator('#feedColFeed .feed-filter-row').boundingBox();
   for (const control of await page.locator('#feedColFeed .feed-filter-row button:visible').all()) { const box = await control.boundingBox(); expect(box.y).toBeCloseTo(row.y, 0); }
   await page.locator('#navImportantBtn').click();

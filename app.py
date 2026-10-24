@@ -7171,7 +7171,7 @@ def api_news():
             f"SELECT COUNT(*) FROM items {join_sql} {where_sql}",
             args,
         ).fetchone()[0]
-        if request.args.get("count_only") == "1":
+        if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
             return jsonify({"ok": True, "total": total})
 
         date_count_rows = conn.execute(
@@ -7185,6 +7185,9 @@ def api_news():
             """,
             args,
         ).fetchall()
+        date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
+        if request.args.get("count_only") == "1":
+            return jsonify({"ok": True, "total": total, "date_counts": date_counts})
 
         base_select_sql = f"""
         SELECT DISTINCT items.id, items.source_file, items.item_order, items.published_at,
@@ -7263,11 +7266,6 @@ def api_news():
         conn.close()
 
     items = [dict(r) for r in rows]
-    date_counts = {
-        row["date_key"]: row["total"]
-        for row in date_count_rows
-        if row["date_key"]
-    }
     items = serialize_news_rows(items, market_tags_map)
     pages = max(1, math.ceil(total / per)) if total else 1
     if cursor_mode:
@@ -7882,7 +7880,7 @@ def api_search():
             f"SELECT COUNT(DISTINCT items.id) FROM items {join_sql} {where_sql}{filter_sql}",
             all_args,
         ).fetchone()[0]
-        if request.args.get("count_only") == "1":
+        if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
             return jsonify({"ok": True, "total": total})
 
         date_count_rows = conn.execute(
@@ -7896,6 +7894,9 @@ def api_search():
             """,
             all_args,
         ).fetchall()
+        date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
+        if request.args.get("count_only") == "1":
+            return jsonify({"ok": True, "total": total, "date_counts": date_counts})
 
         offset = (page - 1) * per
         rows = conn.execute(
@@ -7927,7 +7928,6 @@ def api_search():
         conn.close()
 
     items = serialize_news_rows([dict(r) for r in rows], market_tags_map)
-    date_counts = {row["date_key"]: row["total"] for row in date_count_rows if row["date_key"]}
     pages = max(1, math.ceil(total / per)) if total else 1
     return jsonify({"items": items, "total": total, "date_counts": date_counts, "page": page, "pages": pages,
                     "classification_revision": classification_revision})

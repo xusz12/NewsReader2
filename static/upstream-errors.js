@@ -1,4 +1,4 @@
-import { DatePicker, dateKey, localDate } from "./date-picker.js?v=0.2.1-upstream-density";
+import { DatePicker, dateKey, localDate } from "./date-picker.js?v=0.2.2";
 import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
 
 const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
@@ -54,6 +54,9 @@ export class UpstreamErrors {
     window.visualViewport?.addEventListener("resize", () => this.position());
     window.visualViewport?.addEventListener("scroll", () => this.position());
     this.datePicker = new DatePicker({ input: $("#upstreamErrorDate"), button: $("#upstreamCalendarBtn"), panel: $("#upstreamCalendar"), error: $("#upstreamDateError"), getToday: () => this.today, onSelect: day => this.selectDay(day), onInvalid: () => { ++this.sequence; this.content.setAttribute("aria-busy", "false"); this.setLoadStatus(""); } });
+    $(".upstream-error-controls", this.panel).addEventListener("focusin", event => {
+      if (!event.target.closest(".date-calendar")) event.target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+    });
     $(".upstream-date-shortcuts").onclick = event => {
       const shortcut = event.target.closest("[data-upstream-day-offset]");
       if (shortcut) {
@@ -240,7 +243,7 @@ export class UpstreamErrors {
     const chips = [["", this.dimension === "time" ? "全部时间" : "全部来源", records.length],
       ...[...groups].map(([key, items]) => [key, key, items.length])];
     const html = `
-      <div class="upstream-health-strip">
+      <div class="upstream-health-strip" role="group" aria-label="当日抓取统计" tabindex="0">
         <div title="${e(availabilityTitle)}"><span class="upstream-stat-label">当日抓取可用率</span><strong class="upstream-stat-value ${Number.isFinite(availability) ? (availability < 100 ? "warning" : "success") : ""}">${Number.isFinite(availability) ? `${availability}%` : "—"}</strong></div>
         <div><span class="upstream-stat-label">异常来源</span><strong class="upstream-stat-value">${new Set(records.map(row => row.label)).size} 个</strong></div>
         <div title="所选日期采集文件中实际已入库的资讯，包含其他日期发布的新闻"><span class="upstream-stat-label">${this.isToday ? "今日" : "当日"}已入库资讯</span><strong class="upstream-stat-value">${Number.isFinite(ingested_count) ? `${ingested_count} 条` : "—"}</strong></div>

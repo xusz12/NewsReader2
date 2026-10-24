@@ -226,6 +226,8 @@ def test_filtered_pagination_search_counts_and_scoped_mark_read(api):
     assert all_items["total"] == 36
     first = client.get("/api/news?category=economy&read_filter=unread&per=10").json
     assert first["total"] == 24 and len(first["items"]) == 10
+    stats = client.get("/api/news?category=economy&read_filter=unread&count_only=1&date_counts=1").json
+    assert stats == {"ok": True, "total": 24, "date_counts": {"2026-10-23": 24}}
     assert all(i["category"] == "economy" for i in first["items"])
     from urllib.parse import urlencode
     cursor = first["next_cursor"]
@@ -234,9 +236,12 @@ def test_filtered_pagination_search_counts_and_scoped_mark_read(api):
     assert not {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]}
     search = client.get("/api/search?q=分类共同测试词&category=economy&feed_filters=1&count_only=1").json
     assert search["total"] == 24
+    stats = client.get("/api/search?q=分类共同测试词&category=economy&feed_filters=1&read_filter=unread&count_only=1&date_counts=1").json
+    assert stats == {"ok": True, "total": 24, "date_counts": {"2026-10-23": 24}}
     assert client.get("/api/news?category=other&count_only=1").json["total"] == 0
     marked = client.post("/api/news/mark-all-read", json={"category": "economy", "read_filter": "unread"}).json
     assert marked["marked"] == 24
+    assert client.get("/api/news?category=economy&read_filter=unread&count_only=1&date_counts=1").json["date_counts"] == {}
     assert client.get("/api/nav-summary").json["summary"]["feed_unread"] == 12
     assert client.get("/api/news?category=ai&count_only=1&read_filter=unread").json["total"] == 10
     progress = client.get("/api/news/classification").json
