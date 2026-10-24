@@ -1,4 +1,4 @@
-import { DatePicker, dateKey, localDate } from "./date-picker.js";
+import { DatePicker, dateKey, localDate } from "./date-picker.js?v=0.2.1-upstream-density";
 import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
 
 const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
@@ -115,8 +115,8 @@ export class UpstreamErrors {
     this.panel.style.left = `${Math.max(left + 12, Math.min(anchor.left + anchor.width / 2 - this.panel.offsetWidth / 2, left + width - this.panel.offsetWidth - 12))}px`;
     this.panel.style.top = `${Math.max(top + 12, anchor.bottom + 10)}px`;
     const available = Math.max(0, top + height - this.panel.getBoundingClientRect().top - 12);
-    this.panel.style.height = `${Math.min(760, available)}px`;
-    this.panel.style.maxHeight = `${available}px`;
+    this.panel.style.maxHeight = `${Math.min(640, available)}px`;
+    this.datePicker?.position();
   }
 
   showToday() {
@@ -177,6 +177,7 @@ export class UpstreamErrors {
 
   setLoadStatus(message, failed = false) {
     this.loadMessage.textContent = message;
+    this.loadMessage.parentElement.hidden = !message;
     this.loadMessage.parentElement.classList.toggle("is-error", failed);
     this.retryButton.hidden = !failed;
   }

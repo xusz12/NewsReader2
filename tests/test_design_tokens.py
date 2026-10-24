@@ -19,6 +19,9 @@ def test_exported_assets_match_corrected_design_handoff():
     for selector in [':root', '[data-theme="dark"]', '[data-theme="eink"]']:
         block = lambda text: re.search(re.escape(selector) + r'\s*\{(.*?)\}', text, re.S).group(1)
         assert declarations(block(css)) == declarations(block(baseline))
+    mobile = r'@media \(max-width: 920px\)\s*\{\s*:root\s*\{(.*?)\}'
+    assert declarations(re.search(mobile, css, re.S).group(1)) == {'--header-height': '50px'}
+    assert declarations(re.search(mobile, baseline, re.S).group(1)) == {'--header-height': '50px'}
     exported = json.loads((ROOT / 'static/design-tokens.json').read_text())
     assert exported == json.loads(re.search(r'```json\n(.*?)\n```', spec, re.S).group(1))
 

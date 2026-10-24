@@ -46,9 +46,9 @@
       } catch {}
     </script>
     <link href="/static/vendor/prosemirror.css?v=0.2.1-md1" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.2.1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.2.1-feed-density" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.2.1-filters"
+      href="/static/style.css?v=0.2.1-mobile-primary-filters"
       rel="stylesheet"
     />
   </head>
@@ -348,28 +348,30 @@
             id="feedColFeed"
           >
             <div class="feed-header">
-              <div class="feed-search-row">
-                <div class="feed-search-box">
-                  <svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
-                  </svg>
-                  <input
-                    aria-label="搜索新闻"
-                    class="feed-search-input"
-                    id="feedSearchInput"
-                    placeholder="搜索新闻标题、全文、想法或来源…"
-                    type="text"
-                  />
-                  <span class="search-shortcut-hint">/</span>
+              <div class="feed-search-row" id="feedSearchRow">
+                <div class="feed-search-reveal">
+                  <div class="feed-search-box">
+                    <svg
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" x2="16.65" y1="21" y2="16.65"></line>
+                    </svg>
+                    <input
+                      aria-label="搜索新闻"
+                      class="feed-search-input"
+                      id="feedSearchInput"
+                      placeholder="搜索新闻标题、全文、想法或来源…"
+                      type="text"
+                    />
+                    <span class="search-shortcut-hint">/</span>
+                  </div>
                 </div>
               </div>
-              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button></div></div>
+              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button><button id="feedSearchToggleBtn" class="filter-chip icon-chip" type="button" aria-label="展开新闻搜索" title="展开新闻搜索" aria-controls="feedSearchRow" aria-expanded="false"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg></button></div></div>
               <div id="newsCategoryFilters" class="news-category-filters" role="group" aria-label="新闻分类"></div>
             </div>
 
@@ -1065,7 +1067,7 @@
         <div class="modal-header">
           <div class="upstream-dialog-heading">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/></svg>
-            <h2 class="modal-title" id="upstreamErrorsTitle">上游信源报错查看 <span lang="en">(Upstream Error Diagnostics)</span></h2>
+            <h2 class="modal-title" id="upstreamErrorsTitle">上游信源报错查看</h2>
           </div>
           <button class="modal-close-btn" id="closeUpstreamErrorsBtn" type="button" aria-label="关闭上游报错">✕</button>
         </div>
@@ -1086,7 +1088,7 @@
             </div>
           </div>
           <p id="upstreamDateError" class="inline-error calendar-error" role="alert"></p>
-          <div class="upstream-load-status" role="status">
+          <div class="upstream-load-status" role="status" hidden>
             <span id="upstreamLoadMessage"></span>
             <button type="button" data-upstream-retry hidden>重新读取</button>
           </div>
@@ -1278,7 +1280,7 @@
     </div>
     <script src="/static/error_ui.js?v=0.2.1-unread"></script>
     <script
-      src="/static/app.js?v=0.2.1-mode"
+      src="/static/app.js?v=0.2.1-category-labels"
       type="module"
     ></script>
   </body>

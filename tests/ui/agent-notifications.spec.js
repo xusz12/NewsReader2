@@ -16,10 +16,14 @@ async function start(page, width = 1440) {
   await page.goto('/');
   await page.bringToFront();
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await expect(bell(page)).toBeVisible();
+  if (width <= 920) await expect(bell(page)).toBeHidden();
+  else await expect(bell(page)).toBeVisible();
 }
 async function dropdown(page) {
-  if (!(await panel(page).isVisible())) await bell(page).click();
+  if (!(await panel(page).isVisible())) {
+    if (!(await bell(page).isVisible())) await wake(page);
+    await bell(page).click();
+  }
   else await wake(page);
 }
 async function openNotice(page, id) {
@@ -225,15 +229,34 @@ test('notification jump from summaries does not prepare or create another conver
 });
 
 
-test('mobile notification opens the reply with a reachable bell and unchanged bottom navigation', async ({ page, request }) => {
+test('mobile bell appears for new replies and hides after reading or dismissing, including breakpoint changes', async ({ page, request }) => {
   await start(page, 390);
   const result = await complete(request, { item_id: 'ui-000', answer: '手机一步到位回复' });
   await openNotice(page, result.job_id);
   await expect(page.locator('#agentChatStream')).toContainText('手机一步到位回复');
   await expect.poll(async () => (await snapshot(request)).notifications.length).toBe(0);
+  await expect(bell(page)).toBeHidden();
+  await expect(page.locator('#agentNotifications')).toBeHidden();
+  await expect(panel(page)).toBeHidden();
+  await expect(bell(page)).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('.topbar').screenshot({ path: '.ui-artifacts/mobile-notifications-empty.png' });
+  await page.setViewportSize({ width: 921, height: 900 });
   await expect(bell(page)).toBeVisible();
-  await expect(bell(page).locator('svg')).toBeVisible();
   await bell(page).click(); await expect(panel(page)).toBeVisible();
+  await page.setViewportSize({ width: 920, height: 900 });
+  await expect(bell(page)).toBeHidden();
+  await expect(panel(page)).toBeHidden();
+  await expect(bell(page)).toHaveAttribute('aria-expanded', 'false');
+  await page.setViewportSize({ width: 390, height: 900 });
+  await complete(request, { item_id: 'ui-001', answer: '另一篇新闻的新回复' });
+  await wake(page);
+  await expect(bell(page).locator('svg')).toBeVisible();
+  await page.locator('.topbar').screenshot({ path: '.ui-artifacts/mobile-notifications-unread.png' });
+  await dropdown(page);
+  await page.locator('[data-dismiss-notice]').click();
+  await expect(bell(page)).toBeHidden();
+  await expect(panel(page)).toBeHidden();
+  await expect(page.locator('#refreshIndexBtn')).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.locator('.mobile-bottom-nav button')).toHaveCount(3);
 });

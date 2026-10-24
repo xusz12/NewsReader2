@@ -26,6 +26,7 @@ async function start(page) {
 test('upstream prototype layout uses live counts, source/time filters and escaped copyable logs', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedUpstreamLog = text; } } }));
   await start(page);
+  await expect(page.locator('#upstreamErrorsTitle')).toHaveText('上游信源报错查看');
   await expect(page.locator('#upstreamErrorsBtn')).toHaveClass(/has-errors/);
   await expect(page.locator('.upstream-stat-label')).toHaveText(['当日抓取可用率', '异常来源', '今日已入库资讯', '当日报错']);
   await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
@@ -78,7 +79,9 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.locator('#upstreamErrorDate').fill('2026-10-18');
   await page.locator('#upstreamErrorDate').press('Enter');
   await expect(page.locator('#upstreamErrorsContent')).toContainText('当天没有记录');
-  expect(await page.locator('#upstreamErrorsPanel').boundingBox()).toEqual(dialogBox);
+  const emptyBox = await page.locator('#upstreamErrorsPanel').boundingBox();
+  expect({ ...emptyBox, height: dialogBox.height }).toEqual(dialogBox);
+  expect(emptyBox.height).toBeLessThan(dialogBox.height);
   await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
   await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
@@ -210,7 +213,8 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
     const box = await entry.boundingBox();
-    expect(box.x + box.width / 2).toBeCloseTo(720, 0);
+    const center = await page.locator('.topbar-center').boundingBox();
+    expect(box.x + box.width / 2).toBeCloseTo(center.x + center.width / 2, 0);
     await entry.screenshot({ path: `.ui-artifacts/upstream-entry-${theme}.png` });
     await entry.hover();
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
@@ -239,6 +243,55 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}.png` });
   }
 });
+
+for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]]) {
+  test(`content-height diagnostics keep empty states, calendars and long logs reachable at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    let rows = [];
+    await page.route('**/api/error-stats?*', route => route.fulfill({ json: payload(today, rows) }));
+    await page.goto('/');
+    await page.locator('#upstreamErrorsBtn').click();
+    await expect(page.locator('.upstream-empty')).toContainText('当天没有记录');
+    const panel = page.locator('#upstreamErrorsPanel');
+    const emptyBox = await panel.boundingBox();
+    expect(emptyBox.height).toBeLessThanOrEqual(640);
+    expect(emptyBox.y + emptyBox.height).toBeLessThanOrEqual(height - 12);
+    await page.screenshot({ path: `.ui-artifacts/upstream-empty-${width}.png` });
+
+    // The calendar may extend beyond a short empty panel, but remains clickable in the viewport.
+    await page.locator('#upstreamCalendarBtn').click();
+    const calendar = page.locator('#upstreamCalendar');
+    const calendarBox = await calendar.boundingBox();
+    expect(calendarBox.y).toBeGreaterThanOrEqual(12);
+    expect(calendarBox.y + calendarBox.height).toBeLessThanOrEqual(height - 12);
+    expect(calendarBox.x).toBeGreaterThanOrEqual(12);
+    expect(calendarBox.x + calendarBox.width).toBeLessThanOrEqual(width - 12);
+    await page.locator('[data-calendar-today]').click();
+    await expect(calendar).toBeHidden();
+
+    rows = [{ label: 'Long upstream source', error: 'connection timed out\n'.repeat(80) }, ...Array.from({ length: 12 }, () => entries[0])];
+    await page.locator('#upstreamTodayBtn').click();
+    await expect(page.locator('.upstream-error-card')).toHaveCount(13);
+    const fullBox = await panel.boundingBox();
+    expect(fullBox.y).toBe(emptyBox.y);
+    expect(fullBox.height).toBeGreaterThanOrEqual(emptyBox.height);
+    if (height >= 844) expect(fullBox.height).toBeGreaterThan(emptyBox.height);
+    expect(fullBox.height).toBeLessThanOrEqual(640);
+    expect(fullBox.y + fullBox.height).toBeLessThanOrEqual(height - 12);
+    expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const log = page.locator('.upstream-log-box pre').first();
+    expect(await log.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
+    await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    expect(await log.evaluate(node => node.scrollTop + node.clientHeight)).toBeGreaterThanOrEqual(await log.evaluate(node => node.scrollHeight - 1));
+    const last = page.locator('[data-upstream-copy]').last();
+    await last.scrollIntoViewIfNeeded();
+    const lastBox = await last.boundingBox();
+    expect(lastBox.y).toBeGreaterThan(fullBox.y);
+    expect(lastBox.y + lastBox.height).toBeLessThan(fullBox.y + fullBox.height);
+    await page.locator('#closeUpstreamErrorsBtn').click();
+    await expect(panel).toBeHidden();
+  });
+}
 
 test('badge refreshes lightweight counts while visible and fits large counts at 320px', async ({ page }) => {
   await page.clock.install();

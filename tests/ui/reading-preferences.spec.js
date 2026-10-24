@@ -69,8 +69,8 @@ for (const width of [390, 1440]) {
       await chooseFont(page, value);
       await expect(fontBox(page)).toBeFocused();
       await expect(body).toHaveCSS('font-size', `${Number((14 * factor).toFixed(2))}px`);
-      await expect(title).toHaveCSS('font-size', `${Number((15 * factor).toFixed(2))}px`);
-      await expect(page.locator('.topbar')).toHaveCSS('height', '52px');
+      await expect(title).toHaveCSS('font-size', `${Number(((width <= 920 ? 15 : 14.5) * factor).toFixed(4))}px`);
+      await expect(page.locator('.topbar')).toHaveCSS('height', width <= 920 ? '50px' : '52px');
       await expect(fontBox(page)).toHaveCSS('height', width <= 920 ? '36px' : '32px');
       await expect(page.locator('#themeSelect')).toHaveCSS('height', width <= 920 ? '36px' : '32px');
     }
@@ -81,7 +81,7 @@ for (const width of [390, 1440]) {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await page.locator('#feedCardList .news-card-title').first().click();
     await expect(body).toHaveCSS('font-size', '18.2px');
-    await expect(title).toHaveCSS('font-size', '19.5px');
+    await expect(title).toHaveCSS('font-size', width <= 920 ? '19.5px' : '18.85px');
     if (width <= 920) await expect(page.locator('#agentPromptInput')).toHaveCSS('font-size', '16px');
 
     const idea = (await (await request.post('/api/standalone-ideas', { data: { title: '字号检查', note: '正文应跟随阅读字号。' } })).json()).idea;

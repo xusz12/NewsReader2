@@ -31,9 +31,9 @@ for (const [theme, scheme, palette] of [['light', 'light', 'light'], ['dark', 'l
     await expect(page.locator('#articleMainTitle')).toHaveCSS('font-size', '34px');
     await expect(page.locator('#articleBodyContent')).toHaveCSS('font-size', '14px');
     await expect(page.locator('#articleBodyContent p').first()).toHaveCSS('line-height', '23.8px');
-    await expect(page.locator('.news-card-title').first()).toHaveCSS('font-size', '15px');
-    await expect(page.locator('.news-card-snippet').first()).toHaveCSS('font-size', '13px');
-    await expect(page.locator('.news-card').first()).toHaveCSS('border-radius', '8px');
+    await expect(page.locator('.news-card-title').first()).toHaveCSS('font-size', '14.5px');
+    await expect(page.locator('.news-card-snippet').first()).toHaveCSS('font-size', '12.5px');
+    await expect(page.locator('.news-card').first()).toHaveCSS('border-radius', '6px');
     await expect(page.locator('#btnToggleStar')).toHaveCSS('height', '28px');
     await expect(page.locator('#btnToggleStar')).toHaveCSS('border-radius', '6px');
     await page.locator('#articleMainTitle').click();
@@ -64,6 +64,27 @@ for (const width of [920, 921, 1279, 1280]) {
   test(`v004 breakpoint ${width}: reading, drawer and settings agree`, async ({ page }) => {
     await start(page, width);
     const mobile = width <= 920, drawer = width < 1280;
+    await expect(page.locator('.topbar')).toHaveCSS('height', mobile ? '50px' : '52px');
+    const card = page.locator('#feedCardList .news-card').first();
+    await expect(card).toHaveCSS('padding', mobile ? '14px 14px 12px' : '12px');
+    await expect(card).toHaveCSS('border-radius', '6px');
+    await expect(card.locator('.news-card-title')).toHaveCSS('font-size', mobile ? '15px' : '14.5px');
+    await expect(card.locator('.news-card-snippet')).toHaveCSS('font-size', '12.5px');
+    await expect(card.locator('.news-card-meta')).toHaveCSS('font-size', '11px');
+    await expect(card.locator('.meta-time-row')).toHaveCSS('font-size', '10.5px');
+    await expect(card.locator('.card-action-btn').first()).toHaveCSS('padding', '2px 6px');
+    const chip = page.locator('#feedColFeed .feed-filter-chips .filter-chip').first();
+    await expect(chip).toHaveCSS('padding', mobile ? '5px 12px' : '3px 9px');
+    await expect(chip).toHaveCSS('font-size', mobile ? '12px' : '11.5px');
+    await expect(chip).toHaveCSS('min-height', '0px');
+    await expect(chip).toHaveCSS('height', mobile ? '30px' : '25.25px');
+    await expect(chip).toHaveCSS('border-radius', '12px');
+    await expect(page.locator('#sortNewsBtn')).toHaveCSS('width', '25px');
+    await expect(page.locator('#sortNewsBtn')).toHaveCSS('padding', '0px');
+    const category = page.locator('#newsCategoryFilters .filter-chip').first();
+    await expect(category).toHaveCSS('padding', '3px 8.5px');
+    await expect(category).toHaveCSS('font-size', '12px');
+    await expect(category).toHaveCSS('height', '28px');
     await expect(page.locator('#leftNavDrawer')).toHaveJSProperty('inert', drawer);
     if (mobile) await expect(page.locator('#detailPanelFeed')).toBeHidden();
     else {
@@ -113,7 +134,7 @@ test('v004 e-ink: opaque grayscale, hard shadow and no motion', async ({ page })
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('body')).toHaveCSS('color', 'rgb(0, 0, 0)');
   await expect(page.locator('#agentDock')).toHaveCSS('box-shadow', 'rgb(0, 0, 0) 0px 4px 0px 0px');
-  await expect(page.locator('.news-card').first()).toHaveCSS('box-shadow', 'none');
+  await expect(page.locator('.news-card:not(.active):not(.is-active)').first()).toHaveCSS('box-shadow', 'none');
   await expect(page.locator('.news-card').first()).toHaveCSS('transition-duration', '0s');
   await expect(page.locator('#agentDock')).toHaveCSS('transition-duration', '0s');
   await page.screenshot({ path: '.ui-artifacts/v004-eink.png', animations: 'disabled' });

@@ -153,10 +153,13 @@ test('slow source statistics do not block the nav or header count', async ({ pag
   await expectCounts(page, 64);
 });
 
-test('source-filtered reads update global and scoped counts independently and survive a filter change', async ({ page }) => {
+test('source-filtered reads update counts across categories and survive category/source changes while saving', async ({ page }) => {
   await start(page);
+  await page.locator('[data-category="economy"]').click();
+  await expect(page.locator('#feedCardList .news-category-tag').first()).toHaveText('经济与金融');
+  await expect(chip(page)).toHaveText('未读 (65)');
   await page.locator('[data-source="reuters"]').click();
-  await expect(chip(page)).toHaveText(/未读 \(\d+\)/);
+  await expect(chip(page)).toHaveText('未读 (13)');
   const initial = Number((await chip(page).textContent()).match(/\d+/)[0]);
   const id = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
   const held = gate();
@@ -169,6 +172,8 @@ test('source-filtered reads update global and scoped counts independently and su
     await expect(chip(page)).toHaveText(`未读 (${initial - 1})`);
     await expect(nav(page)).toHaveText('64');
     await expect(sourceBadge(page, 'reuters')).toHaveText(String(initial - 1));
+    await page.locator('[data-category="ai"]').click();
+    await expect(chip(page)).toHaveText(`未读 (${initial - 1})`);
     await page.locator('[data-source="all"]').click();
     await expect(nav(page)).toHaveText('64');
     await expect(sourceBadge(page)).toHaveText('64');

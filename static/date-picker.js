@@ -45,6 +45,9 @@ export class DatePicker {
     document.addEventListener('pointerdown', event => {
       if (this.open && !panel.contains(event.target) && !button.contains(event.target) && event.target !== input) this.close();
     });
+    document.addEventListener('scroll', event => {
+      if (event.target.contains?.(this.input)) this.position();
+    }, true);
   }
   get open() { return !this.panel.hidden; }
   setValue(value) {
@@ -95,7 +98,22 @@ export class DatePicker {
       return `${index % 7 === 0 ? '<div role="row" class="calendar-row">' : ''}<button type="button" role="gridcell" data-calendar-day="${day}" aria-label="${day}" aria-selected="${selected}" ${current ? 'aria-current="date"' : ''} class="${monthKey(day) !== this.month ? 'calendar-other-month' : ''}" tabindex="${day === this.focusedDay ? '0' : '-1'}" ${day > today || !localDate(day) ? 'disabled' : ''}>${Number(day.slice(8))}</button>${index % 7 === 6 ? '</div>' : ''}`;
     }).join('')}</div><button type="button" class="calendar-today" data-calendar-today>今天 · ${today}</button>`;
     if (focusKey) this.panel.querySelector(`[${focusKey}="${focusValue}"]`)?.focus({ preventScroll: true });
-    const box = this.panel.getBoundingClientRect(), viewport = window.visualViewport;
-    this.panel.style.maxHeight = `${Math.max(80, (viewport?.offsetTop || 0) + (viewport?.height || innerHeight) - box.top - 12)}px`;
+    this.position();
+  }
+  position() {
+    if (!this.open) return;
+    // Fixed positioning keeps the calendar outside the content-height panel's clipping area.
+    const anchor = this.input.parentElement.getBoundingClientRect(), viewport = window.visualViewport;
+    const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
+    const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
+    const belowTop = Math.max(top + 12, Math.min(anchor.bottom + 6, top + height - 12));
+    const aboveBottom = Math.max(top + 12, Math.min(anchor.top - 6, top + height - 12));
+    const below = top + height - 12 - belowTop, above = aboveBottom - top - 12;
+    const naturalHeight = this.panel.scrollHeight + 2;
+    const openBelow = below >= naturalHeight || below >= above;
+    const available = Math.max(0, openBelow ? below : above);
+    this.panel.style.maxHeight = `${available}px`;
+    this.panel.style.left = `${Math.max(left + 12, Math.min(anchor.left, left + width - this.panel.offsetWidth - 12))}px`;
+    this.panel.style.top = `${openBelow ? belowTop : aboveBottom - Math.min(naturalHeight, available)}px`;
   }
 }

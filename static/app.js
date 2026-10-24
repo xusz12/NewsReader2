@@ -23,12 +23,12 @@ import { SettingsPanel } from "./settings-panel.js?v=0.2.1-unread";
 import { SummaryPanel } from "./summary-panel.js";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.0";
-import { AgentNotifications } from "./agent-notifications.js";
+import { AgentNotifications } from "./agent-notifications.js?v=0.2.1-mobile-notifications";
 import { ClassificationProgress } from "./classification-progress.js?v=0.2.1-mode";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.2.1-upstream-density";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 
@@ -39,6 +39,7 @@ const state = {
   source: "all",
   category: "all",
   query: "",
+  mobileSearchOpen: false,
   items: [],
   selected: null,
   detail: null,
@@ -446,7 +447,7 @@ async function loadFeed(append = false) {
   const sequence = ++state.sequence;
   const stateVersion = stateWrites.version;
   const countsSnapshot = countSnapshot();
-  const scope = countScope();
+  const scope = filterCountScope();
   if (totalScope !== scope) { totalScope = scope; state.total = null; }
   if (!append) {
     state.items = [];
@@ -478,7 +479,8 @@ async function loadFeed(append = false) {
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
     state.page = data.page;
-    if (countsAreCurrent(countsSnapshot)) state.total = data.total;
+    // Primary filter counts span categories; a category-limited page cannot replace them.
+    if (countsAreCurrent(countsSnapshot) && params.get("category") === "all") state.total = data.total;
     else refreshBadges();
     state.more = data.has_more;
     state.cursor = data.next_cursor;
@@ -572,6 +574,7 @@ function renderIndexStatus() {
   dot.classList.toggle("syncing", syncing);
 }
 let navSummary = null, totalScope = "", readCountsFrame;
+const filterCountScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
 const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query, state.collection === "feed" ? state.category : "all"]);
 const countSnapshot = () => ({ version: stateWrites.version, clean: !stateWrites.pending.size });
 const countsAreCurrent = snapshot => snapshot.clean && !stateWrites.pending.size && snapshot.version === stateWrites.version;
@@ -638,9 +641,8 @@ function applyReadCountChange(id, patch) {
     source.count = Math.max(0, source.count + delta);
   }
   if (state.collection === "feed" && state.filter === "unread" &&
-      totalScope === countScope() && state.total !== null &&
+      totalScope === filterCountScope() && state.total !== null &&
       (state.source === "all" || state.source === operation.source) &&
-      (state.category === "all" || state.category === operation.category) &&
       (!state.query || state.query === operation.query))
     state.total = Math.max(0, state.total + delta);
   if (!readCountsFrame) readCountsFrame = requestAnimationFrame(renderReadCounts);
@@ -681,8 +683,8 @@ async function updateBadges() {
   badgesPending = false;
   const snapshot = countSnapshot();
   const feedSequence = state.sequence;
-  const scope = countScope();
-  const params = new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1" });
+  const scope = filterCountScope();
+  const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
   const hasFeed = !["notes", "summaries"].includes(state.collection);
   if (state.collection === "summaries") summaries.refreshScope();
   void loadSources();
@@ -694,7 +696,7 @@ async function updateBadges() {
         renderNavCounts();
       }),
       hasFeed ? api(`/api/${state.query ? "search" : "news"}?${params}`).then(count => {
-        if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== countScope()) return;
+        if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== filterCountScope()) return;
         totalScope = scope;
         state.total = count.total;
         renderFilters();
@@ -1368,6 +1370,7 @@ for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummari
 }
 singlePane.addEventListener("change", () => {
   resetDetailSwipe();
+  syncFeedSearch();
   syncMobileLayers();
 });
 function openNav() {
@@ -1448,10 +1451,49 @@ document.addEventListener("change", (event) => {
       settings.toggleSource(input.dataset.sourceKey, input.checked),
     );
 });
+function syncFeedSearch() {
+  const row = $("#feedSearchRow"), toggle = $("#feedSearchToggleBtn");
+  const visible = !singlePane.matches || state.mobileSearchOpen;
+  if (!visible && row.contains(document.activeElement)) toggle.focus({ preventScroll: true });
+  row.inert = !visible;
+  row.setAttribute("aria-hidden", String(!visible));
+  // Keep the desktop field visible until the breakpoint handler can transfer its focus.
+  $("#feedColFeed").classList.toggle("search-open", visible);
+  toggle.setAttribute("aria-expanded", String(visible));
+  const label = visible ? "收起新闻搜索" : "展开新闻搜索";
+  toggle.setAttribute("aria-label", label);
+  toggle.title = label;
+}
+function setFeedSearchOpen(open, focus = false) {
+  const input = $("#feedSearchInput");
+  const resetSearch = !open && singlePane.matches &&
+    Boolean(state.query || input.value || searchTimer !== undefined);
+  if (resetSearch) {
+    clearTimeout(searchTimer);
+    searchTimer = undefined;
+    state.query = "";
+    input.value = "";
+  }
+  state.mobileSearchOpen = open;
+  syncFeedSearch();
+  if (open && focus) input.focus({ preventScroll: true });
+  if (resetSearch) void loadFeed();
+}
+$("#feedSearchToggleBtn").onclick = () => setFeedSearchOpen(!state.mobileSearchOpen, !state.mobileSearchOpen);
+$("#feedSearchInput").addEventListener("keydown", event => {
+  if (singlePane.matches && event.key === "Escape") {
+    event.preventDefault(); event.stopPropagation();
+    setFeedSearchOpen(false);
+  }
+});
+syncFeedSearch();
 $("#feedSearchInput").addEventListener("input", (event) => {
   state.query = event.target.value.trim();
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadFeed(), 250);
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined;
+    void loadFeed();
+  }, 250);
 });
 $("#ideasSearchInput").addEventListener("input", renderIdeas);
 $("#feedCardList").addEventListener("scroll", () => {
@@ -1569,10 +1611,11 @@ document.addEventListener("keydown", (event) => {
     summaries.handleKey(event);
   } else if (key === "/") {
     event.preventDefault();
-    (state.collection === "notes"
-      ? $("#ideasSearchInput")
-      : $("#feedSearchInput")
-    ).focus();
+    if (state.collection === "notes") $("#ideasSearchInput").focus();
+    else {
+      if (singlePane.matches) exitReader();
+      setFeedSearchOpen(true, true);
+    }
   } else if (key === "?") {
     event.preventDefault();
     shortcutsDialog(true);

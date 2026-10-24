@@ -128,7 +128,7 @@ CI=1 npm run test:ui
 ## 发布与回退
 
 1. 在开发分支工作，默认前缀 `codex/`；Git 提交信息使用简体中文，例如 `docs: 补充项目交接文档`。
-2. 修改版本时同步 `version.json`、`package.json`、`package-lock.json`、`static/index.html` 的标题/标记/资源版本、README、CHANGELOG 及版本一致性测试。
+2. 修改版本时同步 `version.json`、`package.json`、`package-lock.json`、`static/index.html` 的标题/标记/资源版本、README、CHANGELOG 及版本一致性测试。从 v0.1.2 之后的版本开始，CHANGELOG 根据实际发布差异按 `feat`、`improve`、`fix` 分组，具体规则见 [CHANGELOG 发布分类](../design-guidelines.md#10-changelog-发布分类)。
 3. 完成相关测试，并在数据副本上验证迁移。更换仓库后必须更新 `version.json.repository`，只改 Git remote 不会改变应用更新源；同时更新硬编码该仓库的测试和文档。
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
 5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。依赖变化仍需人工安装，升级器不安装依赖。

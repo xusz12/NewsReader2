@@ -86,6 +86,7 @@ test('selected cards, read-later and Agent archive match the reviewed appearance
       await expect(selected).toHaveCSS(`border-${side}-color`, colors.accent);
     }
     await expect(selected).toHaveCSS('background-color', colors.surface);
+    await expect(selected).toHaveCSS('box-shadow', `${colors.accent} 0px 0px 0px 1px`);
     await expect(selected.locator('[data-state="read_later"]')).toHaveCSS('background-color', colors.fg);
     await expect(selected.locator('[data-state="read_later"]')).toHaveCSS('color', colors.surface);
   }

@@ -72,7 +72,7 @@ export class AgentNotifications {
     document.addEventListener("visibilitychange", resume);
     window.addEventListener("focus", resume);
     window.addEventListener("blur", () => clearTimeout(this.timer));
-    window.addEventListener("resize", () => this.scheduleSeen());
+    window.addEventListener("resize", () => { this.syncMobileVisibility(); this.scheduleSeen(); });
     document.addEventListener("agent:rendered", () => this.scheduleSeen());
     $("#agentChatStream").addEventListener("scroll", () => this.scheduleSeen());
     this.render();
@@ -111,7 +111,15 @@ export class AgentNotifications {
     this.panel.hidden = true;
     this.button.setAttribute("aria-expanded", "false");
   }
+  syncMobileVisibility() {
+    if (this.rows.length || !matchMedia("(max-width: 920px)").matches) return;
+    // A disabled dismiss/read-all button temporarily moves focus to the document body.
+    const lostPanelFocus = !this.panel.hidden && document.activeElement === document.body;
+    if (this.button.parentElement.contains(document.activeElement) || lostPanelFocus) $("#refreshIndexBtn").focus({ preventScroll: true });
+    this.close();
+  }
   render() {
+    this.syncMobileVisibility();
     const groups = new Map();
     for (const row of this.rows) {
       if (!groups.has(row.session_id)) groups.set(row.session_id, []);
