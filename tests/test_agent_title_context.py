@@ -64,14 +64,13 @@ def test_title_first_and_native_resume_prompts_notify_and_use_server_title(fixtu
     assert module.process_pending_agent_once()
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert len(calls) == 2
-    for call in calls:
-        prompt = call['prompt'] if runtime == 'codex' else call['effective_prompt']
-        assert item['title'] in prompt and item['url'] in prompt
-        assert '尚未提供全文' in prompt and '外部检索资料' in prompt
-        assert '固定英文原文快照' not in prompt and '英文原文：' not in prompt
-        assert '客户端伪造' not in prompt
+    prompts = [call['prompt'] if runtime == 'codex' else call['effective_prompt'] for call in calls]
+    assert item['title'] in prompts[0] and item['url'] in prompts[0]
+    assert '新闻正文：尚未提供全文。' in prompts[0]
+    assert '保留用户引用' in prompts[0]
+    assert '客户端伪造' not in prompts[0]
+    assert prompts[1] == '再解释影响'
     if runtime == 'pi':
-        assert '保留用户引用' in calls[0]['effective_prompt']
         assert '背景如何' in calls[1]['prompt']  # Fallback history also carries the scope.
         assert '尚未提供全文' in calls[1]['prompt']
     else:
@@ -126,8 +125,12 @@ def test_later_full_article_updates_only_unused_session_before_send(fixture, tmp
     assert module.process_pending_agent_once()
     call = json.loads(log.read_text().splitlines()[-1])
     prompt = call['effective_prompt']
-    assert ('尚未提供全文' in prompt) == started
-    assert ('Newly fetched full article.' in prompt) == (not started)
     if started:
+        assert prompt == '全文到达后的问题'
+        assert '尚未提供全文' in call['prompt']  # Rebuilds retain the original title-only snapshot.
+        assert 'Newly fetched full article.' not in call['prompt']
         fresh = client.post(path + '/session', json={'new_session': True}).json['session']
         assert fresh['id'] != original['id'] and fresh['context_level'] == 'full_detail'
+    else:
+        assert '尚未提供全文' not in prompt
+        assert 'Newly fetched full article.' in prompt

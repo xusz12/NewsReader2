@@ -111,8 +111,8 @@ def test_agent_worker_reports_safe_progress_and_requires_completion(fixture, tmp
     script = tmp_path / 'runtime.py'
     script.write_text("""import json,sys
 request=json.load(sys.stdin)
-assert request['research_budget_ms']==90000
-assert request['max_tool_calls']==6
+assert 'research_budget_ms' not in request
+assert 'max_tool_calls' not in request
 for event in [
  {'type':'oar_session','id':'test'},
  {'type':'oar_tool','tool':'web_search'},

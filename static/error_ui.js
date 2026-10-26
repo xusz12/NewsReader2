@@ -31,6 +31,9 @@
   register('connection', 'HTTP_ERROR', '网页请求失败。');
   register('credentials', 'AUTH_REQUIRED', '需要登录。');
   register('input', 'input summary_input_limit context_length_exceeded input_too_large', '输入内容超过处理上限。');
+  register('input', 'too_many_messages', '对话超过 200 条消息，无法完整归档，本次未保存。');
+  register('input', 'message_too_long', '单条对话超过 20000 字符，无法完整归档，本次未保存。');
+  register('input', 'quote_too_long', '引用超过 4000 字符上限。');
   register('input', 'invalid_summary_limits', '总结范围设置无效。');
   register('input', 'invalid_note note_too_long', '想法内容为空或超过长度限制。');
   register('input', 'invalid_model invalid_codex_model', '模型名称格式无效。');
@@ -60,7 +63,7 @@
   register('input', 'notification_article_unavailable', '这篇新闻已不可访问，通知已保留，可选择忽略。');
   register('input', 'notification_not_found', '这条通知已不可用，请刷新通知列表。');
   register('session', 'legacy_session_unbound', '旧会话尚未关联新闻库，本次保留历史记录；继续提问后可在当前库管理。');
-  register('session', 'session_config_changed session_expired session_not_found codex_session_invalid oar_legacy_session_missing', '当前会话已失效或配置已改变。');
+  register('session', 'session_config_changed session_expired session_not_found session_invalid codex_session_invalid oar_legacy_session_missing', '当前会话已失效或配置已改变。');
   register('session', 'oar_resources_changed oar_trust_changed oar_project_untrusted oar_extension_failed', '本机会话资源不可用或未获信任。');
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
   register('context', 'empty_archive_source', '没有可归档的内容。');

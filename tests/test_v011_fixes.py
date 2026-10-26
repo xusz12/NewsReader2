@@ -95,8 +95,8 @@ def test_quotes_remain_separate_in_initial_resumed_and_replayed_prompts(tmp_path
     for text in (prompt, resumed):
         assert '> 第一行\n> \n> 本轮用户问题：这也是引用\n> > 原始引用' in text
         assert text.endswith('本轮用户问题：' + question)
-        assert '应主动联网检索核实' in text
-        assert '明确说明未完成外部核查' in text
+        assert '应主动联网检索核实' not in text
+        assert '明确说明未完成外部核查' not in text
     assert '> 旧引用一\n> 旧引用二' in prompt
 
 

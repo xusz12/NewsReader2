@@ -9091,7 +9091,7 @@ def test_agent_first_and_follow_up_use_one_full_pi_session(tmp_path: Path, monke
     assert "首问" in calls[0]["effective_prompt"]
     assert "complete original article" not in calls[1]["effective_prompt"]
     assert "首问" not in calls[1]["effective_prompt"]
-    assert calls[1]["effective_prompt"].endswith("本轮用户问题：依赖上一轮的追问")
+    assert calls[1]["effective_prompt"] == "依赖上一轮的追问"
     # Full fallback history is supplied to the bridge, not sent on a native resume.
     assert "首问" in calls[1]["prompt"]
     assert all("首问" not in " ".join(call["argv"]) for call in calls)
@@ -9154,7 +9154,7 @@ def test_agent_legacy_pi_session_switches_with_one_time_visible_history(tmp_path
     assert command[command.index("--session-id") + 1] == "newsreader-oar-pi-session-legacy"
     request = app_module._agent_oar_request(job, session, context, history, runtime_dir)
     assert "complete original article" in request["prompt"]
-    assert "此前会话记录（仅用于连续对话）" in request["prompt"]
+    assert "此前会话记录：" in request["prompt"]
     assert "旧问题" in request["prompt"] and "旧回答" in request["prompt"]
     assert request["history_replayed"] is True
     assert "旧问题" not in request["resume_prompt"]
@@ -9207,7 +9207,7 @@ def test_agent_legacy_pi_migration_persists_and_stops_replaying_history(tmp_path
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert len(calls) == 2
     assert "旧问题" in calls[0]["effective_prompt"] and "旧回答" in calls[0]["effective_prompt"]
-    assert "此前会话记录（仅用于连续对话）" not in calls[1]["effective_prompt"]
+    assert "此前会话记录：" not in calls[1]["effective_prompt"]
     assert "旧问题" not in calls[1]["effective_prompt"] and "旧回答" not in calls[1]["effective_prompt"]
     visible = app_module.load_agent_payload(item["id"])
     assert any(message["content"] == "旧回答" for message in visible["messages"])
