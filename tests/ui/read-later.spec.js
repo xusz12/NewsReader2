@@ -5,7 +5,12 @@ const card = (page, id = 'ui-064') => page.locator(`#feedCardList [data-id="${id
 const later = (page, id = 'ui-064') => card(page, id).locator('[data-state="read_later"]');
 async function start(page) {
   await page.goto('/');
+  // Explicitly queued articles are now read in the feed. Use all news to keep
+  // the same fixture available while testing its independent saved state.
+  await page.locator('#feedColFeed [data-filter="all"]').click();
+  await showOldestFirst(page);
   await expect(card(page)).toBeVisible();
+  await card(page).locator('.news-card-title').click();
   await expect(page.locator('#articleMainTitle')).toBeVisible();
 }
 async function showOldestFirst(page) {
@@ -22,6 +27,38 @@ test.beforeEach(async ({ request }) => {
 test.afterEach(async ({ page }) => {
   // Finish in-flight mocked responses before Playwright disposes the context.
   await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('adding from unread feed updates the card and counts without completing saved reading', async ({ page, request }) => {
+  await page.goto('/');
+  await expect(card(page)).toBeVisible();
+  await expect(later(page)).toHaveText('已看完');
+  const before = (await (await request.get('/api/nav-summary')).json()).summary.feed_unread;
+  await expect(page.locator('#unreadBadge')).toHaveText(String(before));
+  const position = await page.locator('#feedCardList').evaluate(node => node.scrollTop);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/news/ui-064/state', async route => {
+    expect(route.request().postDataJSON()).toEqual({ read: true, read_later: true });
+    await gate;
+    await route.continue();
+  });
+  await later(page).click();
+  try {
+    await expect(later(page)).toHaveAttribute('aria-busy', 'true');
+    await expect(card(page)).toHaveClass(/\bread\b/);
+    await expect(card(page).locator('.unread-dot')).toHaveCount(0);
+    await expect(page.locator('#unreadBadge')).toHaveText(String(before - 1));
+    await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText(`未读 (${before - 1})`);
+  } finally { release(); }
+  await expect(later(page)).toHaveAttribute('aria-busy', 'false');
+  const saved = await detail(request, 'ui-064');
+  expect(saved.read_at).toBeTruthy();
+  expect(saved.read_later_at).toBeTruthy();
+  expect(saved.read_later_done_at).toBeNull();
+  expect(await page.locator('#feedCardList').evaluate(node => node.scrollTop)).toBe(position);
+  await page.locator('#navReadLaterBtn').click();
+  await expect(later(page)).toHaveText('全文待看');
 });
 
 for (const explicit of [false, true]) {
@@ -48,12 +85,13 @@ for (const explicit of [false, true]) {
       await expect(later(page)).toHaveAttribute('aria-busy', 'false');
       const completed = await detail(request, 'ui-064');
       expect(completed.read_later_done_at).toBeTruthy();
-      expect(completed.read_at).toBeNull();
+      if (explicit) expect(completed.read_at).toBeTruthy();
+      else expect(completed.read_at).toBeNull();
       await expect(page.locator('#readLaterNavBadge')).toBeHidden();
       await page.locator('#feedColFeed [data-filter="read"]').click();
       await showOldestFirst(page);
       await expect(card(page)).toBeVisible();
-      await page.reload();
+      await start(page);
       await expect(later(page)).toHaveText('已看完');
       await later(page).click();
       await expect(later(page)).toHaveText('全文待看');
@@ -168,7 +206,7 @@ for (const explicit of [false, true]) {
     await later(page).click();
     await expect(later(page)).toHaveText('排队中');
     await expect(later(page)).toHaveAttribute('aria-busy', 'false');
-    expect(flow.sent).toEqual([{ read_later: true }]);
+    expect(flow.sent).toEqual([explicit ? { read_later: true } : { read: true, read_later: true }]);
     // Saving the flag finishes before the reader's follow-up detail response.
     await expect(page.locator('#detailPanelFeed .cache-label')).toHaveText('等待抓取正文');
   });
@@ -209,7 +247,7 @@ for (const leave of ['settings', 'hidden', 'mobile back', 'leave and return']) {
     await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
     if (leave === 'mobile back') await page.setViewportSize({ width: 360, height: 800 });
     await page.goto('/');
-    await expect(card(page)).toBeVisible();
+    await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
     if (leave === 'mobile back') await page.locator('.mobile-bottom-nav [data-collection="read_later"]').click();
     else {
       await expect(page.locator('#articleBodyContent')).not.toBeEmpty();

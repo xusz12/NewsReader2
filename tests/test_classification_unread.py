@@ -11,6 +11,25 @@ def mark_read(conn, ident, read=True):
             ON CONFLICT(item_id) DO UPDATE SET read_at=excluded.read_at""", (ident, 'read' if read else None, 'now'))
 
 
+def test_library_coverage_includes_read_unqueued_and_stale_titles(conn):
+    assert nc.status(conn)['coverage']=={'total':0,'done':0}
+    for ident in ['read','unread','changed','old-rule']:
+        insert(conn,ident,ident)
+    with conn:nc.enqueue(conn)
+    while job:=nc.claim(conn):nc.finish(conn,job,nc.parse_response(response()))
+    mark_read(conn,'read')
+    with conn:
+        conn.execute("UPDATE items SET title='changed title' WHERE id='changed'")
+        conn.execute("UPDATE item_classifications SET rule_version='old' WHERE item_id='old-rule'")
+    insert(conn,'not-queued','not yet queued')
+    for unread_only in (False,True):
+        result=nc.status(conn,unread_only=unread_only)
+        assert result['coverage']=={'total':5,'done':2}
+        assert result['done']==(1 if unread_only else 2)
+    with conn:conn.execute("DELETE FROM items WHERE id='read'")
+    assert nc.status(conn)['coverage']=={'total':4,'done':1}
+
+
 def test_unread_scope_uses_current_read_state_and_keeps_completed_results(conn):
     for ident in ['read', 'explicit-unread', 'no-state']:
         insert(conn, ident, ident)

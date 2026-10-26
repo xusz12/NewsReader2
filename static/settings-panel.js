@@ -1,8 +1,9 @@
 import { confirmAction } from "./confirm-dialog.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
-import { UpdatePanel } from "./update-panel.js?v=0.2.4";
-import { visibilityText } from "./summary-panel.js?v=0.2.4";
+import { UpdatePanel } from "./update-panel.js?v=0.2.5";
+import { visibilityText } from "./summary-panel.js?v=0.2.5";
+import { classificationStatus } from "./classification-progress.js?v=0.2.5";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);
@@ -27,11 +28,13 @@ function select(label, path, value, options, placeholder = "沿用默认") {
   return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label">${placeholder === null ? "" : `<option value="">${placeholder}</option>`}${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen, onViewChange, selects }) {
+  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry }) {
     this.onOpen = onOpen;
     this.onViewChange = onViewChange;
     this.onSaved = onSaved;
     this.onSources = onSources;
+    this.onClassificationRefresh = onClassificationRefresh;
+    this.onClassificationRetry = onClassificationRetry;
     this.open = false;
     this.dirty = false;
     this.section = "system";
@@ -232,10 +235,12 @@ export class SettingsPanel {
     });
     $("#settingsDetailTitle").textContent = selected.dataset.title;
     $("#settingsDetailTitle").title = selected.dataset.title;
-    $("#settingsDetailDescription").textContent = selected.dataset.description;
+    $("#settingsDetailDescription").textContent = selected.dataset.description || '';
+    $("#settingsDetailDescription").hidden = !selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
     if (section === "system" && $("#updateResult")) this.updater.restore();
     if (section === "catchup" && $("#settingsCatchupScope")) this.loadCatchupScope();
+    if (section === "classification" && this.open) void this.onClassificationRefresh?.();
     if (reveal && singlePane.matches) {
       $("#feedView").classList.add("settings-detail-active");
       this.onViewChange?.();
@@ -404,11 +409,24 @@ export class SettingsPanel {
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
       <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
+      <section class="settings-section-card" data-section="classification" id="classificationSettingsProgress" aria-labelledby="classificationSettingsProgressTitle">
+      <div class="section-card-title"><span id="classificationSettingsProgressTitle">分类进度</span><button class="reader-tool-btn" id="classificationRefreshBtn" type="button">刷新进度</button></div>
+      <p id="classificationSettingsStatus" role="status">正在读取分类进度…</p>
+      <p class="error-state" id="classificationSettingsProgressError" role="alert" hidden></p>
+      <div class="comparison-summary" id="classificationSettingsCompletion" hidden>
+      <div class="proportion-chart" id="classificationCoverageChart" role="img" aria-label="新闻分类覆盖率">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="classification-progress-track" cx="12" cy="12" r="9"/>
+      <circle class="classification-progress-arc" id="classificationCoverageArc" cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)"/></svg>
+      <strong class="progress-count" id="classificationCoveragePercent"></strong></div>
+      <div class="field-item"><span class="field-label">已分类 / 全部新闻</span><strong class="progress-count" id="classificationSettingsCompletionText"></strong><span class="muted" id="classificationCoverageRemaining"></span></div></div>
+      <span class="field-label" id="classificationSettingsQueueLabel" hidden></span>
+      <div class="catchup-metrics" id="classificationSettingsCounts" hidden>${[['done','已完成'],['pending','待处理'],['running','处理中'],['failed','失败']].map(([key,label])=>`<span>${label} <strong data-classification-count="${key}">—</strong></span>`).join('')}</div>
+      <div class="button-row"><span class="muted" id="classificationSettingsUpdated"></span><button class="btn-secondary" id="classificationRetryBtn" type="button" hidden>重试失败项</button></div></section>
       <section class="settings-section-card" data-section="classification" id="classificationSettings">
       <div class="section-card-title"><span>自动分类</span></div>
       <label class="settings-toggle settings-switch"><span>启用自动分类</span><input type="checkbox" role="switch" name="classification.enabled" ${d.classification?.enabled !== false ? "checked" : ""}></label>
       <p class="muted">保存后生效。关闭后停止新的分类请求，已完成的结果保留；正在处理的请求会继续完成。</p>
-      <fieldset id="classificationOptions" class="classification-options" aria-label="自动分类选项" ${d.classification?.enabled === false ? "disabled" : ""}>
+      <fieldset id="classificationOptions" class="classification-options field-options" aria-label="自动分类选项" ${d.classification?.enabled === false ? "disabled" : ""}>
       <label class="settings-toggle"><input type="checkbox" role="switch" name="classification.unread_only" ${d.classification?.unread_only ? "checked" : ""}><span>仅对未读新闻分类</span></label>
       ${field("分类并发上限", "classification.concurrency", d.classification?.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}
       <p class="muted">默认 8，可设置 1–32。遇到限流自动降速，稳定后逐步恢复。</p>
@@ -429,6 +447,7 @@ export class SettingsPanel {
     this.renderTranslation();
     this.renderShortcuts();
     this.updater.render();
+    this.renderClassificationProgress();
     this.selectSection(this.section, { reveal: false });
     $("#settingsContent details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
@@ -570,7 +589,7 @@ export class SettingsPanel {
     const efforts = model?.reasoning_efforts || [];
     const savedEffort = d.agent.codex.reasoning_effort;
     $("#modelSettings").innerHTML =
-      `<div class="section-card-title"><span>Chat、新闻研究 Agent 与积压总结模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
+      `<div class="section-card-title"><span>Chat、新闻研究、主题追踪与积压总结模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
     ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, codexOptions, "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", custom, 'maxlength="120"')}<p class="muted" id="modelCapabilitiesHint">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
     <button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><p class="muted" id="modelsNotice">${e(this.catalogNotice || catalog.notice || "候选目录不代表实际调用权限。")}</p>
     <div class="connection-test-section"><div><strong>模型可用性独立连接测试</strong><p class="muted">使用当前未保存选择测试，不写入新闻或聊天历史。</p></div><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing ? "disabled" : ""}>${this.testing ? "测试中…" : "运行连接测试"}</button><div class="terminal-box" id="connTestTerminal" role="status">${e(this.connectionResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>
@@ -598,6 +617,44 @@ export class SettingsPanel {
         .join("") || '<p class="muted">索引新闻后，这里会显示可配置的信源。</p>'
     );
   }
+  updateClassificationProgress(snapshot) {
+    this.classificationSnapshot = snapshot;
+    this.renderClassificationProgress();
+  }
+  renderClassificationProgress() {
+    if (!$("#classificationSettingsProgress")) return;
+    const {progress:p, error, updatedAt} = this.classificationSnapshot || {};
+    const status=$("#classificationSettingsStatus");
+    const complete=p && p.enabled!==false && p.total>0 && !p.pending && !p.running && !p.failed && !p.error;
+    status.hidden=!!complete;
+    status.textContent=complete ? '' : p ? classificationStatus(p) : error ? "尚未取得分类进度" : classificationStatus();
+    const warning=$("#classificationSettingsProgressError");
+    warning.hidden=!error; warning.textContent=error || '';
+    for (const id of ['Counts','QueueLabel']) $("#classificationSettings"+id).hidden=!p;
+    const coverage=p?.coverage;
+    $("#classificationSettingsCompletion").hidden=!coverage;
+    const retry=$("#classificationRetryBtn");
+    retry.hidden=!p || p.enabled===false || !p.configured || !(p.failed || p.error);
+    $("#classificationSettingsUpdated").textContent=updatedAt ? '更新于 '+updatedAt.toLocaleTimeString('zh-CN',{hour12:false}) : '';
+    if(!p)return;
+    if(coverage) {
+      const total=coverage.total, done=Math.min(total,Math.max(0,coverage.done)), ratio=total ? done/total*100 : 0;
+      const percent=total ? (Math.floor(ratio*10)/10).toLocaleString('zh-CN',{maximumFractionDigits:1})+'%' : '—';
+      $("#classificationCoveragePercent").textContent=percent;
+      $("#classificationSettingsCompletionText").textContent=`${done.toLocaleString()} / ${total.toLocaleString()} 条`;
+      $("#classificationCoverageRemaining").textContent=total ? `未分类 ${(total-done).toLocaleString()} 条` : '暂无新闻';
+      $("#classificationCoverageChart").setAttribute('aria-label',`全部新闻 ${total} 条，已分类 ${done} 条，未分类 ${total-done} 条`);
+      $("#classificationCoverageArc").style.strokeDashoffset=String(100-ratio);
+      $("#classificationCoverageArc").style.opacity=done ? '1' : '0';
+    }
+    $("#classificationSettingsQueueLabel").textContent=p.unread_only ? '仅未读新闻队列' : '分类队列';
+    const settled=['pending','running','failed'].every(key=>p[key]===0);
+    for(const element of $$('[data-classification-count]')) {
+      const key=element.dataset.classificationCount;
+      element.textContent=p[key].toLocaleString()+' 条';
+      element.parentElement.dataset.status=key==='done' ? (settled?'success':'') : p[key]>0 ? (key==='failed'?'danger':'warning') : '';
+    }
+  }
   click(event) {
     const button = event.target.closest("button");
     const input = event.target;
@@ -623,6 +680,8 @@ export class SettingsPanel {
       return;
     }
     const actions = {
+      classificationRefreshBtn: () => this.onClassificationRefresh?.(),
+      classificationRetryBtn: () => this.onClassificationRetry?.(),
       classificationApiSettingsBtn: () => {
         this.apiProvider = "jev";
         this.renderTranslation();

@@ -177,4 +177,92 @@ def complete_agent():
             conn.execute("UPDATE agent_sessions SET expires_at='2000-01-01 00:00:00' WHERE id=?", (job['session_id'],))
     return {'ok': True, 'job_id': job['id'], 'session_id': job['session_id']}
 
+
+# Topic prototypes exercise actual creation/matching storage with a deterministic
+# research runner. No real search, Jev requests, or native agents are used.
+topic_fixture_mode = {"value": "success"}
+def fixture_topic_research(config, prompt, cancel, diagnostics, *, web):
+    time.sleep(.08)
+    if topic_fixture_mode["value"] == "fail":
+        raise RuntimeError("topic_runtime_failed")
+    sources = [{"title": "隔离测试公告", "url": "https://example.com/topic-source"}]
+    if web:
+        diagnostics.append({"research_tools": 1})
+    if "用户事件：" in prompt:
+        return json.dumps({"name": "云杉芯片上市进程", "definition": "追踪云杉芯片的上市进程",
+            "include_scope": "上市筹备、申请、审核、发行和挂牌", "exclude_scope": "无关产品发布",
+            "start_date": "2026-01-01", "sources": sources}, ensure_ascii=False)
+    if "1–12 个历史阶段里程碑" in prompt:
+        return json.dumps({"overview": "已递交申请，正在等待审核结果。", "sources": sources, "nodes": [
+            {"date": "2026-01-01", "title": "启动筹备", "body": "公司启动上市筹备。", "sources": sources},
+            {"date": "2026-09-01", "title": "递交申请", "body": "公司递交上市申请。", "sources": sources}
+        ]}, ensure_ascii=False)
+    if "精简现有事件脉络" in prompt:
+        nodes = json.loads(prompt.split("\n已有节点：")[1])
+        return json.dumps({"nodes":[{"date":nodes[-1]["date"],"title":"交易进入监管审查阶段",
+            "body":"收购公布后进入监管审查，等待最终结论。","node_ids":[n["id"] for n in nodes]}]},ensure_ascii=False)
+    if "\n定义对话：" in prompt:
+        messages = json.loads(prompt.split("\n定义对话：")[1])
+        draft = json.loads(prompt.split("\n当前定义：")[1].split("\n初始研究来源：")[0])
+        message = messages[-1]["content"]
+        time.sleep(.4)
+        if "修订失败" in message and not topic_fixture_mode.get("chat_failed"):
+            topic_fixture_mode["chat_failed"] = True
+            raise RuntimeError("topic_runtime_failed")
+        if "仅追踪审核" in message:
+            draft.update(definition="仅追踪云杉芯片的审核进程",include_scope="上市审核及正式决定")
+            return json.dumps({"reply":"已缩小到审核进程，保留其他规则。","definition":draft},ensure_ascii=False)
+        return json.dumps({"reply":"一般股价波动不属于上市审核进展；当前定义保持不变。","definition":None},ensure_ascii=False)
+    return json.dumps({"overview": "新新闻已整理。", "nodes": []}, ensure_ascii=False)
+module.TOPIC_SERVICE.runner = fixture_topic_research
+
+@module.app.post('/__test/topics')
+def fixture_topics():
+    body = module.request.get_json(silent=True) or {}
+    topic_fixture_mode["value"] = body.get("mode", "success")
+    topic_fixture_mode.pop("chat_failed", None)
+    with module.db_conn() as conn:
+        for table in ("topic_node_items", "topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "event_topics"):
+            conn.execute("DELETE FROM " + table)
+        module.topic_tracking.seed_ingestions(conn)
+        cutoff = conn.execute("SELECT COALESCE(MAX(seq),0) FROM topic_ingestions").fetchone()[0]
+        if body.get("empty"):
+            return {"ok": True}
+        for ident, name in (("test-acquisition", "北辰科技收购远川数据"), ("test-industry", "数据基础设施并购")):
+            conn.execute("""INSERT INTO event_topics(id,request_id,query,name,definition,include_scope,exclude_scope,
+                start_date,timeline_mode,status,cutoff_seq,overview,created_at,updated_at,activated_at)
+                VALUES (?,?,?,?,'追踪交易及监管审查','交易进展','无关产品','2026-01-01',?,'ready',?,
+                '交易仍在审查中，等待最终批准。','2026-09-01','2026-10-24','2026-09-01')""",
+                (ident,ident,name,name,body.get("timeline_mode","events"),cutoff))
+            for number,stamp,title in ((0,"2026-01-01","公布收购"),(1,"2026-10-24","审查进展")):
+                node_id=ident+"-node-"+str(number)
+                conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES (?,?,'history',?,?,?,'2026-10-24')",
+                             (node_id,ident,stamp,title,title+"的详细内容。"))
+            if body.get("long_timeline"):
+                for number in range(2,14):
+                    conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES (?,?,'history',?,?,?,'2026-10-24')",
+                        (ident+"-node-"+str(number),ident,f"2026-10-{number:02}",f"阶段进展 {number}","测试历史节点。"))
+            for index in range(65 if body.get("many") else 2):
+                item=dict(conn.execute("SELECT * FROM items WHERE id=?",(f"ui-{index:03}",)).fetchone())
+                snapshot=module.topic_tracking.item_snapshot(item)
+                conn.execute("""INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,status,matched,processed,updated_at)
+                    VALUES (?,?,1,?,?,'done',1,1,?)""",
+                    (ident,item["id"],module.topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
+                conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,?)",(ident+"-node-"+str(index % 2),item["id"]))
+            if body.get("refined_recently"):
+                stamp=module.topic_tracking.now()
+                conn.execute("""INSERT INTO topic_jobs(id,topic_id,kind,status,revision,config_json,created_at,updated_at)
+                    VALUES (?,?,'refine','done',1,'{}',?,?)""",(ident+'-refine',ident,stamp,stamp))
+        if body.get("many_topics"):
+            for index in range(14):
+                ident=f"extra-topic-{index}"
+                conn.execute("""INSERT INTO event_topics(id,request_id,query,name,status,cutoff_seq,created_at,updated_at)
+                    VALUES (?,?,?,?,'ready',?,'2026-09-01','2026-10-24')""",(ident,ident,'其他事件',f'其他追踪主题 {index}',cutoff))
+    return {"ok": True}
+
+@module.app.post('/__test/topic-mode')
+def fixture_topic_mode():
+    topic_fixture_mode["value"] = module.request.get_json()["mode"]
+    return {"ok": True}
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

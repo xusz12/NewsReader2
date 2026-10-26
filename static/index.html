@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.2.4</title>
+    <title>News Reader v0.2.5</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.2.4" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.2.4" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.2.5" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.2.5" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.2.4"
+      href="/static/style.css?v=0.2.5"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.2.4</span>
+            <span class="brand-version">v0.2.5</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -309,6 +309,9 @@
               </section>
               <section class="nav-section">
                 <div class="nav-title">研究</div>
+                <button class="nav-item" data-collection="topics" id="navTopicsBtn" type="button">
+                  <div class="nav-item-left"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M5 7h14M5 17h14"/><circle cx="5" cy="7" r="2"/><circle cx="5" cy="17" r="2"/></svg><span>主题追踪</span></div>
+                </button>
                 <button class="nav-item" data-collection="summaries" id="navSummariesBtn" type="button">
                   <div class="nav-item-left"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg><span>新闻总结</span></div>
                 </button>
@@ -344,7 +347,7 @@
           </aside>
           <section
             aria-label="新闻条目流"
-            class="feed-column active"
+            class="feed-column has-list-search active"
             id="feedColFeed"
           >
             <div class="feed-header">
@@ -371,7 +374,7 @@
                   </div>
                 </div>
               </div>
-              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button><button id="feedSearchToggleBtn" class="filter-chip icon-chip" type="button" aria-label="展开新闻搜索" title="展开新闻搜索" aria-controls="feedSearchRow" aria-expanded="false"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg></button></div></div>
+              <div class="feed-filter-row"><div class="feed-filter-chips"></div><div class="feed-list-tools"><button id="sortNewsBtn" class="filter-chip icon-chip" type="button" aria-label="排序：旧到新"></button><button id="clearFavoritesBtn" class="filter-chip icon-chip" type="button" aria-label="全部取消收藏" title="全部取消收藏（含未加载及筛选外条目）" hidden></button><button id="markAllReadBtn" class="filter-chip icon-chip" type="button" aria-label="全部已读"></button><button id="feedSearchToggleBtn" class="filter-chip icon-chip feed-search-toggle" type="button" aria-label="展开新闻搜索" title="展开新闻搜索" aria-controls="feedSearchRow" aria-expanded="false"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg></button></div></div>
               <div id="newsCategoryFilters" class="news-category-filters" role="group" aria-label="新闻分类"></div>
             </div>
 
@@ -415,6 +418,7 @@
           >
             <div class="detail-toolbar">
               <div class="detail-toolbar-left">
+                <button class="reader-action-btn" id="topicReaderBackBtn" type="button" hidden>← 返回主题</button>
                 <div class="reader-cache-status" title="正文抓取状态">
                   <span aria-hidden="true" class="cache-pulse-dot"></span>
                   <span class="cache-label">选择一篇新闻</span>
@@ -652,6 +656,44 @@
               <div class="workbench-detail-body" id="ideaDetailBody"></div>
             </div>
           </section>
+          <section class="feed-column has-list-search" id="feedColTopics" aria-label="追踪主题列表">
+            <div class="feed-header">
+              <div class="feed-search-row" id="topicSearchRow">
+                <div class="feed-search-reveal"><div class="feed-search-box">
+                  <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg>
+                  <input class="feed-search-input" id="topicSearchInput" type="text" aria-label="搜索主题" placeholder="搜索主题名称或定义…" />
+                  <span class="search-shortcut-hint" data-shortcut-hint="search">/</span>
+                </div></div>
+              </div>
+              <div class="feed-filter-row">
+                <div class="feed-filter-chips" id="topicFilters" role="group" aria-label="主题筛选">
+                  <button class="filter-chip active" data-topic-filter="all" type="button" aria-pressed="true">全部</button>
+                  <button class="filter-chip" data-topic-filter="tracking" type="button" aria-pressed="false">持续跟踪</button>
+                  <button class="filter-chip" data-topic-filter="archived" type="button" aria-pressed="false">已归档</button>
+                </div>
+                <div class="feed-list-tools">
+                  <button class="filter-chip icon-chip" id="newTopicBtn" type="button" aria-label="新建主题" title="新建主题">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                  <button class="filter-chip icon-chip feed-search-toggle" id="topicSearchToggleBtn" type="button" aria-label="展开主题搜索" title="展开主题搜索" aria-controls="topicSearchRow" aria-expanded="false"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg></button>
+                </div>
+              </div>
+            </div>
+            <div class="news-list" id="topicListScroll"><div class="feed-date-cards" id="topicCardList"></div></div>
+          </section>
+          <section class="detail-panel" id="detailPanelTopics" aria-label="主题详情与创建">
+            <div class="detail-toolbar" id="topicToolbar">
+              <div class="detail-toolbar-right">
+                <div class="reader-action-toolbar" role="group" aria-label="主题操作">
+                  <button class="reader-tool-btn" id="topicDefinitionBtn" data-topic-action="definition" type="button" aria-expanded="false" aria-controls="topicDefinition" hidden>定义</button>
+                  <button class="reader-tool-btn" id="topicArchiveBtn" data-topic-action="archive" type="button" hidden>归档主题</button>
+                  <button class="reader-tool-btn danger" id="topicDeleteBtn" data-topic-action="delete" type="button" hidden>删除主题</button>
+                </div>
+              </div>
+            </div>
+            <ol class="topic-steps" id="topicCreationSteps" aria-label="创建进度" hidden></ol>
+            <div class="detail-scroll-area" id="topicScrollArea"><div class="detail-content" id="topicContent"><div class="reader-empty"><h2>选择一个主题</h2><p>梳理历史脉络，收录后续相关新闻。</p><button class="btn-primary" type="button" data-topic-action="new">新建主题</button></div></div></div>
+          </section>
           <section class="feed-column" id="feedColSummaries" aria-label="新闻总结历史列表">
             <div class="feed-header">
               <label class="feed-search-box"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m17 17 4 4"/></svg><input class="feed-search-input" id="summariesSearchInput" type="search" aria-label="搜索新闻总结" placeholder="搜索历史总结、主线或日期…"><span class="search-shortcut-hint" data-shortcut-hint="search">/</span></label>
@@ -722,7 +764,7 @@
                     ></path>
                     <polyline points="14 2 14 8 20 8"></polyline></svg
                 ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="管理自动分类开关、分类范围与并发上限。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="管理来源开关，增量扫描新闻输入。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
                   ><svg
                     fill="none"
@@ -935,9 +977,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.2.4"></script>
+    <script src="/static/error_ui.js?v=0.2.5"></script>
     <script
-      src="/static/app.js?v=0.2.4"
+      src="/static/app.js?v=0.2.5"
       type="module"
     ></script>
   </body>

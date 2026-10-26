@@ -341,7 +341,7 @@ def clean_for_runtime(s, config, today=None):
     return result
 
 
-def run_native(config, prompt, cancel, diagnostics):
+def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
     """Cancellable owned child, same existing Codex parser / OAR trust-compatible bridge."""
     if cancel():
         raise RuntimeError("summary_cancelled")
@@ -354,12 +354,16 @@ def run_native(config, prompt, cancel, diagnostics):
     terminal = None
     started = time.monotonic()
     raw_count = 0
+    research_tools = 0
     stderr = bytearray()
     parser = codex_client.EventParser() if is_codex else None
     try:
         if is_codex:
             codex_client.require_ready()
-            command = codex_client.command(config["codex"], ephemeral=True)
+            command = codex_client.command(config["codex"], ephemeral=True, live_search=allow_research)
+            if not allow_research:
+                if command[-1:] == ["-"]:
+                    command[-1:-1] = ["-c", 'web_search="disabled"']
             pending = prompt.encode()
             env = dict(os.environ)
         else:
@@ -398,7 +402,7 @@ def run_native(config, prompt, cancel, diagnostics):
             sel.register(stream, events, name)
 
         def consume(raw):
-            nonlocal raw_count, terminal
+            nonlocal raw_count, terminal, research_tools
             if terminal is not None:
                 raise RuntimeError("summary_runtime_failed")
             raw_count += 1
@@ -410,12 +414,24 @@ def run_native(config, prompt, cancel, diagnostics):
                     "reasoning",
                     "error",
                 ):
-                    raise RuntimeError("summary_tool_used")
+                    if not allow_research or item.get("type") != "web_search":
+                        raise RuntimeError("summary_tool_used")
+                    research_tools += 1
                 evt = parser.parse(raw.decode())
             else:
                 evt = parse_event(raw.decode())
                 if evt["type"] == "oar_tool":
-                    raise RuntimeError("summary_tool_used")
+                    if not allow_research:
+                        raise RuntimeError("summary_tool_used")
+                    tool = evt.get("tool", "")
+                    # Discovery alone is not evidence of a web search. Local file or
+                    # shell tools cannot turn a memory-only answer into valid research.
+                    if tool == "tool_search":
+                        pass
+                    elif isinstance(tool, str) and re.search(r"(^|[_./-])(web|web_search|web_fetch|fetch_url|tavily|brave|exa|browser|firecrawl)([_./-]|$)", tool, re.I):
+                        research_tools += 1
+                    else:
+                        raise RuntimeError("topic_search_required")
             if evt["type"] == "oar_result":
                 terminal = evt
 
@@ -489,6 +505,7 @@ def run_native(config, prompt, cancel, diagnostics):
                 "terminal": terminal is not None,
                 "seconds": round(time.monotonic() - started, 3),
                 "stderr_present": bool(stderr),
+                **({"research_tools": research_tools} if allow_research else {}),
                 "launch_hint": (
                     "provider_not_found"
                     if b"Model provider" in stderr and b"not found" in stderr

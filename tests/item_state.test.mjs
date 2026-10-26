@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ItemStateQueue, ReadBatchWriter } from '../static/item-state.js';
 
 function fixture() {
-  const item = { id: 'article', important_at: null, favorite_at: null, read_later_at: null, read_later_done_at: 'previous' };
+  const item = { id: 'article', read_at: null, important_at: null, favorite_at: null, read_later_at: null, read_later_done_at: 'previous' };
   const requests = [], saved = [], errors = [];
   const queue = new ItemStateQueue({
     save: (id, body) => new Promise((resolve, reject) => requests.push({ id, body, resolve, reject })),
@@ -14,6 +14,49 @@ function fixture() {
   return { item, queue, requests, saved, errors };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('adding read later marks feed read immediately without completing the article; cancel keeps it read', async () => {
+  const { item, queue, requests } = fixture();
+  const done = queue.set(item, 'read_later', true);
+  assert.ok(item.read_at && item.read_later_at);
+  assert.equal(item.read_later_done_at, null);
+  queue.set(item, 'read_later', false);
+  requests[0].resolve({ read_at: 'read', read_later_at: 'queued', read_later_done_at: null });
+  await tick();
+  assert.deepEqual(requests[1].body, { read_later: false });
+  requests[1].resolve({ read_at: 'read', read_later_at: null, read_later_done_at: null });
+  await done;
+  assert.equal(item.read_at, 'read');
+  assert.equal(item.read_later_done_at, null);
+});
+
+test('adding an already read article keeps its read timestamp', async () => {
+  const { item, queue, requests } = fixture();
+  item.read_at = 'previous-read';
+  const done = queue.set(item, 'read_later', true);
+  assert.deepEqual(requests[0].body, { read_later: true });
+  requests[0].resolve({ read_at: 'previous-read', read_later_at: 'queued', read_later_done_at: null });
+  await done;
+  assert.equal(item.read_at, 'previous-read');
+});
+
+for (const blocked of [false, true]) {
+  test(`newer manual unread wins over adding read later (another save in flight: ${blocked})`, async () => {
+    const { item, queue, requests } = fixture();
+    if (blocked) queue.set(item, 'favorite', true);
+    const done = queue.set(item, 'read_later', true);
+    queue.set(item, 'read', false);
+    requests[0].resolve(blocked ? { favorite_at: 'saved' } : { read_at: 'read', read_later_at: 'queued', read_later_done_at: null });
+    await tick();
+    assert.equal(item.read_at, null);
+    assert.equal(requests[1].body.read, false);
+    if (blocked) assert.equal(requests[1].body.read_later, true);
+    requests[1].resolve({ read_at: null, read_later_at: 'queued', read_later_done_at: null });
+    await done;
+    assert.equal(item.read_at, null);
+    assert.equal(item.read_later_at, 'queued');
+  });
+}
 
 test('read batches deduplicate IDs and combine new reads during an in-flight save', async () => {
   const requests = [];
@@ -80,14 +123,17 @@ test('rapid toggles retain the latest intent and coalesce unsent clicks', async 
   assert.equal(item.favorite_at, null);
 });
 
-test('failure rolls back both read-later timestamps and releases saving state', async () => {
+test('failure rolls back implicit read and both read-later timestamps', async () => {
   const { item, queue, requests, errors } = fixture();
   const done = queue.set(item, 'read_later', true);
   assert.ok(item.read_later_at);
+  assert.ok(item.read_at);
+  assert.deepEqual(requests[0].body, { read: true, read_later: true });
   assert.equal(item.read_later_done_at, null);
   requests[0].reject(new Error('offline'));
   await done;
   assert.equal(item.read_later_at, null);
+  assert.equal(item.read_at, null);
   assert.equal(item.read_later_done_at, 'previous');
   assert.equal(queue.has(item.id, 'read_later'), false);
   assert.equal(errors.length, 1);
@@ -171,7 +217,7 @@ test('explicit completion is sent separately and rapid re-add clears it', async 
   requests[0].resolve({ read_later_at: null, read_later_done_at: 'done' });
   await tick();
   assert.equal(item.read_later_done_at, null);
-  assert.deepEqual(requests[1].body, { read_later: true });
+  assert.deepEqual(requests[1].body, { read_later: true, read: true });
   requests[1].resolve({ read_later_at: 'queued', read_later_done_at: null });
   await done;
   assert.equal(item.read_later_done_at, null);

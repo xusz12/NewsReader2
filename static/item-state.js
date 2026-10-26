@@ -86,6 +86,14 @@ export class ItemStateQueue {
       for (const field of fieldsFor(flag)) queue.confirmed[field] = item[field] ?? null;
     }
     const timestamp = new Date().toISOString();
+    if (flag === "read_later" && value && !item.read_at) {
+      // Keep this a separate intent so a subsequent manual unread action can
+      // supersede it, including while another flag is being saved.
+      if (!queue.desired.has("read")) queue.confirmed.read_at = item.read_at ?? null;
+      const readPatch = { read_at: item.read_at || timestamp };
+      queue.desired.set("read", { value: true, silent: true, patch: readPatch });
+      this.publish(id, "read", readPatch);
+    }
     const patch = { [`${flag}_at`]: value ? timestamp : null };
     if (flag === "read_later") patch.read_later_done_at = !value && complete ? timestamp : null;
     queue.desired.set(flag, { value, silent, complete, patch });

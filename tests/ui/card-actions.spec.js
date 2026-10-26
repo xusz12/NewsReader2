@@ -71,8 +71,9 @@ test('all three buttons respond before a slow save, keep their DOM and save ever
   for (const flag of ['important', 'read_later', 'favorite'])
     await expect(button(page, flag)).toHaveAttribute('aria-busy', 'false');
   const saved = await detail(request);
-  expect(saved.important_at && saved.favorite_at && saved.read_later_at).toBeTruthy();
-  expect(bodies).toEqual([{ important: true }, { read_later: true, favorite: true }]);
+  expect(saved.important_at && saved.favorite_at && saved.read_later_at && saved.read_at).toBeTruthy();
+  expect(saved.read_later_done_at).toBeNull();
+  expect(bodies).toEqual([{ important: true }, { read: true, read_later: true, favorite: true }]);
   expect(await row(page).evaluate(node => node === window.originalCard)).toBe(true);
 });
 
@@ -177,7 +178,8 @@ test('saving read-later refreshes an unopened failed card using only its lightwe
 });
 
 test('late status polling preserves a newer read-later save without rebuilding cards', async ({ page, request }) => {
-  await request.patch('/api/news/ui-063/state', { data: { read_later: true } });
+  // Keep the queued fixture in the unread feed with an explicit unread choice.
+  await request.patch('/api/news/ui-063/state', { data: { read_later: true, read: false } });
   await page.clock.install();
   await page.route('**/api/news?*', async route => {
     const data = await (await route.fetch()).json();

@@ -1,12 +1,25 @@
 import { $, api, busy } from "./ui.js";
 
+export function classificationStatus(progress) {
+  if (!progress) return "正在读取分类进度…";
+  const p = progress, throttle = p.throttle;
+  if (p.enabled === false) return p.running ? "自动分类已关闭，正在处理的请求会继续完成" : "自动分类已关闭，保留现有进度";
+  if (!p.total) return "当前范围暂无新闻";
+  if (!p.pending && !p.running && !p.failed && !p.error) return "当前范围已全部分类完成";
+  if (!p.configured) return "等待在 API 管理中配置 Jev";
+  if (p.error) return "分类已暂停，请检查 API 管理中的 Jev 配置后重试";
+  if (throttle?.rate_limited && (p.pending || p.running)) return `限流降速 · 并发 ${throttle.effective_concurrency}/${throttle.configured_concurrency}${throttle.cooldown_seconds ? ` · ${throttle.cooldown_seconds} 秒后继续` : ""}`;
+  return p.pending || p.running ? "正在分类" : "有失败项待重试";
+}
+
 // A determinate status indicator: only server counts advance the ring.
 export class ClassificationProgress {
-  constructor({ onSettings }) {
+  constructor({ onSettings, onChange }) {
     this.root = $("#classificationProgress");
     this.indicator = $("#classificationProgressIndicator");
     this.panel = $("#classificationProgressPanel");
     this.onSettings = onSettings;
+    this.onChange = onChange;
     this.root.addEventListener("pointerenter", event => {
       if (event.pointerType !== "touch") this.open();
     });
@@ -76,9 +89,9 @@ export class ClassificationProgress {
     try {
       const progress = await api("/api/news/classification");
       // A settings change or index refresh may supersede an in-flight snapshot.
-      if (!this.refreshAgain) { this.progress = progress; this.error = ""; this.render(); }
+      if (!this.refreshAgain) { this.progress = progress; this.error = ""; this.updatedAt = new Date(); this.render(); }
     } catch {
-      this.error = "进度暂时无法更新，显示上次结果";
+      this.error = this.progress ? "进度暂时无法更新，显示上次结果" : "暂时无法读取分类进度，请重试";
       this.render();
     } finally {
       this.refreshing = false;
@@ -91,6 +104,7 @@ export class ClassificationProgress {
   }
   render() {
     const p = this.progress;
+    this.onChange?.({ progress: p, error: this.error, updatedAt: this.updatedAt });
     this.root.hidden = !p || p.enabled === false || !p.total || !(p.pending || p.running || p.failed);
     if (this.root.hidden) { this.close(); return; }
     const done = Math.min(p.total, Math.max(0, p.done));
@@ -103,12 +117,7 @@ export class ClassificationProgress {
     $("#classificationProgressCount").textContent = `${done.toLocaleString()}/${p.total.toLocaleString()} 条`;
     $("#classificationProgressScope").textContent = `当前模式：${p.unread_only ? "仅未读" : "全部"}`;
     $("#classificationProgressDetails").textContent = `待处理 ${p.pending} · 处理中 ${p.running} · 失败 ${p.failed}`;
-    const throttle = p.throttle;
-    const status = this.error || (!p.configured ? "等待在 API 管理中配置 Jev"
-      : p.error ? "分类已暂停，请检查 API 管理中的 Jev 配置后重试"
-      : throttle?.rate_limited ? `限流降速 · 并发 ${throttle.effective_concurrency}/${throttle.configured_concurrency}${throttle.cooldown_seconds ? ` · ${throttle.cooldown_seconds} 秒后继续` : ""}`
-      : p.pending || p.running ? "正在分类" : "有失败项待重试");
-    $("#classificationProgressStatus").textContent = status;
+    $("#classificationProgressStatus").textContent = this.error || classificationStatus(p);
     $("#classificationProgressRetry").hidden = !p.configured || !(p.failed || p.error);
     $("#classificationProgressSettings").hidden = p.configured && !p.error;
   }

@@ -55,6 +55,7 @@ import codex_client
 import news_summaries
 import agent_notifications
 import news_classification
+import topic_tracking
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
 
 from settings import (
@@ -1106,6 +1107,7 @@ def ensure_db() -> None:
         migrate_news_reminders_review_chain_id(conn)
         seed_market_tag_definitions(conn)
         news_classification.enqueue(conn)
+        topic_tracking.enqueue_checks(conn)
         _cleanup_media_cache(conn)
         conn.commit()
     finally:
@@ -9464,6 +9466,10 @@ def api_update_item_state(item_id: str):
         if "important" in body:
             important_at = ts if body["important"] else None
         if "read_later" in body:
+            # Adding to the queue acknowledges the headline, not completion of
+            # the saved article. A newer explicit unread choice still wins.
+            if body["read_later"] and "read" not in body:
+                read_at = read_at or ts
             read_later_at = ts if body["read_later"] else None
             read_later_done_at = ts if not body["read_later"] and body.get("read_later_done") else None
             job = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (row["url"],)).fetchone()
@@ -12284,8 +12290,120 @@ def classification_config() -> tuple[str, str]:
     return provider_secret_value("jev"), model
 
 
-CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config)
+TOPIC_SERVICE = topic_tracking.Service(db_conn, current_runtime_settings)
+CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config, topic_queue=topic_tracking.MatchQueue())
 CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
+
+
+def _topic_error(exc):
+    code = str(exc)
+    messages = {**news_summaries.ERRORS, **topic_tracking.ERRORS}
+    if code not in messages:
+        code = "topic_invalid_input" if isinstance(exc, (ValueError, TypeError)) else "topic_runtime_failed"
+    return jsonify(ok=False, error=code, message=messages.get(code, "主题处理失败。")), (
+        404 if code == "topic_not_found" else 409 if code in {"topic_busy", "topic_not_draft", "topic_not_ready", "topic_archived", "topic_retry_required", "topic_refine_cooldown", "topic_definition_changed", "topic_draft_changed"} else 400)
+
+
+@app.route("/api/topics", methods=["GET", "POST"])
+def api_event_topics():
+    try:
+        if request.method == "GET":
+            return jsonify(ok=True, topics=TOPIC_SERVICE.listing(), matching_configured=provider_has_configured_key("jev"),
+                           matching_error=CLASSIFICATION_SERVICE.error)
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise ValueError("topic_invalid_input")
+        return jsonify(ok=True, topic=TOPIC_SERVICE.create(body)), 202
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.get("/api/topics/<topic_id>")
+def api_event_topic(topic_id):
+    try:
+        offset = int(request.args.get("offset", 0))
+        limit = int(request.args.get("limit", 40))
+        if not 0 <= offset <= 1000000 or not 1 <= limit <= 400:
+            raise ValueError("topic_invalid_input")
+        return jsonify(ok=True, **TOPIC_SERVICE.detail(topic_id, offset=offset, limit=limit, node_id=request.args.get("node") or None))
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.post("/api/topics/<topic_id>/initialize")
+def api_event_topic_initialize(topic_id):
+    try:
+        return jsonify(ok=True, topic=TOPIC_SERVICE.initialize(topic_id, request.get_json(silent=True))), 202
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.patch("/api/topics/<topic_id>/definition")
+def api_event_topic_definition(topic_id):
+    try:
+        return jsonify(ok=True, topic=TOPIC_SERVICE.revise_definition(topic_id, request.get_json(silent=True)))
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.post("/api/topics/<topic_id>/messages")
+def api_event_topic_message(topic_id):
+    try:
+        return jsonify(ok=True, topic=TOPIC_SERVICE.discuss(topic_id, request.get_json(silent=True))), 202
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.post("/api/topics/<topic_id>/retry")
+def api_event_topic_retry(topic_id):
+    try:
+        TOPIC_SERVICE.retry(topic_id)
+        CLASSIFICATION_SERVICE.resume()
+        return jsonify(ok=True), 202
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.post("/api/topics/<topic_id>/seen")
+def api_event_topic_seen(topic_id):
+    body = request.get_json(silent=True) or {}
+    observed = body.get("observed_at") if isinstance(body, dict) else None
+    if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not 0 <= observed <= time.time():
+        return _topic_error(ValueError("topic_invalid_input"))
+    with closing(db_conn()) as conn, conn:
+        conn.execute("UPDATE event_topics SET seen_at=MAX(seen_at,?) WHERE id=?", (observed, topic_id))
+    return jsonify(ok=True)
+
+
+@app.post("/api/topics/<topic_id>/archive")
+def api_event_topic_archive(topic_id):
+    try:
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            raise ValueError("topic_invalid_input")
+        TOPIC_SERVICE.set_archived(topic_id, body.get("archived"))
+        return jsonify(ok=True)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.post("/api/topics/<topic_id>/refine")
+def api_event_topic_refine(topic_id):
+    try:
+        TOPIC_SERVICE.refine(topic_id)
+        return jsonify(ok=True), 202
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
+@app.delete("/api/topics/<topic_id>")
+def api_event_topic_delete(topic_id):
+    with closing(db_conn()) as conn, conn:
+        conn.execute("DELETE FROM topic_node_items WHERE node_id IN (SELECT id FROM topic_nodes WHERE topic_id=?)", (topic_id,))
+        for table in ("topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages"):
+            conn.execute(f"DELETE FROM {table} WHERE topic_id=?", (topic_id,))
+        conn.execute("DELETE FROM event_topics WHERE id=?", (topic_id,))
+    return jsonify(ok=True)
 
 
 @app.get("/api/news/classification")
@@ -12316,6 +12434,7 @@ def main() -> None:
     start_agent_worker()
     CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
     CLASSIFICATION_SERVICE.start()
+    TOPIC_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:

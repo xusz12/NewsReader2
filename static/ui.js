@@ -22,6 +22,49 @@ export function safeURL(value) {
     return "";
   }
 }
+// Transparent sticky date headings use the same clipping in every news list.
+export function clipDateGroupHeaders(container) {
+  const clips = [...container.querySelectorAll(".feed-date-group")].map(group => {
+    const heading = $(".feed-date-heading", group), cards = $(".feed-date-cards", group);
+    const rect = cards.getBoundingClientRect();
+    const clip = Math.max(0, Math.min(rect.height, heading.getBoundingClientRect().bottom - rect.top));
+    return [cards, clip ? `inset(${clip}px -8px -8px)` : ""];
+  });
+  for (const [cards, clip] of clips) cards.style.clipPath = clip;
+}
+// List views share search visibility, focus and keyboard behavior at the same breakpoint.
+export class ListSearch {
+  constructor({ column, label, onCollapse }) {
+    Object.assign(this, { column, label, onCollapse, mobileOpen: false });
+    this.row = $(".feed-search-row", column);
+    this.input = $(".feed-search-input", column);
+    this.toggle = $(".feed-search-toggle", column);
+    this.toggle.onclick = () => this.setOpen(!this.mobileOpen, !this.mobileOpen);
+    this.input.addEventListener("keydown", event => {
+      if (singlePane.matches && event.key === "Escape" && !event.isComposing) {
+        event.preventDefault(); event.stopPropagation(); this.setOpen(false);
+      }
+    });
+    singlePane.addEventListener("change", () => this.sync());
+    this.sync();
+  }
+  sync() {
+    const visible = !singlePane.matches || this.mobileOpen;
+    if (!visible && this.row.contains(document.activeElement)) this.toggle.focus({ preventScroll: true });
+    this.row.inert = !visible;
+    this.row.setAttribute("aria-hidden", String(!visible));
+    this.column.classList.toggle("search-open", visible);
+    this.toggle.setAttribute("aria-expanded", String(visible));
+    const label = (visible ? "收起" : "展开") + this.label;
+    this.toggle.setAttribute("aria-label", label); this.toggle.title = label;
+  }
+  setOpen(open, focus = false) {
+    if (!open && singlePane.matches) this.onCollapse?.();
+    this.mobileOpen = open;
+    this.sync();
+    if (open && focus) this.input.focus({ preventScroll: true });
+  }
+}
 export async function api(path, { method = "GET", body, signal } = {}) {
   const response = await fetch(path, {
     method,

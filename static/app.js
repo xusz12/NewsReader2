@@ -18,17 +18,20 @@ import {
   markdown,
   inlineMarkdown,
   focusTrap,
+  clipDateGroupHeaders,
+  ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.2.4";
-import { SummaryPanel } from "./summary-panel.js?v=0.2.4";
+import { SettingsPanel } from "./settings-panel.js?v=0.2.5";
+import { SummaryPanel } from "./summary-panel.js?v=0.2.5";
+import { TopicPanel } from "./topic-panel.js?v=0.2.5";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=0.2.4";
+import { ClassificationProgress } from "./classification-progress.js?v=0.2.5";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.2.4";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.2.5";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -40,7 +43,6 @@ const state = {
   source: "all",
   category: "all",
   query: "",
-  mobileSearchOpen: false,
   items: [],
   selected: null,
   detail: null,
@@ -71,6 +73,7 @@ const labels = {
   favorites: "收藏",
   notes: "想法",
   summaries: "新闻总结",
+  topics: "主题追踪",
 };
 const stateLabels = {
   read: "已读",
@@ -89,6 +92,7 @@ const stateWrites = new ItemStateQueue({
     applyReadCountChange(id, patch);
     const item = state.items.find(row => row.id === id);
     if (item) { Object.assign(item, patch); updateCard(item); }
+    topics.updateItemState(id, patch);
     if (state.selected?.id === id) {
       Object.assign(state.selected, patch);
       if (state.detail) Object.assign(state.detail, patch);
@@ -98,7 +102,7 @@ const stateWrites = new ItemStateQueue({
   },
   onSaved: (id, saved) => {
     for (const [flag, { value, silent, complete }] of Object.entries(saved)) {
-      const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null);
+      const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null) || topics.data?.items.find(row => row.id === id);
       const removed = item?.detail_ready ? "正文已就绪，已进入全文待看" : item?.detail_status === "running" ? "抓取已开始，完成后会进入全文待看" : "已取消排队";
       if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : complete ? "已看完" : removed) : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
     }
@@ -129,6 +133,11 @@ const topbarObserver = new ResizeObserver(() => {
 topbarSides.forEach(node => topbarObserver.observe(node));
 const settings = new SettingsPanel({
   selects,
+  onClassificationRefresh: () => classification.refresh(),
+  onClassificationRetry: async () => {
+    await api("/api/news/classification/retry", {method:"POST"});
+    await classification.refresh();
+  },
   onOpen: () => {
     resetDetailSwipe();
     closeNav();
@@ -209,7 +218,7 @@ const notifications = new AgentNotifications({
     (!singlePane.matches || mobileReaderOpen()) && !!$("#detailPanelFeed").getClientRects().length,
   onOpen: async (target, current) => {
     if (!current()) return false;
-    if (["notes", "summaries"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
+    if (["notes", "summaries", "topics"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
     settings.close({ restoreFocus: false });
     const loaded = await selectNews(target.item, true, false, { notificationAgent: target.agent, navigationCurrent: current, retryNotification: () => notifications.openNotice(target.notification.id) });
     if (!loaded || !current() || agent.payload.session?.id !== target.agent.session.id) return false;
@@ -234,15 +243,34 @@ const summaries = new SummaryPanel({
   },
   onCompleted: () => {
     refreshBadges();
-    if (!["notes", "summaries"].includes(state.collection)) {
+    if (!["notes", "summaries", "topics"].includes(state.collection)) {
       loadFeed();
       if (state.selected) selectNews(state.selected, false);
     }
   },
 });
 
+const topics = new TopicPanel({
+  isVisible: () => state.collection === "topics" && !settings.open,
+  enterReader,
+  onViewChange: syncDetailPanels,
+  openArticle: item => selectNews(item, true, true),
+  readLaterAction: item => cardAction(item, "read_later"),
+  toggleReadLater: item => toggleState(item, "read_later"),
+  stateVersion: () => stateWrites.version,
+  reconcileItem: (item, version) => stateWrites.reconcile(item.id, item, version),
+  closeArticle: () => {
+    rememberReader();
+    clearTimeout(detailTimer);
+    state.detailSequence++;
+    state.detailRequestSequence++;
+    agent.suspend();
+  },
+});
+
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
 const classification = new ClassificationProgress({
+  onChange: snapshot => settings.updateClassificationProgress(snapshot),
   onSettings: async () => {
     if (!settings.open) await settings.toggle();
     settings.selectSection("classification");
@@ -361,14 +389,7 @@ function scheduleFeedDateHeaders() {
     dateHeadersFrame = null;
     const list = $("#feedCardList");
     if (!list.getClientRects().length) return;
-    // Clip cards beneath each transparent sticky heading instead of adding a background.
-    const clips = $$(".feed-date-group", list).map(group => {
-      const heading = $(".feed-date-heading", group), cards = $(".feed-date-cards", group);
-      const rect = cards.getBoundingClientRect();
-      const clip = Math.max(0, Math.min(rect.height, heading.getBoundingClientRect().bottom - rect.top));
-      return [cards, clip ? `inset(${clip}px -8px -8px)` : ""];
-    });
-    for (const [cards, clip] of clips) cards.style.clipPath = clip;
+    clipDateGroupHeaders(list);
   });
 }
 function cardAction(item, flag) {
@@ -490,6 +511,7 @@ async function clearFavorites() {
   }
 }
 async function loadFeed(append = false) {
+  if (state.collection === "topics") return topics.refresh();
   if (state.collection === "summaries") return summaries.load();
   if (state.collection === "notes") return loadIdeas();
   if (append && (state.loading || !state.more)) return;
@@ -717,13 +739,16 @@ function applyReadCountChange(id, patch) {
   if (!readCountsFrame) readCountsFrame = requestAnimationFrame(renderReadCounts);
 }
 
-function setReadState(item, value, silent) {
+function trackReadChange(item) {
   if (!readOperations.has(item.id))
     readOperations.set(item.id, {
       read_at: item.read_at, fromFeed: state.collection === "feed",
       source: sourceKey(item), label: item.source, query: state.query, category: item.category,
       date: newsDate(item),
     });
+}
+function setReadState(item, value, silent) {
+  trackReadChange(item);
   return stateWrites.set(item, "read", value, silent).then(saved => {
     if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
     return saved;
@@ -756,7 +781,7 @@ async function updateBadges() {
   const scope = filterCountScope();
   const dateScope = countScope();
   const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
-  const hasFeed = !["notes", "summaries"].includes(state.collection);
+  const hasFeed = !["notes", "summaries", "topics"].includes(state.collection);
   const scopedDates = state.collection === "feed" && state.category !== "all";
   if (hasFeed && !scopedDates) params.set("date_counts", "1");
   const updateDates = data => {
@@ -794,7 +819,7 @@ const sourceCountsByCollection = new Map();
 const sourceCatalogByCollection = new Map();
 async function loadSources() {
   const currentCollection = state.collection;
-  const collection = currentCollection === "summaries" ? "feed" : currentCollection, sequence = ++sourcesSequence;
+  const collection = ["summaries", "topics"].includes(currentCollection) ? "feed" : currentCollection, sequence = ++sourcesSequence;
   const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   const snapshot = countSnapshot();
   try {
@@ -814,6 +839,7 @@ async function loadSources() {
   }
 }
 function renderSources() {
+  $("#sourceFilters").closest(".nav-section").hidden = state.collection === "topics";
   const groups = settings.saved?.feed_source_subkeys?.groups || [];
   const sourceCounts = sourceCountsByCollection.get(state.collection) || [];
   const showCount = ["feed", "read_later", "favorites"].includes(state.collection) && sourceCountsByCollection.has(state.collection);
@@ -832,6 +858,8 @@ function renderSources() {
 }
 function switchCollection(collection, { restoreReader = true } = {}) {
   if (!labels[collection]) return;
+  topics.deactivate();
+  topics.reading = false;
   state.collectionSequence++;
   state.ideaSequence++;
   settings.close({ restoreFocus: false });
@@ -857,9 +885,11 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   exitReader();
   const ideas = collection === "notes";
   const summary = collection === "summaries";
-  $("#feedColFeed").classList.toggle("active", !ideas && !summary);
+  const topic = collection === "topics";
+  $("#feedColFeed").classList.toggle("active", !ideas && !summary && !topic);
   $("#feedColIdeas").classList.toggle("active", ideas);
   $("#feedColSummaries").classList.toggle("active", summary);
+  $("#feedColTopics").classList.toggle("active", topic);
   syncDetailPanels();
   $$("[data-collection]").forEach((button) => {
     const active = button.dataset.collection === collection;
@@ -867,7 +897,10 @@ function switchCollection(collection, { restoreReader = true } = {}) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  if (summary) {
+  if (topic) {
+    agent.suspend();
+    topics.load();
+  } else if (summary) {
     agent.suspend();
     clearTimeout(detailTimer);
     state.detailSequence++;
@@ -888,12 +921,15 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   renderFilters();
 }
 function readingArticle() {
-  return state.collection !== "summaries" && (state.collection !== "notes" || state.idea?.idea_type === "article_note");
+  return state.collection !== "summaries" && (state.collection !== "topics" || topics.reading) &&
+    (state.collection !== "notes" || state.idea?.idea_type === "article_note");
 }
 function syncDetailPanels() {
   $("#detailPanelFeed").classList.toggle("active", readingArticle());
   $("#detailPanelIdeas").classList.toggle("active", state.collection === "notes" && !readingArticle());
   $("#detailPanelSummaries").classList.toggle("active", state.collection === "summaries");
+  $("#detailPanelTopics").classList.toggle("active", state.collection === "topics" && !topics.reading);
+  $("#topicReaderBackBtn").hidden = state.collection !== "topics" || !topics.reading;
   syncMobileLayers();
 }
 function rememberReader() {
@@ -1115,7 +1151,12 @@ function toggleState(item, flag, force, silent = false, complete = false) {
     complete = phase === "ready";
     value = !["ready", "pending"].includes(phase);
   }
-  return flag === "read" ? setReadState(item, value, silent) : stateWrites.set(item, flag, value, silent, complete);
+  if (flag === "read") return setReadState(item, value, silent);
+  if (flag === "read_later" && value) trackReadChange(item);
+  return stateWrites.set(item, flag, value, silent, complete).then(saved => {
+    if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
+    return saved;
+  });
 }
 async function refreshStateDetail(id) {
   // Saving a flag never waits for the full article. Only the open reader needs
@@ -1131,9 +1172,10 @@ async function refreshStateDetail(id) {
       if (feedSequence !== state.sequence) return;
       const item = state.items.find(row => row.id === id);
       const status = data.items.find(row => row.id === id);
-      if (item && status) {
-        Object.assign(item, stateWrites.reconcile(id, status, stateVersion));
-        updateCard(item);
+      if (status) {
+        stateWrites.reconcile(id, status, stateVersion);
+        if (item) { Object.assign(item, status); updateCard(item); }
+        topics.updateItemState(id, status);
       }
       return;
     }
@@ -1164,6 +1206,7 @@ function updateDetailItem(item, payload) {
     changed ||= wasPending !== readLaterPending(target);
   }
   updateCard(loaded || item);
+  topics.updateItemState(item.id, patch);
   if (state.selected?.id === item.id) readerActions();
   if (changed) refreshBadges();
 }
@@ -1364,13 +1407,17 @@ function selectIdea(idea, mobile = true) {
   renderIdeas();
 }
 function enterReader() {
-  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
+  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "topics" ? (topics.reading ? "返回主题" : "返回主题列表") : state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
   if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
   syncMobileLayers();
   trackFeedReading();
 }
 function exitReader() {
+  if (state.collection === "topics") {
+    if (topics.returnFromArticle()) return;
+    topics.leaveDetail();
+  }
   resetDetailSwipe();
   $("#feedView").classList.remove("mobile-reader-active");
   syncMobileLayers();
@@ -1381,8 +1428,8 @@ function mobileReaderOpen() {
 }
 function syncMobileLayers() {
   const open = mobileReaderOpen() && !settings.open;
-  for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries")) list.inert = open;
-  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries"))
+  for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries, #feedColTopics")) list.inert = open;
+  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics"))
     panel.inert = singlePane.matches && (!open || !panel.classList.contains("active"));
   const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
@@ -1404,11 +1451,11 @@ function canSwipeDetail(panel) {
     $("#feedView").classList.contains("mobile-reader-active") &&
     !(panel.id === "detailPanelFeed" && agent.open);
 }
-for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelSettings")) {
+for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelSettings")) {
   panel.addEventListener("touchstart", event => {
     resetDetailSwipe();
     if (!canSwipeDetail(panel) || event.touches.length !== 1 ||
-        event.target.closest('input,textarea,select,button,a,[contenteditable="true"],#agentDock')) return;
+        event.target.closest('input,textarea,select,button,a,[contenteditable="true"],#agentDock,.topic-timeline')) return;
     const touch = event.touches[0];
     if (touch.clientX > 40) return;
     detailSwipe = { panel, id: touch.identifier, x: touch.clientX, y: touch.clientY, dx: 0, dy: 0, horizontal: false };
@@ -1451,7 +1498,6 @@ for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummari
 }
 singlePane.addEventListener("change", () => {
   resetDetailSwipe();
-  syncFeedSearch();
   syncMobileLayers();
 });
 function openNav() {
@@ -1494,7 +1540,7 @@ document.addEventListener("click", (event) => {
     loadIdeas();
   }
   if (button?.dataset.source) {
-    if (settings.open || state.collection === "summaries") switchCollection("feed");
+    if (settings.open || ["summaries", "topics"].includes(state.collection)) switchCollection("feed");
     state.source = button.dataset.source;
     renderSources();
     closeNav();
@@ -1502,7 +1548,7 @@ document.addEventListener("click", (event) => {
   }
   if (button?.dataset.sourceToggle)
     busy(button, () => settings.toggleSourceGroup(button.dataset.sourceToggle));
-  if (button?.dataset.state) {
+  if (button?.dataset.state && button.closest("#feedCardList, #detailPanelFeed .detail-toolbar")) {
     const id = button.closest("[data-id]")?.dataset.id;
     toggleState(
       id ? state.items.find((x) => x.id === id) : state.selected,
@@ -1534,42 +1580,18 @@ document.addEventListener("change", (event) => {
       settings.toggleSource(input.dataset.sourceKey, input.checked),
     );
 });
-function syncFeedSearch() {
-  const row = $("#feedSearchRow"), toggle = $("#feedSearchToggleBtn");
-  const visible = !singlePane.matches || state.mobileSearchOpen;
-  if (!visible && row.contains(document.activeElement)) toggle.focus({ preventScroll: true });
-  row.inert = !visible;
-  row.setAttribute("aria-hidden", String(!visible));
-  // Keep the desktop field visible until the breakpoint handler can transfer its focus.
-  $("#feedColFeed").classList.toggle("search-open", visible);
-  toggle.setAttribute("aria-expanded", String(visible));
-  const label = visible ? "收起新闻搜索" : "展开新闻搜索";
-  toggle.setAttribute("aria-label", label);
-  toggle.title = label;
-}
-function setFeedSearchOpen(open, focus = false) {
-  const input = $("#feedSearchInput");
-  const resetSearch = !open && singlePane.matches &&
-    Boolean(state.query || input.value || searchTimer !== undefined);
-  if (resetSearch) {
+const feedSearch = new ListSearch({
+  column: $("#feedColFeed"), label: "新闻搜索",
+  onCollapse: () => {
+    const input = $("#feedSearchInput");
+    if (!state.query && !input.value && searchTimer === undefined) return;
     clearTimeout(searchTimer);
     searchTimer = undefined;
     state.query = "";
     input.value = "";
-  }
-  state.mobileSearchOpen = open;
-  syncFeedSearch();
-  if (open && focus) input.focus({ preventScroll: true });
-  if (resetSearch) void loadFeed();
-}
-$("#feedSearchToggleBtn").onclick = () => setFeedSearchOpen(!state.mobileSearchOpen, !state.mobileSearchOpen);
-$("#feedSearchInput").addEventListener("keydown", event => {
-  if (singlePane.matches && event.key === "Escape") {
-    event.preventDefault(); event.stopPropagation();
-    setFeedSearchOpen(false);
-  }
+    void loadFeed();
+  },
 });
-syncFeedSearch();
 $("#feedSearchInput").addEventListener("input", (event) => {
   state.query = event.target.value.trim();
   clearTimeout(searchTimer);
@@ -1700,11 +1722,16 @@ document.addEventListener("keydown", (event) => {
     summaries.handleKey(event, action);
   } else if (action === "search") {
     event.preventDefault();
-    if (state.collection === "notes") $("#ideasSearchInput").focus();
+    if (state.collection === "topics") {
+      if (singlePane.matches) { topics.returnFromArticle(); exitReader(); }
+      topics.search.setOpen(true, true);
+    } else if (state.collection === "notes") $("#ideasSearchInput").focus();
     else {
       if (singlePane.matches) exitReader();
-      setFeedSearchOpen(true, true);
+      feedSearch.setOpen(true, true);
     }
+  } else if (state.collection === "topics" && !topics.reading) {
+    return;
   } else if (action === "agent" && readingArticle()) {
     event.preventDefault();
     agent.toggle();
@@ -1720,7 +1747,7 @@ document.addEventListener("keydown", (event) => {
       selectIdea(next, false);
       $(`[data-idea-id="${CSS.escape(next.idea_id)}"]`)?.scrollIntoView({ block: "nearest" });
     }
-  } else if (["previous", "next"].includes(action) && state.collection !== "notes") {
+  } else if (["previous", "next"].includes(action) && !["notes", "topics"].includes(state.collection)) {
     event.preventDefault();
     const index = state.items.findIndex(
       (item) => item.id === state.selected?.id,
@@ -1746,7 +1773,7 @@ document.addEventListener("keydown", (event) => {
     );
 });
 window.addEventListener("beforeunload", (event) => {
-  const dirty = standaloneIdeas.dirty || researchNotes.dirty;
+  const dirty = standaloneIdeas.dirty || researchNotes.dirty || topics.dirty;
   if (dirty || settings.dirty) {
     event.preventDefault();
     event.returnValue = "";
@@ -1762,6 +1789,8 @@ singlePane.addEventListener("change", () => {
     if (!summaries.selected && summaries.entries.length) summaries.select(summaries.entries[0].id);
   } else if (state.collection === "notes") {
     if (!state.idea && state.ideas.length) selectIdea(state.ideas[0]);
+  } else if (state.collection === "topics") {
+    if (!topics.selected && topics.page !== "new" && topics.visibleEntries().length) topics.select(topics.visibleEntries()[0].id, false);
   } else if (!state.selected && state.items.length) selectNews(state.items[0], false);
 });
 state.loading = true;

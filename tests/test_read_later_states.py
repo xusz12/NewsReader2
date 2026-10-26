@@ -13,6 +13,32 @@ def setup(tmp_path, monkeypatch):
     return app, client, item, f'/api/news/{item["id"]}/state'
 
 
+def test_adding_read_later_acknowledges_feed_without_completing_article(setup):
+    app, client, item, path = setup
+    unread_before = client.get('/api/nav-summary').json['summary']['feed_unread']
+    added = client.patch(path, json={'read_later': True}).json
+    assert added['read_at'] and added['read_later_at']
+    assert added['read_later_done_at'] is None
+    assert client.get('/api/nav-summary').json['summary']['feed_unread'] == unread_before - 1
+    assert client.get('/api/news?collection=read_later&read_filter=unread').json['total'] == 1
+    removed = client.patch(path, json={'read_later': False}).json
+    assert removed['read_at'] == added['read_at']
+    assert removed['read_later_done_at'] is None
+    # A later explicit user choice can override the implicit acknowledgement.
+    unread = client.patch(path, json={'read_later': True, 'read': False}).json
+    assert unread['read_at'] is None and unread['read_later_at']
+
+
+def test_adding_read_later_preserves_existing_read_timestamp(setup):
+    app, client, item, path = setup
+    client.patch(path, json={'read': True})
+    with app.db_conn() as conn:
+        conn.execute("UPDATE item_state SET read_at='2026-01-01 12:00:00' WHERE item_id=?", (item['id'],))
+    added = client.patch(path, json={'read_later': True}).json
+    assert added['read_at'] == '2026-01-01 12:00:00'
+    assert added['read_later_done_at'] is None
+
+
 def test_pending_cancel_does_not_complete_and_can_requeue(setup, monkeypatch):
     app, client, item, path = setup
     with app.db_conn() as conn:
@@ -56,7 +82,7 @@ def test_cancel_racing_with_running_fetch_keeps_it_pending_until_explicit_comple
     detail = client.get(f'/api/news/{item["id"]}/detail').json
     assert detail['detail_status'] == 'success' and detail['detail']['content']
     assert detail['read_later_at']
-    assert detail['read_later_done_at'] is detail['read_at'] is None
+    assert detail['read_later_done_at'] is None and detail['read_at']
     assert client.get('/api/news?collection=read_later&read_filter=unread').json['total'] == 1
     assert client.get('/api/news?collection=read_later&read_filter=read').json['total'] == 0
 
@@ -80,7 +106,7 @@ def test_all_cached_unfinished_articles_are_pending_in_lists_search_counts_and_s
         assert client.get(url).json['total'] == 0
     assert client.get('/api/sources?collection=read_later&read_filter=read').json['sources'] == []
     completed = client.patch(path, json={'read_later': False, 'read_later_done': True}).json
-    assert completed['read_later_done_at'] and completed['read_at'] is None
+    assert completed['read_later_done_at'] and completed['read_at']
     assert client.get(unread).json['total'] == 0
     assert client.get('/api/nav-summary').json['summary']['read_later_unread'] == 0
     for url in (read, read + '&count_only=1', search, search + '&count_only=1'):

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from parser import DAILY_FILE_RE, parse_daily_file, parse_daily_json_file, sidecar_path_for_daily
 import news_classification
+import topic_tracking
 
 INGEST_MODE_SIDECAR_JSON = "sidecar_json"
 INGEST_MODE_MARKDOWN_FALLBACK = "markdown_fallback"
@@ -21,6 +22,7 @@ class ReindexStats:
     upserted: int = 0
     deleted_stale: int = 0
     classification_queued: int = 0
+    topics_queued: int = 0
     ingest_counts: dict[str, int] = field(
         default_factory=lambda: {
             INGEST_MODE_SIDECAR_JSON: 0,
@@ -60,6 +62,23 @@ def make_item_id(date: str, source: str, title: str, url: str) -> str:
 
 def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     conn.executescript(schema_path.read_text(encoding="utf-8"))
+    conn.executescript(topic_tracking.SCHEMA)
+    if "archived_at" not in {r[1] for r in conn.execute("PRAGMA table_info(event_topics)")}:
+        conn.execute("ALTER TABLE event_topics ADD COLUMN archived_at TEXT")
+    for table, additions in {
+        "event_topics": (("horizontal_rule", "TEXT NOT NULL DEFAULT ''"), ("rules_revision", "INTEGER NOT NULL DEFAULT 1")),
+        "topic_checks": (("rules_json", "TEXT NOT NULL DEFAULT '{}'"),),
+        "topic_jobs": (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "REAL NOT NULL DEFAULT 0")),
+    }.items():
+        columns = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, kind in additions:
+            if name not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+    conn.execute("UPDATE event_topics SET horizontal_rule=? WHERE horizontal_rule=''", (topic_tracking.DEFAULT_HORIZONTAL_RULE,))
+    conn.execute("""UPDATE topic_jobs SET kind='milestone',status='pending',config_json='{}',lease_token=NULL,
+        lease_until=0,error='',attempts=0,next_attempt_at=0 WHERE kind='update' AND status IN ('pending','running','failed')
+        AND topic_id IN (SELECT id FROM event_topics WHERE timeline_mode='events' AND archived_at IS NULL)""")
+    topic_tracking.seed_ingestions(conn)
     detail_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(detail_jobs)")}
     for name, kind in (("next_attempt_at", "TEXT"), ("worker_pid", "INTEGER")):
         if name not in detail_job_cols:
@@ -176,6 +195,8 @@ def reindex(
     stats = ReindexStats()
     files = list_daily_files(daily_root)
     stats.scanned_files = len(files)
+    with conn:
+        topic_tracking.seed_ingestions(conn)
 
     if full:
         conn.execute("DELETE FROM items")
@@ -241,6 +262,7 @@ def reindex(
                     ),
                 )
                 stats.upserted += 1
+                conn.execute("INSERT OR IGNORE INTO topic_ingestions(item_id) VALUES (?)", (item_id,))
 
             if new_ids:
                 placeholders = ",".join("?" for _ in new_ids)
@@ -278,4 +300,5 @@ def reindex(
     conn.commit()
     with conn:
         stats.classification_queued = news_classification.enqueue(conn)
+        stats.topics_queued = topic_tracking.enqueue_checks(conn)
     return stats

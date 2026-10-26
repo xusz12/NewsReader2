@@ -179,7 +179,8 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     assert r6.status_code == 200
     assert r6.get_json()["total"] == 1
 
-    # New flags should be independent and combinable.
+    # Flags remain combinable; queuing acknowledges the headline without
+    # completing the saved article.
     r7 = client.patch(
         f"/api/news/{item_id}/state",
         json={"favorite": True, "important": True, "read_later": True},
@@ -188,6 +189,7 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     assert r7.get_json()["favorite_at"] is not None
     assert r7.get_json()["important_at"] is not None
     assert r7.get_json()["read_later_at"] is not None
+    assert r7.get_json()["read_at"] is not None
     assert r7.get_json()["read_later_done_at"] is None
 
     favorites = client.get("/api/news?collection=favorites")
@@ -247,7 +249,7 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
 
     combo = client.get("/api/news?collection=important&read_filter=unread")
     assert combo.status_code == 200
-    assert combo.get_json()["total"] == 1
+    assert combo.get_json()["total"] == 0
 
 
 def test_daily_briefings_index_and_detail(tmp_path: Path, monkeypatch):
@@ -1976,7 +1978,7 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     assert [item["title"] for item in tags_reverse] == ["Alpha Early", "Beta Early"]
 
     for collection, unread_titles in [
-        ("feed", ["Alpha Early", "Alpha Late", "Beta Early", "Beta Late"]),
+        ("feed", ["Alpha Late", "Beta Early"]),
         ("read_later", ["Alpha Early", "Beta Late"]),
     ]:
         for order, expected in [("default", unread_titles), ("reverse", unread_titles[::-1])]:
