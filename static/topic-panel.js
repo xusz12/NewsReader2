@@ -1,4 +1,4 @@
-import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 
 const activeJob = job => job && ["pending", "running"].includes(job.status);
@@ -14,20 +14,21 @@ const jobErrors = {
 };
 const uuid = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(20))].map(n => n.toString(16).padStart(2, "0")).join("");
 const field = (name, label, value, limit, rows = 0) => '<label class="field-item"><span class="field-label">' + label + '</span>' +
-  (rows ? '<textarea name="' + name + '" maxlength="' + limit + '" rows="' + rows + '" class="field-input">' + e(value) + '</textarea>'
+  (rows ? '<textarea name="' + name + '" maxlength="' + limit + '" rows="' + rows + '" class="field-input'+(rows===2?' field-input--auto" data-auto-rows="2:7'+(["include_scope","exclude_scope"].includes(name)?'" data-equal-height="topic-scope':''):'')+'">' + e(value) + '</textarea>'
     : '<input name="' + name + '" maxlength="' + limit + '" value="' + e(value) + '" class="field-input">') + '</label>';
 const formHeading = (title, description = "") => '<div class="settings-detail-heading"><h2>' + e(title) + '</h2></div>' +
   (description ? '<p class="muted">' + e(description) + '</p>' : "");
-const definitionFields = d => field("name","主题名称",d.name,120)+field("definition","主题定义",d.definition,1500,3)+
-  '<div class="form-group-grid">'+field("include_scope","纳入范围",d.include_scope,1000,3)+field("exclude_scope","排除范围",d.exclude_scope,1000,3)+'</div>'+
-  field("horizontal_rule","横向收录规则",d.horizontal_rule,2000,4);
+const definitionKeys = ["name", "definition", "include_scope", "exclude_scope", "horizontal_rule", "start_date"];
+const definitionFields = d => field("name","主题名称",d.name,120)+field("definition","主题定义",d.definition,1500,2)+
+  '<div class="form-group-grid">'+field("include_scope","纳入范围",d.include_scope,1000,2)+field("exclude_scope","排除范围",d.exclude_scope,1000,2)+'</div>'+
+  field("horizontal_rule","横向收录规则",d.horizontal_rule,2000,2);
 const timelineIcon = '<svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l3 2"/></svg>';
 
 export class TopicPanel {
   constructor({ isVisible, enterReader, onViewChange, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem }) {
     Object.assign(this, { isVisible, enterReader, onViewChange, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem });
     this.entries = []; this.selected = ""; this.listSelected = ""; this.showDefinition = false; this.data = null; this.page = "topic"; this.reading = false;
-    this.drafts = new Map(); this.draftChanges = new Set(); this.query = ""; this.requestId = ""; this.node = ""; this.filter = "";
+    this.drafts = new Map(); this.draftBases = new Map(); this.expandedTimelines = new Set(); this.draftChanges = new Set(); this.query = ""; this.requestId = ""; this.node = ""; this.filter = "";
     this.chatDrafts = new Map(); this.chatRequests = new Map(); this.chatErrors = new Map(); this.draftExpanded = new Set();
     this.listSequence = 0; this.detailSequence = 0; this.busy = false; this.loaded = false; this.viewed = new Map(); this.listFilter = "all";
     this.searchQuery = "";
@@ -62,11 +63,11 @@ export class TopicPanel {
       }
       if (event.target.name === "query") { this.query = event.target.value; this.requestId = ""; return; }
       const draft = this.drafts.get(this.selected);
-      if (draft && event.target.name) { draft[event.target.name] = event.target.value; this.draftChanges.add(this.selected); }
+      if (draft && event.target.name) { draft[event.target.name] = event.target.value; this.syncDefinitionDraft(); }
     });
     this.content.addEventListener("change", event => {
       const draft = this.drafts.get(this.selected);
-      if (draft && event.target.name) { draft[event.target.name] = event.target.value; this.draftChanges.add(this.selected); }
+      if (draft && event.target.name) { draft[event.target.name] = event.target.value; this.syncDefinitionDraft(); }
     });
     this.content.addEventListener("submit", event => {
       event.preventDefault(); if (!this.busy) event.target.id === "topicChatForm" ? this.sendMessage() : this.submit();
@@ -79,13 +80,14 @@ export class TopicPanel {
     this.content.addEventListener("toggle", event => {
       if (event.target.id === "topicDraftDetails" && event.target.isConnected) {
         event.target.open ? this.draftExpanded.add(this.selected) : this.draftExpanded.delete(this.selected);
+        resizeAutoFields(this.content);
       }
     }, true);
     this.content.addEventListener("click", event => this.click(event));
     $("#topicToolbar").addEventListener("click", event => this.click(event));
     this.bindTimelineControls();
     $("#topicScrollArea").addEventListener("scroll", () => this.scheduleDateHeaders(), {passive:true});
-    this.contentObserver = new ResizeObserver(() => { this.scheduleDateHeaders(); this.syncTimelineSlider(); });
+    this.contentObserver = new ResizeObserver(() => { this.scheduleDateHeaders(); this.syncTimelineSlider(); resizeAutoFields(this.content); this.layoutExpandedTimeline(); });
     this.contentObserver.observe(this.content);
     document.addEventListener("visibilitychange", () => { if (!document.hidden && this.isVisible()) this.refresh(); });
   }
@@ -95,7 +97,7 @@ export class TopicPanel {
     const working = this.entries.some(t => activeJob(t.job)) || activeJob(this.data?.job) || Object.entries(this.data?.matching || {}).some(([k,n]) => ["pending","running"].includes(k) && n);
     this.timer = setTimeout(() => this.refresh(), working ? 2000 : 15000);
   }
-  deactivate() { clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
+  deactivate() { this.timelineMotion?.cancel(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
   matchesList(topic) {
     return this.listFilter === "all" || (this.listFilter === "archived" ? !!topic.archived_at : topic.status === "ready" && !topic.archived_at);
   }
@@ -208,7 +210,7 @@ export class TopicPanel {
       this.data = data;
       if (data.topic.status !== "ready") {
         this.page = "create";
-        if (data.topic.status==="draft" && !this.draftChanges.has(id)) this.drafts.set(id, {...data.topic});
+        if (data.topic.status==="draft" && !this.draftChanges.has(id)) this.setDraft(data.topic);
       } else if (oldPage==="create" && previous?.topic.status==="initializing") this.page = "complete";
       if (!data.nodes.some(node => node.id === this.node)) this.node = data.nodes.at(-1)?.id || "";
       const changed = JSON.stringify({...previous, observed_at:0}) !== JSON.stringify({...data, observed_at:0});
@@ -229,6 +231,7 @@ export class TopicPanel {
     } finally { this.schedule(); }
   }
   render({preserveScroll=false}={}) {
+    this.timelineMotion?.cancel();
     this.renderToolbar();
     const area=$("#topicScrollArea"), scroll=area.scrollTop;
     const timelineScroll=this.content.querySelector(".topic-timeline")?.scrollLeft;
@@ -250,7 +253,7 @@ export class TopicPanel {
     } else if(this.page==="edit") {
       html=formHeading("编辑主题定义","保存后用于之后新入库的新闻，已有报道及节点保留。")+
         '<form class="settings-sheet" id="topicDefinitionForm">'+definitionFields(this.drafts.get(t.id))+
-        '<div class="button-row"><button class="btn-secondary" type="button" data-topic-action="cancel-edit">取消</button><button class="btn-primary" type="submit">保存修改</button></div><p class="error-state topic-form-error" role="alert"></p></form>';
+        '<div class="button-row" id="topicDefinitionActions" hidden><button class="btn-secondary" type="button" data-topic-action="cancel-edit">取消</button><button class="btn-primary" type="submit">保存修改</button></div><p class="error-state topic-form-error" role="alert"></p></form>';
     } else if(this.page==="complete") {
       html=formHeading("主题已创建",t.name)+'<dl class="form-group-grid topic-success"><div class="field-item"><dt class="field-label">历史脉络</dt><dd>'+this.data.nodes.length+' 个关键节点</dd></div><div class="field-item"><dt class="field-label">后续时间线</dt><dd>'+(t.timeline_mode==="monthly"?'月度总结':'重要进展')+'</dd></div><div class="field-item"><dt class="field-label">开始追踪</dt><dd>从现在起的新入库新闻</dd></div></dl><div class="button-row"><button class="btn-secondary" type="button" data-topic-action="new">再建一个</button><button class="btn-primary" type="button" data-topic-action="open">查看主题</button></div>';
     } else if(this.page==="create") {
@@ -275,13 +278,13 @@ export class TopicPanel {
       }
     } else {
       const nodes=this.data.nodes, node=nodes.find(n=>n.id===this.node), filteredNode=nodes.find(n=>n.id===this.filter);
-      html='<div class="section-stack"><header class="settings-section-card settings-section-card--compact"><div class="article-meta-top"><span class="status-pill'+(t.archived_at?'':' is-active')+'">'+(t.archived_at?'已归档':'持续跟踪中')+'</span><time datetime="'+e(t.updated_at)+'">更新于 '+e(t.updated_at.replace('T',' ').slice(0,16))+'</time></div><h1 class="article-title">'+e(t.name)+'</h1>'+
+      html='<div class="section-stack"><header class="settings-section-card settings-section-card--compact"><div class="article-meta-top"><time datetime="'+e(t.updated_at)+'">更新于 '+e(t.updated_at.replace('T',' ').slice(0,16))+'</time></div><h1 class="article-title">'+e(t.name)+'</h1>'+
         '<div class="article-body muted"><p>'+e(t.definition)+'</p></div></header>'+
         '<section class="settings-section-card settings-section-card--compact topic-history" aria-labelledby="topicHistoryTitle"><h2 class="section-card-title" id="topicHistoryTitle"><span class="section-title-label">'+timelineIcon+'重要进展</span><span class="reader-action-toolbar">'+
-        (!t.archived_at && !t.refine_cooldown && nodes.filter(n=>n.kind!=="month").length>1 ? '<button class="btn-secondary" type="button" data-topic-action="refine" title="使用 Agent 合并已有阶段节点并改写概括，保留关联新闻，不联网" '+(activeJob(job)||job?.status==="failed"?'disabled':'')+'>精简脉络</button>' : '')+'</span></h2>'+
-        '<div class="topic-timeline" id="topicTimeline" role="region" tabindex="0" aria-label="事件时间线，可使用底部滑块或方向键浏览">'+nodes.map(n=>'<button class="news-card topic-node'+(n.id===this.node?' is-active':'')+'" type="button" data-topic-node="'+e(n.id)+'" data-has-news="'+(n.news_count>0)+'" aria-pressed="'+(n.id===this.node)+'"><time class="meta-time-row">'+e(n.kind==="month"?n.date.slice(0,7):n.date)+'</time><span class="topic-node-track"><span class="topic-node-dot"></span></span><strong class="news-card-title">'+e(n.title)+'</strong><span class="news-card-meta">'+(n.news_count>0?'查看 '+n.news_count.toLocaleString()+' 条报道 →':(n.kind==='history'?'历史概述':'节点概述')+' · 暂无报道')+'</span></button>').join("")+'</div>'+
-        '<input class="scroll-slider" id="topicTimelineSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="重要进展浏览位置" aria-controls="topicTimeline">'+
-        (node?'<div class="article-body" aria-live="polite"><p><strong>'+e(node.date)+' · '+e(node.title)+'</strong></p><p>'+e(node.body)+'</p></div>':'')+'</section>'+error+
+        (!t.archived_at && !this.data.refinement?.preview && !t.refine_cooldown && nodes.filter(n=>n.kind!=="month").length>1 ? '<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="refine" title="使用 Agent 合并已有阶段节点并改写概括，保留关联新闻，不联网" '+(activeJob(job)||job?.status==="failed"?'disabled':'')+'>精简进程</button>' : '')+'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="expand-timeline" aria-controls="topicTimeline" aria-expanded="'+this.expandedTimelines.has(t.id)+'">'+(this.expandedTimelines.has(t.id)?'收起':'展开')+'</button>'+(!t.archived_at && this.data.refinement?.restore && !this.data.refinement?.preview?'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="restore-refinement" '+(activeJob(job)?'disabled':'')+'>恢复精简前</button>':'')+'</span></h2>'+this.refinementHTML()+
+        '<div class="topic-timeline'+(this.expandedTimelines.has(t.id)?' is-expanded':'')+'" id="topicTimeline" role="region" tabindex="0" aria-label="重要进展时间线">'+nodes.map(n=>'<button class="news-card topic-node'+(n.id===this.node?' is-active':'')+'" type="button" data-topic-node="'+e(n.id)+'" data-has-news="'+(n.news_count>0)+'" aria-pressed="'+(n.id===this.node)+'"><time class="meta-time-row">'+e(n.kind==="month"?n.date.slice(0,7):n.date)+'</time><span class="topic-node-track"><span class="topic-node-dot"></span></span><strong class="news-card-title">'+e(n.title)+'</strong><span class="news-card-meta">'+(n.news_count>0?'查看 '+n.news_count.toLocaleString()+' 条报道 →':(n.kind==='history'?'历史概述':'节点概述'))+'</span></button>').join("")+'</div>'+
+        '<input class="scroll-slider" id="topicTimelineSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="重要进展浏览位置" aria-controls="topicTimeline"'+(this.expandedTimelines.has(t.id)?' hidden':'')+'>'+
+        (node?'<div class="article-body article-body--compact topic-node-summary" id="topicNodeSummary" data-topic-summary="'+e(node.id)+'" aria-live="polite"><p><strong>'+e(node.date)+' · '+e(node.title)+'</strong></p><p>'+e(node.body)+'</p></div>':'')+'</section>'+error+
         (activeJob(job)&&job.kind==="update"?'<p class="muted topic-status" role="status">正在整理新进展…</p>':'')+
         (activeJob(job)&&job.kind==="milestone"?'<p class="muted topic-status" role="status">正在筛选横向重要进展…</p>':'')+
         (activeJob(job)&&job.kind==="refine"?'<p class="muted topic-status" role="status">正在合并阶段里程碑…</p>':'')+
@@ -292,7 +295,7 @@ export class TopicPanel {
         (this.data.has_more?'<div class="feed-end"><button class="btn-secondary" type="button" data-topic-action="more">加载更多</button></div>':'')+'</section></div>';
     }
     this.content.innerHTML = ["new","create","complete","edit"].includes(this.page) ? '<div class="settings-sheet">'+html+'</div>' : html;
-    this.syncChatControls();
+    this.syncChatControls(); this.syncDefinitionDraft(); resizeAutoFields(this.content); this.layoutExpandedTimeline();
     const newChat=this.content.querySelector("#topicChatStream");
     if(newChat)newChat.scrollTop=!chat && this.data.messages.length<=2 ? 0 : chatAtEnd ? newChat.scrollHeight : chatScroll;
     if(preserveScroll) {
@@ -328,6 +331,13 @@ export class TopicPanel {
     archive.hidden = !ready; archive.dataset.topicAction = t?.archived_at ? "restore" : "archive";
     archive.textContent = t?.archived_at ? "恢复跟踪" : "归档主题";
     $("#topicDeleteBtn").hidden = !t;
+    const status = $("#topicToolbarStatus"), job = this.data?.job, matching = this.data?.matching || {};
+    const message = !t ? "" : t.archived_at ? "已归档" : job?.status === "failed" || matching.failed ? "处理失败" :
+      activeJob(job) ? ({define:"明确主题中",discuss:"修订定义中",initialize:"整理历史中",refine:"生成预览中",milestone:"筛选进展中"}[job.kind] || "整理中") :
+      this.data?.refinement?.preview ? "待确认精简" : t.status === "ready" && !this.configured ? "等待配置" :
+      t.status === "ready" && this.matchingError ? "匹配异常" : matching.pending || matching.running ? "匹配新闻中" : t.status === "ready" ? "持续跟踪" : statusLabel[t.status];
+    status.textContent = message; status.hidden = !message;
+    status.classList.toggle("is-active", !!t && !t.archived_at && job?.status !== "failed" && !matching.failed);
     const steps = $("#topicCreationSteps");
     steps.hidden = !creating;
     if (creating) {
@@ -336,6 +346,69 @@ export class TopicPanel {
         '<li class="'+(step === index+1 ? 'current' : step > index+1 ? 'done' : '')+'"'+(step === index+1 ? ' aria-current="step"' : '')+'><span aria-hidden="true">'+(step > index+1 ? '✓' : index+1)+'</span>'+name+'</li>').join("");
       if (steps.innerHTML !== html) steps.innerHTML = html;
     }
+  }
+  refinementHTML() {
+    const preview = this.data?.refinement?.preview;
+    if (!preview) return "";
+    return '<div class="settings-sheet" role="region" aria-label="精简预览"><h3 class="section-card-title">精简预览 · '+preview.before_count+' → '+preview.groups.length+' 个节点</h3>'+
+      preview.groups.map(group=>'<div class="field-item"><span class="field-label">'+group.previous.map(e).join(' ＋ ')+'</span><strong>'+e(group.date)+' · '+e(group.title)+'</strong><p class="muted topic-status">'+e(group.body)+'</p></div>').join('')+
+      (preview.stale?'<p class="error-state">时间线已有更新，请放弃此预览后重新生成。</p>':'')+
+      '<div class="button-row"><button class="btn-secondary" type="button" data-topic-action="discard-refinement">放弃预览</button><button class="btn-primary" type="button" data-topic-action="apply-refinement" '+(preview.stale || this.data.topic.archived_at || activeJob(this.data.job)?'disabled':'')+'>应用精简</button></div></div>';
+  }
+  setDraft(topic) {
+    this.drafts.set(topic.id, {...topic}); this.draftBases.set(topic.id, {...topic});
+  }
+  syncDefinitionDraft() {
+    const draft = this.drafts.get(this.selected), base = this.draftBases.get(this.selected);
+    if (draft && base) {
+      const changed = definitionKeys.some(key => String(draft[key] || "").trim() !== String(base[key] || "").trim());
+      changed ? this.draftChanges.add(this.selected) : this.draftChanges.delete(this.selected);
+    }
+    const actions = $("#topicDefinitionActions");
+    if (actions) actions.hidden = !this.draftChanges.has(this.selected);
+    resizeAutoFields(this.content);
+  }
+  layoutExpandedTimeline() {
+    const timeline = this.content.querySelector('.topic-timeline.is-expanded');
+    if (!timeline || !timeline.clientWidth) return;
+    const nodes = [...timeline.querySelectorAll('.topic-node')], css = getComputedStyle(timeline);
+    if (!nodes.length) return;
+    const gap = parseFloat(css.columnGap), padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight);
+    const basis = parseFloat(getComputedStyle(nodes[0]).flexBasis);
+    const columns = Math.max(1, Math.floor((timeline.clientWidth - padding + gap) / (basis + gap)));
+    timeline.style.gridTemplateColumns = 'repeat('+columns+', minmax(0, 1fr))';
+    const summary = this.content.querySelector('#topicNodeSummary');
+    const selectedIndex = nodes.findIndex(node => node.dataset.topicNode === this.node);
+    if (summary && selectedIndex >= 0) {
+      const rowEnd = nodes[Math.min(nodes.length, (Math.floor(selectedIndex / columns) + 1) * columns) - 1];
+      if (summary.previousElementSibling !== rowEnd) rowEnd.after(summary);
+    }
+  }
+  animateTimelineToggle(previousHeight) {
+    const section = this.content.querySelector('.topic-history');
+    if (!section || !previousHeight || document.documentElement.dataset.theme === 'eink' ||
+        matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const height = section.getBoundingClientRect().height, css = getComputedStyle(section);
+    if (Math.abs(height - previousHeight) < 1) return;
+    const time = css.getPropertyValue('--motion-normal').trim();
+    const duration = parseFloat(time) * (time.endsWith('ms') ? 1 : 1000);
+    section.classList.add('is-resizing');
+    const animation = section.animate([{height:previousHeight+'px'}, {height:height+'px'}],
+      {duration, easing:css.getPropertyValue('--ease-standard').trim()});
+    this.timelineMotion = animation;
+    const cleanup = () => {
+      section.classList.remove('is-resizing');
+      if (this.timelineMotion === animation) this.timelineMotion = null;
+    };
+    animation.finished.then(cleanup, cleanup);
+  }
+  revealSelectedNode() {
+    const timeline = this.content.querySelector('.topic-timeline:not(.is-expanded)');
+    const selected = timeline?.querySelector('.topic-node[aria-pressed="true"]');
+    if (!selected) return;
+    const frame = timeline.getBoundingClientRect(), card = selected.getBoundingClientRect();
+    timeline.scrollLeft += card.left - frame.left - (timeline.clientWidth - card.width) / 2;
+    this.syncTimelineSlider();
   }
   syncTimelineSlider() {
     const timeline=this.content.querySelector('.topic-timeline'), slider=this.content.querySelector('#topicTimelineSlider');
@@ -366,7 +439,8 @@ export class TopicPanel {
         current < 0 ? (event.key === "ArrowRight" ? 0 : buttons.length - 1) :
         Math.max(0, Math.min(buttons.length - 1, current + (event.key === "ArrowRight" ? 1 : -1)));
       buttons[index].focus({preventScroll:true});
-      timeline.scrollLeft = Math.max(0, buttons[index].offsetLeft - timeline.offsetLeft - 4);
+      if (timeline.classList.contains('is-expanded')) buttons[index].scrollIntoView({block:'nearest',inline:'nearest'});
+      else timeline.scrollLeft = Math.max(0, buttons[index].offsetLeft - timeline.offsetLeft - 4);
     });
   }
   updateItemState(id, patch) {
@@ -444,7 +518,7 @@ export class TopicPanel {
   }
   async submit() {
     const form=$("#topicCreateForm, #topicDefinitionForm");
-    if(!form||this.busy)return;
+    if(!form||this.busy || (this.page==="edit" && !this.draftChanges.has(this.selected)))return;
     if(this.data?.topic.status==="draft" && (activeJob(this.data.job) || this.data.job?.status==="failed" || (this.chatDrafts.get(this.selected)||'').trim()))return;
     if(!form.checkValidity()) {const details=$("#topicDraftDetails");if(details)details.open=true;form.reportValidity();return;}
     this.busy=true;
@@ -495,10 +569,18 @@ export class TopicPanel {
       return;
     }
     switch(b.dataset.topicAction){
+      case "expand-timeline": {
+        const previousHeight = this.content.querySelector('.topic-history')?.getBoundingClientRect().height;
+        this.expandedTimelines.has(this.selected) ? this.expandedTimelines.delete(this.selected) : this.expandedTimelines.add(this.selected);
+        this.render({preserveScroll:true});
+        if (!this.expandedTimelines.has(this.selected)) this.revealSelectedNode();
+        this.animateTimelineToggle(previousHeight);
+        break;
+      }
       case "new":this.newTopic();break;
       case "definition":
         if(this.page==="edit")this.page="topic";
-        else {if(!this.draftChanges.has(this.selected))this.drafts.set(this.selected,{...this.data.topic});this.page="edit";}
+        else {if(!this.draftChanges.has(this.selected))this.setDraft(this.data.topic);this.page="edit";}
         this.render();
         break;
       case "cancel-edit":
@@ -506,7 +588,7 @@ export class TopicPanel {
         break;
       case "reload-draft":
         this.draftChanges.delete(this.selected);this.chatRequests.delete(this.selected);this.chatErrors.delete(this.selected);
-        this.drafts.set(this.selected,{...this.data.topic});this.render({preserveScroll:true});
+        this.setDraft(this.data.topic);this.render({preserveScroll:true});
         break;
       case "all":this.filter="";await this.fetchDetail({quiet:true});break;
       case "more":await this.fetchDetail({append:true});break;
@@ -521,17 +603,40 @@ export class TopicPanel {
         const id = this.selected;
         this.busy = true; b.disabled = true;
         try {
-          if(!await confirmAction({title:"精简重要进展",message:"精简可能合并部分节点，使它们不再单独显示，并改写节点标题和概括。已收录新闻及其关联会保留。成功后一个月内无法再次精简。确定继续？",action:"确认精简",trigger:b}))break;
+          if(!await confirmAction({title:"精简重要进展",message:"将生成精简预览，部分节点可能合并后不再单独显示，标题和概括也可能改写。你确认应用后才会替换时间线；应用成功后一个月内无法再次精简。",action:"生成预览",trigger:b}))break;
           if(this.selected!==id || !this.isVisible())break;
           await api("/api/topics/"+id+"/refine", {method:"POST"});
           if (this.selected === id) {
-            this.filter = ""; await this.fetchDetail({quiet:true});
+            await this.fetchDetail({quiet:true});
           }
         } catch (error) {
           toast(errorText(error));
           if(this.selected===id && (error.code || error.message)==="topic_refine_cooldown")await this.fetchDetail({quiet:true});
         }
         finally { this.busy = false; if (b.isConnected) b.disabled = false; }
+        break;
+      }
+      case "apply-refinement":
+      case "discard-refinement":
+      case "restore-refinement": {
+        if (this.busy) break;
+        const action = b.dataset.topicAction.split('-')[0], id = this.selected;
+        const version = this.data.refinement?.[action === 'restore' ? 'restore' : 'preview'];
+        if (!version) break;
+        this.busy = true; b.disabled = true;
+        try {
+          if (action === 'restore' && !await confirmAction({title:'恢复精简前的节点',
+            message:'将恢复上次精简前的节点及原有报道关联。之后新增的节点与报道保留；若合并节点收到新报道，它会继续保留这些新报道。一个月的精简间隔不重置。',action:'确认恢复',trigger:b})) break;
+          if (this.selected !== id || !this.isVisible()) break;
+          await api('/api/topics/'+id+'/refinements/'+version.id+'/'+action,{method:'POST'});
+          if (this.selected === id) {
+            if (action !== 'discard') this.filter = '';
+            await this.fetchDetail({quiet:true}); await this.load({quiet:true});
+          }
+        } catch (error) {
+          toast(errorText(error));
+          if (this.selected === id) await this.fetchDetail({quiet:true});
+        } finally {this.busy=false;if(b.isConnected)b.disabled=false;}
         break;
       }
       case "archive":
@@ -552,7 +657,7 @@ export class TopicPanel {
         const id=this.selected;
         if(!await confirmAction({title:"删除主题",message:"删除这个主题及其时间线？已收录的原始新闻和阅读状态会保留。",action:"删除主题",trigger:b}))break;
         try {
-          await api("/api/topics/"+id,{method:"DELETE"});this.drafts.delete(id);this.draftChanges.delete(id);this.viewed.delete(id);
+          await api("/api/topics/"+id,{method:"DELETE"});this.drafts.delete(id);this.draftBases.delete(id);this.expandedTimelines.delete(id);this.draftChanges.delete(id);this.viewed.delete(id);
           this.chatDrafts.delete(id);this.chatRequests.delete(id);this.chatErrors.delete(id);this.draftExpanded.delete(id);
           this.page="list";this.selected="";this.data=null;this.detailSequence++;this.render();await this.load();this.onViewChange();
         }catch(error){toast(errorText(error));}

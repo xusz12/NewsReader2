@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.2.5</title>
+    <title>News Reader v0.3.0</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.2.5" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.2.5" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.3.0" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.3.0" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.2.5"
+      href="/static/style.css?v=0.3.0"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.2.5</span>
+            <span class="brand-version">v0.3.0</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -683,9 +683,10 @@
           </section>
           <section class="detail-panel" id="detailPanelTopics" aria-label="主题详情与创建">
             <div class="detail-toolbar" id="topicToolbar">
+              <div class="detail-toolbar-left toolbar-status"><span class="status-pill" id="topicToolbarStatus" role="status" hidden></span></div>
               <div class="detail-toolbar-right">
                 <div class="reader-action-toolbar" role="group" aria-label="主题操作">
-                  <button class="reader-tool-btn" id="topicDefinitionBtn" data-topic-action="definition" type="button" aria-expanded="false" aria-controls="topicDefinition" hidden>定义</button>
+                  <button class="reader-tool-btn" id="topicDefinitionBtn" data-topic-action="definition" type="button" aria-expanded="false" aria-controls="topicDefinitionForm" hidden>定义</button>
                   <button class="reader-tool-btn" id="topicArchiveBtn" data-topic-action="archive" type="button" hidden>归档主题</button>
                   <button class="reader-tool-btn danger" id="topicDeleteBtn" data-topic-action="delete" type="button" hidden>删除主题</button>
                 </div>
@@ -977,9 +978,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.2.5"></script>
+    <script src="/static/error_ui.js?v=0.3.0"></script>
     <script
-      src="/static/app.js?v=0.2.5"
+      src="/static/app.js?v=0.3.0"
       type="module"
     ></script>
   </body>

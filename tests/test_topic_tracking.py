@@ -686,6 +686,10 @@ def test_refinement_cooldown_is_one_calendar_month_from_success(env,monkeypatch,
         for n in json.loads(prompt.split('\n已有节点：')[1])]})
     service.refine(ident)
     assert service.process_one()
+    preview=service.detail(ident)
+    assert preview['job']['status']=='preview'
+    assert preview['topic']['last_refined_at'] is None
+    service.change_refinement(ident,preview['refinement']['preview']['id'],'apply')
     result=service.detail(ident)
     assert len(result['nodes'])==2
     assert result['topic']['last_refined_at']==completed
@@ -701,6 +705,7 @@ def test_refinement_cooldown_is_one_calendar_month_from_success(env,monkeypatch,
     clock[0]=available
     assert service.detail(ident)['topic']['refine_cooldown'] is False
     service.refine(ident);assert service.process_one()
+    service.change_refinement(ident,service.detail(ident)['refinement']['preview']['id'],'apply')
     assert service.detail(ident)['topic']['last_refined_at']==available
     assert service.detail(ident)['topic']['refine_cooldown'] is True
 
@@ -756,6 +761,10 @@ def test_refinement_preserves_sources_news_links_and_monthly_nodes(env,mode):
     service.runner=run
     service.refine(ident)
     assert service.process_one()
+    preview=service.detail(ident)
+    assert preview['nodes']==before['nodes']
+    assert preview['job']['status']=='preview'
+    service.change_refinement(ident,preview['refinement']['preview']['id'],'apply')
     after=service.detail(ident)
     assert after['job']['status']=='done'
     assert after['items']==before['items']
@@ -1063,3 +1072,97 @@ def test_research_requires_web_tool_and_reports_it(tmp_path,monkeypatch,runtime,
     else:
         with pytest.raises(RuntimeError):
             news_summaries.run_native(config,'test',lambda:False,diagnostics,allow_research=True)
+
+
+def prepare_preview(env):
+    _,service,_=env
+    ident,first=refinement_data(env)
+    before=service.detail(ident)
+    service.runner=lambda *a,**k:tt.js({'nodes':[{'date':'2026-01-01','title':'合并阶段',
+        'body':'交易进入审查','node_ids':[first,'second']}]})
+    service.refine(ident);assert service.process_one()
+    return ident,first,before,service.detail(ident)['refinement']['preview']['id']
+
+
+def test_refinement_preview_is_durable_discardable_and_does_not_start_cooldown(env):
+    connect,service,_=env
+    ident,first,before,version=prepare_preview(env)
+    after=service.detail(ident)
+    assert after['nodes']==before['nodes'] and after['items']==before['items']
+    assert not after['topic']['refine_cooldown']
+    assert after['refinement']['preview']['groups'][0]['previous']==['公布收购','审查表态']
+    reopened=tt.Service(connect,service.settings)
+    assert reopened.detail(ident)['refinement']==after['refinement']
+    with pytest.raises(ValueError,match='topic_preview_pending'):service.refine(ident)
+    service.change_refinement(ident,version,'discard')
+    service.change_refinement(ident,version,'discard')
+    assert service.detail(ident)['refinement']['preview'] is None
+    assert service.detail(ident)['nodes']==before['nodes']
+    service.refine(ident)
+
+
+def test_refinement_apply_starts_cooldown_at_confirmation_and_restore_keeps_it(env,monkeypatch):
+    _,service,_=env
+    monkeypatch.setattr(tt,'now',lambda:'2026-01-30T08:00:00')
+    ident,first,before,version=prepare_preview(env)
+    monkeypatch.setattr(tt,'now',lambda:'2026-02-02T09:00:00')
+    service.change_refinement(ident,version,'apply')
+    service.change_refinement(ident,version,'apply')
+    assert service.detail(ident)['topic']['refine_available_at']=='2026-03-02T09:00:00'
+    assert len(service.detail(ident)['nodes'])==1
+    service.change_refinement(ident,version,'restore')
+    service.change_refinement(ident,version,'restore')
+    restored=service.detail(ident)
+    assert restored['nodes']==before['nodes'] and restored['items']==before['items']
+    assert restored['refinement']['restore'] is None
+    assert restored['topic']['refine_cooldown']
+
+
+@pytest.mark.parametrize('change',['node','link','archive'])
+def test_refinement_rejects_stale_preview_without_losing_new_content(env,change):
+    connect,service,_=env
+    ident,first,before,version=prepare_preview(env)
+    with closing(connect()) as conn,conn:
+        if change=='node':conn.execute("UPDATE topic_nodes SET title='新标题' WHERE id=?",(first,))
+        elif change=='link':conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,'new-report')",(first,))
+    if change=='archive':service.set_archived(ident,True);service.set_archived(ident,False)
+    updated=service.detail(ident)
+    assert updated['refinement']['preview']['stale']
+    with pytest.raises(ValueError,match='topic_preview_changed'):service.change_refinement(ident,version,'apply')
+    assert service.detail(ident)['nodes']==updated['nodes']
+    assert not service.detail(ident)['topic']['refine_cooldown']
+
+
+def test_refinement_restore_preserves_later_nodes_and_reports(env):
+    connect,service,_=env
+    ident,first,before,version=prepare_preview(env)
+    service.change_refinement(ident,version,'apply')
+    merged=service.detail(ident)['nodes'][0]['id']
+    with closing(connect()) as conn,conn:
+        conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,'later-report')",(merged,))
+        conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES ('later-node',?,'event','2026-10-27','后来发生','保留新进展','now')",(ident,))
+        conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES ('later-node','latest-report')")
+    service.change_refinement(ident,version,'restore')
+    with closing(connect()) as conn:
+        pairs={tuple(row) for row in conn.execute('SELECT node_id,item_id FROM topic_node_items')}
+        assert pairs=={(first,'report-one'),('second','report-two'),(merged,'later-report'),('later-node','latest-report')}
+        assert conn.execute("SELECT title FROM topic_nodes WHERE id='later-node'").fetchone()[0]=='后来发生'
+    assert service.detail(ident)['items']==before['items']
+
+
+def test_refinement_version_api_is_scoped_and_atomic(env,api,monkeypatch):
+    _,service,_=env
+    module,client=api
+    monkeypatch.setattr(module,'TOPIC_SERVICE',service)
+    monkeypatch.setattr(module,'db_conn',service.connect)
+    ident,_,before,version=prepare_preview(env)
+    other=service.create({'query':'另一个主题','request_id':'another-topic'})['id']
+    base='/api/topics/'+ident+'/refinements/'+version
+    assert client.post('/api/topics/'+other+'/refinements/'+version+'/apply').status_code==409
+    assert client.post(base+'/unknown').status_code==400
+    assert client.post(base+'/apply').status_code==200
+    assert client.post(base+'/restore').status_code==200
+    assert service.detail(ident)['nodes']==before['nodes']
+    assert client.delete('/api/topics/'+ident).status_code==200
+    with closing(service.connect()) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM topic_refinements WHERE topic_id=?',(ident,)).fetchone()[0]==0

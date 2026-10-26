@@ -33,9 +33,10 @@ test.beforeEach(async ({request}) => {
 test('主题概览精简重复信息，新闻数量随筛选显示且归档保留报道',async({page,request})=>{
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
   const detail=await (await request.get('/api/topics/test-acquisition')).json();
-  await expect(page.locator('#topicContent .status-pill')).toHaveText('持续跟踪中');
+  const configured=(await (await request.get('/api/topics')).json()).matching_configured;
+  await expect(page.locator('#topicToolbarStatus')).toHaveText(configured?'持续跟踪':'等待配置');
   await expect(page.locator('#topicContent > .section-stack > .settings-section-card')).toHaveCount(3);
-  await expect(page.locator('#topicToolbar')).not.toContainText('持续跟踪');
+  await expect(page.locator('#topicContent .status-pill')).toHaveCount(0);
   await expect(page.locator('[data-topic-stat]')).toHaveCount(0);
   await expect(page.locator('#topicHistoryTitle .section-title-label')).toHaveText('重要进展');
   await expect(page.locator('#topicHistoryTitle .reader-action-toolbar')).not.toContainText('重要进展');
@@ -49,7 +50,7 @@ test('主题概览精简重复信息，新闻数量随筛选显示且归档保�
   await expect(page.locator('.topic-news')).toHaveCount(1);
   await expect(page.locator('#topicNewsTitle')).toContainText('相关报道 1 条');
   await page.locator('#topicArchiveBtn').click();
-  await expect(page.locator('#topicContent .status-pill')).toHaveText('已归档');
+  await expect(page.locator('#topicToolbarStatus')).toHaveText('已归档');
   await page.locator('[data-topic-action="all"]').click();
   await expect(page.locator('#topicNewsTitle')).toHaveText('新闻时间线 '+detail.total+' 条');
 });
@@ -187,7 +188,8 @@ for (const width of [390,1280]) test('创建后编辑定义与横向规则，保
   await page.getByRole('button',{name:'取消',exact:true}).click();
   await page.locator('#topicDefinitionBtn').click();
   await expect(page.locator('[name="definition"]')).toHaveValue(after.topic.definition);
-  await page.getByRole('button',{name:'取消',exact:true}).click();
+  await expect(page.getByRole('button',{name:'取消',exact:true})).toBeHidden();
+  await page.locator('#topicDefinitionBtn').click();
 });
 
 test('定义并发修改不覆盖另一窗口，冲突保留输入',async({page,request})=>{
@@ -433,6 +435,7 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
       content: await styles(page.locator('#detailScrollArea'), ['padding-top','padding-right','padding-bottom','padding-left']),
       title: await styles(page.locator('#detailContent .article-title'), typography),
       button: await styles(page.locator('#btnToggleImportant'), controlStyle),
+      retranslate: await styles(page.locator('#fetchArticleBtn'), [...typography,...controlStyle,'height','border-top-color']),
       cardTitle: await styles(page.locator('#feedCardList .news-card-title').first(), typography),
       cardSnippet: await styles(page.locator('#feedCardList .news-card-snippet').first(), typography),
       searchBox: await styles(page.locator('#feedSearchRow .feed-search-box'), controlStyle),
@@ -449,12 +452,18 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
     }
     expect(await styles(page.locator('#topicContent .article-title'),typography)).toEqual(reference.title);
     expect(await styles(page.locator('#topicDefinitionBtn'),controlStyle)).toEqual(reference.button);
+    await expect(page.locator('[data-topic-action="expand-timeline"]')).toHaveText('展开');
+    await expect(page.locator('[data-topic-action="refine"]')).toHaveText('精简进程');
+    for (const action of ['expand-timeline','refine']) {
+      expect(await styles(page.locator('[data-topic-action="'+action+'"]'),Object.keys(reference.retranslate))).toEqual(reference.retranslate);
+    }
     expect(await styles(page.locator('#topicCardList .news-card-title').first(),typography)).toEqual(reference.cardTitle);
     expect(await styles(page.locator('.topic-news .news-card-title').first(),typography)).toEqual(reference.cardTitle);
     expect(await styles(page.locator('.topic-news .news-card-snippet').first(),typography)).toEqual(reference.cardSnippet);
     expect(await styles(page.locator('#topicSearchRow .feed-search-box'),controlStyle)).toEqual(reference.searchBox);
     expect(await styles(page.locator('#topicSearchInput'),typography)).toEqual(reference.searchInput);
-    await expect(page.locator('#topicContent .status-pill')).toHaveText('持续跟踪中');
+    const configured=(await (await request.get('/api/topics')).json()).matching_configured;
+  await expect(page.locator('#topicToolbarStatus')).toHaveText(configured?'持续跟踪':'等待配置');
     expect(await page.locator('#topicContent').evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:".ui-artifacts/topics-"+theme+"-"+width+"-"+scheme+".png"});
@@ -545,7 +554,7 @@ test("创建时保留中栏，步骤与操作固定在右栏顶部",async({page,
   await toolbar.getByRole('button',{name:'定义',exact:true}).click();
   await expect(page.locator('#topicDefinitionForm [name="definition"]')).toBeVisible();
   await expect(page.locator('#topicDefinitionForm [name="horizontal_rule"]')).toBeVisible();
-  await page.getByRole('button',{name:'取消',exact:true}).click();
+  await page.locator('#topicDefinitionBtn').click();
   await page.locator('.topic-news-open').last().scrollIntoViewIfNeeded();
   expect((await toolbar.boundingBox()).y).toBe(initial.y);
 });
@@ -587,7 +596,7 @@ for(const width of [390,1280]) test('有报道节点筛选新闻，无报道节�
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
   const empty=page.locator('[data-topic-node="test-acquisition-node-2"]');
   const reported=page.locator('[data-topic-node="test-acquisition-node-0"]');
-  await expect(empty).toContainText('历史概述 · 暂无报道');
+  await expect(empty).toContainText('历史概述');
   await expect(reported).toContainText('查看 1 条报道');
   await empty.click();await expect(empty).toHaveAttribute('aria-pressed','true');
   await expect(page.locator('.topic-news')).toHaveCount(2);
@@ -612,20 +621,23 @@ for (const action of ['button','external']) test("精简已有脉络后保留新
   await page.locator('[data-topic-node="test-acquisition-node-1"]').click();
   await expect(page.locator('.topic-news')).toHaveCount(1);
   if (action==='button') {
-    await page.getByRole('button',{name:'精简脉络',exact:true}).click();
+    await page.getByRole('button',{name:'精简进程',exact:true}).click();
     await answerConfirm(page,true);
   }
   else {
     await request.post('/api/topics/test-acquisition/refine');
-    await expect.poll(async()=>(await (await request.get('/api/topics/test-acquisition')).json()).job.status).toBe('done');
+    await expect.poll(async()=>(await (await request.get('/api/topics/test-acquisition')).json()).job.status).toBe('preview');
     await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
   }
+  await expect(page.getByRole('region',{name:'精简预览'})).toBeVisible({timeout:15000});
+  await expect(page.locator('.topic-node')).toHaveCount(14);
+  await page.getByRole('button',{name:'应用精简',exact:true}).click();
   await expect(page.locator('.topic-node')).toHaveCount(1,{timeout:15000});
   await expect(page.locator('.topic-node')).toContainText('交易进入监管审查阶段');
   await expect(page.locator('.topic-news')).toHaveCount(2);
   await page.locator('.topic-node').click();
   await expect(page.locator('.topic-news')).toHaveCount(2);
-  await expect(page.getByRole('button',{name:'精简脉络',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'精简进程',exact:true})).toHaveCount(0);
 });
 
 for(const width of [390,1280]) test('精简前警告可取消，成功后一个月内隐藏入口 '+width,async({page,request})=>{
@@ -633,7 +645,7 @@ for(const width of [390,1280]) test('精简前警告可取消，成功后一个�
   let submitted=0;
   await page.route('**/api/topics/*/refine',route=>{submitted++;return route.continue();});
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
-  const button=page.getByRole('button',{name:'精简脉络',exact:true});
+  const button=page.getByRole('button',{name:'精简进程',exact:true});
   await button.click();
   await expect(page.locator('#appConfirmMessage')).toContainText('不再单独显示');
   await expect(page.locator('#appConfirmMessage')).toContainText('成功后一个月内');
@@ -726,3 +738,189 @@ test("手机触屏确认定义布局与输入草稿",async({browser,request})=>{
     await expect(page.getByRole('heading',{name:'主题已创建'})).toBeVisible({timeout:15000});
   } finally {await context.close();}
 });
+
+for (const width of [390, 921, 1280]) test('主题定义自动伸缩、等高与修改检测 '+width, async({page})=>{
+  await page.setViewportSize({width,height:900});await page.goto('/');await openTopics(page);
+  await page.locator('[data-topic-id="test-acquisition"]').click();
+  await page.locator('#topicDefinitionBtn').click();
+  await expect(page.locator('#topicDefinitionActions')).toBeHidden();
+  const include=page.locator('[name="include_scope"]'),exclude=page.locator('[name="exclude_scope"]');
+  const original=await include.inputValue();
+  const originalHeight=(await include.boundingBox()).height;
+  await include.fill(Array.from({length:12},(_,i)=>'第'+i+'行范围').join('\n'));
+  await expect(page.locator('#topicDefinitionActions')).toBeVisible();
+  const ih=(await include.boundingBox()).height, eh=(await exclude.boundingBox()).height;
+  expect(ih).toBeCloseTo(eh,0);expect(ih).toBeGreaterThan(originalHeight);
+  const measurement=await include.evaluate(n=>{const c=getComputedStyle(n);return {height:n.getBoundingClientRect().height,max:7*parseFloat(c.lineHeight)+parseFloat(c.paddingTop)+parseFloat(c.paddingBottom)+2,overflow:n.scrollHeight>n.clientHeight};});
+  expect(measurement.height).toBeLessThanOrEqual(Math.ceil(measurement.max));expect(measurement.overflow).toBe(true);
+  await include.fill(original);
+  await expect(page.locator('#topicDefinitionActions')).toBeHidden();
+  expect((await include.boundingBox()).height).toBeCloseTo(originalHeight,0);
+  await page.screenshot({path:'.ui-artifacts/topics-definition-compact-'+width+'.png'});
+  await page.locator('#topicDefinitionBtn').click();
+  await expect(page.locator('#topicToolbarStatus')).toBeVisible();
+});
+
+for (const theme of ['light','dark','eink']) for (const width of [390,1280]) test('展开重要进展逐行排列、筛选与返回 '+theme+' '+width, async({page,request})=>{
+  await request.post('/__test/topics',{data:{many:true,long_timeline:true}});
+  await page.setViewportSize({width,height:900});await page.goto('/');await chooseTheme(page,theme);await openTopics(page);
+  await page.locator('[data-topic-id="test-acquisition"]').click();
+  await page.getByRole('button',{name:'展开',exact:true}).click();
+  await expect(page.locator('#topicTimeline')).toHaveClass(/is-expanded/);
+  await expect(page.locator('#topicTimelineSlider')).toBeHidden();
+  const geometry=await page.locator('#topicTimeline').evaluate(n=>({width:n.clientWidth,scroll:n.scrollWidth,
+    dots:[...n.querySelectorAll('.topic-node-dot')].map(dot=>({x:dot.getBoundingClientRect().x,y:dot.getBoundingClientRect().y})),
+    connectorCount:n.querySelectorAll('svg').length}));
+  expect(geometry.scroll).toBeLessThanOrEqual(geometry.width+1);
+  expect(new Set(geometry.dots.map(dot=>dot.y)).size).toBeGreaterThan(1);
+  expect(geometry.connectorCount).toBe(0);
+  for (let index=1;index<geometry.dots.length;index++) {
+    const previous=geometry.dots[index-1],current=geometry.dots[index];
+    if (Math.abs(current.y-previous.y)<1) expect(current.x).toBeGreaterThan(previous.x);
+    else expect(current.y).toBeGreaterThan(previous.y);
+  }
+  const status=await page.locator('#topicToolbarStatus').boundingBox();
+  const controls=await page.locator('#topicToolbar .reader-action-toolbar').boundingBox();
+  expect(status.x+status.width).toBeLessThanOrEqual(controls.x);
+  expect(controls.x+controls.width).toBeLessThanOrEqual(width);
+  await expect(page.locator('[data-has-news="false"]').first()).toContainText('历史概述');
+  await expect(page.locator('.topic-timeline')).not.toContainText('暂无报道');
+  await page.screenshot({path:'.ui-artifacts/topics-expanded-'+theme+'-'+width+'.png',fullPage:true});
+  await page.locator('[data-has-news="true"]').first().click();
+  await expect(page.locator('#topicNewsTitle')).toContainText('相关报道');
+  await expect(page.locator('#topicTimeline')).toHaveClass(/is-expanded/);
+  await page.getByRole('button',{name:'收起',exact:true}).click();
+  await expect(page.locator('#topicTimelineSlider')).toBeVisible();
+  await expect(page.locator('#topicTimeline')).not.toHaveClass(/is-expanded/);
+});
+
+test('精简预览可放弃、确认应用并恢复，保留报道与冷却期',async({page,request})=>{
+  await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
+  const before=await (await request.get('/api/topics/test-acquisition')).json();
+  for (const discard of [true,false]) {
+    await page.getByRole('button',{name:'精简进程',exact:true}).click();await answerConfirm(page,true);
+    await expect(page.getByRole('region',{name:'精简预览'})).toBeVisible({timeout:15000});
+    await expect(page.locator('.topic-node')).toHaveCount(2);
+    await expect(page.locator('#topicToolbarStatus')).toHaveText('待确认精简');
+    if(discard) {
+      await page.getByRole('button',{name:'放弃预览',exact:true}).click();
+      await expect(page.getByRole('region',{name:'精简预览'})).toHaveCount(0);
+    }
+  }
+  await page.screenshot({path:'.ui-artifacts/topic-refinement-preview.png'});
+  await page.getByRole('button',{name:'应用精简',exact:true}).click();
+  await expect(page.locator('.topic-node')).toHaveCount(1);
+  await page.getByRole('button',{name:'恢复精简前',exact:true}).click();await answerConfirm(page,true);
+  await expect(page.locator('.topic-node')).toHaveCount(2);
+  const after=await (await request.get('/api/topics/test-acquisition')).json();
+  expect(after.nodes).toEqual(before.nodes);expect(after.items).toEqual(before.items);
+  expect(after.topic.refine_cooldown).toBe(true);
+  await expect(page.getByRole('button',{name:'精简进程',exact:true})).toHaveCount(0);
+});
+
+async function expectSummaryAfterSelectedRow(page) {
+  await expect.poll(()=>page.locator('#topicTimeline').evaluate(timeline=>{
+    const selected=timeline.querySelector('.topic-node[aria-pressed="true"]');
+    const summary=timeline.querySelector('#topicNodeSummary');
+    if (!selected || !summary || summary.dataset.topicSummary!==selected.dataset.topicNode) return false;
+    const card=selected.getBoundingClientRect(), text=summary.getBoundingClientRect();
+    const nodes=[...timeline.querySelectorAll('.topic-node')].map(node=>node.getBoundingClientRect());
+    const row=nodes.filter(rect=>Math.abs(rect.top-card.top)<1);
+    const later=nodes.filter(rect=>rect.top>card.top+1);
+    const frame=timeline.getBoundingClientRect();
+    return text.top>=Math.max(...row.map(rect=>rect.bottom))-1 &&
+      text.top-Math.max(...row.map(rect=>rect.bottom))<24 &&
+      later.every(rect=>rect.top>=text.bottom-1) &&
+      text.left>=frame.left-1 && text.right<=frame.right+1 && text.width>frame.width*.9;
+  })).toBe(true);
+}
+
+for (const width of [360,390,921,1440]) test('展开概述跟随选中行，收起后选中节点完整可见 '+width,async({page,request})=>{
+  await request.post('/__test/topics',{data:{long_timeline:true}});
+  await page.setViewportSize({width,height:900});await page.goto('/');await openTopics(page);
+  await page.locator('[data-topic-id="test-acquisition"]').click();
+  await page.getByRole('button',{name:'展开',exact:true}).click();
+  // Middle, first and last rows cover both history-only and report-linked nodes.
+  for (const index of [5,0,13]) {
+    await page.locator('.topic-node').nth(index).click();
+    await expect(page.locator('.topic-node').nth(index)).toHaveAttribute('aria-pressed','true');
+    await expectSummaryAfterSelectedRow(page);
+  }
+  await page.locator('.topic-node').nth(5).click();await expectSummaryAfterSelectedRow(page);
+  const expandedGap=await page.locator('#topicNodeSummary').evaluate(node=>getComputedStyle(node).gap);
+  await page.locator('#topicNodeSummary').scrollIntoViewIfNeeded();
+  await page.screenshot({path:'.ui-artifacts/topic-inline-summary-'+width+'.png'});
+  const selected=await page.locator('.topic-node[aria-pressed="true"]').getAttribute('data-topic-node');
+  const filtered=await page.locator('.topic-news-open').first().getAttribute('data-topic-item');
+  await page.getByRole('button',{name:'收起',exact:true}).click();
+  await expect(page.locator('#topicTimeline #topicNodeSummary')).toHaveCount(0);
+  await expect(page.locator('#topicNodeSummary')).toHaveAttribute('data-topic-summary',selected);
+  expect(await page.locator('#topicNodeSummary').evaluate(node=>getComputedStyle(node).gap)).toBe(expandedGap);
+  await expect.poll(()=>page.locator('#topicTimeline').evaluate(timeline=>{
+    const frame=timeline.getBoundingClientRect(),card=timeline.querySelector('.topic-node[aria-pressed="true"]').getBoundingClientRect();
+    return card.left>=frame.left-1 && card.right<=frame.right+1;
+  })).toBe(true);
+  expect(Number(await page.locator('#topicTimelineSlider').inputValue())).toBeGreaterThan(0);
+  await expect(page.locator('.topic-news-open').first()).toHaveAttribute('data-topic-item',filtered);
+  await page.screenshot({path:'.ui-artifacts/topic-collapsed-selected-'+width+'.png'});
+  await page.getByRole('button',{name:'展开',exact:true}).click();
+  await expectSummaryAfterSelectedRow(page);
+  if (width===1440) {
+    for (const resized of [1280,921,920,360]) {
+      await page.setViewportSize({width:resized,height:900});
+      await expectSummaryAfterSelectedRow(page);
+    }
+  }
+});
+
+for (const [theme,motion,animated] of [['light','no-preference',true],['dark','no-preference',true],['eink','no-preference',false],['light','reduce',false]]) {
+  test('重要进展轻量动画与快速切换 '+theme+' '+motion,async({page,request})=>{
+    await request.post('/__test/topics',{data:{long_timeline:true}});
+    await page.emulateMedia({reducedMotion:motion});await page.goto('/');await chooseTheme(page,theme);await openTopics(page);
+    await page.locator('[data-topic-id="test-acquisition"]').click();
+    await expect(page.getByRole('button',{name:'展开',exact:true})).toBeVisible();
+    const sample=await page.evaluate(()=>{
+      const before=document.querySelector('.topic-history').getBoundingClientRect().height;
+      document.querySelector('[data-topic-action="expand-timeline"]').click();
+      const section=document.querySelector('.topic-history'), animation=section.getAnimations()[0];
+      if (!animation) return {animated:false,before};
+      animation.pause();const duration=animation.effect.getTiming().duration;
+      animation.currentTime=duration/2;
+      return {animated:true,before,duration,height:section.getBoundingClientRect().height,
+        target:parseFloat(animation.effect.getKeyframes().at(-1).height)};
+    });
+    expect(sample.animated).toBe(animated);
+    if (animated) {
+      expect(sample.duration).toBe(200);
+      expect(sample.height).toBeGreaterThan(sample.before);
+      expect(sample.height).toBeLessThan(sample.target);
+      await page.evaluate(async()=>{const animation=document.querySelector('.topic-history').getAnimations()[0];animation.play();await animation.finished;});
+    }
+    await expect(page.locator('.topic-history.is-resizing')).toHaveCount(0);
+    await expectSummaryAfterSelectedRow(page);
+    // A fast collapse/expand/collapse must not leave a fixed height or clipped content.
+    const collapses=await page.evaluate(async()=>{
+      const animations=[], finishes=[];
+      for(let i=0;i<3;i++) {
+        document.querySelector('[data-topic-action="expand-timeline"]').click();
+        const current=document.querySelector('.topic-history').getAnimations();
+        animations.push(...current);finishes.push(...current.map(animation=>animation.finished));
+      }
+      const result=animations.map(animation=>animation.effect.getKeyframes().map(frame=>parseFloat(frame.height)));
+      await Promise.allSettled(finishes);
+      return result;
+    });
+    if(animated) expect(collapses[0][0]).toBeGreaterThan(collapses[0][1]);
+    else expect(collapses).toHaveLength(0);
+    await expect(page.getByRole('button',{name:'展开',exact:true})).toHaveAttribute('aria-expanded','false');
+    await expect(page.locator('.topic-history.is-resizing')).toHaveCount(0);
+    const final=await page.locator('.topic-history').evaluate(section=>{
+      const timeline=section.querySelector('#topicTimeline'),frame=timeline.getBoundingClientRect();
+      const card=timeline.querySelector('[aria-pressed="true"]').getBoundingClientRect();
+      return {height:section.getBoundingClientRect().height,overflow:getComputedStyle(section).overflow,
+        selectedVisible:card.left>=frame.left-1 && card.right<=frame.right+1};
+    });
+    expect(final.height).toBeCloseTo(sample.before,0);
+    expect(final.overflow).not.toBe('clip');expect(final.selectedVisible).toBe(true);
+  });
+}

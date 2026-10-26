@@ -240,3 +240,27 @@ export function focusTrap(event, container) {
     first.focus();
   }
 }
+// Measure a hidden visual copy so resizing never collapses the focused field.
+export function resizeAutoFields(root) {
+  const fields = [...root.querySelectorAll('textarea[data-auto-rows]')].filter(field => field.getClientRects().length);
+  const heights = new Map();
+  for (const field of fields) {
+    const css = getComputedStyle(field), line = parseFloat(css.lineHeight);
+    const padding = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
+    const border = parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth);
+    const copy = field.cloneNode();
+    copy.removeAttribute('id'); copy.removeAttribute('name'); copy.removeAttribute('data-auto-rows');
+    copy.setAttribute('aria-hidden', 'true'); copy.tabIndex = -1; copy.value = field.value;
+    Object.assign(copy.style, {position:'absolute', visibility:'hidden', pointerEvents:'none',
+      width:field.getBoundingClientRect().width+'px', height:'0px', minHeight:'0', maxHeight:'none'});
+    field.parentElement.append(copy);
+    heights.set(field, Math.ceil(Math.max(line * 2 + padding + border,
+      Math.min(line * 7 + padding + border, copy.scrollHeight + border))));
+    copy.remove();
+  }
+  for (const field of fields) {
+    const group = field.dataset.equalHeight;
+    const height = group ? Math.max(...fields.filter(other => other.dataset.equalHeight === group).map(other => heights.get(other))) : heights.get(field);
+    if (field.style.height !== height+'px') field.style.height = height+'px';
+  }
+}

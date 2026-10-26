@@ -2117,6 +2117,7 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 .settings-section-card--compact > .section-card-title { padding-bottom: var(--space-2); }
 .settings-section-card--compact > .article-title { margin-block: 0; }
 .settings-section-card--compact > .article-body,
+.article-body--compact,
 .settings-section-card--compact > .article-meta-top { gap: var(--space-2); }
 .section-stack { display: flex; flex-direction: column; gap: var(--space-4); }
 .section-title-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
@@ -2125,6 +2126,8 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 .status-pill.is-active { background: var(--accent); color: var(--accent-button-fg); }
 
 .section-card-title {
+  flex-wrap: wrap;
+  gap: var(--space-2);
   font-size: var(--fs-h3);
   font-weight: 600;
   line-height: 1.4;
@@ -2135,6 +2138,8 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
 }
+
+.section-card-title > .reader-action-toolbar { flex-wrap: wrap; margin-inline-start: auto; }
 
 .runtime-switch-grid {
   display: grid;
@@ -2224,6 +2229,9 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 }
 
 textarea.field-input { resize: vertical; line-height: 1.7; font-family: inherit; }
+textarea.field-input--auto { resize: none; overflow-y: auto; }
+.detail-toolbar > .toolbar-status { min-width: 0; flex-shrink: 1; margin-inline-end: auto; }
+.toolbar-status .status-pill { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .field-input:focus,
 .field-select:focus {
@@ -3660,6 +3668,7 @@ button:disabled {
   background: var(--surface);
   color: var(--muted);
 }
+.reader-action-btn--meta { font: 400 var(--fs-meta)/1.5 var(--font-mono); letter-spacing: normal; }
 .reader-action-btn:hover {
   background: var(--surface-subtle);
   color: var(--fg);
@@ -4639,8 +4648,12 @@ button:disabled {
 /* Topic-only structures: horizontal milestones and creation progress.
    Layout, typography, forms, cards and controls use the shared components above. */
 .topic-history { min-height: 300px; }
+.topic-history.is-resizing { overflow: clip; }
+.topic-history.is-resizing > * { flex-shrink: 0; }
 .topic-status { margin-block: 0; }
 .topic-timeline { display: flex; gap: var(--space-2); overflow-x: auto; min-height: 136px; padding: var(--space-1); margin: 0 calc(-1 * var(--space-1)); touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
+.topic-timeline.is-expanded { display: grid; overflow: visible; }
+.topic-timeline.is-expanded > .topic-node-summary { grid-column: 1 / -1; min-width: 0; padding-block: var(--space-2); }
 .topic-node { display: grid; grid-template-rows: auto 24px 1fr auto; align-content: start; flex: 1 0 176px; min-width: 0; text-align: left; }
 .topic-node-track { position: relative; display: flex; align-items: center; }
 .topic-node-track::before { position: absolute; content: ""; height: 1px; background: var(--border-strong); left: 4px; right: 0; }

@@ -1,9 +1,9 @@
 import { confirmAction } from "./confirm-dialog.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
-import { UpdatePanel } from "./update-panel.js?v=0.2.5";
-import { visibilityText } from "./summary-panel.js?v=0.2.5";
-import { classificationStatus } from "./classification-progress.js?v=0.2.5";
+import { UpdatePanel } from "./update-panel.js?v=0.3.0";
+import { visibilityText } from "./summary-panel.js?v=0.3.0";
+import { classificationStatus } from "./classification-progress.js?v=0.3.0";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);

@@ -137,7 +137,7 @@
 | 方法 | 路径 | 契约 |
 | --- | --- | --- |
 | GET / POST | `/api/topics` | 列表及Jev配置状态；创建传 `{query,request_id}`，返回202及持久化主题 |
-| GET | `/api/topics/<topic_id>` | 定义、messages对话、节点、匹配报道、任务状态；offset／limit分页，node可选筛选；每个节点的news_count为其关联的有效收录报道总数（与node筛选口径相同，不受分页影响）；topic.news_count始终为主题收录总数，不随node或分页变化，total为当前筛选的报道总数；topic同时返回last_refined_at、refine_available_at与refine_cooldown，按成功精简记录计算 |
+| GET | `/api/topics/<topic_id>` | 定义、messages对话、节点、匹配报道、任务状态；offset／limit分页，node可选筛选；每个节点的news_count为其关联的有效收录报道总数（与node筛选口径相同，不受分页影响）；topic.news_count始终为主题收录总数，不随node或分页变化，total为当前筛选的报道总数；topic同时返回last_refined_at、refine_available_at与refine_cooldown，按成功应用精简记录计算；refinement返回preview（分组前后、stale）与restore（可恢复版本） |
 | POST | `/api/topics/<topic_id>/messages` | 仅draft；传message（最多4000字）、request_id、rules_revision及definition对象（完整可编辑草稿），持久化问题并返回202；discuss任务回答或修订定义，不启动历史。重复相同请求幂等，不同内容复用标识报400，活动任务或版本冲突报409 |
 | POST | `/api/topics/<topic_id>/initialize` | 确认name／definition／include_scope／exclude_scope／horizontal_rule／start_date及最新rules_revision；活动或失败的对话、版本冲突报409。新主题timeline_mode只接受events（默认），进入历史研究 |
 | PATCH | `/api/topics/<topic_id>/definition` | ready主题（含已归档）提交name／definition／include_scope／exclude_scope／horizontal_rule及rules_revision；成功递增规则版本，只影响之后新入库新闻；版本冲突返回409并保留旧资料 |
@@ -146,3 +146,5 @@
 | POST | `/api/topics/<topic_id>/archive` | 传布尔值 `{archived:true/false}`，仅ready可归档；归档停止匹配／整理，恢复重置首次入库边界，同状态重复请求幂等 |
 | POST | `/api/topics/<topic_id>/refine` | 仅ready且未归档、没有待处理／失败任务时可用；成功后一个自然月内返回409/topic_refine_cooldown；使用已有非月度节点合并阶段里程碑，保留来源与新闻关系，返回202，失败可retry |
 | DELETE | `/api/topics/<topic_id>` | 删除主题、定义对话、节点、匹配关系和任务；不删除新闻及阅读状态 |
+
+主题精简预览新增 `POST /api/topics/<topic_id>/refinements/<version_id>/<action>`，action为apply／discard／restore。版本必须属于当前主题；应用旧预览、不可用版本、活动任务冲突返回409，未知操作返回400。生成预览不替换时间线、不开始冷却；确认应用后开始一个自然月间隔。恢复保留后续新增节点和报道，不重置间隔。删除主题同时清理预览和版本快照。

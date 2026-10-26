@@ -12301,7 +12301,7 @@ def _topic_error(exc):
     if code not in messages:
         code = "topic_invalid_input" if isinstance(exc, (ValueError, TypeError)) else "topic_runtime_failed"
     return jsonify(ok=False, error=code, message=messages.get(code, "主题处理失败。")), (
-        404 if code == "topic_not_found" else 409 if code in {"topic_busy", "topic_not_draft", "topic_not_ready", "topic_archived", "topic_retry_required", "topic_refine_cooldown", "topic_definition_changed", "topic_draft_changed"} else 400)
+        404 if code == "topic_not_found" else 409 if code in {"topic_busy", "topic_not_draft", "topic_not_ready", "topic_archived", "topic_retry_required", "topic_refine_cooldown", "topic_definition_changed", "topic_draft_changed", "topic_preview_pending", "topic_preview_changed", "topic_refinement_not_found"} else 400)
 
 
 @app.route("/api/topics", methods=["GET", "POST"])
@@ -12396,11 +12396,20 @@ def api_event_topic_refine(topic_id):
         return _topic_error(exc)
 
 
+@app.post("/api/topics/<topic_id>/refinements/<version_id>/<action>")
+def api_event_topic_refinement(topic_id, version_id, action):
+    try:
+        TOPIC_SERVICE.change_refinement(topic_id, version_id, action)
+        return jsonify(ok=True)
+    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
+        return _topic_error(exc)
+
+
 @app.delete("/api/topics/<topic_id>")
 def api_event_topic_delete(topic_id):
     with closing(db_conn()) as conn, conn:
         conn.execute("DELETE FROM topic_node_items WHERE node_id IN (SELECT id FROM topic_nodes WHERE topic_id=?)", (topic_id,))
-        for table in ("topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages"):
+        for table in ("topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "topic_refinements"):
             conn.execute(f"DELETE FROM {table} WHERE topic_id=?", (topic_id,))
         conn.execute("DELETE FROM event_topics WHERE id=?", (topic_id,))
     return jsonify(ok=True)

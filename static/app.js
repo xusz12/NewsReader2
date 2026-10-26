@@ -21,17 +21,17 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.2.5";
-import { SummaryPanel } from "./summary-panel.js?v=0.2.5";
-import { TopicPanel } from "./topic-panel.js?v=0.2.5";
+import { SettingsPanel } from "./settings-panel.js?v=0.3.0";
+import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
+import { TopicPanel } from "./topic-panel.js?v=0.3.0";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=0.2.5";
+import { ClassificationProgress } from "./classification-progress.js?v=0.3.0";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.2.5";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.3.0";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -1104,7 +1104,7 @@ function renderReader() {
   const thoughts = '<div id="researchNotesMount"></div>';
   const hasThoughts = hasContent || savedNotes.length || (payload && state.collection === "notes" && state.idea?.idea_type === "article_note");
   $("#detailContent").innerHTML =
-    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
+    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
     ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}

@@ -222,7 +222,7 @@ def fixture_topics():
     topic_fixture_mode["value"] = body.get("mode", "success")
     topic_fixture_mode.pop("chat_failed", None)
     with module.db_conn() as conn:
-        for table in ("topic_node_items", "topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "event_topics"):
+        for table in ("topic_node_items", "topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "topic_refinements", "event_topics"):
             conn.execute("DELETE FROM " + table)
         module.topic_tracking.seed_ingestions(conn)
         cutoff = conn.execute("SELECT COALESCE(MAX(seq),0) FROM topic_ingestions").fetchone()[0]

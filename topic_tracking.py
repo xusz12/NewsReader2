@@ -32,6 +32,9 @@ ERRORS = {
     "topic_archived": "主题已归档，请先恢复跟踪。",
     "topic_refine_unavailable": "至少需要两个事件节点才能精简脉络。",
     "topic_refine_cooldown": "距离上次成功精简未满一个月，请稍后再试。",
+    "topic_preview_pending": "已有精简预览，请先应用或放弃。",
+    "topic_preview_changed": "时间线已有变化，请放弃旧预览后重新生成。",
+    "topic_refinement_not_found": "这份精简记录已不可用，请刷新后重试。",
     "topic_retry_required": "请先重试当前失败的整理任务。",
     "topic_timeline_too_large": "现有脉络资料较多，暂时无法一次精简。",
     "topic_invalid_result": "模型返回的主题资料不完整，请重试。",
@@ -65,6 +68,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS topic_one_active_job ON topic_jobs(topic_id)
  WHERE status IN ('pending','running');
 CREATE INDEX IF NOT EXISTS topic_job_queue ON topic_jobs(status,created_at);
 CREATE INDEX IF NOT EXISTS topic_refinement_history ON topic_jobs(topic_id,kind,status,updated_at);
+CREATE TABLE IF NOT EXISTS topic_refinements (
+ id TEXT PRIMARY KEY, topic_id TEXT NOT NULL, revision INTEGER NOT NULL,
+ status TEXT NOT NULL DEFAULT 'preview', before_json TEXT NOT NULL,
+ result_json TEXT NOT NULL, after_json TEXT NOT NULL DEFAULT '[]',
+ created_at TEXT NOT NULL, applied_at TEXT, restored_at TEXT);
+CREATE INDEX IF NOT EXISTS topic_refinement_versions ON topic_refinements(topic_id,status);
 CREATE TABLE IF NOT EXISTS topic_definition_messages (
  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, topic_id TEXT NOT NULL,
  role TEXT NOT NULL, content TEXT NOT NULL, job_id TEXT, request_id TEXT,
@@ -672,6 +681,8 @@ class Service:
                 raise ValueError("topic_busy")
             if conn.execute("SELECT 1 FROM topic_jobs WHERE topic_id=? AND status='failed'", (ident,)).fetchone():
                 raise ValueError("topic_retry_required")
+            if conn.execute("SELECT 1 FROM topic_refinements WHERE topic_id=? AND status='preview'", (ident,)).fetchone():
+                raise ValueError("topic_preview_pending")
             nodes = self.refinable_nodes(conn, ident)
             if len(nodes) < 2:
                 raise ValueError("topic_refine_unavailable")
@@ -760,7 +771,7 @@ class Service:
             return {"topic": topic, "nodes": nodes, "items": items, "total": total,
                     "messages": self.conversation(conn, topic),
                     "has_more": offset+len(items)<total, "job": self.public_job(jobs),
-                    "matching": checks, "observed_at": time.time()}
+                    "matching": checks, "observed_at": time.time(), "refinement": self.refinement_view(conn, topic)}
 
     def schedule_updates(self, conn):
         rows = conn.execute("""SELECT t.* FROM event_topics t WHERE t.status='ready' AND t.archived_at IS NULL
@@ -842,7 +853,7 @@ class Service:
                     if not current or current["revision"] != job["revision"]:
                         raise ValueError("topic_source_changed")
                     if job["kind"] == "refine":
-                        self.save_refinement(conn, topic, result, nodes)
+                        self.save_refinement(conn, topic, result, nodes, preview_job=job["id"])
                     elif job["kind"] == "discuss":
                         reply = clean_text(result.get("reply"), 6000)
                         if "definition" not in result:
@@ -858,8 +869,8 @@ class Service:
                         conn.execute("UPDATE event_topics SET rules_revision=rules_revision+1,updated_at=? WHERE id=?", (now(),topic["id"]))
                     else:
                         self.save_result(conn, topic, job["kind"], result, batch_rows, nodes)
-                    conn.execute("UPDATE topic_jobs SET status='done',lease_token=NULL,lease_until=0,error='',updated_at=? WHERE id=? AND lease_token=?",
-                                 (now(), job["id"], token))
+                    conn.execute("UPDATE topic_jobs SET status=?,lease_token=NULL,lease_until=0,error='',updated_at=? WHERE id=? AND lease_token=?",
+                                 ("preview" if job["kind"] == "refine" else "done", now(), job["id"], token))
             except Exception as exc:
                 code = str(exc) if str(exc) in ERRORS else "topic_runtime_failed"
                 with conn:
@@ -867,7 +878,93 @@ class Service:
                         WHERE id=? AND lease_token=?""", (code, now(), job["id"], token))
             return True
 
-    def save_refinement(self, conn, topic, result, old_nodes):
+    @staticmethod
+    def timeline_snapshot(conn, ident):
+        nodes = [dict(row) for row in conn.execute("""SELECT * FROM topic_nodes
+            WHERE topic_id=? AND kind<>'month' ORDER BY date,id""", (ident,))]
+        for node in nodes:
+            node["items"] = [r[0] for r in conn.execute(
+                "SELECT item_id FROM topic_node_items WHERE node_id=? ORDER BY item_id", (node["id"],))]
+        return nodes
+
+    def refinement_view(self, conn, topic):
+        preview = conn.execute("SELECT * FROM topic_refinements WHERE topic_id=? AND status='preview' ORDER BY rowid DESC LIMIT 1", (topic["id"],)).fetchone()
+        latest = conn.execute("SELECT * FROM topic_refinements WHERE topic_id=? AND applied_at IS NOT NULL ORDER BY rowid DESC LIMIT 1", (topic["id"],)).fetchone()
+        value = {"preview": None, "restore": None}
+        if preview:
+            before = json.loads(preview["before_json"])
+            old = {n["id"]: n for n in before}
+            groups = [{"date": n["date"], "title": n["title"], "body": n["body"],
+                       "previous": [old[i]["title"] for i in n["node_ids"]]}
+                      for n in json.loads(preview["result_json"])["nodes"]]
+            value["preview"] = {"id": preview["id"], "before_count": len(before), "groups": groups,
+                "stale": preview["revision"] != topic["revision"] or self.timeline_snapshot(conn, topic["id"]) != before}
+        if latest and latest["status"] == "applied":
+            value["restore"] = {"id": latest["id"], "applied_at": latest["applied_at"]}
+        return value
+
+    def change_refinement(self, ident, version_id, action):
+        if action not in {"apply", "discard", "restore"}:
+            raise ValueError("topic_invalid_input")
+        with closing(self.connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            topic = conn.execute("SELECT * FROM event_topics WHERE id=?", (ident,)).fetchone()
+            if topic is None:
+                raise ValueError("topic_not_found")
+            version = conn.execute("SELECT * FROM topic_refinements WHERE id=? AND topic_id=?", (version_id,ident)).fetchone()
+            if version is None:
+                raise ValueError("topic_refinement_not_found")
+            # Explicit version IDs make retries safe; old tabs cannot apply another preview.
+            if (action == "apply" and version["status"] == "applied" or
+                    action == "discard" and version["status"] == "discarded" or
+                    action == "restore" and version["status"] == "restored"):
+                return
+            if action == "discard":
+                if version["status"] != "preview":
+                    raise ValueError("topic_refinement_not_found")
+                conn.execute("UPDATE topic_refinements SET status='discarded' WHERE id=?", (version_id,))
+                conn.execute("UPDATE topic_jobs SET status='cancelled',updated_at=? WHERE id=?", (now(),version_id))
+                return
+            if topic["archived_at"]:
+                raise ValueError("topic_archived")
+            if conn.execute("SELECT 1 FROM topic_jobs WHERE topic_id=? AND status IN ('pending','running')", (ident,)).fetchone():
+                raise ValueError("topic_busy")
+            before = json.loads(version["before_json"])
+            if action == "apply":
+                if version["status"] != "preview":
+                    raise ValueError("topic_refinement_not_found")
+                if version["revision"] != topic["revision"] or self.timeline_snapshot(conn, ident) != before:
+                    raise ValueError("topic_preview_changed")
+                if refinement_status(conn, ident)["refine_cooldown"]:
+                    raise ValueError("topic_refine_cooldown")
+                self.save_refinement(conn, dict(topic), json.loads(version["result_json"]), self.refinable_nodes(conn, ident))
+                conn.execute("UPDATE topic_refinements SET status='applied',after_json=?,applied_at=? WHERE id=?",
+                             (js(self.timeline_snapshot(conn, ident)),now(),version_id))
+                conn.execute("UPDATE topic_jobs SET status='done',updated_at=? WHERE id=?", (now(),version_id))
+            else:
+                latest = conn.execute("SELECT id FROM topic_refinements WHERE topic_id=? AND applied_at IS NOT NULL ORDER BY rowid DESC LIMIT 1", (ident,)).fetchone()
+                if version["status"] != "applied" or not latest or latest["id"] != version_id:
+                    raise ValueError("topic_refinement_not_found")
+                if conn.execute("SELECT 1 FROM topic_refinements WHERE topic_id=? AND status='preview'", (ident,)).fetchone():
+                    raise ValueError("topic_preview_pending")
+                # Retain later nodes. If a merged node gained reports, retain it with
+                # only those later reports rather than guessing their old association.
+                for node in json.loads(version["after_json"]):
+                    current = {r[0] for r in conn.execute("SELECT item_id FROM topic_node_items WHERE node_id=?", (node["id"],))}
+                    if current - set(node["items"]):
+                        conn.executemany("DELETE FROM topic_node_items WHERE node_id=? AND item_id=?", [(node["id"],i) for i in node["items"]])
+                    else:
+                        conn.execute("DELETE FROM topic_node_items WHERE node_id=?", (node["id"],))
+                        conn.execute("DELETE FROM topic_nodes WHERE id=? AND topic_id=?", (node["id"],ident))
+                for node in before:
+                    conn.execute("""INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,sources_json,updated_at)
+                        VALUES (?,?,?,?,?,?,?,?)""", tuple(node[k] for k in ("id","topic_id","kind","date","title","body","sources_json","updated_at")))
+                    conn.executemany("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,?)", [(node["id"],i) for i in node["items"]])
+                conn.execute("UPDATE topic_refinements SET status='restored',restored_at=? WHERE id=?", (now(),version_id))
+                conn.execute("UPDATE event_topics SET updated_at=? WHERE id=?", (now(),ident))
+        self.wake.set()
+
+    def save_refinement(self, conn, topic, result, old_nodes, *, preview_job=None):
         nodes = result.get("nodes")
         if not isinstance(nodes, list) or not 1 <= len(nodes) <= min(HISTORY_NODE_LIMIT, len(old_nodes)):
             raise ValueError("topic_invalid_result")
@@ -897,6 +994,11 @@ class Service:
                              "history" if all(old[i]["kind"] == "history" for i in ids) else "event"))
         if covered != set(old):
             raise ValueError("topic_invalid_result")
+        if preview_job:
+            conn.execute("""INSERT INTO topic_refinements(id,topic_id,revision,before_json,result_json,created_at)
+                VALUES (?,?,?,?,?,?)""", (preview_job,topic["id"],topic["revision"],
+                                         js(self.timeline_snapshot(conn, topic["id"])),js(result),now()))
+            return
         # Replace only after validating every group. News membership, monthly
         # nodes and their links are independent of this editorial consolidation.
         conn.executemany("DELETE FROM topic_node_items WHERE node_id=?", [(i,) for i in old])
