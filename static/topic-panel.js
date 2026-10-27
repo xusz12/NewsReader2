@@ -25,8 +25,8 @@ const definitionFields = d => field("name","主题名称",d.name,120)+field("def
 const timelineIcon = '<svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l3 2"/></svg>';
 
 export class TopicPanel {
-  constructor({ isVisible, enterReader, onViewChange, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem }) {
-    Object.assign(this, { isVisible, enterReader, onViewChange, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem });
+  constructor({ isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem }) {
+    Object.assign(this, { isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem });
     this.entries = []; this.selected = ""; this.listSelected = ""; this.showDefinition = false; this.data = null; this.page = "topic"; this.reading = false;
     this.drafts = new Map(); this.draftBases = new Map(); this.expandedTimelines = new Set(); this.draftChanges = new Set(); this.query = ""; this.requestId = ""; this.node = ""; this.filter = "";
     this.chatDrafts = new Map(); this.chatRequests = new Map(); this.chatErrors = new Map(); this.draftExpanded = new Set();
@@ -139,6 +139,7 @@ export class TopicPanel {
       const data = await api("/api/topics");
       if (sequence !== this.listSequence) return;
       this.entries = data.topics;
+      this.onUpdatesChanged();
       const creating = ["new", "create", "complete", "edit"].includes(this.page);
       if (this.listSelected && !this.entries.some(t=>t.id===this.listSelected && this.matchesList(t))) this.listSelected = "";
       if(this.selected && (!this.entries.some(t=>t.id===this.selected) || (!creating && !this.entries.some(t=>t.id===this.selected && this.matchesList(t))))){
@@ -161,8 +162,8 @@ export class TopicPanel {
     const entries = this.visibleEntries();
     const html = entries.length ? entries.map(t => '<button class="news-card topic-card' + (this.listSelected===t.id ? ' is-active' : '') + '" data-topic-id="' + e(t.id) + '" aria-pressed="' + (this.listSelected===t.id) + '" type="button">' +
       '<span class="news-card-meta"><span class="meta-source-box">'+e(t.archived_at ? "已归档" : statusLabel[t.status])+'</span><span class="meta-time-row">' +
-      (t.job?.status==="failed" ? "整理失败" : t.new_count ? t.new_count+" 条新新闻" : t.news_count+" 条新闻") +
-      (t.new_count ? '<span class="unread-dot" aria-label="有新新闻"></span>' : '') + '</span></span>' +
+      (t.job?.status==="failed" ? "整理失败" : t.new_count ? t.new_count+" 条新新闻" : t.has_new_progress ? "有新进展" : t.news_count+" 条新闻") +
+      (t.has_updates ? '<span class="unread-dot" aria-label="主题有更新"></span>' : '') + '</span></span>' +
       '<strong class="news-card-title">' + e(t.name) + '</strong><span class="news-card-snippet">' + e(t.overview || t.definition || t.query) + '</span></button>').join("") :
       '<div class="list-message">' + (this.searchQuery ? "没有匹配的主题，试试其他关键词。" : {all:"还没有追踪主题",tracking:"暂无持续跟踪的主题",archived:"暂无已归档的主题"}[this.listFilter]) + '</div>';
     const list = $("#topicCardList");
@@ -218,10 +219,7 @@ export class TopicPanel {
         this.renderList();
         this.render({preserveScroll:quiet || append});
       }
-      if (this.isVisible() && data.topic.status==="ready" && this.viewed.get(id) !== data.total &&
-          (!singlePane.matches || $("#feedView").classList.contains("mobile-reader-active"))) {
-        this.viewed.set(id,data.total); api("/api/topics/"+id+"/seen", {method:"POST",body:{observed_at:data.observed_at}}).catch(()=>{});
-      }
+      await this.markViewed(data);
     } catch(error) {
       if(sequence!==this.detailSequence)return;
       if (this.filter && (error.code || error.message) === "topic_node_not_found") {
@@ -229,6 +227,21 @@ export class TopicPanel {
       }
       if (!quiet || !this.data) this.content.innerHTML = '<div class="list-message" role="alert">' + e(errorText(error)) + '<button class="btn-secondary" type="button" data-topic-action="retry-detail">重试</button></div>';
     } finally { this.schedule(); }
+  }
+  async markViewed(data = this.data) {
+    if (!data || !this.isVisible() || document.hidden || this.reading || this.page !== "topic" ||
+        this.showDefinition || this.filter || data.topic.status !== "ready" ||
+        !this.content.getClientRects().length ||
+        (singlePane.matches && !$("#feedView").classList.contains("mobile-reader-active"))) return;
+    const id = data.topic.id;
+    const version = JSON.stringify([data.topic.latest_news_at, data.topic.latest_progress_at]);
+    if (this.viewed.get(id) === version) return;
+    try {
+      await api("/api/topics/"+id+"/seen", {method:"POST",body:{observed_at:data.observed_at}});
+      this.viewed.set(id, version);
+      // Reload from the server so a concurrent new update cannot be cleared locally.
+      await this.load({quiet:true});
+    } catch { /* Retain the unread marker and retry on the next visible refresh. */ }
   }
   render({preserveScroll=false}={}) {
     this.timelineMotion?.cancel();
@@ -680,6 +693,7 @@ export class TopicPanel {
   returnFromArticle(){
     if(!this.reading)return false;
     this.reading=false;this.closeArticle();this.onViewChange();this.enterReader();
+    void this.fetchDetail({quiet:true});
     if(this.lastArticle)this.content.querySelector('[data-topic-item="'+CSS.escape(this.lastArticle)+'"]')?.focus({preventScroll:true});
     return true;
   }

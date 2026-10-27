@@ -1631,6 +1631,19 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
   text-align: justify;
 }
 
+.bilingual-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Both languages inherit the shared reader typography, themes and reading scale. */
+.article-body [lang] {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
 .article-body blockquote {
   border-left: 3px solid var(--border-strong);
   padding-left: 16px;

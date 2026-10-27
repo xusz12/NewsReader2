@@ -106,7 +106,36 @@ def js(value):
 
 
 def now():
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="microseconds")
+
+
+def topic_activity(conn, ident=None):
+    """Share the persisted unseen-update definition between the list and navigation."""
+    rows = conn.execute("""SELECT t.id,t.status,t.archived_at,t.seen_at,
+        (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done'
+            AND c.matched=1 AND c.updated_at>t.seen_at) AS new_count,
+        (SELECT MAX(c.updated_at) FROM topic_checks c WHERE c.topic_id=t.id
+            AND c.status='done' AND c.matched=1) AS latest_news_at,
+        (SELECT MAX(n.updated_at) FROM topic_nodes n WHERE n.topic_id=t.id) AS latest_progress_at
+        FROM event_topics t""" + (" WHERE t.id=?" if ident else ""), (ident,) if ident else ()).fetchall()
+    activity = {}
+    for row in rows:
+        # Node timestamps are local ISO dates, whereas seen_at/checks use Unix time.
+        try:
+            progress_at = datetime.fromisoformat(row["latest_progress_at"]).timestamp() if row["latest_progress_at"] else 0
+        except (ValueError, OverflowError):
+            progress_at = 0
+        has_progress = progress_at > row["seen_at"]
+        activity[row["id"]] = {
+            "new_count": row["new_count"], "latest_news_at": row["latest_news_at"],
+            "latest_progress_at": row["latest_progress_at"], "has_new_progress": has_progress,
+            "has_updates": row["status"] == "ready" and not row["archived_at"] and bool(row["new_count"] or has_progress),
+        }
+    return activity
+
+
+def unseen_topic_count(conn):
+    return sum(activity["has_updates"] for activity in topic_activity(conn).values())
 
 
 def refinement_status(conn, ident):
@@ -699,6 +728,8 @@ class Service:
 
     def listing(self):
         with closing(self.connect()) as conn:
+            conn.execute("BEGIN")
+            activity = topic_activity(conn)
             rows = conn.execute("""SELECT t.*,
                 (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done' AND c.matched=1) AS news_count,
                 (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done' AND c.matched=1 AND c.updated_at>t.seen_at) AS new_count,
@@ -707,6 +738,7 @@ class Service:
             output = []
             for row in rows:
                 topic = dict(row)
+                topic.update(activity[topic["id"]])
                 topic.pop("sources_json", None)
                 topic.update(rules_for(topic))
                 topic["job"] = self.public_job(conn.execute("SELECT * FROM topic_jobs WHERE topic_id=? ORDER BY rowid DESC LIMIT 1", (row["id"],)).fetchone())
@@ -715,10 +747,14 @@ class Service:
 
     def detail(self, ident, *, offset=0, limit=40, node_id=None):
         with closing(self.connect()) as conn:
+            # Acknowledge only this read snapshot, never updates committed during/after it.
+            observed_at = time.time()
+            conn.execute("BEGIN")
             topic = conn.execute("SELECT * FROM event_topics WHERE id=?", (ident,)).fetchone()
             if topic is None:
                 raise ValueError("topic_not_found")
             topic = dict(topic)
+            topic.update(topic_activity(conn, ident)[ident])
             topic.pop("sources_json", None)
             topic.update(rules_for(topic))
             topic.update(refinement_status(conn, ident))
@@ -771,7 +807,7 @@ class Service:
             return {"topic": topic, "nodes": nodes, "items": items, "total": total,
                     "messages": self.conversation(conn, topic),
                     "has_more": offset+len(items)<total, "job": self.public_job(jobs),
-                    "matching": checks, "observed_at": time.time(), "refinement": self.refinement_view(conn, topic)}
+                    "matching": checks, "observed_at": observed_at, "refinement": self.refinement_view(conn, topic)}
 
     def schedule_updates(self, conn):
         rows = conn.execute("""SELECT t.* FROM event_topics t WHERE t.status='ready' AND t.archived_at IS NULL

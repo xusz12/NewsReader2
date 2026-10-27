@@ -692,6 +692,7 @@ def load_nav_summary(conn: sqlite3.Connection) -> dict:
         "read_later_unread": read_later_unread,
         "favorites": count_news_items(conn, collection="favorites", read_filter="all"),
         "pending_review": pending_review,
+        "topics_unseen": topic_tracking.unseen_topic_count(conn),
     }
 
 
@@ -12394,7 +12395,7 @@ def api_event_topic_delete(topic_id):
 
 @app.get("/api/news/classification")
 def api_classification_status():
-    with closing(db_conn()) as conn:
+    with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn:
         progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
     return jsonify(ok=True, **progress, enabled=CLASSIFICATION_SERVICE.enabled,
                    configured=provider_has_configured_key("jev"),

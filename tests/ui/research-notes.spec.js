@@ -12,7 +12,7 @@ async function start(page, width = 1440) {
   await expect(write(page)).toBeVisible();
 }
 async function selectParagraph(page, index = 1) {
-  const node = page.locator('#articleBodyContent > p').nth(index);
+  const node = page.locator('#articleBodyContent > p, #articleBodyContent [lang="en"] > p').nth(index);
   await node.scrollIntoViewIfNeeded();
   return node.evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
@@ -73,7 +73,7 @@ test('quote original or translated paragraphs and remove a draft quote', async (
   await input(page).fill('针对译文的判断');
   await input(page).press('Meta+Enter');
   await expect(page.locator('.saved-note .thought-quote')).toContainText(translated);
-  await page.locator('[data-body-mode="original"]').click();
+  await page.locator('[data-body-mode="bilingual"]').click();
   const original = await selectParagraph(page);
   await page.locator('#quoteNoteBtn').click();
   await expect(page.locator('.draft-quote')).toContainText('引用原文第 2 段');
@@ -115,7 +115,7 @@ test('draft survives article changes and failed publish; pending publish cannot 
   await expect(page.locator('.saved-note')).toHaveCount(1);
   await expect(input(page)).toHaveValue('发布等待期间的新草稿');
   await expect(input(page)).toBeFocused();
-  await page.locator('[data-body-mode="original"]').click();
+  await page.locator('[data-body-mode="bilingual"]').click();
   await expect(input(page)).toHaveValue('发布等待期间的新草稿');
 });
 

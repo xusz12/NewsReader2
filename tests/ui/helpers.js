@@ -23,3 +23,10 @@ export async function answerConfirm(page, accept = true) {
   await dialog.locator(accept ? '#appConfirmAccept' : '#appConfirmCancel').click();
   return message;
 }
+
+// Most UI fixtures describe a single batch. Explicit batch data can differ from
+// library totals when testing the distinction between the two progress views.
+export function withClassificationBatch(progress) {
+  return {...progress, batch: progress.batch || Object.fromEntries(
+    ['total','done','pending','running','failed'].map(key=>[key, progress[key] || 0]))};
+}

@@ -40,11 +40,11 @@ test('persistent highlights in body, conclusion and points, including formatted 
   await page.reload();
   await expect(page.locator('.digest-lead mark')).not.toHaveCount(0);
   await expect(page.locator('#articleBodyContent mark')).not.toHaveCount(0);
-  await page.locator('[data-body-mode="original"]').click();
-  await selection(page, '#articleBodyContent > p:nth-child(3)');
+  await page.locator('[data-body-mode="bilingual"]').click();
+  await selection(page, '#articleBodyContent [lang="en"] > p:nth-child(3)');
   await page.getByRole('button', { name: '高亮', exact: true }).click();
-  await expect(page.locator('#articleBodyContent > p:nth-child(3) mark')).toContainText(['📌 ', '重复判断', ' 与 ', '引用', ' 和 ', 'code', '。']);
-  await selection(page, '#articleBodyContent > p:nth-child(4)');
+  await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(3) mark')).toContainText(['📌 ', '重复判断', ' 与 ', '引用', ' 和 ', 'code', '。']);
+  await selection(page, '#articleBodyContent [lang="en"] > p:nth-child(4)');
   await page.getByRole('button', { name: '高亮', exact: true }).click();
   const data = (await (await request.get(path + '/detail')).json());
   const raw = [...data.detail.content];
@@ -53,11 +53,11 @@ test('persistent highlights in body, conclusion and points, including formatted 
   for (const mark of marks) expect(raw.slice(mark.start_offset, mark.end_offset).join('')).toBe(mark.selected_text);
   expect(marks[1].start_offset).toBeGreaterThan(marks[0].end_offset);
   await page.reload();
-  await page.locator('[data-body-mode="original"]').click();
-  await expect(page.locator('#articleBodyContent > p:nth-child(4) mark')).toHaveText('重复判断。');
-  await page.locator('#articleBodyContent > p:nth-child(4) mark').click();
+  await page.locator('[data-body-mode="bilingual"]').click();
+  await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark')).toHaveText('重复判断。');
+  await page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark').click();
   await page.getByRole('button', { name: '取消高亮' }).click();
-  await expect(page.locator('#articleBodyContent > p:nth-child(4) mark')).toHaveCount(0);
+  await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark')).toHaveCount(0);
 });
 
 test('restored highlights preserve article text when source edits change their resolved order', async ({ page }) => {

@@ -52,13 +52,13 @@ test('linked idea reuses full reader, retains highlights and authorship, and arc
   });
   await page.getByRole('button', { name: '高亮', exact: true }).click();
   await expect(paragraph.locator('mark')).not.toHaveCount(0);
-  await page.locator('[data-body-mode="original"]').click();
+  await page.locator('[data-body-mode="bilingual"]').click();
   await page.locator('#detailScrollArea').evaluate(node => node.scrollTop = 210);
   const scroll = await page.locator('#detailScrollArea').evaluate(node => node.scrollTop);
   await standaloneCard(page).click();
   await expect(page.locator('#ideaNote')).toBeVisible();
   await linked(page).click();
-  await expect(page.locator('[data-body-mode="original"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-body-mode="bilingual"]')).toHaveClass(/active/);
   await expect.poll(() => page.locator('#detailScrollArea').evaluate(node => node.scrollTop)).toBe(scroll);
   await page.locator('[data-body-mode="translated"]').click();
   await expect(paragraph.locator('mark')).not.toHaveCount(0);

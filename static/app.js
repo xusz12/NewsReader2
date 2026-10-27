@@ -21,16 +21,16 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.3.0";
+import { SettingsPanel } from "./settings-panel.js?v=0.3.2";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
-import { TopicPanel } from "./topic-panel.js?v=0.3.0";
+import { TopicPanel } from "./topic-panel.js?v=0.3.2";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=0.3.0";
+import { ClassificationProgress } from "./classification-progress.js?v=0.3.2";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
-import { ReaderHighlights, readerInline, readerMarkdown } from "./reader-highlights.js";
+import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.3.2";
 import { UpstreamErrors } from "./upstream-errors.js?v=0.3.0";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
@@ -254,6 +254,7 @@ const topics = new TopicPanel({
   isVisible: () => state.collection === "topics" && !settings.open,
   enterReader,
   onViewChange: syncDetailPanels,
+  onUpdatesChanged: refreshBadges,
   openArticle: item => selectNews(item, true, true),
   readLaterAction: item => cardAction(item, "read_later"),
   toggleReadLater: item => toggleState(item, "read_later"),
@@ -283,10 +284,13 @@ function renderCategories() {
   // Keep the buttons mounted: keyboard focus and horizontal scroll survive counts updating.
   if (!row.children.length) row.innerHTML = Object.entries(categoryLabels).map(([key, label]) =>
     `<button type="button" class="filter-chip" data-category="${key}">${label}</button>`).join("");
+  const count = state.dateCountsScope === countScope() && state.dateCounts
+    ? Object.values(state.dateCounts).reduce((sum, value) => sum + value, 0) : null;
   for (const button of row.children) {
     const active = button.dataset.category === state.category;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
+    button.textContent = categoryLabels[button.dataset.category] + (active && button.dataset.category !== "all" ? ` (${count ?? "…"})` : "");
   }
 }
 
@@ -665,6 +669,10 @@ const countsAreCurrent = snapshot => snapshot.clean && !stateWrites.pending.size
 
 function renderNavCounts() {
   if (!navSummary) return;
+  const topicsUnseen = Math.max(0, Number(navSummary.topics_unseen) || 0);
+  $("#topicsNavBadge").hidden = topicsUnseen === 0;
+  $("#topicsNavBadge").textContent = topicsUnseen > 99 ? "99+" : topicsUnseen || "";
+  $("#navTopicsBtn").setAttribute("aria-label", topicsUnseen ? `主题追踪，${topicsUnseen} 个主题有更新` : "主题追踪");
   $("#unreadBadge").textContent = navSummary.feed_unread || "";
   $("#readLaterNavBadge").textContent = navSummary.read_later_unread || "";
   for (const [id, count, label] of [
@@ -688,6 +696,7 @@ function renderReadCounts() {
   // Updating only the count text preserves keyboard focus and the list position.
   if (state.collection !== "feed") return;
   renderFeedDateCounts();
+  renderCategories();
   const chip = $('#feedColFeed .filter-chip.active[data-filter="unread"]');
   if (chip && (!state.loading || state.total !== null)) chip.textContent = `未读 (${state.total ?? "…"})`;
   const sources = sourceCountsByCollection.get("feed");
@@ -789,6 +798,7 @@ async function updateBadges() {
     state.dateCounts = data.date_counts || {};
     state.dateCountsScope = dateScope;
     renderFeedDateCounts();
+    renderCategories();
   };
   if (state.collection === "summaries") summaries.refreshScope();
   void loadSources();
@@ -1085,13 +1095,14 @@ function renderReader() {
   } catch {
     points = (ai?.key_points_zh || "").split("\n").filter(Boolean);
   }
-  const body =
-    state.bodyMode === "original"
-      ? detail?.content
-      : ai?.body_zh || detail?.content;
+  const bilingual = state.bodyMode === "bilingual";
+  const body = ai?.body_zh || detail?.content;
   const hasContent = !!(detail?.content?.trim() || ai?.body_zh?.trim());
   const hasInsights = !!(ai?.conclusion_zh || points.length);
-  const bodyKind = state.bodyMode === "translated" && ai?.body_zh ? "ai_zh" : sourceKey(item) === "x" ? "twitter_detail" : "original";
+  const originalKind = sourceKey(item) === "x" ? "twitter_detail" : "original";
+  const bodyKind = ai?.body_zh ? "ai_zh" : originalKind;
+  const bilingualBody = bilingual ? readerBilingual(detail?.content, ai?.body_zh, originalKind) : null;
+  const readingModes = hasContent ? `<div class="digest-mode-tabs" role="group" aria-label="正文语言"><button class="digest-mode-btn ${!bilingual ? "active" : ""}" data-body-mode="translated" aria-pressed="${!bilingual}" type="button">中文精读</button><button class="digest-mode-btn ${bilingual ? "active" : ""}" data-body-mode="bilingual" aria-pressed="${bilingual}" type="button">中英双语</button></div>` : "";
   let pointOffset = 0;
   const pointsHTML = points.map((point, i) => {
     const html = `<li class="digest-point-item" data-quote-paragraph="${i + 1}"><span class="point-index">${i + 1}</span><span>${readerInline(point, pointOffset)}</span></li>`;
@@ -1105,12 +1116,14 @@ function renderReader() {
   const hasThoughts = hasContent || savedNotes.length || (payload && state.collection === "notes" && state.idea?.idea_type === "article_note");
   $("#detailContent").innerHTML =
     `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
-    ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div><div class="digest-mode-tabs"><button class="digest-mode-btn ${state.bodyMode === "translated" ? "active" : ""}" data-body-mode="translated" type="button">中文精读</button><button class="digest-mode-btn ${state.bodyMode === "original" ? "active" : ""}" data-body-mode="original" type="button">英文原文</button></div></div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
-    ${body?.trim() ? `<div class="article-body" id="articleBodyContent" data-highlight-kind="${bodyKind}">${readerMarkdown(body)}</div>` : ""}
+    ${!hasInsights && hasContent ? `<div class="digest-header">${readingModes}</div>` : ""}
+    ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇结构化精读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>DeepSeek 结构化精读</span></div>${readingModes}</div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
+    ${bilingualBody?.notice ? `<p class="muted" role="status">${e(bilingualBody.notice)}</p>` : ""}
+    ${hasContent ? `<div class="article-body" id="articleBodyContent" ${bilingual ? "" : `data-highlight-kind="${bodyKind}"`}>${bilingual ? bilingualBody.html : readerMarkdown(body)}</div>` : ""}
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}
     ${pipelineError ? `<div class="inline-error">${e(errorText({ error: pipelineError }))}</div>` : ""}`;
   researchNotes.mount($("#researchNotesMount"), item.id, savedNotes, notesFocus);
-  readerHighlights.mount(item.id, { [bodyKind]: body || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
+  readerHighlights.mount(item.id, { [originalKind]: detail?.content || "", ai_zh: ai?.body_zh || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
   const writeThought = $("#writeArticleThoughtBtn");
   if (writeThought) {
     writeThought.setAttribute("aria-controls", "researchNoteComposer");
@@ -1558,6 +1571,7 @@ document.addEventListener("click", (event) => {
   if (button?.dataset.bodyMode) {
     state.bodyMode = button.dataset.bodyMode;
     renderReader();
+    $(`[data-body-mode="${state.bodyMode}"]`, $("#detailContent"))?.focus({ preventScroll: true });
   }
   if (button?.dataset.closeShortcuts !== undefined) shortcutsDialog(false);
   if (button?.id === "loadMoreBtn") loadFeed(true);

@@ -3,7 +3,7 @@ import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawer
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
-import { classificationStatus } from "./classification-progress.js?v=0.3.0";
+import { classificationStatus } from "./classification-progress.js?v=0.3.2";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);

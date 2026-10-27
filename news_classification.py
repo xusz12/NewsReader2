@@ -300,6 +300,14 @@ def claim(conn: sqlite3.Connection, *, unread_only: bool = False, item_id=None, 
         if row is None:
             return None
         job = dict(row)
+        # Capture newly queued work before it can finish. Existing batch members
+        # only need this indexed lookup, not a full queue scan for every claim.
+        tracked = conn.execute("""SELECT 1 FROM classification_progress_items b
+            JOIN classification_progress_batch p ON p.singleton=1
+            WHERE p.unread_only=? AND b.item_id=? AND b.title_hash=? AND b.rule_version=?""",
+            (int(unread_only), job["item_id"], job["title_hash"], job["rule_version"])).fetchone()
+        if not tracked:
+            sync_progress_batch(conn, unread_only=unread_only)
         job["lease_token"] = uuid.uuid4().hex
         job["attempts"] += 1
         conn.execute("""UPDATE item_classifications SET status='running',attempts=?,lease_token=?,lease_until=?,updated_at=?
@@ -339,7 +347,66 @@ def completed_revision(conn: sqlite3.Connection) -> float:
     return conn.execute("SELECT COALESCE(MAX(updated_at),0) FROM item_classifications WHERE status='done'").fetchone()[0]
 
 
+def _batch_scope(unread_only):
+    # Completed work remains counted after reading; an in-flight request may finish.
+    return (" AND (c.status='done' OR (c.status='running' AND c.lease_until>?) OR NOT EXISTS "
+            "(SELECT 1 FROM item_state st WHERE st.item_id=c.item_id AND st.read_at IS NOT NULL))",
+            [time.time()]) if unread_only else ("", [])
+
+
+def progress_batch_counts(conn, *, unread_only=False):
+    scope, args = _batch_scope(unread_only)
+    rows = conn.execute("""SELECT c.status,COUNT(*) FROM classification_progress_items b
+        JOIN item_classifications c ON c.item_id=b.item_id AND c.title_hash=b.title_hash AND c.rule_version=b.rule_version
+        JOIN items i ON i.id=c.item_id AND i.title=c.title WHERE c.rule_version=?"""
+        + scope + " GROUP BY c.status", [RULE_VERSION, *args]).fetchall()
+    counts = dict.fromkeys(("pending", "running", "done", "failed"), 0)
+    counts.update(dict(rows))
+    return {**counts, "total": sum(counts.values())}
+
+
+def sync_progress_batch(conn, *, unread_only=False):
+    """Call in a write transaction, before any worker can finish newly queued work."""
+    batch = conn.execute("SELECT * FROM classification_progress_batch WHERE singleton=1").fetchone()
+    scope, args = _batch_scope(unread_only)
+    # Retire skipped or obsolete inputs so making them eligible again after this
+    # batch completes starts new work instead of reviving the previous progress.
+    conn.execute("""DELETE FROM classification_progress_items WHERE NOT EXISTS (
+        SELECT 1 FROM item_classifications c JOIN items i ON i.id=c.item_id AND i.title=c.title
+        WHERE c.item_id=classification_progress_items.item_id
+          AND c.title_hash=classification_progress_items.title_hash
+          AND c.rule_version=classification_progress_items.rule_version AND c.rule_version=?"""
+        + scope + ")", [RULE_VERSION, *args])
+    counts = progress_batch_counts(conn, unread_only=unread_only)
+    eligible = """ FROM item_classifications c JOIN items i ON i.id=c.item_id AND i.title=c.title
+        WHERE c.rule_version=? AND c.status<>'done'""" + scope
+    has_work = conn.execute("SELECT 1" + eligible + " LIMIT 1", [RULE_VERSION, *args]).fetchone()
+    if not batch and not has_work:
+        return {"id": None, **counts}
+    if (not batch or bool(batch["unread_only"]) != unread_only or
+            (has_work and not (counts["pending"] or counts["running"] or counts["failed"]))):
+        conn.execute("DELETE FROM classification_progress_items")
+        conn.execute("INSERT OR REPLACE INTO classification_progress_batch VALUES (1,?,?,?)",
+                     (uuid.uuid4().hex, int(unread_only), time.time()))
+        batch = conn.execute("SELECT * FROM classification_progress_batch WHERE singleton=1").fetchone()
+    conn.execute("""INSERT INTO classification_progress_items(item_id,title_hash,rule_version)
+        SELECT c.item_id,c.title_hash,c.rule_version""" + eligible + """
+        ON CONFLICT(item_id) DO UPDATE SET title_hash=excluded.title_hash,rule_version=excluded.rule_version
+        WHERE classification_progress_items.title_hash<>excluded.title_hash
+           OR classification_progress_items.rule_version<>excluded.rule_version""", [RULE_VERSION, *args])
+    return {"id": batch["id"], **progress_batch_counts(conn, unread_only=unread_only)}
+
+
 def status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:
+    # Persist discovery and the counts atomically, including before workers start.
+    with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        batch = sync_progress_batch(conn, unread_only=unread_only)
+        return {**_status(conn, unread_only=unread_only), "batch": batch}
+
+
+def _status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:
     rows = conn.execute("""SELECT c.status,COUNT(*) AS n FROM item_classifications c
         JOIN items i ON i.id=c.item_id AND i.title=c.title WHERE c.rule_version=?"""
         + (UNREAD_SCOPE_SQL if unread_only else "") + " GROUP BY c.status", (RULE_VERSION,)).fetchall()

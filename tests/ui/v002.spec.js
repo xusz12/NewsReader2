@@ -105,7 +105,7 @@ for (const width of [1440, 390]) {
     await page.locator('#fetchArticleBtn').click();
     await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
     await expect(page.locator('.digest-box')).toContainText('DeepSeek 结构化精读');
-    await page.locator('[data-body-mode="original"]').click();
+    await page.locator('[data-body-mode="bilingual"]').click();
     await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
     await expect(page.locator('#articleNote, #saveArticleNoteBtn')).toHaveCount(0);
     await expect(page.locator('#researchNoteComposer')).toBeHidden();

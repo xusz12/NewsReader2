@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { answerConfirm } from './helpers.js';
+import { answerConfirm, withClassificationBatch } from './helpers.js';
 
 test.beforeEach(async ({ page, request }) => {
   await request.post('/__test/reset-reading');
@@ -13,6 +13,8 @@ test('primary counts span categories while the list and mark-all action keep the
   await expect(row.getByRole('button')).toHaveText(['全部', '中国', 'AI', '政治与国际', '经济与金融', '商业', '科技与科学', '其他']);
   await row.getByRole('button', { name: '经济与金融', exact: true }).click();
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (65)');
+  await expect(row.locator('[data-category="economy"]')).toHaveText('经济与金融 (40)');
+  await expect(row.locator('[data-category="all"]')).toHaveText('全部');
   await expect(page.locator('#feedCardList .news-card')).toHaveCount(30);
   await expect(page.locator('#feedCardList .news-category-tag')).toHaveText(Array(30).fill('经济与金融'));
   await page.locator('#feedColFeed [data-filter="all"]').click();
@@ -29,6 +31,7 @@ test('primary counts span categories while the list and mark-all action keep the
   expect(await answerConfirm(page)).toContain('新闻分类：「经济与金融」');
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (25)');
   await expect(page.locator('#feedCardList .news-card')).toHaveCount(0);
+  await expect(row.locator('[data-category="economy"]')).toHaveText('经济与金融 (0)');
   const total = await (await request.get('/api/news?read_filter=unread&count_only=1')).json();
   expect(total.total).toBe(25);
   await row.getByRole('button', { name: 'AI', exact: true }).click();
@@ -46,6 +49,7 @@ test('search and source still scope primary counts while category only scopes th
   const params = new URLSearchParams({ q: 'isolated interface test fixture', source_filter: 'reuters', read_filter: 'unread', feed_filters: '1', count_only: '1' });
   const count = await (await request.get(`/api/search?${params}`)).json();
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText(`未读 (${count.total})`);
+  await expect(page.locator('[data-category="economy"]')).toHaveText(`经济与金融 (${(await (await request.get(`/api/search?${params}&category=economy`)).json()).total})`);
   await page.locator('[data-category="ai"]').click();
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText(`未读 (${count.total})`);
   const collectionRequest = page.waitForRequest(req => req.url().includes('/api/news?') && req.url().includes('collection=favorites'));
@@ -70,7 +74,7 @@ test('keyboard focus survives count refresh and can reach the last horizontally 
 
 test('missing key and failed classification remain explicit, retry uses the queue endpoint', async ({ page }) => {
   const progress = { ok: true, total: 65, done: 60, failed: 5, pending: 0, running: 0, configured: true, completed_revision: 0 };
-  await page.route('**/api/news/classification', route => route.fulfill({ json: progress }));
+  await page.route('**/api/news/classification', route => route.fulfill({ json: withClassificationBatch(progress) }));
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
   await expect(page.locator('#classificationProgressPanel')).toContainText('失败 5');
@@ -88,11 +92,11 @@ test('missing key and failed classification remain explicit, retry uses the queu
 test('unread-only progress uses its scope and hides when eligible work is complete', async ({ page }) => {
   const progress = { ok: true, total: 10, done: 7, pending: 3, running: 0, failed: 0,
     configured: true, unread_only: true, completed_revision: 0 };
-  await page.route('**/api/news/classification', route => route.fulfill({ json: progress }));
+  await page.route('**/api/news/classification', route => route.fulfill({ json: withClassificationBatch(progress) }));
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
   await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
-  await expect(page.locator('#classificationProgressCount')).toHaveText('7/10 条');
+  await expect(page.locator('#classificationProgressCount')).toHaveText('此次已分类 7/10 条');
   progress.done = 10;
   progress.pending = 0;
   await page.clock.runFor(31000);
@@ -100,10 +104,10 @@ test('unread-only progress uses its scope and hides when eligible work is comple
 });
 
 test('shared rate limiting is shown as cooldown without replacing the news list', async ({ page }) => {
-  await page.route('**/api/news/classification', route => route.fulfill({ json: {
+  await page.route('**/api/news/classification', route => route.fulfill({ json: withClassificationBatch({
     ok: true, total: 65, done: 30, pending: 35, running: 0, failed: 0, configured: true,
     throttle: { configured_concurrency: 8, effective_concurrency: 4, rate_limited: true, cooldown_seconds: 20 },
-  } }));
+  }) }));
   const first = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
@@ -133,9 +137,33 @@ for (const theme of ['light', 'dark', 'eink']) {
       probe.remove();
       return result;
     });
+    await expect(active).toHaveText('科技与科学 (4)');
     await expect(active).toHaveCSS('color', expected.color);
     await expect(active).toHaveCSS('background-color', expected.background);
     await expect(active).toHaveCSS('border-top-color', expected.border);
     await page.screenshot({ path: `.ui-artifacts/categories-${theme}-mobile.png` });
   });
 }
+
+
+test('selected category updates after read changes and ignores stale category responses', async({page,request})=>{
+  await page.locator('[data-category="economy"]').click();
+  await expect(page.locator('[data-category="economy"]')).toHaveText('经济与金融 (40)');
+  await request.patch('/api/news/ui-000/state',{data:{read:true}});
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await expect(page.locator('[data-category="economy"]')).toHaveText('经济与金融 (39)');
+  let release, caught;
+  const held=new Promise(resolve=>release=resolve), started=new Promise(resolve=>caught=resolve);
+  await page.route('**/api/news?*',async route=>{
+    if(new URL(route.request().url()).searchParams.get('category')==='ai'){
+      caught();await held;
+    }
+    await route.continue();
+  });
+  await page.locator('[data-category="ai"]').click();await started;
+  await expect(page.locator('[data-category="ai"]')).toHaveText('AI (…)');
+  await page.locator('[data-category="economy"]').click();
+  release();
+  await expect(page.locator('[data-category="economy"]')).toHaveText('经济与金融 (39)');
+  await expect(page.locator('[data-category="ai"]')).toHaveText('AI');
+});

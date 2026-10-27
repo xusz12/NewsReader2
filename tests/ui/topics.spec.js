@@ -525,6 +525,8 @@ test("创建时保留中栏，步骤与操作固定在右栏顶部",async({page,
   await request.post('/__test/topics',{data:{many:true,many_topics:true}});
   await page.goto('/');await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
+  // Let the viewed topic's update marker settle before taking the list snapshot.
+  await expect(page.locator('[data-topic-id="test-acquisition"] .unread-dot')).toHaveCount(0);
   const list=page.locator('#topicListScroll');
   await list.evaluate(n=>{n.scrollTop=280;});
   const before=await page.locator('#feedColTopics').innerHTML();

@@ -417,3 +417,17 @@ CREATE TABLE IF NOT EXISTS item_classifications (
 );
 CREATE INDEX IF NOT EXISTS idx_classification_queue ON item_classifications(status,next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_classification_category ON item_classifications(category,status);
+
+-- Only the current classification batch is retained; successful library history
+-- stays in item_classifications and is not part of the next batch's progress.
+CREATE TABLE IF NOT EXISTS classification_progress_batch (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  id TEXT NOT NULL,
+  unread_only INTEGER NOT NULL,
+  started_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS classification_progress_items (
+  item_id TEXT PRIMARY KEY,
+  title_hash TEXT NOT NULL,
+  rule_version TEXT NOT NULL
+);

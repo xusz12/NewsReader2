@@ -137,6 +137,12 @@ def _contains_cjk(text: str) -> bool:
 
 _DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
+PARAGRAPH_TRANSLATION_RULE = (
+    "译文用于逐段中英对照：以空行分隔原文段落，逐段按原顺序翻译，"
+    "译文段落数量必须与原文完全一致，段落间使用一个空行；"
+    "不得合并、拆分、遗漏段落，不要添加标题、前言或原文。保留原有标题、列表、引用和代码结构。"
+)
+
 
 def _configured_model() -> str:
     value = (os.getenv("NEWS_READER_LLM_MODEL") or "").strip()
@@ -165,7 +171,7 @@ def _build_messages(*, title: str, source: str, content: str) -> list[dict[str, 
         "要求：\n"
         "1) key_points_zh: 3-5 条中文要点，每条一句话。\n"
         "2) conclusion_zh: 一句话中文结论。\n"
-        "3) body_zh: 对全文做完整中文翻译，保持段落结构，不遗漏关键事实。"
+        "3) body_zh: 对全文做完整中文翻译，保持段落结构，不遗漏关键事实。" + PARAGRAPH_TRANSLATION_RULE
     )
     user = (
         f"来源: {source or '未知'}\n"
@@ -306,7 +312,7 @@ def _build_body_translation_only_messages(*, title: str, source: str, content: s
         "你是专业翻译。"
         "你必须调用给定函数并严格提供结构化参数。"
         "任务：把正文完整翻译成中文。"
-        "不要生成要点，不要生成结论，只返回完整中文正文。"
+        "不要生成要点，不要生成结论，只返回完整中文正文。" + PARAGRAPH_TRANSLATION_RULE
     )
     user = (
         f"来源：{source or '未知'}\n"
@@ -922,6 +928,7 @@ def generate_pi_fallback_translation(
         '- "key_points_zh": 3 到 5 条中文要点数组，每条一句话\n'
         '- "conclusion_zh": 一句中文结论\n'
         '- "body_zh": 完整中文翻译，保持段落结构，不遗漏关键信息\n'
+        + PARAGRAPH_TRANSLATION_RULE + "\n"
         f"来源：{source or '未知'}\n"
         f"标题：{title or '无标题'}\n\n"
         f"{body}"

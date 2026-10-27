@@ -4,10 +4,10 @@ import { chooseTheme } from './helpers.js';
 const activeFilter = page => page.locator('#feedColFeed .filter-chip.active[data-filter]');
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
 
-async function start(page) {
+async function start(page, unread = 65) {
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await expect(page.locator('#unreadBadge')).toHaveText('65');
+  await expect(page.locator('#unreadBadge')).toHaveText(String(unread));
 }
 
 test('unread filter, source and nav counts follow scrolling without reloading rows', async ({ page, request }) => {
@@ -33,7 +33,7 @@ test('clear favorites icon removes all pages and filtered-out favorites while pr
   for (let i = 0; i < 65; i++) await request.patch(`/api/news/ui-${String(i).padStart(3, '0')}/state`, { data: { favorite: true } });
   await request.patch('/api/news/ui-064/state', { data: { important: true, read_later: true } });
   const before = await (await request.get('/api/news/ui-064/detail')).json();
-  await start(page);
+  await start(page, 64); // Joining read later also marks this news item read.
   await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
   await expect(page.locator('#clearFavoritesBtn')).toBeHidden();
   await page.locator('#navFavoritesBtn').click();

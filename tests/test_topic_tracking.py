@@ -1166,3 +1166,43 @@ def test_refinement_version_api_is_scoped_and_atomic(env,api,monkeypatch):
     assert client.delete('/api/topics/'+ident).status_code==200
     with closing(service.connect()) as conn:
         assert conn.execute('SELECT COUNT(*) FROM topic_refinements WHERE topic_id=?',(ident,)).fetchone()[0]==0
+
+
+def test_topic_update_badge_counts_topics_and_preserves_later_progress(env, api, monkeypatch):
+    connect, service, _ = env
+    module, client = api
+    monkeypatch.setattr(module, 'TOPIC_SERVICE', service)
+    def api_connect():
+        conn = connect()
+        conn.create_function('is_bloomberg_video_url', 1, lambda url: 0)
+        return conn
+    monkeypatch.setattr(module, 'db_conn', api_connect)
+    first, second = ready(service), ready(service, request_id='second')
+    summary = lambda: client.get('/api/nav-summary').json['summary']['topics_unseen']
+    assert summary() == 2  # Initial history is a new progress update, even without news.
+    snapshot = client.get('/api/topics/'+first).json
+    assert snapshot['topic']['has_new_progress'] and snapshot['topic']['new_count'] == 0
+    # A progress-only change after the read must survive acknowledgment of that read.
+    with closing(connect()) as conn, conn:
+        conn.execute('UPDATE topic_nodes SET updated_at=? WHERE topic_id=?', (tt.now(), first))
+    client.post('/api/topics/'+first+'/seen', json={'observed_at':snapshot['observed_at']})
+    assert summary() == 2
+    fresh = client.get('/api/topics/'+first).json
+    client.post('/api/topics/'+first+'/seen', json={'observed_at':fresh['observed_at']})
+    assert summary() == 1
+    # New reports restore the badge; two reports in one topic count as one topic.
+    with closing(connect()) as conn:
+        article(conn, 'badge-one')
+        article(conn, 'badge-two')
+        conn.execute("UPDATE topic_checks SET status='done',matched=1,updated_at=? WHERE topic_id=?", (time.time(), first))
+        conn.commit()
+    assert summary() == 2
+    listing = {t['id']:t for t in service.listing()}
+    assert listing[first]['new_count'] == 2 and not listing[first]['has_new_progress']
+    assert listing[first]['has_updates']
+    client.post('/api/topics/'+first+'/archive', json={'archived':True})
+    assert summary() == 1
+    client.delete('/api/topics/'+second)
+    assert summary() == 0
+    with closing(connect()) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM item_state WHERE read_at IS NOT NULL').fetchone()[0] == 0

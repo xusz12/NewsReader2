@@ -97,7 +97,7 @@ export class ClassificationProgress {
       this.refreshing = false;
       if (this.refreshAgain) { this.refreshAgain = false; void this.refresh(); }
       else if (!document.hidden) {
-        const working = this.progress?.enabled !== false && (this.progress?.pending || this.progress?.running);
+        const working = this.progress?.enabled !== false && (this.progress?.batch?.pending || this.progress?.batch?.running);
         this.timer = setTimeout(() => this.refresh(), working ? 2000 : 30000);
       }
     }
@@ -105,20 +105,21 @@ export class ClassificationProgress {
   render() {
     const p = this.progress;
     this.onChange?.({ progress: p, error: this.error, updatedAt: this.updatedAt });
-    this.root.hidden = !p || p.enabled === false || !p.total || !(p.pending || p.running || p.failed);
+    const batch = p?.batch;
+    this.root.hidden = !p || p.enabled === false || !batch?.total || !(batch.pending || batch.running || batch.failed);
     if (this.root.hidden) { this.close(); return; }
-    const done = Math.min(p.total, Math.max(0, p.done));
-    const percent = done / p.total * 100;
-    this.indicator.setAttribute("aria-valuemax", String(p.total));
+    const done = Math.min(batch.total, Math.max(0, batch.done));
+    const percent = done / batch.total * 100;
+    this.indicator.setAttribute("aria-valuemax", String(batch.total));
     this.indicator.setAttribute("aria-valuenow", String(done));
-    this.indicator.setAttribute("aria-valuetext", `已分类 ${done}/${p.total} 条，${p.unread_only ? "仅未读新闻" : "全部新闻"}`);
+    this.indicator.setAttribute("aria-valuetext", `此次已分类 ${done}/${batch.total} 条，${p.unread_only ? "仅未读新闻" : "全部新闻"}`);
     $("#classificationProgressArc").style.strokeDashoffset = String(100 - percent);
     $("#classificationProgressArc").style.opacity = done ? "1" : "0";
-    $("#classificationProgressCount").textContent = `${done.toLocaleString()}/${p.total.toLocaleString()} 条`;
+    $("#classificationProgressCount").textContent = `此次已分类 ${done.toLocaleString()}/${batch.total.toLocaleString()} 条`;
     $("#classificationProgressScope").textContent = `当前模式：${p.unread_only ? "仅未读" : "全部"}`;
-    $("#classificationProgressDetails").textContent = `待处理 ${p.pending} · 处理中 ${p.running} · 失败 ${p.failed}`;
-    $("#classificationProgressStatus").textContent = this.error || classificationStatus(p);
-    $("#classificationProgressRetry").hidden = !p.configured || !(p.failed || p.error);
+    $("#classificationProgressDetails").textContent = `待处理 ${batch.pending} · 处理中 ${batch.running} · 失败 ${batch.failed}`;
+    $("#classificationProgressStatus").textContent = this.error || classificationStatus({...p, ...batch});
+    $("#classificationProgressRetry").hidden = !p.configured || !(batch.failed || p.error);
     $("#classificationProgressSettings").hidden = p.configured && !p.error;
   }
 }

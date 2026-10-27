@@ -16,6 +16,8 @@ test('mobile badges follow real read and read-later changes and disappear at zer
   await request.post('/__test/reset-reading');
   await request.post('/api/news/clear-read-later', { data: {} });
   await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
+  // Deliberately restore unread so the queue action is available in the unread feed.
+  await request.patch('/api/news/ui-064/state', { data: { read: false } });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   const feed = page.locator('#mobUnreadBadge'), later = page.locator('#mobReadLaterBadge');
@@ -24,10 +26,12 @@ test('mobile badges follow real read and read-later changes and disappear at zer
   const action = page.locator('#feedCardList [data-id="ui-064"] [data-state="read_later"]');
   await action.click();
   await expect(later).toBeHidden();
+  await expect(feed).toHaveText('65');
   await expect(page.locator('#mobileBottomNav [data-collection="read_later"]')).toHaveAccessibleName('稍后再看');
   await action.click();
   await expect(later).toBeVisible();
   await expect(later).toHaveText('1');
+  await expect(feed).toHaveText('64'); // Joining read later also marks the feed item read.
   await page.locator('#markAllReadBtn').click();
   await answerConfirm(page);
   await expect(feed).toBeHidden();

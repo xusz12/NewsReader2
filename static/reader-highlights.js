@@ -16,9 +16,13 @@ export function readerInline(text, offset = 0) {
   return result + textSpan(text.slice(cursor), offset + cursor);
 }
 export function readerMarkdown(raw) {
+  return readerMarkdownBlocks(raw).join("");
+}
+function readerMarkdownBlocks(raw) {
+  raw = String(raw || "");
   let cursor = 0, paragraph = 0;
-  return String(raw || "").split(/(?:\r?\n){2,}/).map(block => {
-    if (!block) return "";
+  return raw.split(/(?:\r?\n){2,}/).map(block => {
+    if (!block.trim()) return "";
     const offset = raw.indexOf(block, cursor);
     cursor = offset + block.length;
     const attr = `data-quote-paragraph="${++paragraph}"`;
@@ -42,7 +46,26 @@ export function readerMarkdown(raw) {
       return `<li>${readerInline(line[0].slice(prefix.length), offset + line.index + prefix.length)}</li>`;
     }).join("")}</ul>`;
     return `<p ${attr}>${readerInline(block, offset)}</p>`;
-  }).join("");
+  }).filter(Boolean);
+}
+
+export function readerBilingual(original, translated, originalKind = "original") {
+  const english = readerMarkdownBlocks(original), chinese = readerMarkdownBlocks(translated);
+  const source = html => `<div lang="en" data-highlight-kind="${originalKind}">${html}</div>`;
+  const translation = html => `<div lang="zh-Hans" data-highlight-kind="ai_zh">${html}</div>`;
+  if (!english.length || !chinese.length) return {
+    html: english.length ? source(english.join("")) : translation(chinese.join("")),
+    notice: english.length ? "中文译文尚未就绪，暂时显示原文。" : "英文原文尚未就绪，暂时显示中文译文。",
+  };
+  if (english.length !== chinese.length) return {
+    html: `<section class="article-body" aria-label="英文原文">${source(english.join(""))}</section>` +
+      `<section class="article-body" aria-label="中文译文">${translation(chinese.join(""))}</section>`,
+    notice: "现有译文分段与原文不一致，暂按全文分别显示。可点击「重新翻译」生成逐段译文。",
+  };
+  return {
+    html: english.map((block, index) => `<div class="bilingual-pair">${source(block)}${translation(chinese[index])}</div>`).join(""),
+    notice: "",
+  };
 }
 const sourceName = kind => ({ ai_zh: "translated", ai_conclusion_zh: "conclusion", ai_points_zh: "points" })[kind] || "original";
 const codePointOffset = (raw, utf16) => [...raw.slice(0, utf16)].length;
@@ -101,13 +124,18 @@ export class ReaderHighlights {
     this.paint();
   }
   paint() {
+    const entriesByKind = new Map();
     for (const root of $$("[data-highlight-kind]", $("#detailScrollArea"))) {
       const kind = root.dataset.highlightKind, raw = this.bodies[kind] || "";
-      const offsets = [0];
-      for (const character of raw) offsets.push(offsets.at(-1) + character.length);
-      const entries = (this.surfaces[kind]?.highlights || []).filter(row => row.status === "active").map(row => ({
-        ...row, start: offsets[row.resolved_start_offset], end: offsets[row.resolved_end_offset],
-      })).sort((a, b) => a.start - b.start || a.end - b.end);
+      // Bilingual paragraphs share a source; build its Unicode offset map only once.
+      if (!entriesByKind.has(kind)) {
+        const offsets = [0];
+        for (const character of raw) offsets.push(offsets.at(-1) + character.length);
+        entriesByKind.set(kind, (this.surfaces[kind]?.highlights || []).filter(row => row.status === "active").map(row => ({
+          ...row, start: offsets[row.resolved_start_offset], end: offsets[row.resolved_end_offset],
+        })).sort((a, b) => a.start - b.start || a.end - b.end));
+      }
+      const entries = entriesByKind.get(kind);
       const spans = $$("[data-reader-start]", root);
       for (const span of spans) {
         const start = Number(span.dataset.readerStart), text = span.textContent, end = start + text.length;
@@ -166,7 +194,8 @@ export class ReaderHighlights {
     const root = mark.closest("[data-highlight-kind]"), kind = root.dataset.highlightKind;
     const entry = (this.surfaces[kind]?.highlights || []).find(row => String(row.id) === mark.dataset.highlightId);
     if (!entry) return;
-    const text = $$(`[data-highlight-id="${entry.id}"]`, root).map(node => node.textContent).join("");
+    const text = $$(`[data-highlight-kind="${kind}"] [data-highlight-id="${entry.id}"]`, $("#detailScrollArea"))
+      .map(node => node.textContent).join("");
     this.selection = { itemId: this.itemId, kind, existing: entry.id,
       quote: { text: text.slice(0, 6000), source: sourceName(kind), paragraph: Number(mark.closest("[data-quote-paragraph]")?.dataset.quoteParagraph) || null } };
     this.anchor = mark;

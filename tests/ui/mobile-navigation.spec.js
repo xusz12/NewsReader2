@@ -148,7 +148,9 @@ test('every settings subpage swipes back to its category and preserves the origi
   for (const section of ['models', 'deepseek', 'classification', 'pipeline', 'storage', 'system']) {
     const category = page.locator(`[data-settings-tab="${section}"]`);
     await category.click();
-    await expect(page.locator(`#settingsContent > [data-section="${section}"]`)).toBeVisible();
+    const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
+    await expect(cards).toHaveCount(section === 'classification' ? 2 : 1);
+    for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(page.locator('#settingsDetailTitle')).toBeFocused();
     const scroll = await list.evaluate(node => node.scrollTop);
     await expect(page.locator('#feedColSettings')).toBeVisible();
@@ -219,7 +221,9 @@ test.describe('original sliding transitions', () => {
       const rect = await panel.boundingBox();
       expect(rect.x).toBe(0);
       expect(rect.width).toBe(402);
-      await expect(page.locator(`#settingsContent > [data-section="${section}"]`)).toBeVisible();
+      const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
+      await expect(cards).toHaveCount(section === 'classification' ? 2 : 1);
+      for (const card of await cards.all()) await expect(card).toBeVisible();
       await page.locator('#settingsCategoryBackBtn').tap();
       await expect(panel).toBeHidden();
     }

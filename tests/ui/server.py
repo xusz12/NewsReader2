@@ -265,4 +265,31 @@ def fixture_topic_mode():
     topic_fixture_mode["value"] = module.request.get_json()["mode"]
     return {"ok": True}
 
+
+@module.app.post('/__test/topic-update')
+def fixture_topic_update():
+    body = module.request.get_json(silent=True) or {}
+    ident = body.get('id', 'test-acquisition')
+    with module.db_conn() as conn:
+        if body.get('news'):
+            conn.execute("UPDATE topic_checks SET updated_at=? WHERE topic_id=?", (time.time(), ident))
+        else:
+            conn.execute("UPDATE topic_nodes SET title='新增监管进展',updated_at=? WHERE id=?",
+                         (module.topic_tracking.now(), ident+'-node-1'))
+    return {'ok': True}
+
+
+@module.app.post('/__test/bilingual')
+def fixture_bilingual():
+    body = module.request.get_json(silent=True) or {}
+    fixture = fixtures[63 % len(fixtures)]
+    with module.db_conn() as conn:
+        url = conn.execute("SELECT url FROM items WHERE id='ui-063'").fetchone()[0]
+        conn.execute('UPDATE article_details SET content=? WHERE url=?', (body.get('original', fixture['original']), url))
+        conn.execute('UPDATE article_ai SET body_zh=?,conclusion_zh=?,key_points_zh=? WHERE url=?',
+                     (body.get('translated', fixture['body']), '' if body.get('body_only') else fixture['conclusion'],
+                      '[]' if body.get('body_only') else json.dumps(fixture['points']), url))
+        conn.execute('DELETE FROM article_highlights WHERE url=?', (url,))
+    return {'ok': True}
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

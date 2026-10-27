@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme } from './helpers.js';
+import { chooseTheme, openSettings, withClassificationBatch } from './helpers.js';
 
 const indicator = page => page.getByRole('progressbar', { name: '新闻分类进度' });
 const panel = page => page.getByRole('region', { name: '新闻分类进度详情' });
@@ -12,7 +12,7 @@ async function start(page, progress = base()) {
   await page.clock.install();
   await page.route('**/api/news/classification', route => {
     state.requests++;
-    return route.fulfill(state.failed ? { status: 503, json: { error: 'unavailable' } } : { json: state.progress });
+    return route.fulfill(state.failed ? { status: 503, json: { error: 'unavailable' } } : { json: withClassificationBatch(state.progress) });
   });
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
@@ -216,4 +216,28 @@ test('touch can inspect the status card without triggering a classification acti
     await expect(panel(page)).toBeHidden();
     expect(actions.filter(url => url.includes('/classification'))).toEqual([]);
   } finally { await context.close(); }
+});
+
+test('header progress uses only this persisted batch while settings keeps library coverage', async ({page})=>{
+  const progress={...base(),total:1020,done:1005,pending:15,running:0,coverage:{total:1020,done:1005},
+    batch:{id:'current',total:20,done:5,pending:15,running:0,failed:0}};
+  const state={progress};
+  await page.route('**/api/news/classification',route=>route.fulfill({json:state.progress}));
+  await page.goto('/');
+  await expect(indicator(page)).toHaveAttribute('aria-valuenow','5');
+  await expect(indicator(page)).toHaveAttribute('aria-valuemax','20');
+  await expect(page.locator('#classificationProgressArc')).toHaveCSS('stroke-dashoffset','75px');
+  await indicator(page).focus();
+  await expect(panel(page)).toContainText('此次已分类 5/20 条');
+  await page.reload();
+  await expect(indicator(page)).toHaveAttribute('aria-valuenow','5');
+  await openSettings(page);
+  await page.locator('[data-settings-tab="classification"]').click();
+  await expect(page.locator('#classificationSettingsCompletionText')).toHaveText('1,005 / 1,020 条');
+  state.progress.batch={id:'next',total:3,done:0,pending:3,running:0,failed:0};
+  state.progress.done=1020;state.progress.total=1023;
+  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await expect(indicator(page)).toHaveAttribute('aria-valuenow','0');
+  await expect(indicator(page)).toHaveAttribute('aria-valuemax','3');
+  await expect(page.locator('#classificationProgressArc')).toHaveCSS('opacity','0');
 });

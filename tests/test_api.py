@@ -4724,6 +4724,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
         "read_later_unread": 1,
         "favorites": 0,
         "pending_review": 1,
+        "topics_unseen": 0,
     }
 
     settings["feed"]["hidden_source_subkeys"] = []

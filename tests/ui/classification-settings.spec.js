@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme } from './helpers.js';
+import { openSettings, chooseTheme, withClassificationBatch } from './helpers.js';
 
 const defaults = { enabled: true, concurrency: 8, unread_only: false };
 async function reset(request) {
@@ -28,7 +28,7 @@ async function progressSettings(page, initial=progressFixture()) {
   await page.clock.install();
   await page.route('**/api/news/classification',route=>{
     state.requests++;
-    return route.fulfill(state.failed ? {status:503,json:{error:'unavailable'}} : {json:state.progress});
+    return route.fulfill(state.failed ? {status:503,json:{error:'unavailable'}} : {json:withClassificationBatch(state.progress)});
   });
   await page.goto('/');await openSettings(page);await section(page,'classification');
   return state;
@@ -115,7 +115,7 @@ test('首次读取失败不伪造零进度，配置异常可重试失败项',asy
   await expect(page.locator('#classificationSettingsCounts')).toBeHidden();
   await page.unroute('**/api/news/classification');
   const state={progress:{...progressFixture(),configured:false}};
-  await page.route('**/api/news/classification',route=>route.fulfill({json:state.progress}));
+  await page.route('**/api/news/classification',route=>route.fulfill({json:withClassificationBatch(state.progress)}));
   await page.locator('#classificationRefreshBtn').click();
   await expect(page.locator('#classificationSettingsStatus')).toContainText('等待在 API 管理中配置 Jev');
   await expect(page.locator('#classificationRetryBtn')).toBeHidden();
@@ -150,7 +150,7 @@ for (const width of [390, 1050, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/news/classification', async route => {
       const result = await route.fetch();
-      await route.fulfill({ json: { ...await result.json(), total: 65, done: 64, pending: 1 } });
+      await route.fulfill({ json: withClassificationBatch({ ...await result.json(), batch: null, total: 65, done: 64, pending: 1 }) });
     });
     await page.goto('/');
     await expect(page.locator('#classificationProgress')).toBeVisible();

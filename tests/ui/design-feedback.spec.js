@@ -65,9 +65,12 @@ for (const width of [1440, 390, 320]) {
 
 test('selected cards, read-later and Agent archive match the reviewed appearance', async ({ page, request }) => {
   await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
+  // Keep this queued fixture in the unread feed so it is the selected card.
+  await request.patch('/api/news/ui-064/state', { data: { read: false } });
   await page.goto('/');
   const selected = page.locator('.news-card.is-active');
   await expect(selected).toBeVisible();
+  await expect(selected).toHaveAttribute('data-id', 'ui-064');
   for (const theme of ['light', 'dark', 'eink']) {
     await chooseTheme(page, theme);
     const colors = await selected.evaluate(node => {
