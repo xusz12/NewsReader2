@@ -5527,7 +5527,7 @@ def test_news_chat_archive_always_uses_pi_and_appends_note(tmp_path: Path, monke
     monkeypatch.setattr(app_module, "run_pi_chat_archive", fake_archive)
     response = client.post(
         f"/api/news/{item['id']}/chat/archive",
-        json={"messages": [{"role": "user", "content": "总结"}, {"role": "assistant", "content": "结论"}]},
+        json={"messages": [{"role": "user", "content": "总结"}, {"role": "assistant", "content": "归档结论。"}]},
     )
     assert response.status_code == 200
     payload = response.get_json()

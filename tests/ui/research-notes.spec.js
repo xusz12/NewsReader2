@@ -138,7 +138,7 @@ test('Agent archive calls the summary API and adds an authored card without eras
   expect(archived.request().postDataJSON().messages).toEqual(quotedConversation);
   await expect(page.locator('.agent-note')).toHaveCount(1);
   await expect(page.locator('.thought-agent-badge')).toHaveText('AI 研读归档');
-  await expect(page.locator('.agent-note')).toContainText('流动性传导研读结论');
+  await expect(page.locator('.agent-note')).toContainText('关注准备金与融资利率');
   await expect(page.locator('.thought-origin')).toHaveCount(0);
   await expect(input(page)).toHaveValue('尚未发布的个人想法');
   const notes = (await (await request.get(path + '/detail')).json()).notes;

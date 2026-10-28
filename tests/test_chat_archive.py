@@ -1,4 +1,6 @@
 """Archives retain full discussion context while saving a concise synthesis."""
+from pathlib import Path
+
 import pytest
 
 from test_api import _setup_agent_api_fixture
@@ -61,11 +63,12 @@ def test_full_research_and_quote_reach_archive_model(archive_api, monkeypatch, r
     assert client.get(path + '/detail').json['notes'][-1]['archive_summary'] == summary
 
 
-def test_archive_summary_boundary_preserves_saved_findings_on_failure(archive_api, monkeypatch):
+@pytest.mark.parametrize('source_length', [2, 299, 300, 301, 1000])
+def test_archive_summary_boundary_preserves_saved_findings_on_failure(archive_api, monkeypatch, source_length):
     app, client, path, _ = archive_api
-    messages = [{'role': 'user', 'content': '研究重点是什么？'},
-                {'role': 'assistant', 'content': '重点是融资成本的传导。'}]
-    summary = '研' * 2000
+    messages = [{'role': 'user', 'content': '问', 'quote_text': '引用资料' * 100},
+                {'role': 'assistant', 'content': '研' * (source_length - 1)}]
+    summary = '研' * min(300, source_length)
     monkeypatch.setattr(app, 'run_pi_chat_archive', lambda **kwargs: {'summary': summary})
     accepted = client.post(path + '/chat/archive', json={'messages': messages})
     assert accepted.status_code == 200
@@ -77,6 +80,89 @@ def test_archive_summary_boundary_preserves_saved_findings_on_failure(archive_ap
     assert rejected.status_code == 502
     assert rejected.json['error'] == 'invalid_archive_summary'
     assert client.get(path + '/detail').json['notes'] == saved_notes
+
+
+@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('message_source', ['legacy', 'persisted'])
+@pytest.mark.parametrize('source_length', [20, 400])
+@pytest.mark.parametrize('outcome', ['valid', 'compressed', 'still_long', 'empty', 'empty_after_retry', 'retry_error'])
+def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime, message_source, source_length, outcome):
+    app, client, path, settings = archive_api
+    settings['agent']['runtime'] = runtime
+    messages = [{'role': 'user', 'content': '  研究结论？  ', 'quote_text': '引用资料' * 100},
+                {'role': 'assistant', 'content': '研' * (source_length - 5)}]
+    limit = min(300, source_length)
+    body = {'messages': messages}
+    if message_source == 'persisted':
+        session_id = store_conversation(app, client, path, messages)
+        # Neither a longer client copy nor changed defaults can expand the budget or change runtime.
+        body = {'agent_session_id': session_id, 'messages': [{'role': 'assistant', 'content': '副本' * 300}]}
+        settings['agent']['runtime'] = 'codex' if runtime == 'pi' else 'pi'
+    before_session = client.get(path + '/agent/session').json
+    client.post(path + '/notes', json={'note': '已存想法'})
+    before_notes = client.get(path + '/detail').json['notes']
+    calls, states = [], []
+    summary = '结论仍待核实。'
+    oversized = '长' * (limit + 1)
+
+    def generate(prompt):
+        calls.append(prompt)
+        assert len(calls) <= 2
+        if outcome == 'valid':
+            return summary
+        if outcome == 'empty':
+            return app.CHAT_ARCHIVE_EMPTY_MARKER
+        if len(calls) == 1 or outcome == 'still_long':
+            return oversized
+        if outcome == 'empty_after_retry':
+            return app.CHAT_ARCHIVE_EMPTY_MARKER
+        if outcome == 'retry_error':
+            raise RuntimeError('oar_turn_failed' if runtime == 'pi' else 'codex_protocol_error')
+        return summary
+
+    def pi_run(command, request, env, timeout):
+        states.append(Path(request['state_dir']))
+        assert 'newsreader-oar-archive-' in str(states[-1])
+        assert request['resume_prompt'] == request['prompt']
+        return generate(request['prompt'])
+
+    def codex_run(config, prompt, **kwargs):
+        assert kwargs == {'ephemeral': True}
+        return generate(prompt), ''
+
+    monkeypatch.setattr(app, 'run_oar_once', pi_run)
+    monkeypatch.setattr(app.codex_client, 'run_once', codex_run)
+    response = client.post(path + '/chat/archive', json=body)
+    assert len(calls) == (1 if outcome in {'valid', 'empty'} else 2)
+    for prompt in calls:
+        assert f'本次上限为{limit}字符' in prompt
+        assert '没有最低字数' in prompt
+        assert '通常200—600字' not in prompt
+        assert messages[0]['quote_text'] in prompt
+        assert messages[1]['content'] in prompt
+    if len(calls) == 2:
+        assert f'上次生成的正文为{limit + 1}字符' in calls[1]
+        assert f'输出正文必须不超过{limit}字符' in calls[1]
+    assert all(not state.exists() for state in states)
+    assert client.get(path + '/agent/session').json == before_session
+    notes = client.get(path + '/detail').json['notes']
+    if outcome in {'valid', 'compressed'}:
+        assert response.status_code == 200
+        assert response.json['provider'] == runtime
+        assert response.json['archive_summary'] == summary
+        assert len(notes) == len(before_notes) + 1
+        assert notes[:-1] == before_notes
+        assert notes[-1]['archive_summary'] == summary
+    else:
+        assert response.status_code == 502
+        expected_error = {
+            'still_long': 'invalid_archive_summary',
+            'empty': 'empty_archive_summary',
+            'empty_after_retry': 'empty_archive_summary',
+            'retry_error': 'oar_turn_failed' if runtime == 'pi' else 'codex_protocol_error',
+        }[outcome]
+        assert response.json['error'] == expected_error
+        assert notes == before_notes
 
 
 @pytest.mark.parametrize('invalid,error', [

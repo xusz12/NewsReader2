@@ -426,7 +426,7 @@ def test_sync_pi_archive_does_not_change_family_after_default_changes(tmp_path, 
         'summary': 'Pi saved archive', 'provider': 'pi', 'model': kw['pi_model']})
     result = client.post(f"/api/news/{item['id']}/chat/archive", json={
         'session_id': 'newsreader-oar-chat-saved-id',
-        'messages': [{'role': 'assistant', 'content': 'answer'}]})
+        'messages': [{'role': 'assistant', 'content': 'Pi saved answer for archival.'}]})
     assert result.status_code == 200 and result.get_json()['provider'] == 'pi'
     assert len(calls) == 1 and not log.exists()
 

@@ -8,6 +8,8 @@ test('evidence classes and no keyword attribution',()=>{
  assert.equal(ui.explain({httpStatus:429}).message,'请求过于频繁（HTTP 429）。');
  assert.equal(ui.explain('codex_protocol_error').message,'返回结果格式无效。');
  assert.equal(ui.explain('codex_timeout').message,'请求超时。');
+ assert.equal(ui.explain('empty_archive_summary').message,'没有可归档的实质内容。');
+ assert.equal(ui.explain('invalid_archive_summary').message,'归档仍超出长度限制，请重试。');
 });
 test('errors are concise and preserve reported details without diagnosis',()=>{
  for (const context of ['summary','settings','detail','agent']) {

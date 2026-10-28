@@ -60,7 +60,7 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
     settings = app.current_runtime_settings()
     settings['agent']['runtime'] = 'pi'
     monkeypatch.setattr(app, 'current_runtime_settings', lambda: settings)
-    payload = {'messages': [{'role': 'user', 'content': '风险如何？'}, {'role': 'assistant', 'content': '有所缓解，传导待核实。'}]}
+    payload = {'messages': [{'role': 'user', 'content': '风险如何？'}, {'role': 'assistant', 'content': '目前风险有所缓解，但传导效果能否持续仍需核实，不能把当前的缓解视为风险已经消失。'}]}
     response = client.post(path + '/chat/archive', json=payload)
     assert response.status_code == 200
     entry = response.json['notes'][-1]

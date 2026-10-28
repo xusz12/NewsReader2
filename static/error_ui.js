@@ -49,8 +49,9 @@
   register('missing', 'codex_missing cli_missing oar_node_missing oar_dependency_missing', '缺少所需的本机程序或依赖。');
   register('missing', 'oar_node_version cli_incompatible', '本机程序版本不兼容。');
   register('missing', 'codex_probe_failed', '本机程序检测失败。');
-  register('protocol', 'codex_protocol_error oar_protocol_error INVALID_JSON invalid_answer invalid_archive_summary', '返回结果格式无效。');
-  register('protocol', 'EMPTY_RESULT empty_model_response codex_empty_answer oar_empty_answer empty_archive_summary', '返回内容为空。');
+  register('protocol', 'codex_protocol_error oar_protocol_error INVALID_JSON invalid_answer', '返回结果格式无效。');
+  register('protocol', 'EMPTY_RESULT empty_model_response codex_empty_answer oar_empty_answer', '返回内容为空。');
+  register('protocol', 'invalid_archive_summary', '归档仍超出长度限制，请重试。');
   register('protocol', 'CONTENT_TOO_SHORT', '抓取的正文长度不足。');
   register('protocol', 'EMPTY_TWITTER_THREAD', '返回的 X 推文线程为空。');
   register('processing', 'summary_validation_failed', '总结正文或引用校验失败。');
@@ -67,6 +68,7 @@
   register('session', 'oar_resources_changed oar_trust_changed oar_project_untrusted oar_extension_failed', '本机会话资源不可用或未获信任。');
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
   register('context', 'empty_archive_source', '没有可归档的内容。');
+  register('context', 'empty_archive_summary', '没有可归档的实质内容。');
   register('limit', 'unsupported_source SKIPPED_SOURCE', '暂不支持此新闻来源。');
   register('limit', 'BLOOMBERG_VIDEO', '暂不支持抓取 Bloomberg 视频正文。');
   register('limit', 'no_tool_mode_unsupported tool_mode_violation summary_tool_used', '当前执行方式不符合工具使用限制。');

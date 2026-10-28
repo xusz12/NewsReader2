@@ -65,7 +65,7 @@ module.model_catalogs.codex_catalog = lambda config: {
 }
 # Deterministic archive generation; the real archive API still persists and tags the card.
 def fixture_archive(**kwargs):
-    return {'provider': 'pi', 'model': 'fixture', 'summary': '**流动性传导研读结论**\n\n- 核心判断：关注准备金与短期融资利率的变化。\n- 待核实：政策调整能否缓解季末资金压力。'}
+    return {'provider': 'pi', 'model': 'fixture', 'summary': '关注准备金与融资利率。\n传导仍待核实。'}
 module.run_pi_chat_archive = fixture_archive
 module.run_codex_chat_archive = fixture_archive
 fixtures = json.loads((ROOT / 'tests/ui/articles.json').read_text())
