@@ -2,6 +2,8 @@ import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDa
 import { confirmAction } from "./confirm-dialog.js";
 
 const activeJob = job => job && ["pending", "running"].includes(job.status);
+const viewedDelay = 6000;
+const activityVersion = data => JSON.stringify([data.topic.latest_news_at, data.topic.latest_progress_at, [...data.unread_ids].sort()]);
 const statusLabel = { defining: "正在明确主题", draft: "待确认定义", initializing: "正在整理历史", ready: "持续追踪" };
 const jobErrors = {
   topic_search_required: "未完成联网检索，请检查 Agent 的搜索能力后重试。",
@@ -25,8 +27,8 @@ const definitionFields = d => field("name","主题名称",d.name,120)+field("def
 const timelineIcon = '<svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l3 2"/></svg>';
 
 export class TopicPanel {
-  constructor({ isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem }) {
-    Object.assign(this, { isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, readLaterAction, toggleReadLater, stateVersion, reconcileItem });
+  constructor({ isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem }) {
+    Object.assign(this, { isVisible, enterReader, onViewChange, onUpdatesChanged, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem });
     this.entries = []; this.selected = ""; this.listSelected = ""; this.showDefinition = false; this.data = null; this.page = "topic"; this.reading = false;
     this.drafts = new Map(); this.draftBases = new Map(); this.expandedTimelines = new Set(); this.draftChanges = new Set(); this.query = ""; this.requestId = ""; this.node = ""; this.filter = "";
     this.chatDrafts = new Map(); this.chatRequests = new Map(); this.chatErrors = new Map(); this.draftExpanded = new Set();
@@ -89,7 +91,10 @@ export class TopicPanel {
     $("#topicScrollArea").addEventListener("scroll", () => this.scheduleDateHeaders(), {passive:true});
     this.contentObserver = new ResizeObserver(() => { this.scheduleDateHeaders(); this.syncTimelineSlider(); resizeAutoFields(this.content); this.layoutExpandedTimeline(); });
     this.contentObserver.observe(this.content);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden && this.isVisible()) this.refresh(); });
+    document.addEventListener("visibilitychange", () => {
+      this.scheduleViewed();
+      if (!document.hidden && this.isVisible()) this.refresh();
+    });
   }
   schedule() {
     clearTimeout(this.timer);
@@ -97,7 +102,7 @@ export class TopicPanel {
     const working = this.entries.some(t => activeJob(t.job)) || activeJob(this.data?.job) || Object.entries(this.data?.matching || {}).some(([k,n]) => ["pending","running"].includes(k) && n);
     this.timer = setTimeout(() => this.refresh(), working ? 2000 : 15000);
   }
-  deactivate() { this.timelineMotion?.cancel(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
+  deactivate() { this.cancelViewed(); this.timelineMotion?.cancel(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
   matchesList(topic) {
     return this.listFilter === "all" || (this.listFilter === "archived" ? !!topic.archived_at : topic.status === "ready" && !topic.archived_at);
   }
@@ -208,6 +213,13 @@ export class TopicPanel {
       for (const item of data.items) this.reconcileItem(item, stateVersion);
       const previous = this.data, oldPage = this.page;
       if (append && previous) data.items = [...previous.items, ...data.items];
+      const unread = new Set(data.unread_ids.filter(id => !this.reconcileItem({id, read_at:null}, stateVersion).read_at));
+      for (const item of data.items) {
+        if (item.available && !item.read_at) unread.add(item.id);
+        else unread.delete(item.id);
+      }
+      data.unread_ids = [...unread];
+      this.applyViewed(data);
       this.data = data;
       if (data.topic.status !== "ready") {
         this.page = "create";
@@ -219,7 +231,7 @@ export class TopicPanel {
         this.renderList();
         this.render({preserveScroll:quiet || append});
       }
-      await this.markViewed(data);
+      this.scheduleViewed();
     } catch(error) {
       if(sequence!==this.detailSequence)return;
       if (this.filter && (error.code || error.message) === "topic_node_not_found") {
@@ -228,20 +240,58 @@ export class TopicPanel {
       if (!quiet || !this.data) this.content.innerHTML = '<div class="list-message" role="alert">' + e(errorText(error)) + '<button class="btn-secondary" type="button" data-topic-action="retry-detail">重试</button></div>';
     } finally { this.schedule(); }
   }
-  async markViewed(data = this.data) {
-    if (!data || !this.isVisible() || document.hidden || this.reading || this.page !== "topic" ||
-        this.showDefinition || this.filter || data.topic.status !== "ready" ||
-        !this.content.getClientRects().length ||
-        (singlePane.matches && !$("#feedView").classList.contains("mobile-reader-active"))) return;
+  canMarkViewed(data = this.data) {
+    return data && data.topic.id === this.selected && this.isVisible() && !document.hidden && !this.reading && this.page === "topic" &&
+      !this.showDefinition && !this.filter && data.topic.status === "ready" && this.content.getClientRects().length &&
+      (!singlePane.matches || $("#feedView").classList.contains("mobile-reader-active"));
+  }
+  cancelViewed() {
+    clearTimeout(this.viewedTimer);
+    this.viewedTimer = null;
+    this.pendingViewed = null;
+  }
+  applyViewed(data) {
+    if (this.viewed.get(data.topic.id)?.progressAt === data.topic.latest_progress_at) data.topic.has_new_progress = false;
+    data.topic.new_count = data.unread_ids.length;
+    data.topic.has_updates = data.topic.status === "ready" && !data.topic.archived_at && !!(data.topic.new_count || data.topic.has_new_progress);
+    for (const item of data.items) item.is_new = item.available && !item.read_at;
+  }
+  scheduleViewed() {
+    const data = this.data;
+    if (!this.canMarkViewed(data)) { this.cancelViewed(); return; }
     const id = data.topic.id;
-    const version = JSON.stringify([data.topic.latest_news_at, data.topic.latest_progress_at]);
-    if (this.viewed.get(id) === version) return;
+    const version = activityVersion(data);
+    if (!data.topic.new_count && !data.topic.has_new_progress) {
+      this.cancelViewed(); return;
+    }
+    if (this.pendingViewed?.id === id && this.pendingViewed.version === version) return;
+    this.cancelViewed();
+    const pending = {id, version, observedAt:data.observed_at, progressAt:data.topic.latest_progress_at, unreadIds:[...data.unread_ids]};
+    this.pendingViewed = pending;
+    this.viewedTimer = setTimeout(() => {
+      this.viewedTimer = null;
+      if (this.pendingViewed !== pending || !this.canMarkViewed() || activityVersion(this.data) !== version) {
+        this.scheduleViewed(); return;
+      }
+      void this.markViewed(pending);
+    }, viewedDelay);
+  }
+  async markViewed(pending) {
+    const {id, observedAt, progressAt, unreadIds} = pending;
     try {
-      await api("/api/topics/"+id+"/seen", {method:"POST",body:{observed_at:data.observed_at}});
-      this.viewed.set(id, version);
+      if (!await this.markRead(unreadIds)) return;
+      if (this.data?.topic.id === id) {
+        const read = new Set(unreadIds);
+        this.data.unread_ids = this.data.unread_ids.filter(itemId => !read.has(itemId));
+        this.applyViewed(this.data);
+      }
+      await api("/api/topics/"+id+"/seen", {method:"POST",body:{observed_at:observedAt}});
+      if ((this.viewed.get(id)?.observedAt || 0) < observedAt) this.viewed.set(id, {progressAt, observedAt});
+      if (this.data?.topic.id === id) this.applyViewed(this.data);
       // Reload from the server so a concurrent new update cannot be cleared locally.
       await this.load({quiet:true});
     } catch { /* Retain the unread marker and retry on the next visible refresh. */ }
+    finally { if (this.pendingViewed === pending) this.cancelViewed(); }
   }
   render({preserveScroll=false}={}) {
     this.timelineMotion?.cancel();
@@ -249,7 +299,7 @@ export class TopicPanel {
     const area=$("#topicScrollArea"), scroll=area.scrollTop;
     const timelineScroll=this.content.querySelector(".topic-timeline")?.scrollLeft;
     const focus=document.activeElement;
-    const focusSelector=focus && this.content.contains(focus) ? ["data-topic-node","data-topic-item","data-topic-read-later","data-related-topic","data-topic-action","name","id"].find(key=>focus.hasAttribute(key)) : null;
+    const focusSelector=focus && this.content.contains(focus) ? ["data-topic-node","data-topic-item","data-topic-important","data-topic-read-later","data-related-topic","data-topic-action","name","id"].find(key=>focus.hasAttribute(key)) : null;
     const focusValue=focusSelector && focus.getAttribute(focusSelector);
     const selection=focusSelector && typeof focus.selectionStart === "number" ? [focus.selectionStart,focus.selectionEnd] : null;
     const chat=this.content.querySelector("#topicChatStream"), chatScroll=chat?.scrollTop || 0;
@@ -327,6 +377,7 @@ export class TopicPanel {
     }
     this.syncTimelineSlider();
     this.scheduleDateHeaders();
+    this.scheduleViewed();
   }
   scheduleDateHeaders() {
     if (this.dateHeadersFrame) return;
@@ -460,14 +511,31 @@ export class TopicPanel {
     const item = this.data?.items.find(row => row.id === id);
     if (!item) return;
     Object.assign(item, patch);
-    const button = this.content.querySelector('[data-topic-read-later="'+CSS.escape(id)+'"]');
-    if (!button) return;
-    for (const [key, value] of Object.entries(this.readLaterAttributes(item))) button.setAttribute(key, value);
+    if (Object.hasOwn(patch, "read_at")) {
+      const unread = new Set(this.data.unread_ids);
+      if (item.available && !item.read_at) unread.add(id);
+      else unread.delete(id);
+      this.data.unread_ids = [...unread];
+      this.applyViewed(this.data);
+      const source = this.content.querySelector('[data-topic-item="'+CSS.escape(id)+'"]')?.closest('.topic-news').querySelector('.meta-source-box');
+      const marker = source?.querySelector('[data-topic-news-new]');
+      if (!item.is_new) marker?.remove();
+      else if (source && !marker) source.insertAdjacentHTML('beforeend', this.newMarker(item));
+    }
+    for (const flag of ["important", "read_later"]) {
+      const button = this.content.querySelector('[data-topic-'+flag.replaceAll('_','-')+'="'+CSS.escape(id)+'"]');
+      if (!button) continue;
+      for (const [key, value] of Object.entries(this.actionAttributes(item, flag))) button.setAttribute(key, value);
+    }
   }
-  readLaterAttributes(item) {
-    const action = this.readLaterAction(item);
+  newMarker(item) {
+    return item.is_new ? '<span class="card-tag highlight" data-topic-news-new="'+e(item.id)+'" aria-label="未读新闻">new</span>' : '';
+  }
+  actionAttributes(item, flag) {
+    const action = this.cardAction(item, flag);
+    const persistent = flag === "important" ? action.active : item.detail_ready;
     return {
-      class: action.className + " card-action-btn--icon card-action-btn--plain" + (item.detail_ready ? "" : " card-action-btn--reveal"),
+      class: action.className + " card-action-btn--icon card-action-btn--plain" + (persistent ? "" : " card-action-btn--reveal"),
       title: action.title,
       "aria-label": action.title,
       "aria-pressed": String(action.active),
@@ -485,10 +553,14 @@ export class TopicPanel {
     return '<div class="feed-date-cards timeline-flow">'+[...groups].map(([date, items]) =>
       '<section class="feed-date-group"><div class="feed-date-heading"><h3 class="feed-date-title">'+e(date)+'</h3></div><div class="feed-date-cards">'+items.map(item => {
         const related = item.topics.filter(t=>t.id!==this.selected);
-        const action = Object.entries(this.readLaterAttributes(item)).map(([key,value])=>key+'="'+e(value)+'"').join(' ');
+        const actions = ["important", "read_later"].map(flag => {
+          const attributes = Object.entries(this.actionAttributes(item, flag)).map(([key,value])=>key+'="'+e(value)+'"').join(' ');
+          return '<button '+attributes+' type="button" data-state="'+flag+'" data-topic-'+flag.replaceAll('_','-')+'="'+e(item.id)+'" '+(!item.available?'disabled':'')+'>'+icon(flag)+'</button>';
+        }).join('');
         return '<article class="news-card news-card--timeline topic-news">'+
-          '<div class="news-card-meta"><span class="meta-source-box">'+e(item.source_name||item.source)+'</span><span class="meta-time-row">'+
-          '<button '+action+' type="button" data-state="read_later" data-topic-read-later="'+e(item.id)+'" '+(!item.available?'disabled':'')+'>'+icon('read_later')+'</button><time>'+e(item.time||"")+'</time></span></div>'+
+          '<div class="news-card-meta"><span class="meta-source-box"><span class="meta-source-name" title="'+e(item.source_name||item.source)+'">'+e(item.source_name||item.source)+'</span>'+
+          this.newMarker(item)+'</span><span class="meta-time-row">'+
+          actions+'<time>'+e(item.time||"")+'</time></span></div>'+
           '<button class="news-card-open topic-news-open" type="button" data-topic-item="'+e(item.id)+'" '+(!item.available?'disabled':'')+'>'+
           '<strong class="news-card-title">'+e(item.title)+'</strong><span class="news-card-snippet">'+e(item.summary)+'</span></button>'+
           (related.length?'<div class="news-card-footer"><div class="card-footer-left">'+related.map(t=>'<button class="btn-secondary" type="button" data-related-topic="'+e(t.id)+'">亦收录于 '+e(t.name)+'</button>').join("")+'</div></div>':'')+'</article>';
@@ -562,14 +634,15 @@ export class TopicPanel {
   }
   async click(event) {
     const b=event.target.closest("button");if(!b)return;
-    if(b.dataset.topicReadLater){
-      const item=this.data?.items.find(row=>row.id===b.dataset.topicReadLater);
-      if(item?.available) await this.toggleReadLater(item);
+    if(b.dataset.topicImportant || b.dataset.topicReadLater){
+      const item=this.data?.items.find(row=>row.id===(b.dataset.topicImportant || b.dataset.topicReadLater));
+      if(item?.available) await this.toggleState(item,b.dataset.topicImportant ? "important" : "read_later");
       return;
     }
     if(b.dataset.topicNode){
       this.node=b.dataset.topicNode;
       if(this.data.nodes.find(n=>n.id===this.node)?.news_count>0){
+        this.cancelViewed();
         this.filter=this.node;
         await this.fetchDetail({quiet:true,forceRender:true});
       }else this.render({preserveScroll:true});
@@ -686,6 +759,7 @@ export class TopicPanel {
     }
   }
   leaveDetail(){
+    this.cancelViewed();
     if(["new","create","complete","edit"].includes(this.page)){
       this.detailSequence++;this.page="list";this.selected="";this.data=null;this.renderList();this.render();
     }

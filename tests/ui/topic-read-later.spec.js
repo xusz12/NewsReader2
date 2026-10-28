@@ -126,6 +126,46 @@ test('topic read later rolls back both states on save failure without navigating
   expect(persisted.read_later_done_at).toBeTruthy();
 });
 
+test('桌面从正文返回后鼠标焦点不滞留按钮，键盘焦点仍展开操作', async ({page,request}) => {
+  await request.patch('/api/news/ui-001/state',{data:{important:false}});
+  await request.post('/__test/agent-article',{data:{item_id:'ui-001',missing:true}});
+  try {
+    await openTopic(page);
+    const title=page.locator('[data-topic-item="ui-001"]');
+    const card=title.locator('xpath=ancestor::article');
+    const buttons=card.locator('.card-action-btn--reveal');
+    const back=page.locator('#topicReaderBackBtn');
+    await expect(buttons).toHaveCount(2);
+    for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
+      await page.emulateMedia({colorScheme});await chooseTheme(page,theme);
+      await title.click();await expect(back).toBeVisible();
+      await back.click();await page.mouse.move(0,0);
+      await expect(title).toBeFocused();
+      for(const button of await buttons.all()) {
+        await expect(button).toHaveCSS('opacity','0');
+        await expect(button).toHaveCSS('pointer-events','none');
+      }
+      if(theme!=='system') await page.screenshot({path:'.ui-artifacts/topic-return-mouse-'+theme+'.png'});
+      await card.hover();
+      for(const button of await buttons.all()) await expect(button).toHaveCSS('opacity','1');
+      await page.mouse.move(0,0);
+      for(const button of await buttons.all()) await expect(button).toHaveCSS('opacity','0');
+      await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+      await expect(title).toBeFocused();
+      for(const button of await buttons.all()) await expect(button).toHaveCSS('opacity','1');
+      await page.keyboard.press('Enter');await expect(back).toBeVisible();
+      await back.focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Enter');await expect(title).toBeFocused();
+      await expect(title).toHaveCSS('outline-style','solid');
+      for(const button of await buttons.all()) await expect(button).toHaveCSS('opacity','1');
+      await page.keyboard.press('Shift+Tab');await expect(buttonFor(page)).toBeFocused();
+      await expect(buttonFor(page)).toHaveCSS('pointer-events','auto');
+    }
+  } finally {
+    await request.post('/__test/agent-article',{data:{item_id:'ui-001',missing:false}});
+  }
+});
+
 for (const mobile of [false, true]) {
   for (const theme of ['light', 'dark', 'system', 'eink']) {
     test.describe(`${mobile ? 'mobile' : 'desktop'} ${theme}`, () => {

@@ -798,6 +798,9 @@ for (const theme of ['light','dark','eink']) for (const width of [390,1280]) tes
 
 test('精简预览可放弃、确认应用并恢复，保留报道与冷却期',async({page,request})=>{
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
+  // Start the content comparison after the separate six-second viewing transition.
+  await expect(page.locator('.topic-news')).toHaveCount(2);
+  await expect(page.locator('[data-topic-news-new]')).toHaveCount(0,{timeout:8000});
   const before=await (await request.get('/api/topics/test-acquisition')).json();
   for (const discard of [true,false]) {
     await page.getByRole('button',{name:'精简进程',exact:true}).click();await answerConfirm(page,true);

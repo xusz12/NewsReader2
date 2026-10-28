@@ -35,18 +35,18 @@ for (const width of [390,1440]) test('主题入口数量覆盖新进展和新闻
   await expect(page.locator('.topic-card.is-active')).toHaveCount(1);
   const id=await page.locator('.topic-card.is-active').getAttribute('data-topic-id');
   const remaining=id==='test-acquisition'?'test-industry':'test-acquisition';
-  await expect(page.locator('#topicsNavBadge')).toHaveText('1');
+  await expect(page.locator('#topicsNavBadge')).toHaveText('1',{timeout:8000});
   // A detail reader hides the topic; its polling must not acknowledge new progress.
   await page.locator('.topic-news [data-topic-item]').first().click();
   await request.post('/__test/topic-update',{data:{id}});await refresh(page);
   await expect(page.locator('#topicsNavBadge')).toHaveText('2');
   await page.locator(width===390?'#mobileReaderBackBtn':'#topicReaderBackBtn').click();
-  await expect(page.locator('#topicsNavBadge')).toHaveText('1');
+  await expect(page.locator('#topicsNavBadge')).toHaveText('1',{timeout:8000});
   if(width===390) await page.locator('#mobileReaderBackBtn').click();
   await page.locator('[data-topic-id="'+remaining+'"]').click();
-  await expect(page.locator('#topicsNavBadge')).toBeHidden();
+  await expect(page.locator('#topicsNavBadge')).toBeHidden({timeout:8000});
   await openNavigation(page);await page.locator('#navFeedBtn').click();
-  await request.post('/__test/topic-update',{data:{news:true}});await refresh(page);
+  await request.post('/__test/topic-update',{data:{news:true,item_id:'ui-002'}});await refresh(page);
   await expect(page.locator('#topicsNavBadge')).toHaveText('1');
   await page.reload();await openNavigation(page);
   await expect(page.locator('#topicsNavBadge')).toHaveText('1');

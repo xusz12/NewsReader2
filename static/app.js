@@ -256,8 +256,12 @@ const topics = new TopicPanel({
   onViewChange: syncDetailPanels,
   onUpdatesChanged: refreshBadges,
   openArticle: item => selectNews(item, true, true),
-  readLaterAction: item => cardAction(item, "read_later"),
-  toggleReadLater: item => toggleState(item, "read_later"),
+  cardAction,
+  toggleState,
+  markRead: ids => Promise.all(ids.map(id => {
+    const item = topics.data?.items.find(row => row.id === id) || state.items.find(row => row.id === id) || {id};
+    return item.read_at ? true : setReadState(item, true, true);
+  })).then(saved => saved.every(Boolean)),
   stateVersion: () => stateWrites.version,
   reconcileItem: (item, version) => stateWrites.reconcile(item.id, item, version),
   closeArticle: () => {
@@ -1448,6 +1452,7 @@ function syncMobileLayers() {
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
   $("#detailPanelSettings").inert = singlePane.matches && !settingsDetail;
   agent.syncPlacement();
+  topics.scheduleViewed();
 }
 let detailSwipe = null;
 function resetDetailSwipe() {

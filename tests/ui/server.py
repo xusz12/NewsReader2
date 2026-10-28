@@ -272,7 +272,15 @@ def fixture_topic_update():
     ident = body.get('id', 'test-acquisition')
     with module.db_conn() as conn:
         if body.get('news'):
-            conn.execute("UPDATE topic_checks SET updated_at=? WHERE topic_id=?", (time.time(), ident))
+            item_id = body.get('item_id')
+            if item_id and not conn.execute('SELECT 1 FROM topic_checks WHERE topic_id=? AND item_id=?', (ident, item_id)).fetchone():
+                item = dict(conn.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone())
+                snapshot = module.topic_tracking.item_snapshot(item)
+                conn.execute("""INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,status,matched,processed,updated_at)
+                    VALUES (?,?,1,?,?,'done',1,1,?)""",
+                    (ident,item_id,module.topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
+            conn.execute("UPDATE topic_checks SET updated_at=? WHERE topic_id=?" + (" AND item_id=?" if item_id else ""),
+                         (time.time(), ident, item_id) if item_id else (time.time(), ident))
         else:
             conn.execute("UPDATE topic_nodes SET title='新增监管进展',updated_at=? WHERE id=?",
                          (module.topic_tracking.now(), ident+'-node-1'))

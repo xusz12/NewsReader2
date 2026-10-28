@@ -112,8 +112,9 @@ def now():
 def topic_activity(conn, ident=None):
     """Share the persisted unseen-update definition between the list and navigation."""
     rows = conn.execute("""SELECT t.id,t.status,t.archived_at,t.seen_at,
-        (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done'
-            AND c.matched=1 AND c.updated_at>t.seen_at) AS new_count,
+        (SELECT COUNT(*) FROM topic_checks c JOIN items i ON i.id=c.item_id
+            LEFT JOIN item_state st ON st.item_id=i.id WHERE c.topic_id=t.id AND c.status='done'
+            AND c.matched=1 AND st.read_at IS NULL) AS new_count,
         (SELECT MAX(c.updated_at) FROM topic_checks c WHERE c.topic_id=t.id
             AND c.status='done' AND c.matched=1) AS latest_news_at,
         (SELECT MAX(n.updated_at) FROM topic_nodes n WHERE n.topic_id=t.id) AS latest_progress_at
@@ -732,7 +733,6 @@ class Service:
             activity = topic_activity(conn)
             rows = conn.execute("""SELECT t.*,
                 (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done' AND c.matched=1) AS news_count,
-                (SELECT COUNT(*) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done' AND c.matched=1 AND c.updated_at>t.seen_at) AS new_count,
                 (SELECT MAX(c.updated_at) FROM topic_checks c WHERE c.topic_id=t.id AND c.status='done' AND c.matched=1) AS latest_news_at
                 FROM event_topics t ORDER BY COALESCE(latest_news_at,0) DESC,t.created_at DESC,t.id""").fetchall()
             output = []
@@ -755,6 +755,11 @@ class Service:
                 raise ValueError("topic_not_found")
             topic = dict(topic)
             topic.update(topic_activity(conn, ident)[ident])
+            # Capture the entire unread batch, including pages not yet loaded.
+            unread_ids = [row[0] for row in conn.execute("""SELECT c.item_id FROM topic_checks c
+                JOIN items i ON i.id=c.item_id LEFT JOIN item_state st ON st.item_id=i.id
+                WHERE c.topic_id=? AND c.status='done' AND c.matched=1 AND st.read_at IS NULL
+                ORDER BY c.seq""", (ident,))]
             topic.pop("sources_json", None)
             topic.update(rules_for(topic))
             topic.update(refinement_status(conn, ident))
@@ -799,6 +804,7 @@ class Service:
                 item = json.loads(row["item_json"])
                 item.update({key: row[key] for key in row.keys() if key not in ("item_json", "available")})
                 item["available"] = bool(row["available"])
+                item["is_new"] = item["available"] and row["read_at"] is None
                 item["topics"] = [dict(r) for r in conn.execute("""SELECT t.id,t.name FROM event_topics t JOIN topic_checks c ON c.topic_id=t.id
                     WHERE c.item_id=? AND c.status='done' AND c.matched=1 AND t.status='ready' ORDER BY t.name""", (item["id"],))]
                 items.append(item)
@@ -807,7 +813,7 @@ class Service:
             return {"topic": topic, "nodes": nodes, "items": items, "total": total,
                     "messages": self.conversation(conn, topic),
                     "has_more": offset+len(items)<total, "job": self.public_job(jobs),
-                    "matching": checks, "observed_at": observed_at, "refinement": self.refinement_view(conn, topic)}
+                    "matching": checks, "unread_ids": unread_ids, "observed_at": observed_at, "refinement": self.refinement_view(conn, topic)}
 
     def schedule_updates(self, conn):
         rows = conn.execute("""SELECT t.* FROM event_topics t WHERE t.status='ready' AND t.archived_at IS NULL

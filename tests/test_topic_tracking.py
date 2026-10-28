@@ -1206,3 +1206,62 @@ def test_topic_update_badge_counts_topics_and_preserves_later_progress(env, api,
     assert summary() == 0
     with closing(connect()) as conn:
         assert conn.execute('SELECT COUNT(*) FROM item_state WHERE read_at IS NOT NULL').fetchone()[0] == 0
+
+
+def test_news_new_marker_shares_global_read_state_and_captures_all_unread_ids(env, api, monkeypatch):
+    connect, service, _ = env
+    module, client = api
+    monkeypatch.setattr(module, 'TOPIC_SERVICE', service)
+    monkeypatch.setattr(module, 'db_conn', connect)
+    first, second = ready(service), ready(service, request_id='second')
+    with closing(connect()) as conn:
+        article(conn, 'old-report')
+        article(conn, 'unread-report')
+        conn.execute("UPDATE topic_checks SET status='done',matched=1,updated_at=?", (time.time(),))
+        conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES ('old-report','already-read','now')")
+        conn.commit()
+    path = '/api/topics/' + first
+    snapshot = client.get(path).json
+    old = next(item for item in snapshot['items'] if item['id'] == 'old-report')
+    assert old['is_new'] is False and old['read_at'] == 'already-read'
+    assert snapshot['unread_ids'] == ['unread-report']
+    assert snapshot['topic']['new_count'] == 1
+    assert client.post(path + '/seen', json={'observed_at': snapshot['observed_at']}).status_code == 200
+    # The progress acknowledgment does not own a second news read state.
+    assert service.detail(second)['items'][0]['is_new'] is True
+    # A report received during the six-second viewing window is outside the older snapshot.
+    with closing(connect()) as conn:
+        article(conn, 'later-report')
+        conn.execute("UPDATE topic_checks SET status='done',matched=1,updated_at=? WHERE item_id='later-report'", (time.time(),))
+        node = snapshot['nodes'][0]['id']
+        conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,'later-report')", (node,))
+        conn.commit()
+    assert client.post('/api/news/mark-read-by-ids', json={'item_ids':snapshot['unread_ids']}).status_code == 200
+    fresh = client.get(path).json
+    assert {item['id']:item['is_new'] for item in fresh['items']} == {'old-report':False, 'unread-report':False, 'later-report':True}
+    assert fresh['topic']['new_count'] == 1
+    assert service.detail(first, limit=1)['items'][0]['is_new'] is True
+    assert service.detail(first, offset=1, limit=1)['items'][0]['is_new'] is False
+    assert service.detail(first, node_id=node)['items'][0]['is_new'] is True
+    assert service.detail(first, offset=1, limit=1)['unread_ids'] == ['later-report']
+    assert client.post('/api/news/mark-read-by-ids', json={'item_ids':fresh['unread_ids']}).status_code == 200
+    assert client.post(path + '/seen', json={'observed_at': fresh['observed_at']}).status_code == 200
+    # A delayed older acknowledgment cannot restore cleared labels or mark another topic as seen.
+    assert client.post(path + '/seen', json={'observed_at': snapshot['observed_at']}).status_code == 200
+    assert not any(item['is_new'] for item in client.get(path).json['items'])
+    assert not any(item['is_new'] for item in service.detail(second)['items'])
+    assert all(topic['new_count'] == 0 for topic in service.listing())
+    with closing(connect()) as conn, conn:
+        assert conn.execute("SELECT read_at FROM item_state WHERE item_id='old-report'").fetchone()[0] == 'already-read'
+        conn.execute("UPDATE item_state SET read_at=NULL WHERE item_id='unread-report'")
+    for ident in (first, second):
+        data = service.detail(ident)
+        assert data['unread_ids'] == ['unread-report']
+        assert data['topic']['new_count'] == 1
+        assert next(item for item in data['items'] if item['id']=='unread-report')['is_new']
+    # Removed source records retain the archive snapshot without a phantom unread state.
+    with closing(connect()) as conn, conn:
+        conn.execute("DELETE FROM items WHERE id='unread-report'")
+    data = service.detail(first)
+    assert data['unread_ids'] == [] and data['topic']['new_count'] == 0
+    assert not next(item for item in data['items'] if item['id']=='unread-report')['is_new']
