@@ -775,7 +775,11 @@ a {
 .news-category-filters .filter-chip.active {
   background: var(--accent-soft);
   color: var(--accent);
-  border-color: color-mix(in oklch, var(--accent) 30%, transparent);
+  border-color: transparent;
+}
+
+.news-category-filters .filter-chip.has-news:not(.active) {
+  border-color: var(--favorite-border);
 }
 
 .news-category-tag {

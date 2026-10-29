@@ -770,6 +770,21 @@ def _build_search_filter_clause(range_value: str, time_value: str) -> tuple[str,
     return where_sql, args
 
 
+def load_news_category_counts(conn: sqlite3.Connection, join_sql: str, where_sql: str, args: list) -> dict:
+    rows = conn.execute(
+        f"""SELECT nc.category, COUNT(DISTINCT items.id) AS total
+            FROM items {join_sql}
+            JOIN item_classifications nc ON nc.item_id = items.id
+              AND nc.status = 'done' AND nc.title = items.title AND nc.rule_version = ?
+            {where_sql}
+            GROUP BY nc.category""",
+        [news_classification.RULE_VERSION, *args],
+    ).fetchall()
+    counts = dict.fromkeys(news_classification.CATEGORIES, 0)
+    counts.update({row["category"]: row["total"] for row in rows if row["category"] in counts})
+    return counts
+
+
 def db_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -7173,8 +7188,11 @@ def api_news():
             f"SELECT COUNT(*) FROM items {join_sql} {where_sql}",
             args,
         ).fetchone()[0]
+        counts = {"ok": True, "total": total}
+        if request.args.get("count_only") == "1" and request.args.get("category_counts") == "1":
+            counts["category_counts"] = load_news_category_counts(conn, join_sql, where_sql, args)
         if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
-            return jsonify({"ok": True, "total": total})
+            return jsonify(counts)
 
         date_count_rows = conn.execute(
             f"""
@@ -7189,7 +7207,7 @@ def api_news():
         ).fetchall()
         date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
         if request.args.get("count_only") == "1":
-            return jsonify({"ok": True, "total": total, "date_counts": date_counts})
+            return jsonify({**counts, "date_counts": date_counts})
 
         base_select_sql = f"""
         SELECT DISTINCT items.id, items.source_file, items.item_order, items.published_at,
@@ -7882,8 +7900,11 @@ def api_search():
             f"SELECT COUNT(DISTINCT items.id) FROM items {join_sql} {where_sql}{filter_sql}",
             all_args,
         ).fetchone()[0]
+        counts = {"ok": True, "total": total}
+        if request.args.get("count_only") == "1" and request.args.get("category_counts") == "1":
+            counts["category_counts"] = load_news_category_counts(conn, join_sql, where_sql + filter_sql, all_args)
         if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
-            return jsonify({"ok": True, "total": total})
+            return jsonify(counts)
 
         date_count_rows = conn.execute(
             f"""
@@ -7898,7 +7919,7 @@ def api_search():
         ).fetchall()
         date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
         if request.args.get("count_only") == "1":
-            return jsonify({"ok": True, "total": total, "date_counts": date_counts})
+            return jsonify({**counts, "date_counts": date_counts})
 
         offset = (page - 1) * per
         rows = conn.execute(

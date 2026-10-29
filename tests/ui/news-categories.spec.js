@@ -11,6 +11,8 @@ test.beforeEach(async ({ page, request }) => {
 test('primary counts span categories while the list and mark-all action keep their category scope', async ({ page, request }) => {
   const row = page.getByRole('group', { name: '新闻分类' });
   await expect(row.getByRole('button')).toHaveText(['全部', '中国', 'AI', '政治与国际', '经济与金融', '商业', '科技与科学', '其他']);
+  await expect(row.locator('.has-news')).toHaveCount(7);
+  await expect(row.locator('[data-category="all"]')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
   await row.getByRole('button', { name: '经济与金融', exact: true }).click();
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (65)');
   await expect(row.locator('[data-category="economy"]')).toHaveText('经济与金融 (40)');
@@ -32,6 +34,8 @@ test('primary counts span categories while the list and mark-all action keep the
   await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('未读 (25)');
   await expect(page.locator('#feedCardList .news-card')).toHaveCount(0);
   await expect(row.locator('[data-category="economy"]')).toHaveText('经济与金融 (0)');
+  await expect(row.locator('[data-category="economy"]')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+  await expect(row.locator('.has-news')).toHaveCount(6);
   const total = await (await request.get('/api/news?read_filter=unread&count_only=1')).json();
   expect(total.total).toBe(25);
   await row.getByRole('button', { name: 'AI', exact: true }).click();
@@ -115,11 +119,37 @@ test('shared rate limiting is shown as cooldown without replacing the news list'
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', first);
 });
 
-for (const theme of ['light', 'dark', 'eink']) {
-  test(`mobile ${theme}: category row scrolls without page overflow`, async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+for (const [theme, scheme] of [['light', 'light'], ['dark', 'dark'], ['eink', 'light'], ['system', 'light'], ['system', 'dark']]) {
+  test(`${theme}/${scheme}: category borders and scrolling share desktop and mobile styles`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     const row = page.locator('#newsCategoryFilters');
+    const borderColor = await row.evaluate(el => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--favorite-border)';
+      el.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+    const category = row.locator('[data-category="ai"]');
+    await expect(category).toHaveCSS('border-top-color', borderColor);
+    await category.hover();
+    await expect(category).toHaveCSS('border-top-color', borderColor);
+    await category.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(row.locator('[data-category="politics"]')).toBeFocused();
+    await expect(row.locator('[data-category="politics"]')).toHaveCSS('outline-style', 'solid');
+    for (const size of ['small', 'standard', 'large', 'extra-large']) {
+      await page.evaluate(size => { document.documentElement.dataset.fontSize = size; }, size);
+      await expect(category).toHaveCSS('font-size', '12px');
+      await expect(category).toHaveCSS('height', '28px');
+      await expect(category).toHaveCSS('border-top-color', borderColor);
+    }
+    await page.evaluate(() => { document.documentElement.dataset.fontSize = 'standard'; });
+    await expect(row.locator('[data-category="all"]')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+    await page.screenshot({ path: `.ui-artifacts/categories-${theme}-${scheme}-desktop.png` });
+    await page.setViewportSize({ width: 390, height: 844 });
     const metrics = await row.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth,
       overflow: document.documentElement.scrollWidth > innerWidth }));
     expect(metrics.scroll).toBeGreaterThan(metrics.width);
@@ -130,7 +160,7 @@ for (const theme of ['light', 'dark', 'eink']) {
     const active = row.locator('[data-category="science"]');
     const expected = await active.evaluate(el => {
       const probe = document.createElement('span');
-      probe.style.cssText = 'color:var(--accent);background:var(--accent-soft);border:1px solid color-mix(in oklch,var(--accent) 30%,transparent)';
+      probe.style.cssText = 'color:var(--accent);background:var(--accent-soft);border:1px solid transparent';
       el.append(probe);
       const css = getComputedStyle(probe);
       const result = { color: css.color, background: css.backgroundColor, border: css.borderTopColor };
@@ -141,9 +171,52 @@ for (const theme of ['light', 'dark', 'eink']) {
     await expect(active).toHaveCSS('color', expected.color);
     await expect(active).toHaveCSS('background-color', expected.background);
     await expect(active).toHaveCSS('border-top-color', expected.border);
-    await page.screenshot({ path: `.ui-artifacts/categories-${theme}-mobile.png` });
+    await page.screenshot({ path: `.ui-artifacts/categories-${theme}-${scheme}-mobile.png` });
   });
 }
+
+
+test('category border follows optimistic read, rollback, undo and the current search', async ({ page }) => {
+  const row = page.locator('#newsCategoryFilters');
+  const economy = row.locator('[data-category="economy"]');
+  const search = page.locator('#feedSearchInput');
+  await search.fill('历史 39');
+  await page.clock.runFor(300);
+  await expect(page.locator('#feedCardList .news-card')).toHaveCount(1);
+  await expect(row.locator('.has-news')).toHaveCount(1);
+  await expect(economy).toHaveClass(/has-news/);
+  await page.locator('#feedCardList .news-card-title').click();
+  await page.evaluate(() => { window.categoryButton = document.querySelector('[data-category="economy"]'); });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/news/mark-read-by-ids', async route => {
+    await held;
+    await route.fulfill({ status: 503, json: { error: '保存失败' } });
+  });
+  try {
+    await page.keyboard.press('m');
+    await expect(economy).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+    await expect(row.locator('.has-news')).toHaveCount(0);
+  } finally { release(); }
+  await expect(economy).toHaveClass(/has-news/);
+  await page.unroute('**/api/news/mark-read-by-ids');
+  const saved = page.waitForResponse(res => res.url().endsWith('/api/news/mark-read-by-ids') && res.ok());
+  await page.keyboard.press('m');
+  await expect(economy).not.toHaveClass(/has-news/);
+  await saved;
+  await page.keyboard.press('m');
+  await expect(economy).toHaveClass(/has-news/);
+  expect(await page.evaluate(() => window.categoryButton === document.querySelector('[data-category="economy"]'))).toBe(true);
+  await search.fill('历史 41');
+  await page.clock.runFor(300);
+  await expect(row.locator('.has-news')).toHaveCount(1);
+  await expect(row.locator('[data-category="ai"]')).toHaveClass(/has-news/);
+  await expect(economy).not.toHaveClass(/has-news/);
+  await search.fill('没有匹配结果');
+  await page.clock.runFor(300);
+  await expect(row.locator('.has-news')).toHaveCount(0);
+  await expect(row.locator('[data-category="all"]')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+});
 
 
 test('selected category updates after read changes and ignores stale category responses', async({page,request})=>{

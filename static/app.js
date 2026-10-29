@@ -52,6 +52,8 @@ const state = {
   total: null,
   dateCounts: null,
   dateCountsScope: "",
+  categoryCounts: null,
+  categoryCountsScope: "",
   loading: false,
   sequence: 0,
   collectionSequence: 0,
@@ -290,11 +292,15 @@ function renderCategories() {
     `<button type="button" class="filter-chip" data-category="${key}">${label}</button>`).join("");
   const count = state.dateCountsScope === countScope() && state.dateCounts
     ? Object.values(state.dateCounts).reduce((sum, value) => sum + value, 0) : null;
+  const categoryCounts = state.categoryCountsScope === filterCountScope() ? state.categoryCounts : null;
   for (const button of row.children) {
-    const active = button.dataset.category === state.category;
+    const category = button.dataset.category;
+    const active = category === state.category;
+    const categoryCount = active && count !== null ? count : categoryCounts?.[category];
     button.classList.toggle("active", active);
+    button.classList.toggle("has-news", category !== "all" && categoryCount > 0);
     button.setAttribute("aria-pressed", String(active));
-    button.textContent = categoryLabels[button.dataset.category] + (active && button.dataset.category !== "all" ? ` (${count ?? "…"})` : "");
+    button.textContent = categoryLabels[category] + (active && category !== "all" ? ` (${count ?? "…"})` : "");
   }
 }
 
@@ -544,6 +550,7 @@ async function loadFeed(append = false) {
   }
   state.loading = true;
   renderFeed();
+  if (!append && state.collection === "feed") void refreshBadges();
   const params = new URLSearchParams({
     ...feedParams(),
     page: String(state.page + 1),
@@ -744,6 +751,11 @@ function applyReadCountChange(id, patch) {
       (!state.query || state.query === operation.query))
     state.total = Math.max(0, state.total + delta);
   if (state.collection === "feed" && state.filter === "unread" &&
+      state.categoryCountsScope === filterCountScope() && state.categoryCounts &&
+      (state.source === "all" || state.source === operation.source) &&
+      (!state.query || state.query === operation.query) && operation.category)
+    state.categoryCounts[operation.category] = Math.max(0, (state.categoryCounts[operation.category] || 0) + delta);
+  if (state.collection === "feed" && state.filter === "unread" &&
       state.dateCountsScope === countScope() && state.dateCounts &&
       (state.source === "all" || state.source === operation.source) &&
       (state.category === "all" || state.category === operation.category) &&
@@ -796,6 +808,7 @@ async function updateBadges() {
   const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
   const hasFeed = !["notes", "summaries", "topics"].includes(state.collection);
   const scopedDates = state.collection === "feed" && state.category !== "all";
+  if (state.collection === "feed") params.set("category_counts", "1");
   if (hasFeed && !scopedDates) params.set("date_counts", "1");
   const updateDates = data => {
     if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || dateScope !== countScope()) return;
@@ -817,7 +830,10 @@ async function updateBadges() {
         if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== filterCountScope()) return;
         totalScope = scope;
         state.total = count.total;
+        state.categoryCounts = count.category_counts || null;
+        state.categoryCountsScope = scope;
         if (!scopedDates) updateDates(count);
+        else renderCategories();
         renderFilters();
       }) : null,
       scopedDates ? api(`/api/${state.query ? "search" : "news"}?${new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1", date_counts: "1" })}`).then(updateDates) : null,

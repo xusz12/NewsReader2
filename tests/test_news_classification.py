@@ -248,6 +248,45 @@ def test_filtered_pagination_search_counts_and_scoped_mark_read(api):
     assert (progress["pending"], progress["done"], progress["configured"]) == (2, 34, False)
 
 
+@pytest.mark.parametrize("endpoint", ["/api/news", "/api/search"])
+def test_category_counts_follow_full_filter_scope_and_read_changes(api, endpoint):
+    _, client = api
+    params = dict(q="分类共同测试词", feed_filters="1", read_filter="unread",
+                  count_only="1", category_counts="1", date_counts="1", per="10")
+    expected = dict.fromkeys(nc.CATEGORIES, 0) | {"ai": 10, "economy": 24}
+    counts = client.get(endpoint, query_string=params).json
+    assert counts["total"] == 36
+    assert counts["category_counts"] == expected
+    assert counts["date_counts"] == {"2026-10-23": 36}
+    assert client.get(endpoint, query_string=params | {"q": "市场新闻"}).json["category_counts"] == (
+        expected | {"ai": 0})
+    assert client.get(endpoint, query_string=params | {"source_filter": "bloomberg"}).json["category_counts"] == (
+        dict.fromkeys(nc.CATEGORIES, 0))
+    assert client.get(endpoint, query_string=params | {"q": "没有匹配结果"}).json["category_counts"] == (
+        dict.fromkeys(nc.CATEGORIES, 0))
+    client.post("/api/news/mark-all-read", json={"category": "economy", "read_filter": "unread"})
+    assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 0})
+    assert client.get(endpoint, query_string=params | {"read_filter": "all"}).json["category_counts"] == expected
+    client.patch("/api/news/n35/state", json={"read": False})
+    assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 1})
+
+
+@pytest.mark.parametrize("endpoint", ["/api/news", "/api/search"])
+@pytest.mark.parametrize("mutation", [
+    "UPDATE items SET title='标题已变化' WHERE id='n35'",
+    "UPDATE item_classifications SET rule_version='old' WHERE item_id='n35'",
+    "UPDATE item_classifications SET status='failed' WHERE item_id='n35'",
+])
+def test_category_counts_exclude_stale_or_incomplete_classification(api, endpoint, mutation):
+    module, client = api
+    with closing(module.db_conn()) as conn, conn:
+        conn.execute(mutation)
+    counts = client.get(endpoint, query_string=dict(q="分类共同测试词", feed_filters="1",
+                        count_only="1", category_counts="1")).json
+    assert counts["total"] == 36
+    assert counts["category_counts"] == (dict.fromkeys(nc.CATEGORIES, 0) | {"ai": 10, "economy": 23})
+
+
 @pytest.mark.parametrize("url,method", [("/api/news?category=typo", "get"),
     ("/api/search?q=x&category=typo", "get"), ("/api/news/mark-all-read", "post")])
 def test_invalid_filter_never_falls_back_to_marking_everything(api, url, method):
