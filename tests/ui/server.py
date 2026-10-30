@@ -300,4 +300,62 @@ def fixture_bilingual():
         conn.execute('DELETE FROM article_highlights WHERE url=?', (url,))
     return {'ok': True}
 
+# Periodic reports never invoke a real model or scheduler in the fixture server.
+module.REPORT_SERVICE.start = lambda: None
+module.periodic_reports.now = lambda: module.periodic_reports.local('2026-10-30T16:00:00+08:00')
+module.periodic_reports.report_model.capacity = lambda config: {
+    'context_window': 128000, 'input_tokens': 100000, 'output_tokens': 16000, 'source': 'ui-fixture'}
+
+
+def fixture_report_model(config, prompt):
+    materials = json.loads(prompt.rsplit('\n新闻资料：', 1)[1])
+    refs = [ref for item in materials for ref in item['refs']]
+    return json.dumps({'overview': [], 'sections': [{'title': '合成试生成完成', 'paragraphs': [
+        {'text': '这是隔离测试服务器生成的合成内容。', 'refs': refs[:1]}]}], 'briefs': [], 'omitted': refs[1:]}, ensure_ascii=False)
+
+
+module.REPORT_SERVICE.runner = fixture_report_model
+
+
+@module.app.post('/__test/reports/run')
+def fixture_run_report():
+    return {'ok': True, 'worked': module.REPORT_SERVICE.run_one()}
+
+
+@module.app.post('/__test/reports')
+def fixture_reports():
+    body = module.request.get_json(silent=True) or {}
+    with module.db_conn() as conn:
+        conn.execute('DELETE FROM periodic_report_deletions')
+        conn.execute('DELETE FROM periodic_report_steps')
+        conn.execute('DELETE FROM periodic_reports')
+        if body.get('empty'):
+            return {'ok': True}
+        for index, kind in enumerate(('morning', 'noon', 'evening', 'weekly', 'monthly')):
+            sources = [{'ref': 'N1', 'id': 'ui-000', 'title': '合成资料：存储新工艺进入试产', 'source_name': '示例媒体', 'published_at': '2026-11-02T07:00:00+08:00', 'url': 'https://example.com/source'},
+                       {'ref': 'N2', 'id': 'ui-001', 'title': '合成资料：技术验证与规模交付的差距', 'source_name': '示例媒体', 'published_at': '2026-11-02T07:10:00+08:00', 'url': ''}]
+            content = {'overview': [{'text': '产线取得技术进展，规模交付仍待验证。', 'refs': ['N1']}],
+                'sections': [{'title': '试产取得进展，交付能力仍待验证', 'paragraphs': [{'text': '示例公司公布试产计划，规模交付仍待验证。<script>window.reportInjected=true</script>', 'emphasis': '规模交付仍待验证', 'refs': ['N1', 'N2']}]},
+                             {'title': '需求扩张与成本压力同时存在', 'paragraphs': [{'text': '示例行业需求增长，同时面临生产成本压力。' * 15, 'emphasis': '生产成本压力', 'refs': ['N1']}]}],
+                'sources': sources, 'reading_minutes': 3}
+            if body.get('briefs') or body.get('briefs_only'):
+                content['briefs'] = [{'text': '次重点：新产线进入验证阶段，交付时间尚未确定。', 'refs': ['N2']},
+                                     {'text': '合成资料 <script>window.reportInjected=true</script>', 'refs': ['N1']}]
+            if body.get('briefs_only'):
+                content['sections'] = []
+                content['overview'] = []
+            status = ('pending' if body.get('pending') else 'failed') if body.get('failed') and kind == 'evening' else 'done'
+            if body.get('running') and kind == 'evening': status = 'running'
+            error = body.get('error', 'report_index_failed') if status in ('failed','pending') else ''
+            ts = f'2026-11-0{index+2}T21:30:00+08:00'
+            conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,error,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-11-02T00:00:00+08:00',ts,ts,status,
+                json.dumps(content,ensure_ascii=False) if status == 'done' else None, error,ts,ts))
+            if status == 'pending':
+                conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
+            if status == 'running':
+                conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), module.periodic_reports.stamp(module.periodic_reports.now()),time.time()+1200,'report-'+kind))
+    return {'ok': True}
+
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

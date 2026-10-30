@@ -48,7 +48,7 @@
     <link href="/static/vendor/prosemirror.css?v=0.3.5" rel="stylesheet" />
     <link href="/static/tokens.css?v=0.3.5" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.3.5"
+      href="/static/style.css?v=reports-manual-1"
       rel="stylesheet"
     />
   </head>
@@ -306,9 +306,13 @@
                   </div>
                   <span class="nav-badge"></span>
                 </button>
+
               </section>
               <section class="nav-section">
                 <div class="nav-title">研究</div>
+                <button class="nav-item" data-collection="reports" id="navReportsBtn" type="button">
+                  <div class="nav-item-left"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5"/></svg><span>日报</span></div>
+                </button>
                 <button class="nav-item" data-collection="topics" id="navTopicsBtn" type="button">
                   <div class="nav-item-left"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M5 7h14M5 17h14"/><circle cx="5" cy="7" r="2"/><circle cx="5" cy="17" r="2"/></svg><span>主题追踪</span></div>
                   <span class="nav-badge" id="topicsNavBadge" aria-hidden="true" hidden></span>
@@ -657,6 +661,26 @@
               <div class="workbench-detail-body" id="ideaDetailBody"></div>
             </div>
           </section>
+          <section class="feed-column" id="feedColReports" aria-label="定期报告列表">
+            <div class="feed-header">
+              <div class="feed-filter-row">
+                <div class="feed-filter-chips" id="reportFilters" role="group" aria-label="报告类型">
+                  <button class="filter-chip active" data-report-kind="daily" type="button" aria-pressed="true">日报</button>
+                  <button class="filter-chip" data-report-kind="weekly" type="button" aria-pressed="false">周报</button>
+                  <button class="filter-chip" data-report-kind="monthly" type="button" aria-pressed="false">月报</button>
+                </div>
+                <div class="feed-list-tools"><button class="reader-tool-btn" id="createReportBtn" type="button">新增日报</button></div>
+              </div>
+            </div>
+            <div class="news-list" id="reportListScroll"><div class="feed-date-cards" id="reportCardList"></div></div>
+          </section>
+          <section class="detail-panel" id="detailPanelReports" aria-label="报告阅读区">
+            <div class="detail-toolbar">
+              <div class="detail-toolbar-left toolbar-status"><span id="reportToolbarTitle">日报</span></div>
+              <div class="detail-toolbar-right"><button class="reader-tool-btn" id="retryReportBtn" type="button" hidden>重新生成</button><button class="reader-tool-btn" id="deleteReportBtn" type="button" hidden>删除</button></div>
+            </div>
+            <div class="detail-scroll-area" id="reportScrollArea"><article class="detail-content" id="reportContent"><div class="reader-empty"><h2>选择一份报告</h2></div></article></div>
+          </section>
           <section class="feed-column has-list-search" id="feedColTopics" aria-label="追踪主题列表">
             <div class="feed-header">
               <div class="feed-search-row" id="topicSearchRow">
@@ -767,6 +791,7 @@
                     <polyline points="14 2 14 8 20 8"></polyline></svg
                 ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-schedules" data-settings-tab="schedules" data-title="定时任务" data-description="查看报告排期、运行状态和执行记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="settings-category-copy"><strong>定时任务</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="管理来源开关，增量扫描新闻输入。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
                   ><svg
                     fill="none"
@@ -981,7 +1006,7 @@
     </div>
     <script src="/static/error_ui.js?v=0.3.5"></script>
     <script
-      src="/static/app.js?v=0.3.5"
+      src="/static/app.js?v=report-dates-1"
       type="module"
     ></script>
   </body>

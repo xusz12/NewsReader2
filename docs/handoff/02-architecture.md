@@ -42,6 +42,8 @@ flowchart LR
 
 ## 模块职责与修改入口
 
+2026-10-30新增定期报告：`periodic_reports.py` 使用独立调度与生成线程，负责排期、刷新后的快照、重试与归档；`report_generation.py` 负责按模型容量规划一次成文或分批编辑、引用覆盖及局部修复；`report_model.py` 解析模型容量并执行无工具调用；`static/report-panel.js` 复用工作台阅读器，展示重点与简讯。完整窗口、启用边界、数据表和日历维护约定见 [定期报告](../periodic-reports.md)。
+
 | 位置 | 职责 | 修改时关联检查 |
 | --- | --- | --- |
 | `app.py` | Flask 路由、SQL、业务状态、后台线程、运行时迁移 | 文件约 1.2 万行；先定位处理函数及对应测试 |
@@ -62,7 +64,7 @@ flowchart LR
 | `static/standalone-ideas.js` / `frontend/idea-markdown-editor.js` | 独立想法及 Markdown 编辑器源文件 | 草稿、撤销、异步保存；变更编辑器后重新构建 |
 | `static/vendor/idea-markdown-editor.js` | 已提交的编辑器构建产物 | 用 `npm run build:idea-editor` 生成，不手工改压缩代码 |
 | `static/keyboard-shortcuts.js` | 快捷键默认表、组合键规范化、冲突校验、本地持久化与提示同步 | 与设置草稿、新闻／想法／总结按键处理一起回归；不写服务器配置 |
-| `static/settings-panel.js` / `static/update-panel.js` | 设置草稿、保存、模型及更新状态 | 防止旧响应覆盖新草稿 |
+| `static/settings-panel.js` / `static/update-panel.js` / `static/schedule-observer.js` | 设置草稿、保存、模型、更新状态及只读报告排期观察 | 防止旧响应覆盖新草稿 |
 | `static/upstream-errors.js` / `static/error_ui.js` | 上游报错浏览及错误反馈 | 区分采集异常、API 错误、模型错误 |
 | `static/tokens.css` / `static/style.css` / `static/design-tokens.json` | 主题与布局 | CSS Token 和 JSON 映射保持一致 |
 | `static/brand/` / `docs/brand-assets.md` | 标志、字标、favicon 及来源说明 | 保留轮廓字标和第三方许可文件 |

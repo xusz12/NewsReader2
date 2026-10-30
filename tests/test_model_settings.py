@@ -76,6 +76,7 @@ def test_codex_hi_independent_selected_config(monkeypatch):
     chosen={**CONFIG,'provider':'custom','reasoning_effort':'high'}
     result=checks.test_connection({'runtime':'codex','codex':chosen})
     assert result['status']=='success'
+    assert result['message']=='本次模型请求成功。'
     assert calls==[(chosen,'hi',{'timeout':checks.TIMEOUT,'ephemeral':True,'finish_on_completion':True})]
 
 @pytest.mark.parametrize('mode,category', [('auth','credentials'),('empty','invalid_answer'),('missing','invalid_answer'),('nonzero','unknown'),('hang','timeout')])

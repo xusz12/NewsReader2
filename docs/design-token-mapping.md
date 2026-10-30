@@ -37,12 +37,32 @@
 | 顶栏控件 | `.topbar-tool-btn`、`.theme-select` | 桌面高 32px，单栏高 36px，垂直居中且等高 |
 | 全应用下拉框 | `SelectControls(document.body)` | 主题与所有设置共用自绘菜单，保留键盘、触屏、焦点恢复与主题持久化 |
 | 滚动容器 | 新闻列表、阅读区、设置、Agent、菜单等 | 全局隐藏滚动条外观，保留原有 overflow 和滚轮／触屏／键盘滚动 |
-| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 八类配置（系统与版本、模型与 Agent、API 管理、新闻分类、信源与采集、数据库与存储、积压新闻总结范围、快捷键）沿用主布局；窄屏分类／详情流转 |
+| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 九类配置（系统与版本、模型与 Agent、API 管理、新闻分类、定时任务、信源与采集、数据库与存储、积压新闻总结范围、快捷键）沿用主布局；窄屏分类／详情流转 |
 
 ## 2026-10-29 二级分类数量边框
 
 - `.news-category-filters .filter-chip.has-news:not(.active)` 在当前主筛选、来源和搜索范围的完整分类数量大于0且未选中时显示 `1px var(--favorite-border)` 浅黄色边框，数量包含未加载的分页；选中、「全部」、零条和数量尚未取得的分类保持透明边框。浅色／深色／系统主题复用现有收藏边框的40%暖黄色，保持轻量提示，墨水屏使用黑色。
 - 未选中标签悬停时保留上述边框；选中时隐藏边框，保留原有底色、文字色及仅选中显示数量的规则。数量沿用现有统计刷新和写入版本校验，标读／撤销及失败回滚即时更新，保留按钮节点、焦点和横向滚动位置。
+
+## 2026-10-30 设置中的任务观察
+
+- `#settingsCategory-schedules` 复用 `.settings-category-card`，`#scheduleSettings` 复用 `.settings-sheet / .settings-section-card`，排期与状态复用 `.field-item / .field-label / .section-stack`，队列计数沿用 `.catchup-metrics` 的文字与状态色。
+- 最近执行使用 `.feed-date-cards / button.news-card`，显示自动生成、手动生成、旧试生成或样稿，失败原因及重试时间；点击打开原报告阅读器。只更新此容器，保留焦点、滚动与设置草稿；窄屏返回分类、窗口隐藏时停止轮询。没有独立的字号、间距、颜色或断点。
+- `#modelUsage` 使用 `.form-group-grid / .field-item / .field-label` 标注模型的应用范围。
+
+## 2026-10-30 定期报告
+
+- `#navReportsBtn` 为研究导航中的「日报」，研究下三个入口激活时隐藏来源筛选，手机仅在抽屉出现；`#reportFilters` 使用 `.feed-filter-row / .feed-filter-chips / .filter-chip`，提供日报、周报、月报，键盘方向键移动焦点，Enter／空格选中。日报列表合并早午晚三种期别及自定义报告，不再加第二排分类。
+- `#feedColReports / #reportListScroll / #reportCardList` 直接使用 `.feed-column / .news-list / .feed-date-cards`；列表项使用原生 `button.news-card` 与共享标题、摘要、元信息、选中态。`#detailPanelReports` 使用共享 `.detail-toolbar / .detail-scroll-area / .detail-content`，不另设栏宽、阅读宽度或手机流转方式。
+- 报告页眉使用 `.article-header / .article-meta-top / .article-title / .article-meta-bottom`，正文直接使用 `.article-body`。新增共享 `.reader-section-heading` 使用 `--font-display / --fs-h3`、600／1.4，`--lead` 变体使用 `--fs-h2`、600／1.35；均消费 `--reading-scale`。报告特有样式只安排主题分隔、编号、导读与来源展开结构，间距消费 `--space-*`。
+- 来源默认收起，原生 `details > summary.reader-tool-btn` 保留键盘语义，一次只展开一个主题。来源标题和时间从存档映射，不执行模型返回的HTML，不显示内联引用堆栈；没有URL的来源显示纯文本。报告内容轮询仅在状态变化时更新，不重置已完成正文的滚动或展开状态。
+- 次重点放在正文末尾「简讯」，复用 `.report-section / .reader-section-heading / .article-body` 和共享列表样式；来源在简讯区集中折叠。页眉按实际数量显示主题、简讯与阅读时长。允许只有简讯，旧报告缺少简讯字段时保持原有呈现；不另设字号、颜色或响应式断点。
+- 中栏右上角「新增日报」复用 `.feed-list-tools / .reader-tool-btn`；右栏表单复用 `.settings-detail-heading / .settings-sheet / .form-group-grid / .field-item / .field-input / .field-select / .button-row` 与共享 `SelectControls`。类型包含早午晚报、周报、月报和自定义；前四种使用单个原生日期输入，周报预览所选日期及后续6天；月报使用单个月份输入；仅自定义显示两个日期时间输入。窗口统一按北京时间计算，服务端重新校验，手机与桌面沿用同一表单结构。手动结果标为「手动生成」；右栏「删除」适用于所有报告，生成中禁用，确认使用共享对话框。手机沿用列表／详情流转。
+- 共享 `.field-input` 的原生日期、时间和月份输入通过 `color-scheme` 跟随浅色／深色／系统主题，墨水屏采用浅色原生控件；不复制报告页专属日期样式。
+- 生成状态使用 `.settings-sheet / .settings-section-card--compact / .section-card-title / .section-stack / .field-item / .muted` 展示真实阶段、批数、新闻条数与耗时；当前步骤使用 `aria-current="step"`，状态使用 `role="status"`，不增加独立字体、颜色或响应式规则。
+- 页尾为「本期完」，无无限推荐、已读记录和阅读进度。预计阅读时间按实际文字数估算，不固定伪装为五分钟。未生成时显示真实空态与下期时间；失败显示可重试状态，不能用旧样稿填充。
+- 报告索引失败在卡片上复用 `.news-card-snippet / .error-state` 显示具体原因，详情复用 `.reader-empty` 并使用 `role="alert"`；等待自动重试时显示尝试次数和下次时间。新的错误状态使用共享 `toast` 提醒一次，轮询不重复弹出；未创建新字号、颜色或通知组件。重启时跳过的早午报显示中性的「已跳过」和原因，不作为错误通知。
+- `tests/ui/reports.spec.js` 覆盖分类切换、来源、失败重试、迟到响应、手机返回、字号、主题与断点。后端与维护说明见 [定期报告](periodic-reports.md)。
 
 ## 2026-10-27 分类数量与此次分类进度
 
@@ -201,7 +221,7 @@
 
 2026-10-16 用户截图反馈覆盖原规范中的选中卡片、稍后看与归档入口样式：选中改为整圈陶土红边框、浅色白底，稍后看恢复深底浅字，归档恢复仅图标；深色和墨水屏沿用对应主题的 surface／fg 以保持对比。主题选择改为设置页同款自绘菜单，统一顶栏控件高度，全应用隐藏滚动条显示。基线 Token 文件保留交付文档原值，覆盖在组件样式中明确实现。
 
-本次修复针对视觉规范。延续 v0.0.2／v0.0.3 已确定的功能范围：阅读导航保留新闻流、稍后再看、重要新闻、收藏、想法；不重新引入日报、提醒、复盘、旧版关键词跟踪和板块。2026-10-24按用户确认新增独立的「主题追踪」，按事件定义匹配新入库新闻，与旧版跟踪表和入口无关。阅读器保留现有离散操作，标读快捷键与卡片稍后看流程保持原有语义；空笔记入口和 Agent 归档出处行的既有精简保持不变。设置继续按分类切换右栏配置，而非一次展示全部表单。
+本次修复针对视觉规范。延续 v0.0.2／v0.0.3 已确定的功能范围：阅读导航保留新闻流、稍后再看、重要新闻、收藏、想法；不重新引入提醒、复盘、旧版关键词跟踪和板块。2026-10-24按用户确认新增独立的「主题追踪」；2026-10-30按用户确认新增独立的「日报／周报／月报」，与旧日报文件和临时总结流程无关。阅读器保留现有离散操作，标读快捷键与卡片稍后看流程保持原有语义；空笔记入口和 Agent 归档出处行的既有精简保持不变。设置继续按分类切换右栏配置，而非一次展示全部表单。
 
 抓取、预计阅读时间、Agent runtime 与模型等信息来自真实数据；不将规范中的示例时间、计数、模型或沙盒标签作为生产状态。正文和卡片的现有 ID 不因原型命名而改动，以保留控制器与测试契约。
 

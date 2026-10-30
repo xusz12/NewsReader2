@@ -1638,6 +1638,44 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
   text-align: justify;
 }
 
+/* Shared reading-section headings; reports use the same type scale as the reader. */
+.reader-section-heading {
+  font-family: var(--font-display);
+  font-size: calc(var(--fs-h3) * var(--reading-scale));
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.reader-section-heading--lead {
+  font-size: calc(var(--fs-h2) * var(--reading-scale));
+  line-height: 1.35;
+}
+.report-overview { padding-bottom: var(--space-6); margin-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.report-overview ul { margin: 0; padding-left: var(--space-5); display: grid; gap: var(--space-2); }
+.report-overview li::marker { color: var(--accent); }
+.report-section { padding-block: var(--space-6); border-bottom: 1px solid var(--border); }
+.report-heading { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-3); }
+.report-number { font: var(--fs-meta)/1.4 var(--font-mono); color: var(--muted); flex: 0 0 auto; }
+.report-section .article-body { gap: var(--space-3); }
+.report-section strong { font-weight: 600; }
+.report-sources { margin-top: var(--space-2); }
+.report-sources summary { width: fit-content; list-style: none; }
+.report-sources summary::-webkit-details-marker { display: none; }
+.report-sources:not([open]) > .report-source-list { display: none; }
+.report-sources[open] .report-source-chevron { transform: rotate(180deg); }
+.report-source-list { padding: var(--space-4); margin-top: var(--space-3); border-radius: var(--radius-sm); background: var(--surface-subtle); }
+.report-source-list ul { display: grid; gap: var(--space-3); list-style: none; padding: 0; margin: 0; }
+.report-source-list li { font-size: calc(var(--fs-small) * var(--reading-scale)); line-height: 1.7; overflow-wrap: anywhere; }
+.report-source-list a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.report-source-meta { display: block; margin-top: var(--space-1); color: var(--muted); font-size: var(--fs-meta); }
+.report-end { display: flex; justify-content: center; padding-top: var(--space-8); color: var(--muted); font-size: var(--fs-meta); }
+#reportContent .article-meta-bottom { flex-wrap: wrap; }
+@media (pointer: coarse) {
+  .report-sources summary { min-height: 44px; }
+  .report-source-list a { display: inline-flex; min-height: 44px; align-items: center; }
+}
+
 .bilingual-pair {
   display: flex;
   flex-direction: column;
@@ -2250,6 +2288,12 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 
 textarea.field-input { resize: vertical; line-height: 1.7; font-family: inherit; }
 textarea.field-input--auto { resize: none; overflow-y: auto; }
+/* Native calendar controls share the application's active theme. */
+input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [type="time"]) { color-scheme: light; min-width: 0; width: 100%; }
+[data-theme="dark"] input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [type="time"]) { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [type="time"]) { color-scheme: dark; }
+}
 .detail-toolbar > .toolbar-status { min-width: 0; flex-shrink: 1; margin-inline-end: auto; }
 .toolbar-status .status-pill { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -2646,7 +2690,7 @@ kbd {
     flex-direction: column;
   }
 
-  #feedView > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelSettings).active {
+  #feedView > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports, #detailPanelSettings).active {
     display: flex;
     visibility: hidden;
     pointer-events: none;
@@ -2654,7 +2698,7 @@ kbd {
     transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
 
-  #feedView.mobile-reader-active > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics).active,
+  #feedView.mobile-reader-active > :is(#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports).active,
   #feedView.settings-active.settings-detail-active > #detailPanelSettings.active {
     visibility: visible;
     pointer-events: auto;

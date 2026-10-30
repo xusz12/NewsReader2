@@ -4,6 +4,7 @@ import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawer
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
 import { classificationStatus } from "./classification-progress.js?v=0.3.2";
+import { ScheduleObserver } from "./schedule-observer.js?v=reports-manual-1";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);
@@ -28,7 +29,7 @@ function select(label, path, value, options, placeholder = "沿用默认") {
   return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label">${placeholder === null ? "" : `<option value="">${placeholder}</option>`}${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
 }
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry }) {
+  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry, onReportOpen }) {
     this.onOpen = onOpen;
     this.onViewChange = onViewChange;
     this.onSaved = onSaved;
@@ -38,6 +39,10 @@ export class SettingsPanel {
     this.open = false;
     this.dirty = false;
     this.section = "system";
+    this.schedules = new ScheduleObserver({
+      isVisible: () => this.open && this.section === "schedules" && (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active")),
+      onReportOpen,
+    });
     this.connectionSequence = 0;
     this.catalogSequence = 0;
     this.catalogs = new Map();
@@ -138,6 +143,7 @@ export class SettingsPanel {
   close({ restoreFocus = true } = {}) {
     if (!this.open) return;
     this.open = false;
+    this.schedules.stop();
     this.selects.close(false);
     $("#feedView").classList.remove(
       "settings-active",
@@ -248,10 +254,12 @@ export class SettingsPanel {
       // would scroll its overflow-hidden parent sideways to reveal the title.
       $("#settingsDetailTitle").focus({ preventScroll: true });
     }
+    this.schedules.sync();
   }
   showCategories(focus = true) {
     this.selects.close(false);
     $("#feedView").classList.remove("settings-detail-active");
+    this.schedules.sync();
     this.onViewChange?.();
     if (focus) {
       const selected = $(`[data-settings-tab="${this.section}"]`);
@@ -407,6 +415,7 @@ export class SettingsPanel {
     this.selects.close(false);
     $("#settingsContent").innerHTML =
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
+      <div class="settings-sheet" data-section="schedules" id="scheduleSettings"></div>
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
       <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
       <section class="settings-section-card" data-section="classification" id="classificationSettingsProgress" aria-labelledby="classificationSettingsProgressTitle">
@@ -448,6 +457,7 @@ export class SettingsPanel {
     this.renderShortcuts();
     this.updater.render();
     this.renderClassificationProgress();
+    this.schedules.mount($("#scheduleSettings"));
     this.selectSection(this.section, { reveal: false });
     $("#settingsContent details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
@@ -589,9 +599,16 @@ export class SettingsPanel {
     const efforts = model?.reasoning_efforts || [];
     const savedEffort = d.agent.codex.reasoning_effort;
     $("#modelSettings").innerHTML =
-      `<div class="section-card-title"><span>Chat、新闻研究、主题追踪与积压总结模型</span></div><div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
+      `<div class="section-card-title"><span>运行方式与模型</span></div>
+    <div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
     ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, codexOptions, "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", custom, 'maxlength="120"')}<p class="muted" id="modelCapabilitiesHint">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
     <button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><p class="muted" id="modelsNotice">${e(this.catalogNotice || catalog.notice || "候选目录不代表实际调用权限。")}</p>
+    <div class="form-group-grid" id="modelUsage" aria-label="应用中的使用范围">
+      <div class="field-item"><span class="field-label">Chat 与 Agent</span><span>新闻问答、研究及对话归档</span></div>
+      <div class="field-item"><span class="field-label">主题追踪</span><span>主题定义、历史整理与进程精简</span></div>
+      <div class="field-item"><span class="field-label">积压新闻总结</span><span>新闻归纳与总结生成</span></div>
+      <div class="field-item"><span class="field-label">日报、周报、月报</span><span>早午晚报、周期回顾及手动生成</span></div>
+    </div>
     <div class="connection-test-section"><div><strong>模型可用性独立连接测试</strong><p class="muted">使用当前未保存选择测试，不写入新闻或聊天历史。</p></div><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing ? "disabled" : ""}>${this.testing ? "测试中…" : "运行连接测试"}</button><div class="terminal-box" id="connTestTerminal" role="status">${e(this.connectionResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>
     ${select(
       "临时会话保留时间",

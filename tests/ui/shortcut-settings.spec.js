@@ -243,7 +243,7 @@ for (const width of [320, 390, 921, 1440]) {
       await chooseTheme(page, theme);
       await openSettings(page);
       await expect(page.locator('[data-settings-tab]').first()).toHaveAttribute('data-settings-tab', 'system');
-      await expect(page.locator('.settings-category-card:visible')).toHaveCount(8);
+      await expect(page.locator('.settings-category-card:visible')).toHaveCount(9);
       await expect(page.locator('#feedColSettings, #detailPanelSettings').locator('#settingsSearchInput, .settings-eyebrow, .settings-category-meta, .settings-category-description, .settings-list-footer')).toHaveCount(0);
       const heights = await page.locator('.settings-category-card').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
       expect(Math.max(...heights)).toBeLessThanOrEqual(40);

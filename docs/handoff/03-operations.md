@@ -113,7 +113,7 @@ CI=1 npm run test:ui
 
 先释放测试端口 8765；`CI=1` 禁止复用未知的现有测试服务。浏览器测试运行临时数据和模型替身，截图写入 `.ui-artifacts/`，失败 trace 写入 `test-results/`。本次运行结果及失败定位见 05，接手方应保留自己的验收结果。
 
-普通前端无需构建。修改 `frontend/idea-markdown-editor.js` 或相关 ProseMirror 依赖后执行 `npm run build:idea-editor`，同时检查生成 JS、CSS 和 LICENSE 文件的差异。npm 依赖由锁文件固定；Python 的 `certifi` 为下限约束，其他列出的 Python 依赖固定版本。
+普通前端无需构建。修改 `frontend/idea-markdown-editor.js` 或相关 ProseMirror 依赖后执行 `npm run build:idea-editor`，同时检查生成 JS、CSS 和 LICENSE 文件的差异。npm 依赖由锁文件固定；Python 的 `certifi` 为下限约束，`tiktoken` 为版本范围，其他列出的 Python 依赖固定版本。定期报告使用本地分词器估算输入容量，编码数据不可用时采用保守的字节估计，详见 [定期报告](../periodic-reports.md)。
 
 ## 排障入口
 

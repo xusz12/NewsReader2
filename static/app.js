@@ -21,9 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.3.2";
+import { SettingsPanel } from "./settings-panel.js?v=reports-manual-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
 import { TopicPanel } from "./topic-panel.js?v=0.3.2";
+import { ReportPanel } from "./report-panel.js?v=report-dates-1";
 import { SelectControls } from "./select-control.js?v=0.2.0";
 import { AgentPanel } from "./agent-panel.js?v=0.2.3";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
@@ -76,6 +77,7 @@ const labels = {
   notes: "想法",
   summaries: "新闻总结",
   topics: "主题追踪",
+  reports: "日报",
 };
 const stateLabels = {
   read: "已读",
@@ -135,6 +137,10 @@ const topbarObserver = new ResizeObserver(() => {
 topbarSides.forEach(node => topbarObserver.observe(node));
 const settings = new SettingsPanel({
   selects,
+  onReportOpen: ({id, kind}) => {
+    switchCollection("reports", {restoreReader:false});
+    void reports.openRecord(id, kind);
+  },
   onClassificationRefresh: () => classification.refresh(),
   onClassificationRetry: async () => {
     await api("/api/news/classification/retry", {method:"POST"});
@@ -150,6 +156,10 @@ const settings = new SettingsPanel({
   onViewChange: () => {
     resetDetailSwipe();
     syncMobileLayers();
+    if (state.collection === "reports") {
+      if (settings.open) reports.deactivate();
+      else reports.load({quiet:true});
+    }
   },
   onSaved: () => {
     sourceCatalogByCollection.clear();
@@ -220,7 +230,7 @@ const notifications = new AgentNotifications({
     (!singlePane.matches || mobileReaderOpen()) && !!$("#detailPanelFeed").getClientRects().length,
   onOpen: async (target, current) => {
     if (!current()) return false;
-    if (["notes", "summaries", "topics"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
+    if (["notes", "summaries", "topics", "reports"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
     settings.close({ restoreFocus: false });
     const loaded = await selectNews(target.item, true, false, { notificationAgent: target.agent, navigationCurrent: current, retryNotification: () => notifications.openNotice(target.notification.id) });
     if (!loaded || !current() || agent.payload.session?.id !== target.agent.session.id) return false;
@@ -245,7 +255,7 @@ const summaries = new SummaryPanel({
   },
   onCompleted: () => {
     refreshBadges();
-    if (!["notes", "summaries", "topics"].includes(state.collection)) {
+    if (!["notes", "summaries", "topics", "reports"].includes(state.collection)) {
       loadFeed();
       if (state.selected) selectNews(state.selected, false);
     }
@@ -273,6 +283,13 @@ const topics = new TopicPanel({
     state.detailRequestSequence++;
     agent.suspend();
   },
+});
+
+const reports = new ReportPanel({
+  isVisible: () => state.collection === "reports" && !settings.open,
+  enterReader,
+  exitReader,
+  selects,
 });
 
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
@@ -525,6 +542,7 @@ async function clearFavorites() {
   }
 }
 async function loadFeed(append = false) {
+  if (state.collection === "reports") return reports.load();
   if (state.collection === "topics") return topics.refresh();
   if (state.collection === "summaries") return summaries.load();
   if (state.collection === "notes") return loadIdeas();
@@ -806,7 +824,7 @@ async function updateBadges() {
   const scope = filterCountScope();
   const dateScope = countScope();
   const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
-  const hasFeed = !["notes", "summaries", "topics"].includes(state.collection);
+  const hasFeed = !["notes", "summaries", "topics", "reports"].includes(state.collection);
   const scopedDates = state.collection === "feed" && state.category !== "all";
   if (state.collection === "feed") params.set("category_counts", "1");
   if (hasFeed && !scopedDates) params.set("date_counts", "1");
@@ -849,7 +867,8 @@ const sourceCountsByCollection = new Map();
 const sourceCatalogByCollection = new Map();
 async function loadSources() {
   const currentCollection = state.collection;
-  const collection = ["summaries", "topics"].includes(currentCollection) ? "feed" : currentCollection, sequence = ++sourcesSequence;
+  if (["reports", "topics", "summaries"].includes(currentCollection)) return;
+  const collection = ["summaries", "topics", "reports"].includes(currentCollection) ? "feed" : currentCollection, sequence = ++sourcesSequence;
   const readFilter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   const snapshot = countSnapshot();
   try {
@@ -869,7 +888,7 @@ async function loadSources() {
   }
 }
 function renderSources() {
-  $("#sourceFilters").closest(".nav-section").hidden = state.collection === "topics";
+  $("#sourceFilters").closest(".nav-section").hidden = ["topics", "reports", "summaries"].includes(state.collection);
   const groups = settings.saved?.feed_source_subkeys?.groups || [];
   const sourceCounts = sourceCountsByCollection.get(state.collection) || [];
   const showCount = ["feed", "read_later", "favorites"].includes(state.collection) && sourceCountsByCollection.has(state.collection);
@@ -889,6 +908,7 @@ function renderSources() {
 function switchCollection(collection, { restoreReader = true } = {}) {
   if (!labels[collection]) return;
   topics.deactivate();
+  reports.deactivate();
   topics.reading = false;
   state.collectionSequence++;
   state.ideaSequence++;
@@ -916,10 +936,12 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   const ideas = collection === "notes";
   const summary = collection === "summaries";
   const topic = collection === "topics";
-  $("#feedColFeed").classList.toggle("active", !ideas && !summary && !topic);
+  const report = collection === "reports";
+  $("#feedColFeed").classList.toggle("active", !ideas && !summary && !topic && !report);
   $("#feedColIdeas").classList.toggle("active", ideas);
   $("#feedColSummaries").classList.toggle("active", summary);
   $("#feedColTopics").classList.toggle("active", topic);
+  $("#feedColReports").classList.toggle("active", report);
   syncDetailPanels();
   $$("[data-collection]").forEach((button) => {
     const active = button.dataset.collection === collection;
@@ -927,7 +949,10 @@ function switchCollection(collection, { restoreReader = true } = {}) {
     if (active) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   });
-  if (topic) {
+  if (report) {
+    agent.suspend();
+    reports.load();
+  } else if (topic) {
     agent.suspend();
     topics.load();
   } else if (summary) {
@@ -951,7 +976,7 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   renderFilters();
 }
 function readingArticle() {
-  return state.collection !== "summaries" && (state.collection !== "topics" || topics.reading) &&
+  return !["summaries", "reports"].includes(state.collection) && (state.collection !== "topics" || topics.reading) &&
     (state.collection !== "notes" || state.idea?.idea_type === "article_note");
 }
 function syncDetailPanels() {
@@ -959,6 +984,7 @@ function syncDetailPanels() {
   $("#detailPanelIdeas").classList.toggle("active", state.collection === "notes" && !readingArticle());
   $("#detailPanelSummaries").classList.toggle("active", state.collection === "summaries");
   $("#detailPanelTopics").classList.toggle("active", state.collection === "topics" && !topics.reading);
+  $("#detailPanelReports").classList.toggle("active", state.collection === "reports");
   $("#topicReaderBackBtn").hidden = state.collection !== "topics" || !topics.reading;
   syncMobileLayers();
 }
@@ -1440,7 +1466,7 @@ function selectIdea(idea, mobile = true) {
   renderIdeas();
 }
 function enterReader() {
-  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "topics" ? (topics.reading ? "返回主题" : "返回主题列表") : state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
+  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "topics" ? (topics.reading ? "返回主题" : "返回主题列表") : state.collection === "reports" ? "返回报告列表" : state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
   if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
   syncMobileLayers();
@@ -1461,8 +1487,8 @@ function mobileReaderOpen() {
 }
 function syncMobileLayers() {
   const open = mobileReaderOpen() && !settings.open;
-  for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries, #feedColTopics")) list.inert = open;
-  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics"))
+  for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries, #feedColTopics, #feedColReports")) list.inert = open;
+  for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports"))
     panel.inert = singlePane.matches && (!open || !panel.classList.contains("active"));
   const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
@@ -1485,7 +1511,7 @@ function canSwipeDetail(panel) {
     $("#feedView").classList.contains("mobile-reader-active") &&
     !(panel.id === "detailPanelFeed" && agent.open);
 }
-for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelSettings")) {
+for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports, #detailPanelSettings")) {
   panel.addEventListener("touchstart", event => {
     resetDetailSwipe();
     if (!canSwipeDetail(panel) || event.touches.length !== 1 ||
@@ -1574,7 +1600,7 @@ document.addEventListener("click", (event) => {
     loadIdeas();
   }
   if (button?.dataset.source) {
-    if (settings.open || ["summaries", "topics"].includes(state.collection)) switchCollection("feed");
+    if (settings.open || ["summaries", "topics", "reports"].includes(state.collection)) switchCollection("feed");
     state.source = button.dataset.source;
     renderSources();
     closeNav();
@@ -1753,6 +1779,8 @@ document.addEventListener("keydown", (event) => {
   if (action === "settings") {
     event.preventDefault();
     settings.toggle();
+  } else if (state.collection === "reports") {
+    reports.handleKey(event, action);
   } else if (state.collection === "summaries") {
     summaries.handleKey(event, action);
   } else if (action === "search") {
@@ -1820,7 +1848,9 @@ syncMobileLayers();
 drawerNavigation.addEventListener("change", closeNav);
 singlePane.addEventListener("change", () => {
   if (singlePane.matches || settings.open) return;
-  if (state.collection === "summaries") {
+  if (state.collection === "reports") {
+    if (!reports.selected && reports.entries.length) reports.select(reports.entries[0].id);
+  } else if (state.collection === "summaries") {
     if (!summaries.selected && summaries.entries.length) summaries.select(summaries.entries[0].id);
   } else if (state.collection === "notes") {
     if (!state.idea && state.ideas.length) selectIdea(state.ideas[0]);

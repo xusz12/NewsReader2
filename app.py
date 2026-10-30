@@ -56,6 +56,7 @@ import news_summaries
 import agent_notifications
 import news_classification
 import topic_tracking
+import periodic_reports
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
 
 from settings import (
@@ -87,6 +88,7 @@ UPDATE_CHECK_CACHE: dict | None = None
 UPDATE_TOKENS: dict[str, dict] = {}
 UPDATE_LAUNCH_LOCK = threading.Lock()
 UPDATE_PROCESS: subprocess.Popen | None = None
+INDEX_REFRESH_LOCK = threading.RLock()
 
 
 def resolve_media_cache_dir() -> Path:
@@ -1115,6 +1117,8 @@ def ensure_db() -> None:
         conn.commit()
     finally:
         conn.close()
+    with closing(db_conn()) as conn:
+        periodic_reports.initialize(conn)
     ensure_agent_db()
 
 
@@ -9423,9 +9427,10 @@ def api_reindex():
     full = bool((request.get_json(silent=True) or {}).get("full", False))
     conn = db_conn()
     try:
-        stats = reindex(conn, DAILY_NEWS_DIR, full=full)
-        tracked_incremental_matches = run_tracked_topics_incremental(conn)
-        conn.commit()
+        with INDEX_REFRESH_LOCK:
+            stats = reindex(conn, DAILY_NEWS_DIR, full=full)
+            tracked_incremental_matches = run_tracked_topics_incremental(conn)
+            conn.commit()
     finally:
         conn.close()
     return jsonify(
@@ -12324,6 +12329,143 @@ def classification_config() -> tuple[str, str]:
 
 
 TOPIC_SERVICE = topic_tracking.Service(db_conn, current_runtime_settings)
+
+
+def refresh_report_index():
+    DAILY_NEWS_DIR.stat()
+    if not DAILY_NEWS_DIR.is_dir():
+        raise NotADirectoryError()
+    # Probe directory access explicitly: recursive globbing may otherwise hide
+    # an unreadable directory and look like a successful empty refresh.
+    with os.scandir(DAILY_NEWS_DIR) as entries:
+        next(entries, None)
+    with INDEX_REFRESH_LOCK, closing(db_conn()) as conn:
+        reindex(conn, DAILY_NEWS_DIR, full=False)
+
+
+REPORT_SERVICE = periodic_reports.Service(db_conn, current_runtime_settings, refresh_report_index, index_lock=INDEX_REFRESH_LOCK)
+
+
+@app.get("/api/reports")
+def api_reports():
+    try:
+        offset = int(request.args.get("offset", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if offset < 0 or not 1 <= limit <= 200:
+            raise ValueError("invalid_report_pagination")
+        result = REPORT_SERVICE.listing(request.args.get("kind", "daily"), offset, limit)
+    except ValueError:
+        return jsonify(ok=False, error="invalid_report_query"), 400
+    return jsonify(ok=True, **result)
+
+
+@app.get("/api/reports/preview-options")
+def api_report_preview_options():
+    return jsonify(ok=True, **REPORT_SERVICE.preview_options())
+
+@app.get("/api/reports/manual-options")
+def api_report_manual_options():
+    return jsonify(ok=True, **REPORT_SERVICE.manual_options())
+
+
+@app.post("/api/reports/manual")
+def api_report_create_manual():
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        if "selection" in body:
+            report = REPORT_SERVICE.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"), body.get("database_token"))
+        else:
+            report = REPORT_SERVICE.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"), body.get("request_id"), body.get("database_token"))
+    except (ValueError, LookupError) as exc:
+        return report_request_error(exc)
+    REPORT_SERVICE.start()
+    return jsonify(ok=True, report=report), 202
+
+
+@app.delete("/api/reports/<report_id>")
+def api_report_delete(report_id):
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        REPORT_SERVICE.delete(report_id, body.get("database_token"))
+    except (ValueError, LookupError) as exc:
+        return report_request_error(exc)
+    return jsonify(ok=True)
+
+
+@app.get("/api/reports/schedule-status")
+def api_report_schedule_status():
+    try:
+        return jsonify(ok=True, **REPORT_SERVICE.observation())
+    except (sqlite3.Error, OSError, ValueError):
+        return jsonify(ok=False, error="report_schedule_unavailable"), 503
+
+
+def report_request_error(exc):
+    code = str(exc)
+    if code not in {"report_preview_invalid", "report_preview_conflict", "report_database_changed",
+                    "report_preview_only", "report_preview_running", "report_not_found", "report_window_invalid",
+                    "report_manual_conflict", "report_delete_running", "report_deleted"}:
+        code = "report_preview_invalid"
+    return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
+
+
+@app.post("/api/reports/previews")
+def api_report_create_preview():
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        report = REPORT_SERVICE.create_preview(body.get("kind"), body.get("scheduled_at"), body.get("request_id"), body.get("database_token"))
+    except (ValueError, LookupError) as exc:
+        return report_request_error(exc)
+    REPORT_SERVICE.start()
+    return jsonify(ok=True, report=report), 202
+
+
+@app.delete("/api/reports/<report_id>/preview")
+def api_report_delete_preview(report_id):
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        REPORT_SERVICE.delete_preview(report_id, body.get("database_token"))
+    except (ValueError, LookupError) as exc:
+        return report_request_error(exc)
+    return jsonify(ok=True)
+
+
+@app.get("/api/reports/<report_id>")
+def api_report_detail(report_id):
+    with closing(db_conn()) as conn:
+        row = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (report_id,)).fetchone()
+        if not row:
+            return jsonify(ok=False, error="report_not_found"), 404
+        token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
+        return jsonify(ok=True, database_token=token, report=periodic_reports.serialize(row, detail=True))
+
+
+@app.post("/api/reports/<report_id>/retry")
+def api_report_retry(report_id):
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        REPORT_SERVICE.retry(report_id, body.get("database_token"))
+    except LookupError:
+        return jsonify(ok=False, error="report_not_found"), 404
+    except (ValueError, RuntimeError) as exc:
+        code = str(exc)
+        if code not in {"report_database_changed", "report_model_unconfigured", "report_model_capacity_unknown"}:
+            code = "report_retry_unavailable"
+        return jsonify(ok=False, error=code), 409
+    REPORT_SERVICE.start()
+    return jsonify(ok=True), 202
+
+
 CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config, topic_queue=topic_tracking.MatchQueue())
 CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
 
@@ -12477,6 +12619,7 @@ def main() -> None:
     CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
     CLASSIFICATION_SERVICE.start()
     TOPIC_SERVICE.start()
+    REPORT_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:

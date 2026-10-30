@@ -124,6 +124,6 @@ def test_connection(payload):
                 'quota':'服务明确报告账户额度不足。','rate':'服务限制请求频率，不等于额度耗尽。','input':'输入超出服务限制。','connection':'服务连接未建立或断开。','capacity':'服务容量或请求频率受限。','model':'模型不可用或不受支持。',
                 'timeout':'连接测试超时。','invalid_answer':'未收到有效测试答案。','cli_missing':'未找到 CLI。','cli_incompatible':'CLI能力检查失败，请检查本机版本和配置。',
                 'tool_mode_violation':'无工具模式验证失败，未报告连接成功。','unknown':'测试失败，原因尚不能确定。'}
-        return {'status':status,'category':category,'message':'本次模型请求成功；不代表后续稳定或网页工具可用。' if not category else labels.get(category,labels['unknown']),
+        return {'status':status,'category':category,'message':'本次模型请求成功。' if not category else labels.get(category,labels['unknown']),
                 'elapsed_ms':round((time.monotonic()-start)*1000),'checked_at':datetime.now(timezone.utc).isoformat()}
     finally: LOCK.release()
