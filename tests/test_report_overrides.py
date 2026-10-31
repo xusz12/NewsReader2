@@ -106,6 +106,8 @@ def test_api_fixed_and_custom_windows_and_safe_catalog(service, db, monkeypatch)
             'kind': 'evening', **window, 'request_id': uuid.uuid4().hex, 'database_token': options['database_token'],
             'model_override': {'runtime': 'pi', 'provider': 'test', 'model': 'gemini', 'reasoning_effort': 'high'}})
         assert response.status_code == 202 and response.json['report']['model_label'] == 'Pi · gemini · high'
-    def broken(request): raise RuntimeError('report_model_catalog_failed')
-    monkeypatch.setattr(pr.report_model, 'pi_metadata', broken)
-    assert client.post('/api/reports/model-options', json={'runtime': 'pi'}).json['error'] == 'report_model_catalog_failed'
+    for error in ('report_model_catalog_failed', 'report_model_dependencies_missing'):
+        def broken(request): raise RuntimeError(error)
+        monkeypatch.setattr(pr.report_model, 'pi_metadata', broken)
+        response = client.post('/api/reports/model-options', json={'runtime': 'pi'})
+        assert response.status_code == 409 and response.json['error'] == error

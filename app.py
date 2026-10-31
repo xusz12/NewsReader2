@@ -12490,7 +12490,8 @@ def report_request_error(exc):
     if code not in {"report_preview_invalid", "report_preview_conflict", "report_database_changed",
                     "report_preview_only", "report_preview_running", "report_not_found", "report_window_invalid",
                     "report_manual_conflict", "report_delete_running", "report_deleted", "report_model_unconfigured",
-                    "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed", "report_window_changed"}:
+                    "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed",
+                    "report_model_dependencies_missing", "report_window_changed"}:
         code = "report_preview_invalid"
     return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
 
@@ -12541,7 +12542,7 @@ def api_report_retry(report_id):
         return jsonify(ok=False, error="report_not_found"), 404
     except (ValueError, RuntimeError) as exc:
         code = str(exc)
-        if code not in {"report_database_changed", "report_model_unconfigured", "report_model_capacity_unknown"}:
+        if code not in {"report_database_changed", "report_model_unconfigured", "report_model_capacity_unknown", "report_model_dependencies_missing"}:
             code = "report_retry_unavailable"
         return jsonify(ok=False, error=code), 409
     REPORT_SERVICE.start()

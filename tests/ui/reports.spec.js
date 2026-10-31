@@ -94,12 +94,15 @@ test('启用后空列表不塞入样稿，索引失败可重试',async({page,req
   await expect(page.locator('#retryReportBtn')).toBeHidden();
 });
 
-test('手动重试时无法确认模型容量会显示可操作的原因',async({page,request})=>{
+for (const [code, message] of [
+  ['report_model_capacity_unknown', '无法确认所选模型的上下文容量'],
+  ['report_model_dependencies_missing', 'npm ci --ignore-scripts'],
+]) test(`手动重试时显示可操作的模型错误：${code}`,async({page,request})=>{
   await request.post('/__test/reports',{data:{failed:true}});
-  await page.route('**/api/reports/report-evening/retry',route=>route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({ok:false,error:'report_model_capacity_unknown'})}));
+  await page.route('**/api/reports/report-evening/retry',route=>route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({ok:false,error:code})}));
   await page.goto('/'); await openReports(page);
   await page.locator('#retryReportBtn').click();
-  await expect(page.locator('#toast')).toContainText('无法确认所选模型的上下文容量');
+  await expect(page.locator('#toast')).toContainText(message);
   await expect(page.locator('#retryReportBtn')).toBeEnabled();
 });
 

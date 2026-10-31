@@ -15,6 +15,7 @@ const errors = {
   report_model_selection_invalid: "请选择有效的 Runtime 和模型。",
   report_reasoning_unsupported: "所选模型不支持该推理程度，请重新选择。",
   report_model_catalog_failed: "模型目录读取失败，请检查本机配置后重试。",
+  report_model_dependencies_missing: "Pi 运行依赖不可用，请确认已安装 Node.js 24+，并在项目目录执行 npm ci --ignore-scripts 后重试。",
   report_model_capacity_unknown: "无法确认所选模型的上下文容量，请检查模型目录或本机模型配置后重试。",
   report_database_changed: "当前新闻库已切换，请刷新报告列表后重试。",
   report_retry_unavailable: "暂时无法重试，请刷新报告列表后再试。",

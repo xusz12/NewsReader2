@@ -162,10 +162,61 @@ def test_codex_uses_selected_model_metadata_and_reserves_output(tmp_path, monkey
 
 
 def test_codex_profile_context_override_is_authoritative(tmp_path, monkeypatch):
-    commands = codex_metadata(tmp_path, monkeypatch, {"model": "custom", "model_provider": "custom-provider", "model_context_window": 1000000})
+    commands = codex_metadata(tmp_path, monkeypatch, {"model": "custom", "model_provider": "custom-provider",
+        "model_context_window": 1000000, "model_catalog_json": str(tmp_path / "missing.json")})
     result = model.capacity({"runtime": "codex", "codex": {"profile": "work"}})
     assert result["context_window"] == 1000000 and result["source"] == "codex-resolved-config"
     assert commands[0][3:5] == ["--profile", "work"]
+
+
+@pytest.mark.parametrize("provider,selected", [
+    ("openai", {"model": "fixture"}),
+    ("custom", {"model": "fixture"}),
+    ("custom", {"profile": "work"}),
+])
+def test_codex_uses_resolved_custom_catalog_before_default_cache(tmp_path, monkeypatch, provider, selected):
+    catalog = tmp_path / "custom-models.json"
+    catalog.write_text(json.dumps({"models": [{"slug": "fixture", "context_window": 1048576,
+        "max_output_tokens": 16000, "effective_context_window_percent": 95}]}))
+    codex_metadata(tmp_path, monkeypatch, {"model": "fixture" if selected.get("profile") else "other-model",
+        "model_provider": provider, "model_catalog_json": str(catalog)})
+    result = model.capacity({"runtime": "codex", "codex": selected})
+    assert result == {"context_window": 1048576, "input_tokens": 875290,
+                      "output_tokens": 16000, "source": "codex-model-catalog"}
+
+
+@pytest.mark.parametrize("contents", [None, "invalid json", "[]", '{"models": [null]}',
+    '{"models": [{"slug": "other", "context_window": 1000000}]}',
+    '{"models": [{"slug": "fixture", "context_window": "1000000"}]}'])
+def test_invalid_custom_catalog_does_not_fall_back_to_unrelated_cached_capacity(tmp_path, monkeypatch, contents):
+    catalog = tmp_path / "custom-models.json"
+    if contents is not None:
+        catalog.write_text(contents)
+    codex_metadata(tmp_path, monkeypatch, {"model_catalog_json": str(catalog)})
+    with pytest.raises(RuntimeError, match="^report_model_capacity_unknown$"):
+        model.capacity({"runtime": "codex", "codex": {"model": "fixture"}})
+
+
+@pytest.mark.parametrize("missing", ["sdk", "node"])
+@pytest.mark.parametrize("operation", ["capacity", "catalog", "run"])
+def test_pi_missing_dependencies_are_not_reported_as_unknown_capacity(tmp_path, monkeypatch, missing, operation):
+    if missing == "node":
+        monkeypatch.setattr(model.shutil, "which", lambda command: None)
+    else:
+        if not shutil.which("node"):
+            pytest.skip("Node is required to exercise missing SDK imports")
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        shutil.copyfile(model.ROOT / "scripts/report_model.mjs", scripts / "report_model.mjs")
+        monkeypatch.setattr(model, "ROOT", tmp_path)
+    config = {"runtime": "pi", "provider": "fixture", "model": "fixture"}
+    with pytest.raises(RuntimeError, match="^report_model_dependencies_missing$"):
+        if operation == "catalog":
+            model.catalog({}, "pi")
+        elif operation == "run":
+            model.run(config, "fixture", timeout=5)
+        else:
+            model.capacity(config)
 
 
 @pytest.mark.parametrize("selected,native,unavailable", [

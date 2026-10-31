@@ -386,18 +386,33 @@ def test_manual_retry_keeps_bound_model_and_checkpoints_after_settings_change(db
         assert json.loads(conn.execute("SELECT config_json FROM periodic_reports").fetchone()[0]) == config
 
 
-def test_retry_reports_actionable_capacity_error_without_losing_saved_work(db, monkeypatch):
+@pytest.mark.parametrize("error", ["report_model_capacity_unknown", "report_model_dependencies_missing"])
+def test_retry_reports_actionable_model_error_without_losing_saved_work(db, monkeypatch, error):
     import app
     job = due(db)
     with closing(db()) as conn, conn:
         conn.execute("UPDATE periodic_reports SET status='failed'")
         conn.execute("INSERT INTO periodic_report_steps VALUES (?, 'v2:direct:raw', '{}')", (job["id"],))
         token = conn.execute("SELECT database_token FROM periodic_report_meta").fetchone()[0]
-    def unavailable(config): raise RuntimeError("report_model_capacity_unknown")
+    def unavailable(config): raise RuntimeError(error)
     monkeypatch.setattr(pr.report_model, "capacity", unavailable)
     monkeypatch.setattr(app, "REPORT_SERVICE", pr.Service(db, lambda: SETTINGS, lambda: None, runner))
     response = app.app.test_client().post('/api/reports/' + job["id"] + '/retry', json={"database_token": token})
-    assert response.status_code == 409 and response.json["error"] == "report_model_capacity_unknown"
+    assert response.status_code == 409 and response.json["error"] == error
     with closing(db()) as conn:
         assert conn.execute("SELECT status FROM periodic_reports").fetchone()[0] == "failed"
         assert conn.execute("SELECT COUNT(*) FROM periodic_report_steps").fetchone()[0] == 1
+
+
+def test_generation_preserves_missing_pi_dependencies_error(db, monkeypatch):
+    job = due(db)
+    with closing(db()) as conn:
+        news(conn, "fixture")
+    def unavailable(config): raise RuntimeError("report_model_dependencies_missing")
+    monkeypatch.setattr(pr.report_model, "capacity", unavailable)
+    service = pr.Service(db, lambda: SETTINGS, lambda: None, runner)
+    assert service.run_one()
+    with closing(db()) as conn:
+        row = conn.execute("SELECT status,error FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
+        assert row["status"] == "pending"
+        assert row["error"] == "report_model_dependencies_missing"

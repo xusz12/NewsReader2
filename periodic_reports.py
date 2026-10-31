@@ -742,7 +742,7 @@ class Service:
                     max(0, round(time.monotonic()-generation_started, 3)), job["id"], job["lease"]))
         except Exception as exc:
             error = str(exc)
-            if error not in INDEX_ERRORS | {"report_model_unconfigured", "report_model_capacity_unknown", "report_model_timeout", "report_invalid_result", "report_input_too_large", "report_interrupted", "report_tools_not_allowed", "report_snapshot_missing"}:
+            if error not in INDEX_ERRORS | {"report_model_unconfigured", "report_model_dependencies_missing", "report_model_capacity_unknown", "report_model_timeout", "report_invalid_result", "report_input_too_large", "report_interrupted", "report_tools_not_allowed", "report_snapshot_missing"}:
                 error = "report_model_failed"
             with closing(self.connect()) as conn, conn:
                 conn.execute("""UPDATE periodic_reports SET status=?,error=?,lease=NULL,lease_until=NULL,next_attempt=?,updated_at=?

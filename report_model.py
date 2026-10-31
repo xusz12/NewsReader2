@@ -64,16 +64,14 @@ def limits(context_window, max_output=32768, *, effective_percent=100, source):
 def capacity(config):
     """Read model metadata only. This performs no inference or credential export."""
     if config["runtime"] == "pi":
-        node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
-        if not node:
-            raise RuntimeError("report_model_unconfigured")
         try:
-            result = subprocess.run([node, str(ROOT / "scripts/report_model.mjs")],
-                input=json.dumps({"action": "metadata", "provider": config["provider"], "model": config["model"]}),
-                text=True, capture_output=True, timeout=20, check=True)
-            metadata = json.loads(result.stdout)
+            metadata = pi_metadata({"action": "metadata", "provider": config["provider"], "model": config["model"]})
             return limits(metadata["contextWindow"], metadata["maxTokens"], source="pi-model-registry")
-        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+        except RuntimeError as exc:
+            if str(exc) == "report_model_dependencies_missing":
+                raise
+            raise RuntimeError("report_model_capacity_unknown") from None
+        except (ValueError, KeyError, TypeError):
             raise RuntimeError("report_model_capacity_unknown") from None
     selected = config["codex"]
     native = {}
@@ -101,14 +99,22 @@ def capacity(config):
         return limits(override, source="codex-resolved-config")
     model = selected.get("model") or native.get("model")
     provider = selected.get("provider") or native.get("model_provider") or "openai"
-    if provider != "openai" or (selected.get("profile") and not native):
-        raise RuntimeError("report_model_capacity_unknown")
     try:
-        root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-        path = root / "models_cache.json"
+        # The CLI's resolved catalog also applies to custom providers/profiles.
+        # An explicit catalog replaces the default cache, so a missing entry
+        # must not inherit a capacity from an unrelated cached model.
+        catalog_path = native.get("model_catalog_json")
+        if catalog_path:
+            path = Path(catalog_path).expanduser()
+        else:
+            if provider != "openai" or (selected.get("profile") and not native):
+                raise ValueError()
+            root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+            path = root / "models_cache.json"
         if path.stat().st_size > MAX_BYTES:
             raise ValueError()
-        entry = next(row for row in json.loads(path.read_text())["models"] if row.get("slug") == model)
+        entries = json.loads(path.read_text(encoding="utf-8"))["models"]
+        entry = next(row for row in entries if isinstance(row, dict) and row.get("slug") == model)
         return limits(entry["context_window"], entry.get("max_output_tokens", 32768),
                       effective_percent=entry.get("effective_context_window_percent", 100), source="codex-model-catalog")
     except (OSError, ValueError, KeyError, TypeError, StopIteration):
@@ -150,14 +156,25 @@ def selection(settings: dict) -> dict:
             "pi": {key: agent.get("pi", {}).get(key, "") for key in ("provider", "model")}}
 
 
-def pi_metadata(request):
+def pi_command():
     node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
     if not node:
-        raise RuntimeError("report_model_catalog_failed")
+        raise RuntimeError("report_model_dependencies_missing")
+    return [node, str(ROOT / "scripts/report_model.mjs")]
+
+
+def pi_metadata(request):
     try:
-        result = subprocess.run([node, str(ROOT / "scripts/report_model.mjs")],
-            input=json.dumps(request), text=True, capture_output=True, timeout=20, check=True)
-        return json.loads(result.stdout)
+        result = subprocess.run(pi_command(), input=json.dumps(request), text=True,
+                                capture_output=True, timeout=20, check=False)
+        metadata = json.loads(result.stdout)
+        if not isinstance(metadata, dict):
+            raise ValueError()
+        if result.returncode:
+            if metadata.get("error") == "report_model_dependencies_missing":
+                raise RuntimeError("report_model_dependencies_missing")
+            raise ValueError()
+        return metadata
     except (OSError, ValueError, subprocess.SubprocessError):
         raise RuntimeError("report_model_catalog_failed") from None
 
@@ -238,10 +255,7 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
             pending = prompt.encode()
             parser = codex_client.EventParser()
         else:
-            node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
-            if not node:
-                raise RuntimeError("report_model_unconfigured")
-            command = [node, str(ROOT / "scripts/report_model.mjs")]
+            command = pi_command()
             request = {"prompt": prompt, "provider": config["provider"], "model": config["model"],
                        "maxTokens": config.get("limits", {}).get("output_tokens", 32768)}
             if config.get("reasoning_effort"):
@@ -304,6 +318,8 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                     # A completed protocol result is authoritative; do not wait for CLI teardown.
                     if terminal:
                         break
+            if terminal and not parser and terminal.get("error") == "report_model_dependencies_missing":
+                raise RuntimeError("report_model_dependencies_missing")
             if not terminal or terminal.get("outcome") != "completed" or not terminal.get("answer", "").strip():
                 raise RuntimeError("report_model_failed")
             return terminal["answer"]

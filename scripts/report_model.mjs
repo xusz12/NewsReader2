@@ -1,12 +1,14 @@
 // A single model completion, with no agent session, extensions, or tools.
 import os from 'node:os';
 import path from 'node:path';
-import {getSupportedThinkingLevels} from '@earendil-works/pi-ai';
 
+let dependenciesReady = false;
 try {
   // The pinned SDK's barrel also initializes the CLI and interactive UI.
   // Reports need only its model runtime, without those startup side effects.
+  const {getSupportedThinkingLevels} = await import('@earendil-works/pi-ai');
   const {ModelRuntime} = await import(new URL('./core/model-runtime.js', import.meta.resolve('@earendil-works/pi-coding-agent')));
+  dependenciesReady = true;
   let input = '';
   for await (const chunk of process.stdin) {
     input += chunk;
@@ -39,6 +41,7 @@ try {
   if (!text.trim()) throw new Error();
   process.stdout.write(JSON.stringify({type:'oar_result',outcome:'completed',answer:text})+'\n');
 } catch {
-  process.stdout.write(JSON.stringify({type:'oar_result',outcome:'failed',error:'report_model_failed'})+'\n');
+  const error = dependenciesReady ? 'report_model_failed' : 'report_model_dependencies_missing';
+  process.stdout.write(JSON.stringify({type:'oar_result',outcome:'failed',error})+'\n');
   process.exitCode = 1;
 }
