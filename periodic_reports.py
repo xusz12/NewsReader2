@@ -271,7 +271,7 @@ def capture(conn, report):
 
 def serialize(row, detail=False):
     result = json.loads(row["result_json"]) if row["result_json"] else None
-    value = {key:row[key] for key in ("id", "kind", "title", "period_start", "period_end", "scheduled_at", "status", "error", "updated_at")}
+    value = {key:row[key] for key in ("id", "kind", "title", "period_start", "period_end", "scheduled_at", "status", "error", "created_at", "updated_at")}
     value["kind_label"] = REPORT_KINDS[row["kind"]]
     value["is_preview"] = row["edition_key"].startswith(PREVIEW_PREFIX)
     value["is_manual"] = row["edition_key"].startswith(MANUAL_PREFIX)
@@ -498,16 +498,38 @@ class Service:
                     time.time() + (60 if job["attempts"] == 1 else 300), stamp(now()), job["id"], job["lease"]))
         return True
 
-    def listing(self, kind, offset=0, limit=30):
+    def listing(self, kind, offset=0, limit=30, group=None):
         kinds = ("morning", "noon", "evening", "custom") if kind == "daily" else (kind,)
         if kind not in {"daily", "weekly", "monthly"}:
             raise ValueError("invalid_report_kind")
+        at = now()
+        group_length = 4 if kind == "monthly" else 7
+        if group == "current":
+            group = stamp(at)[:group_length]
+        if group is not None:
+            try:
+                date.fromisoformat(group + ("-01-01" if group_length == 4 else "-01"))
+            except (ValueError, TypeError):
+                raise ValueError("invalid_report_group") from None
+            if len(group) != group_length:
+                raise ValueError("invalid_report_group")
         clause = "kind IN (" + ",".join("?" for _ in kinds) + ")"
+        # Archive by the period covered, even when an old report is created today.
+        # Weeks, months and custom ranges belong to their starting date; daily
+        # editions belong to the date on which their window ends.
+        period = "CASE WHEN kind IN ('weekly','monthly','custom') THEN period_start ELSE period_end END"
+        group_key = f"substr({period},1,{group_length})"
         with closing(self.connect()) as conn:
             meta = conn.execute("SELECT * FROM periodic_report_meta WHERE singleton=1").fetchone()
-            total = conn.execute(f"SELECT COUNT(*) FROM periodic_reports WHERE {clause}", kinds).fetchone()[0]
-            rows = conn.execute(f"SELECT * FROM periodic_reports WHERE {clause} ORDER BY CASE WHEN edition_key LIKE 'trial:%' OR edition_key LIKE 'manual:%' THEN created_at ELSE scheduled_at END DESC,id DESC LIMIT ? OFFSET ?", (*kinds, limit, offset)).fetchall()
-        at = now()
+            groups = [dict(row) for row in conn.execute(f"""SELECT {group_key} AS key, COUNT(*) AS count,
+                SUM(status IN ('pending','running')) AS active_count FROM periodic_reports
+                WHERE {clause} GROUP BY {group_key} ORDER BY key DESC""", kinds)]
+            params = list(kinds)
+            if group is not None:
+                clause += f" AND {group_key}=?"
+                params.append(group)
+            total = conn.execute(f"SELECT COUNT(*) FROM periodic_reports WHERE {clause}", params).fetchone()[0]
+            rows = conn.execute(f"SELECT * FROM periodic_reports WHERE {clause} ORDER BY {period} DESC,created_at DESC,id DESC LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
         calendar = calendar_data()
         upcoming = []
         for delta in range(35):
@@ -515,6 +537,7 @@ class Service:
                          if slotkind in kinds and scheduled > at and end > local(meta["activated_at"])]
         upcoming.sort()
         return {"items": [serialize(row) for row in rows], "total": total, "has_more": offset+len(rows)<total,
+                "groups": groups, "group": group, "now": stamp(at),
                 "database_token": meta["database_token"], "activated_at": meta["activated_at"],
                 "next_edition_at": stamp(upcoming[0][0]) if upcoming else None,
                 "calendar_warning": str(at.year) not in calendar}

@@ -30,3 +30,12 @@ export function withClassificationBatch(progress) {
   return {...progress, batch: progress.batch || Object.fromEntries(
     ['total','done','pending','running','failed'].map(key=>[key, progress[key] || 0]))};
 }
+
+export async function choosePicker(page, name, label) {
+  await page.getByRole('combobox', {name, exact:true}).click();
+  await page.getByRole('option', {name:label, exact:true}).click();
+}
+export async function openModelAdvanced(page) {
+  const advanced = page.locator('#modelAdvanced');
+  if (!await advanced.evaluate(node=>node.open)) await advanced.locator('summary').click();
+}

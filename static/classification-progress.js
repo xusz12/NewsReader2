@@ -1,4 +1,4 @@
-import { $, api, busy } from "./ui.js";
+import { api } from "./ui.js";
 
 export function classificationStatus(progress) {
   if (!progress) return "正在读取分类进度…";
@@ -12,74 +12,14 @@ export function classificationStatus(progress) {
   return p.pending || p.running ? "正在分类" : "有失败项待重试";
 }
 
-// A determinate status indicator: only server counts advance the ring.
+// Shared classification poller: settings and the header consume the same snapshot.
 export class ClassificationProgress {
-  constructor({ onSettings, onChange }) {
-    this.root = $("#classificationProgress");
-    this.indicator = $("#classificationProgressIndicator");
-    this.panel = $("#classificationProgressPanel");
-    this.onSettings = onSettings;
+  constructor({ onChange }) {
     this.onChange = onChange;
-    this.root.addEventListener("pointerenter", event => {
-      if (event.pointerType !== "touch") this.open();
-    });
-    this.root.addEventListener("pointerleave", () => {
-      this.leaveTimer = setTimeout(() => {
-        if (!this.root.contains(document.activeElement)) this.close();
-      }, 150);
-    });
-    this.root.addEventListener("focusin", () => { if (!this.restoringFocus) this.open(); });
-    this.root.addEventListener("focusout", event => {
-      if (!this.root.contains(event.relatedTarget)) this.close();
-    });
-    this.indicator.addEventListener("pointerdown", event => {
-      if (event.pointerType === "touch") {
-        event.preventDefault();
-        this.open();
-      }
-    });
-    document.addEventListener("pointerdown", event => {
-      if (!this.root.contains(event.target)) this.close();
-    });
-    document.addEventListener("topbar:popover-open", event => {
-      if (event.detail !== this.panel.id) this.close();
-    });
-    document.addEventListener("keydown", event => {
-      if (event.key !== "Escape" || this.panel.hidden) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const focused = this.panel.contains(document.activeElement);
-      this.close();
-      if (focused) {
-        this.restoringFocus = true;
-        this.indicator.focus({ preventScroll: true });
-        this.restoringFocus = false;
-      }
-    }, true);
-    $("#classificationProgressSettings").onclick = () => {
-      this.close();
-      return busy(null, this.onSettings);
-    };
-    $("#classificationProgressRetry").onclick = event => busy(event.currentTarget, async () => {
-      await api("/api/news/classification/retry", { method: "POST" });
-      await this.refresh();
-    });
     document.addEventListener("visibilitychange", () => {
       clearTimeout(this.timer);
-      if (document.hidden) this.close();
-      else void this.refresh();
+      if (!document.hidden) void this.refresh();
     });
-  }
-  open() {
-    clearTimeout(this.leaveTimer);
-    if (this.root.hidden || !this.panel.hidden) return;
-    document.dispatchEvent(new CustomEvent("topbar:popover-open", { detail: this.panel.id }));
-    this.panel.hidden = false;
-    void this.refresh();
-  }
-  close() {
-    clearTimeout(this.leaveTimer);
-    this.panel.hidden = true;
   }
   async refresh() {
     if (document.hidden) return;
@@ -103,23 +43,6 @@ export class ClassificationProgress {
     }
   }
   render() {
-    const p = this.progress;
-    this.onChange?.({ progress: p, error: this.error, updatedAt: this.updatedAt });
-    const batch = p?.batch;
-    this.root.hidden = !p || p.enabled === false || !batch?.total || !(batch.pending || batch.running || batch.failed);
-    if (this.root.hidden) { this.close(); return; }
-    const done = Math.min(batch.total, Math.max(0, batch.done));
-    const percent = done / batch.total * 100;
-    this.indicator.setAttribute("aria-valuemax", String(batch.total));
-    this.indicator.setAttribute("aria-valuenow", String(done));
-    this.indicator.setAttribute("aria-valuetext", `此次已分类 ${done}/${batch.total} 条，${p.unread_only ? "仅未读新闻" : "全部新闻"}`);
-    $("#classificationProgressArc").style.strokeDashoffset = String(100 - percent);
-    $("#classificationProgressArc").style.opacity = done ? "1" : "0";
-    $("#classificationProgressCount").textContent = `此次已分类 ${done.toLocaleString()}/${batch.total.toLocaleString()} 条`;
-    $("#classificationProgressScope").textContent = `当前模式：${p.unread_only ? "仅未读" : "全部"}`;
-    $("#classificationProgressDetails").textContent = `待处理 ${batch.pending} · 处理中 ${batch.running} · 失败 ${batch.failed}`;
-    $("#classificationProgressStatus").textContent = this.error || classificationStatus({...p, ...batch});
-    $("#classificationProgressRetry").hidden = !p.configured || !(batch.failed || p.error);
-    $("#classificationProgressSettings").hidden = p.configured && !p.error;
+    this.onChange?.({progress:this.progress, error:this.error, updatedAt:this.updatedAt});
   }
 }

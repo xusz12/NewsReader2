@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { chooseTheme, openSettings, withClassificationBatch } from './helpers.js';
 
+test.beforeEach(async ({page}) => {
+  await page.route('**/api/tasks/progress',route=>route.fulfill({json:{ok:true,database_token:'test',topics:{items:[]},reports:{items:[],total:0,counts:{}}}}));
+});
+
 const indicator = page => page.getByRole('progressbar', { name: '新闻分类进度' });
 const panel = page => page.getByRole('region', { name: '新闻分类进度详情' });
 const base = () => ({ ok: true, total: 100, done: 25, pending: 67, running: 8, failed: 0,
@@ -207,6 +211,7 @@ test('touch can inspect the status card without triggering a classification acti
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
   try {
+    await page.route('**/api/tasks/progress',route=>route.fulfill({json:{topics:{items:[]},reports:{items:[],total:0,counts:{}}}}));
     await start(page);
     const actions = [];
     page.on('request', request => { if (request.method() === 'POST') actions.push(request.url()); });

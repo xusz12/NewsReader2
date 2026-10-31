@@ -30,6 +30,30 @@ test.beforeEach(async ({request}) => {
   await request.post("/__test/topics");
 });
 
+for (const width of [390,1440]) test('概述渲染来源链接、长网址换行且中文不拉伸 '+width,async({page,request})=>{
+  const url='https://www.mfa.gov.cn/ziliao_674904/zt_674979/ywzt_675099/2023nzt/'+ 'a'.repeat(100)+'/20231116.shtml';
+  await request.post('/__test/topics',{data:{node_summary:`双方决定恢复两军高层沟通及相关磋商机制，并建立人工智能政府间对话，启动对前一阶段沟通中断的修复。([mfa.gov.cn](${url}))\n\n${url}\n\n<script>window.topicInjected=true</script> [危险](javascript:alert(1))`}});
+  await page.setViewportSize({width,height:900});await page.goto('/');await openTopics(page);
+  await page.locator('[data-topic-id="test-acquisition"]').click();await page.locator('.topic-node').first().click();
+  const summary=page.locator('#topicNodeSummary');
+  await expect(summary.getByRole('link',{name:'mfa.gov.cn',exact:true})).toHaveAttribute('href',url);
+  await expect(summary.locator('script,a[href^="javascript:"]')).toHaveCount(0);
+  expect(await page.evaluate(()=>window.topicInjected)).toBeUndefined();
+  const paragraph=summary.locator('p').nth(1), before=parseFloat(await paragraph.evaluate(node=>getComputedStyle(node).fontSize));
+  await page.getByRole('combobox',{name:'阅读字号',exact:true}).click();await page.getByRole('option',{name:'特大（130%）',exact:true}).click();
+  expect(parseFloat(await paragraph.evaluate(node=>getComputedStyle(node).fontSize))).toBeCloseTo(before*1.3,1);
+  for(const [theme,scheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
+    await page.emulateMedia({colorScheme:scheme});await chooseTheme(page,theme);
+    for(const state of ['展开','收起']) {
+      await page.getByRole('button',{name:state,exact:true}).click();
+      await expect(summary.locator('p').nth(1)).toHaveCSS('text-align','start');
+      expect(await summary.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+    }
+    await summary.scrollIntoViewIfNeeded();
+    await page.screenshot({path:`output/feature-picker-check/topic-${width}-${theme}-${scheme}.png`});
+  }
+});
+
 test('主题概览精简重复信息，新闻数量随筛选显示且归档保留报道',async({page,request})=>{
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
   const detail=await (await request.get('/api/topics/test-acquisition')).json();
@@ -525,8 +549,8 @@ test("创建时保留中栏，步骤与操作固定在右栏顶部",async({page,
   await request.post('/__test/topics',{data:{many:true,many_topics:true}});
   await page.goto('/');await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
-  // Let the viewed topic's update marker settle before taking the list snapshot.
-  await expect(page.locator('[data-topic-id="test-acquisition"] .unread-dot')).toHaveCount(0);
+  // Topic reading settles after six seconds, longer than the default assertion timeout.
+  await expect(page.locator('[data-topic-id="test-acquisition"] .unread-dot')).toHaveCount(0,{timeout:10000});
   const list=page.locator('#topicListScroll');
   await list.evaluate(n=>{n.scrollTop=280;});
   const before=await page.locator('#feedColTopics').innerHTML();

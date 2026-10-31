@@ -1,5 +1,5 @@
 import { confirmAction } from "./confirm-dialog.js";
-import { dismissOnOutsidePress } from "./outside-dismiss.js?v=0.2.3";
+import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 import {
   $,
   api,

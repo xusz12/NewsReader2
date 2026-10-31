@@ -57,9 +57,11 @@ import agent_notifications
 import news_classification
 import topic_tracking
 import periodic_reports
+import task_progress
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
 
 from settings import (
+    normalize_feature_models,
     DEFAULT_PI_CHAT_MODEL,
     DEFAULT_PI_CHAT_PROVIDER,
     default_app_settings,
@@ -2032,6 +2034,7 @@ def current_runtime_settings() -> dict:
     merged["news_summary"] = news_summaries.selection.limits(raw.get("news_summary"))
     merged["api_models"] = model_apis.normalize_api_models(raw.get("api_models", {}))
     merged["classification"] = normalize_classification(raw.get("classification", {}))
+    merged["feature_models"] = normalize_feature_models(raw.get("feature_models", {}), merged)
     return merged
 
 
@@ -2490,6 +2493,9 @@ def serialize_runtime_settings() -> dict:
         "feed_source_subkeys": feed_source_snapshot,
         "tracked": settings["tracked"],
         "agent": settings["agent"],
+        "feature_models": settings["feature_models"],
+        "feature_model_catalogs": {feature: model_catalogs.cached_catalog(config["codex"])
+                                   for feature, config in settings["feature_models"].items()},
         "news_summary": settings["news_summary"],
         "database": database_runtime_snapshot(settings),
         "restart_notice": "翻译 / 总结与 chat 的新请求通常立即生效；涉及 app.py 本版改动，终验前请重启 Flask。",
@@ -2537,6 +2543,10 @@ def validate_runtime_settings(payload: object) -> dict:
     codex_config = codex_client.normalize_config(agent_payload.get("codex", current_settings["agent"]["codex"]))
     if codex_config != current_settings["agent"]["codex"] and codex_config.get("reasoning_effort"):
         codex_config = model_catalogs.validate_effort(codex_config)
+    feature_models = normalize_feature_models(payload.get("feature_models", {}), current_settings)
+    for feature, config in feature_models.items():
+        if config["codex"] != current_settings["feature_models"][feature]["codex"] and config["codex"].get("reasoning_effort"):
+            config["codex"] = model_catalogs.validate_effort(config["codex"])
 
     configured_db_path = _database_path_from_payload(payload, current_settings)
     if os.environ.get("NEWS_READER_DB_PATH", "").strip():
@@ -2555,6 +2565,7 @@ def validate_runtime_settings(payload: object) -> dict:
     api_models = payload.get("api_models")
     legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
     normalized = {
+        "feature_models": feature_models,
         "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"]), defaults=current_settings["api_models"]),
         "classification": normalize_classification(payload.get("classification", {}),
             defaults=current_settings["classification"], legacy=legacy_classification),
@@ -12353,7 +12364,7 @@ def api_reports():
         limit = int(request.args.get("limit", "30"))
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError("invalid_report_pagination")
-        result = REPORT_SERVICE.listing(request.args.get("kind", "daily"), offset, limit)
+        result = REPORT_SERVICE.listing(request.args.get("kind", "daily"), offset, limit, request.args.get("group"))
     except ValueError:
         return jsonify(ok=False, error="invalid_report_query"), 400
     return jsonify(ok=True, **result)
@@ -12402,6 +12413,18 @@ def api_report_schedule_status():
         return jsonify(ok=True, **REPORT_SERVICE.observation())
     except (sqlite3.Error, OSError, ValueError):
         return jsonify(ok=False, error="report_schedule_unavailable"), 503
+
+
+@app.get("/api/tasks/progress")
+def api_task_progress():
+    try:
+        with closing(db_conn()) as conn:
+            result = task_progress.snapshot(conn)
+        result['topics'].update(matching_configured=provider_has_configured_key('jev'),
+                                matching_error=CLASSIFICATION_SERVICE.error)
+        return jsonify(ok=True, **result)
+    except (sqlite3.Error, OSError, ValueError):
+        return jsonify(ok=False, error="task_progress_unavailable"), 503
 
 
 def report_request_error(exc):

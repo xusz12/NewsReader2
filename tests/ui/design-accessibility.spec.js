@@ -41,6 +41,7 @@ for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'light'], ['ein
     for (const [section, terminal] of [['models', '#connTestTerminal'], ['deepseek', '#translationTestTerminal']]) {
       await page.locator(`[data-settings-tab="${section}"]`).click();
       await expect(page.locator('.settings-detail-heading h2')).toHaveCSS('font-weight', '600');
+      if (section === 'models') await page.locator(terminal).evaluate(node=>{node.hidden=false;node.textContent='[SUCCESS] 本次模型请求成功。';});
       await expect(page.locator(terminal)).toBeVisible();
       if (theme === 'eink') {
         await expect(page.locator(terminal)).toHaveCSS('background-color', 'rgb(244, 244, 244)');

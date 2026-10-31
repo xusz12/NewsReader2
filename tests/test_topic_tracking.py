@@ -357,18 +357,25 @@ def test_milestone_failure_retry_reuses_jev_and_preserves_articles(env,monkeypat
 
 
 @pytest.mark.parametrize("runtime", ["pi", "codex"])
-def test_research_uses_global_agent_settings_with_job_snapshot_and_retry(env, runtime):
+@pytest.mark.parametrize("independent", [False, True])
+def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtime, independent):
     _, service, _ = env
     settings = service.settings()
     settings["agent"]["runtime"] = runtime
+    from settings import normalize_feature_models
+    if independent:
+        settings['feature_models'] = normalize_feature_models({}, settings)
+        settings['agent']['runtime'] = 'pi' if runtime == 'codex' else 'codex'
+    chosen = settings['feature_models']['topics'] if independent else settings['agent']
+    pi = chosen['pi'] if independent else settings['llm']['pi_chat']
     recorded = []
     original_runner = service.runner
 
     def select_model(name):
         if runtime == "pi":
-            settings["llm"]["pi_chat"].update(provider="global-provider", model=name)
+            pi.update(provider="global-provider", model=name)
         else:
-            settings["agent"]["codex"].update(provider="global-provider", model=name,
+            chosen["codex"].update(provider="global-provider", model=name,
                 profile="global-profile", reasoning_effort="high")
 
     def runner(config, *args, **kwargs):

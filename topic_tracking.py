@@ -508,7 +508,7 @@ class Service:
 
     def add_job(self, conn, topic, kind):
         ident = uuid.uuid4().hex
-        config = news_summaries.capture_config(self.settings())
+        config = news_summaries.capture_config(self.settings(), "topics")
         conn.execute("""INSERT INTO topic_jobs(id,topic_id,kind,status,revision,config_json,created_at,updated_at)
             VALUES (?,?,?,'pending',?,?,?,?)""",
             (ident, topic["id"], kind, topic["revision"], js(config), now(), now()))
@@ -657,7 +657,7 @@ class Service:
             if job:
                 if job["kind"] == "refine" and refinement_status(conn, ident)["refine_cooldown"]:
                     raise ValueError("topic_refine_cooldown")
-                config = {} if job["kind"] == "milestone" else news_summaries.capture_config(self.settings())
+                config = {} if job["kind"] == "milestone" else news_summaries.capture_config(self.settings(), "topics")
                 conn.execute("""UPDATE topic_jobs SET status='pending',error='',config_json=?,lease_token=NULL,
                     lease_until=0,attempts=0,next_attempt_at=0,updated_at=? WHERE id=?""", (js(config), now(), job["id"]))
             conn.execute("""UPDATE topic_checks SET status='pending',attempts=0,next_attempt_at=0,last_error=''

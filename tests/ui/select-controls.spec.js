@@ -1,3 +1,4 @@
+import { choosePicker, openModelAdvanced } from "./helpers.js";
 import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
@@ -23,7 +24,7 @@ async function settings(page, request, { model = 'catalog-a', many = false } = {
   await expect(page.locator('#modelSettings')).toBeVisible();
   return { saved, submitted: () => submitted };
 }
-const modelBox = page => page.getByRole('combobox', { name: '模型选择 (Model)', exact: true });
+const modelBox = page => page.getByRole('combobox', { name: '模型', exact: true });
 const customModel = page => page.locator('input[name="agent.codex.model"]');
 
 test.describe('touch selection', () => {
@@ -62,8 +63,8 @@ test('custom selects open only inside the visible field', async ({ page, request
       await page.keyboard.press('Escape');
     }
   }
-  await checkField('模型选择 (Model)');
-  await checkField('推理强度 (Reasoning Effort)');
+  await checkField('模型');
+  await checkField('推理强度');
   await checkField('临时会话保留时间');
   await page.locator('[data-settings-tab="deepseek"]').click();
   await checkField('翻译模型');
@@ -73,6 +74,7 @@ test('Codex catalog and custom models stay synchronized through typing, save and
   const state = await settings(page, request);
   await expect(customModel(page)).toHaveValue('');
   await expect(modelBox(page)).toHaveText('目录模型 A');
+  await openModelAdvanced(page);
   await customModel(page).pressSequentially('private-model');
   await expect(customModel(page)).toBeFocused();
   await expect(modelBox(page)).toHaveText('private-model');
@@ -125,7 +127,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await expect(customModel(page)).toHaveValue('');
   await modelBox(page).click();
   await page.getByRole('option', { name: 'ui-catalog-b', exact: true }).click();
-  await page.getByRole('combobox', { name: '推理强度 (Reasoning Effort)', exact: true }).click();
+  await page.getByRole('combobox', { name: '推理强度', exact: true }).click();
   await page.getByRole('option', { name: 'medium', exact: true }).click();
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
@@ -134,11 +136,11 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await page.locator('[data-settings-tab="models"]').click();
   await expect(modelBox(page)).toHaveText('ui-catalog-b');
   await expect(customModel(page)).toHaveValue('');
-  await expect(page.getByRole('combobox', { name: '推理强度 (Reasoning Effort)', exact: true })).toHaveText('medium');
-  await page.locator('[data-runtime="pi"]').click();
-  await page.locator('[data-runtime="codex"]').click();
+  await expect(page.getByRole('combobox', { name: '推理强度', exact: true })).toHaveText('medium');
+  await choosePicker(page,'Runtime','Pi SDK / OAR');
+  await choosePicker(page,'Runtime','Codex CLI');
   await expect(page.locator('#settingsResetBtn')).toBeHidden();
-  await page.locator('[data-runtime="pi"]').click();
+  await choosePicker(page,'Runtime','Pi SDK / OAR');
   await page.locator('#settingsResetBtn').click();
   await modelBox(page).click();
   await expect(page.getByRole('option', { name: 'ui-catalog-a', exact: true })).toBeVisible();
@@ -154,6 +156,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
 
 test('provider and profile changes keep model catalogs separate and restore known choices', async ({ page, request }) => {
   await settings(page, request);
+  await openModelAdvanced(page);
   for (const name of ['agent.codex.provider', 'agent.codex.profile']) {
     const input = page.locator(`input[name="${name}"]`);
     await input.fill('other');
@@ -181,7 +184,7 @@ test('custom menus support keyboard selection, cancel, typeahead and normal Tab 
   await page.keyboard.press('Enter');
   await expect(modelBox(page)).toHaveText('目录模型 B');
   await page.keyboard.press('Tab');
-  const effort = page.getByRole('combobox', { name: '推理强度 (Reasoning Effort)', exact: true });
+  const effort = page.getByRole('combobox', { name: '推理强度', exact: true });
   await expect(effort).toBeFocused();
   await page.keyboard.press('m');
   await expect(effort).toHaveAttribute('aria-expanded', 'true');
@@ -190,6 +193,9 @@ test('custom menus support keyboard selection, cancel, typeahead and normal Tab 
   await effort.click();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('listbox')).toBeHidden();
+  await expect(page.locator('#modelAdvanced summary')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab');
   await expect(customModel(page)).toBeFocused();
 });
 

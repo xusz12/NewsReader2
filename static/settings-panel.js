@@ -3,7 +3,7 @@ import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawer
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
-import { classificationStatus } from "./classification-progress.js?v=0.3.2";
+import { classificationStatus } from "./classification-progress.js?v=tasks-1";
 import { ScheduleObserver } from "./schedule-observer.js?v=reports-manual-1";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
@@ -46,6 +46,7 @@ export class SettingsPanel {
     this.connectionSequence = 0;
     this.catalogSequence = 0;
     this.catalogs = new Map();
+    this.modelFeature = "chat"; this.modelAdvanced = new Map();
     this.apiProvider = "deepseek";
     this.apiStates = new Map();
     this.selects = selects;
@@ -78,6 +79,9 @@ export class SettingsPanel {
     $("#settingsContent").addEventListener("change", (event) =>
       this.updateDraft(event),
     );
+    $("#settingsContent").addEventListener("toggle", event => {
+      if (event.target.id === "modelAdvanced") this.modelAdvanced.set(event.target.dataset.feature,event.target.open);
+    }, true);
     $("#settingsContent").addEventListener("click", (event) =>
       this.click(event),
     );
@@ -285,16 +289,25 @@ export class SettingsPanel {
       classification: clone(d.classification || { enabled: true, concurrency: 8, unread_only: false }),
       feed: clone(d.feed),
       agent: clone(d.agent),
+      feature_models: clone(d.feature_models || {}),
       news_summary: clone(d.news_summary || { max_days: 20, max_items: 6000 }),
       database: { path: d.database.configured_path || "" },
     };
   }
-  modelDraft() {
-    return {
-      runtime: this.draft.agent.runtime,
-      codex: clone(this.draft.agent.codex),
-      pi: clone(this.draft.llm.pi_chat),
-    };
+  modelPaths() {
+    return this.modelFeature === "chat" ? {runtime:"agent.runtime",codex:"agent.codex",pi:"llm.pi_chat"}
+      : {runtime:`feature_models.${this.modelFeature}.runtime`,codex:`feature_models.${this.modelFeature}.codex`,pi:`feature_models.${this.modelFeature}.pi`};
+  }
+  modelConfig() {
+    if (this.modelFeature === "chat") return {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat};
+    this.draft.feature_models ||= {};
+    return this.draft.feature_models[this.modelFeature] ||= clone({runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat});
+  }
+  modelDraft() { return clone(this.modelConfig()); }
+  invalidateModelTest() {
+    this.connectionSequence++; this.connectionResult = "";
+    const terminal = $("#connTestTerminal");
+    if (terminal) {terminal.textContent = ""; terminal.hidden = true;}
   }
   updateDraft(event) {
     const input = event.target;
@@ -314,7 +327,16 @@ export class SettingsPanel {
       }
       return;
     }
+    if (input.name === "modelFeature") {
+      if (this.modelFeature !== input.value) {
+        this.modelFeature = input.value; this.catalogNotice = ""; this.catalogSequence++;
+        this.invalidateModelTest(); this.renderModels();
+        $('[data-select-trigger="modelFeature"]').focus({preventScroll:true});
+      }
+      return;
+    }
     if (!input.name || !this.draft) return;
+    const paths = this.modelPaths(), config = this.modelConfig();
     const value = input.type === "checkbox" ? input.checked : input.type === "number" || input.name === "agent.session_ttl_hours"
       ? Number(input.value) : input.value;
     const unchanged = Object.is(get(this.draft, input.name), value);
@@ -331,27 +353,29 @@ export class SettingsPanel {
       $("#translationStatus").textContent = state.notice;
       this.syncModelFields(input, this.translationOptions());
     }
-    if (input.name === "agent.codex.model") {
+    if (input.name === paths.codex+".model") {
       this.syncModelFields(input, this.codexOptions());
       if (!unchanged) {
-        this.draft.agent.codex.reasoning_effort = "";
+        config.codex.reasoning_effort = "";
         this.renderReasoning();
       }
     }
     if (input.name.startsWith("news_summary.")) this.loadCatchupScope(250);
-    this.connectionSequence++;
-    this.connectionResult = "[READY] 配置已变化，请重新测试。";
-    if ($("#connTestTerminal"))
-      $("#connTestTerminal").textContent = this.connectionResult;
-    if (["agent.codex.provider", "agent.codex.profile"].includes(input.name)) {
+    this.invalidateModelTest();
+    if ([paths.codex+".provider", paths.codex+".profile"].includes(input.name)) {
       this.catalogNotice = "";
       this.catalogSequence++;
-      this.draft.agent.codex.reasoning_effort = "";
+      config.codex.reasoning_effort = "";
       this.renderCodexSelection();
     }
-    if (input.name === "llm.pi_chat.provider" && event.type === "change") {
-      this.draft.llm.pi_chat.model = "";
+    if (input.name === paths.pi+".provider" && event.type === "change") {
+      config.pi.model = "";
       this.renderModels();
+      $(`[data-select-trigger="${paths.pi}.provider"]`)?.focus({preventScroll:true});
+    }
+    if (input.name === paths.runtime) {
+      this.catalogNotice = ""; this.catalogSequence++; this.renderModels();
+      $(`[data-select-trigger="${paths.runtime}"]`)?.focus({preventScroll:true});
     }
     this.status("有未保存的更改");
   }
@@ -371,7 +395,7 @@ export class SettingsPanel {
     }
     this.selects.refresh();
   }
-  catalogKey(runtime = this.draft.agent.runtime, config = this.draft.agent.codex) {
+  catalogKey(runtime = this.modelConfig().runtime, config = this.modelConfig().codex) {
     return JSON.stringify(runtime === "codex" ? [runtime, config.provider || "", config.profile || ""] : [runtime]);
   }
   rememberModelCatalogs(data) {
@@ -381,32 +405,34 @@ export class SettingsPanel {
       if (catalog && (catalog.options?.length || catalog.provider_options?.length || !this.catalogs.has(key)))
         this.catalogs.set(key, clone(catalog));
     }
+    for (const [feature,catalog] of Object.entries(data.feature_model_catalogs || {})) {
+      const config = data.feature_models?.[feature]?.codex;
+      if (config && catalog && !this.catalogs.has(this.catalogKey("codex",config))) this.catalogs.set(this.catalogKey("codex",config),clone(catalog));
+    }
   }
-  modelCatalog(runtime = this.draft.agent.runtime) {
+  modelCatalog(runtime = this.modelConfig().runtime) {
     return this.catalogs.get(this.catalogKey(runtime)) || {};
   }
-  codexOptions() {
-    return this.modelCatalog("codex").options?.filter(option => option.source !== "saved") || [];
-  }
+  codexOptions() { return this.modelCatalog("codex").options?.filter(option => option.source !== "saved") || []; }
   renderCodexSelection() {
-    const current = $('select[name="agent.codex.model"]');
+    const path = this.modelPaths().codex, current = $(`select[name="${path}.model"]`);
     if (!current) return;
-    const options = this.codexOptions(), value = this.draft.agent.codex.model;
+    const options = this.codexOptions(), value = this.modelConfig().codex.model;
     const container = document.createElement("div");
-    container.innerHTML = select("模型选择 (Model)", "agent.codex.model", value, options, "沿用本机默认");
+    container.innerHTML = select("模型", path+".model", value, options, "沿用本机默认");
     current.closest(".field-item").replaceWith(container.firstElementChild);
-    $('input[name="agent.codex.model"]').value = options.some(option => option.value === value) ? "" : value;
-    $("#modelsNotice").textContent = this.modelCatalog().notice || "候选目录不代表实际调用权限。";
+    $(`input[name="${path}.model"]`).value = options.some(option => option.value === value) ? "" : value;
+    const notice = $("#modelsNotice"); notice.textContent = this.modelCatalog().error || ""; notice.hidden = !notice.textContent;
     this.renderReasoning();
   }
   renderReasoning() {
-    const current = $('select[name="agent.codex.reasoning_effort"]');
+    const path = this.modelPaths().codex, current = $(`select[name="${path}.reasoning_effort"]`);
     if (!current) return;
-    const efforts = this.codexOptions().find(option => option.value === this.draft.agent.codex.model)?.reasoning_efforts || [];
+    const config = this.modelConfig().codex;
+    const efforts = this.codexOptions().find(option => option.value === config.model)?.reasoning_efforts || [];
     const container = document.createElement("div");
-    container.innerHTML = select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", this.draft.agent.codex.reasoning_effort, efforts, "沿用默认");
+    container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort, efforts, "沿用默认");
     current.closest(".field-item").replaceWith(container.firstElementChild);
-    $("#modelCapabilitiesHint").textContent = efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。";
     this.selects.refresh();
   }
   render() {
@@ -590,37 +616,19 @@ export class SettingsPanel {
   }
   renderModels() {
     if (!$("#modelSettings")) return;
-    const d = this.draft,
-      codex = d.agent.runtime === "codex";
-    const catalog = this.modelCatalog();
-    const codexOptions = this.codexOptions();
-    const model = codexOptions.find((x) => x.value === d.agent.codex.model);
-    const custom = model ? "" : d.agent.codex.model;
-    const efforts = model?.reasoning_efforts || [];
-    const savedEffort = d.agent.codex.reasoning_effort;
-    $("#modelSettings").innerHTML =
-      `<div class="section-card-title"><span>运行方式与模型</span></div>
-    <div class="field-item"><span class="field-label">运行方式 (Runtime) 选择</span><div class="runtime-switch-grid"><button class="runtime-card ${codex ? "selected" : ""}" type="button" data-runtime="codex" aria-pressed="${codex}"><span class="runtime-card-top">Codex CLI</span><span class="runtime-card-desc">使用本机模型、预设与只读文件沙盒配置。</span></button><button class="runtime-card ${!codex ? "selected" : ""}" type="button" data-runtime="pi" aria-pressed="${!codex}"><span class="runtime-card-top">Pi SDK / OAR</span><span class="runtime-card-desc">本机会话桥接、技能扩展与模型目录。</span></button></div></div>
-    ${codex ? `<div class="form-group-grid">${field("服务商覆盖（可选）", "agent.codex.provider", d.agent.codex.provider)}${field("本机 Profile（可选）", "agent.codex.profile", d.agent.codex.profile)}</div><div class="form-group-grid">${select("模型选择 (Model)", "agent.codex.model", d.agent.codex.model, codexOptions, "沿用本机默认")}${select("推理强度 (Reasoning Effort)", "agent.codex.reasoning_effort", savedEffort, efforts, "沿用默认")}</div>${field("自定义模型（可选）", "agent.codex.model", custom, 'maxlength="120"')}<p class="muted" id="modelCapabilitiesHint">${efforts.length ? "推理档位来自当前模型目录。" : "当前模型能力未确认；保留已保存档位，或沿用本机默认。"}</p>` : `<div class="form-group-grid">${select("服务商 (Provider)", "llm.pi_chat.provider", d.llm.pi_chat.provider, catalog.provider_options || [], "请选择服务商")}${select("模型选择 (Model)", "llm.pi_chat.model", d.llm.pi_chat.model, catalog.model_options_by_provider?.[d.llm.pi_chat.provider] || catalog.options || [], "请选择模型")}</div>`}
-    <button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><p class="muted" id="modelsNotice">${e(this.catalogNotice || catalog.notice || "候选目录不代表实际调用权限。")}</p>
-    <div class="form-group-grid" id="modelUsage" aria-label="应用中的使用范围">
-      <div class="field-item"><span class="field-label">Chat 与 Agent</span><span>新闻问答、研究及对话归档</span></div>
-      <div class="field-item"><span class="field-label">主题追踪</span><span>主题定义、历史整理与进程精简</span></div>
-      <div class="field-item"><span class="field-label">积压新闻总结</span><span>新闻归纳与总结生成</span></div>
-      <div class="field-item"><span class="field-label">日报、周报、月报</span><span>早午晚报、周期回顾及手动生成</span></div>
-    </div>
-    <div class="connection-test-section"><div><strong>模型可用性独立连接测试</strong><p class="muted">使用当前未保存选择测试，不写入新闻或聊天历史。</p></div><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing ? "disabled" : ""}>${this.testing ? "测试中…" : "运行连接测试"}</button><div class="terminal-box" id="connTestTerminal" role="status">${e(this.connectionResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>
-    ${select(
-      "临时会话保留时间",
-      "agent.session_ttl_hours",
-      String(d.agent.session_ttl_hours),
-      [
-        { value: "24", label: "24 小时" },
-        { value: "72", label: "72 小时" },
-      ],
-    )}<button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>`;
-    const placeholder = $('[name="agent.session_ttl_hours"] option[value=""]');
-    if (placeholder) placeholder.remove();
+    const d = this.modelConfig(), paths = this.modelPaths(), codex = d.runtime === "codex";
+    const catalog = this.modelCatalog(), options = this.codexOptions();
+    const model = options.find(x=>x.value === d.codex.model), custom = model ? "" : d.codex.model;
+    const notice = this.catalogNotice || catalog.error || "";
+    $("#modelSettings").innerHTML = `<div class="form-group-grid">
+      ${select("功能", "modelFeature", this.modelFeature, [{value:"chat",label:"Chat"},{value:"topics",label:"主题追踪"},{value:"summaries",label:"新闻总结"},{value:"reports",label:"日报"}], null)}
+      ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}], null)}</div>
+      ${codex ? `<div class="form-group-grid">${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认")}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认")}</div>
+      <details id="modelAdvanced" data-feature="${this.modelFeature}" ${this.modelAdvanced.get(this.modelFeature)?'open':''}><summary class="reader-tool-btn">高级设置</summary><div class="section-stack">${field("自定义模型",paths.codex+".model",custom,'maxlength="120"')}<div class="form-group-grid">${field("服务商覆盖",paths.codex+".provider",d.codex.provider)}${field("Profile",paths.codex+".profile",d.codex.profile)}</div></div></details>`
+      : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商")}${select("模型",paths.pi+".model",d.pi.model,catalog.model_options_by_provider?.[d.pi.provider] || catalog.options || [],"请选择模型")}</div>`}
+      <div class="button-row"><button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing?'disabled':''}>${this.testing?'测试中…':'运行连接测试'}</button></div>
+      <p class="muted" id="modelsNotice" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="connTestTerminal" role="status" ${this.connectionResult?'':'hidden'}>${e(this.connectionResult || "")}</div>
+      ${this.modelFeature === "chat" ? `<div class="form-group-grid">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div><button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>` : ""}`;
     this.selects.refresh($("#modelSettings"));
   }
   sourceHTML() {
@@ -685,17 +693,6 @@ export class SettingsPanel {
       this.status("有未保存的更改");
     }
     if (!button) return;
-    if (button.dataset.runtime) {
-      this.draft.agent.runtime = button.dataset.runtime;
-      this.dirty = true;
-      this.catalogNotice = "";
-      this.connectionSequence++;
-      this.catalogSequence++;
-      this.connectionResult = "";
-      this.renderModels();
-      this.status("有未保存的更改");
-      return;
-    }
     const actions = {
       classificationRefreshBtn: () => this.onClassificationRefresh?.(),
       classificationRetryBtn: () => this.onClassificationRetry?.(),
@@ -815,9 +812,9 @@ export class SettingsPanel {
         seq !== this.catalogSequence ||
         fingerprint !==
           JSON.stringify([
-            this.draft.agent.runtime,
-            this.draft.agent.codex.provider,
-            this.draft.agent.codex.profile,
+            this.modelConfig().runtime,
+            this.modelConfig().codex.provider,
+            this.modelConfig().codex.profile,
           ])
       )
         return;
@@ -827,6 +824,7 @@ export class SettingsPanel {
         data.catalog.error || data.catalog.notice || "模型目录已刷新";
       this.renderModels();
     } catch (error) {
+      if (seq !== this.catalogSequence) return;
       this.catalogNotice = errorText(error);
       this.renderModels();
       throw error;
@@ -867,6 +865,8 @@ export class SettingsPanel {
     this.testing = true;
     this.connectionResult = "[RUNNING] 正在测试当前模型连接…";
     $("#connTestTerminal").textContent = this.connectionResult;
+    $("#connTestTerminal").hidden = false;
+    $("#testConnectionBtn").disabled = true;
     try {
       const data = await api("/api/settings/connection-test", {
         method: "POST",

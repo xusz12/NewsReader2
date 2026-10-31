@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+from copy import deepcopy
 from pathlib import Path
 from model_apis import normalize_api_models
 
@@ -28,6 +29,40 @@ DEFAULT_PI_CHAT_MODEL = ""
 
 DEFAULT_CLASSIFICATION_CONCURRENCY = 8
 MAX_CLASSIFICATION_CONCURRENCY = 32
+
+MODEL_FEATURES = ("topics", "summaries", "reports")
+
+
+def feature_model_config(settings: dict, feature: str = "chat") -> dict:
+    """Old installations inherit the Chat selection once, on their next save."""
+    agent = settings.get("agent", {})
+    legacy = {"runtime": agent.get("runtime", "pi"), "codex": agent.get("codex", {}),
+              "pi": settings.get("llm", {}).get("pi_chat", {})}
+    return deepcopy(settings.get("feature_models", {}).get(feature, legacy) if feature != "chat" else legacy)
+
+
+def normalize_feature_models(value: object, settings: dict) -> dict:
+    from codex_client import normalize_config
+    if not isinstance(value, dict) or any(key not in MODEL_FEATURES for key in value):
+        raise ValueError("invalid_feature_models")
+    result = {}
+    for feature in MODEL_FEATURES:
+        previous = feature_model_config(settings, feature)
+        selected = value.get(feature, previous)
+        if not isinstance(selected, dict) or selected.get("runtime", previous["runtime"]) not in ("pi", "codex"):
+            raise ValueError("invalid_feature_models")
+        pi = selected.get("pi", previous["pi"])
+        if not isinstance(pi, dict):
+            raise ValueError("invalid_feature_models")
+        normalized_pi = {}
+        for key, limit in (("provider", 40), ("model", 120)):
+            text = pi.get(key, previous["pi"].get(key, ""))
+            if not isinstance(text, str) or len(text.strip()) > limit or any(ord(char)<32 for char in text):
+                raise ValueError("invalid_feature_models")
+            normalized_pi[key] = text.strip()
+        result[feature] = {"runtime": selected.get("runtime", previous["runtime"]),
+                           "codex": normalize_config(selected.get("codex", previous["codex"])), "pi": normalized_pi}
+    return result
 
 
 def classification_concurrency(value: object) -> int:
@@ -236,6 +271,10 @@ def load_app_settings() -> dict:
         base["news_summary"] = limits(payload.get("news_summary") if isinstance(payload, dict) else None)
     except ValueError:
         pass
+    try:
+        base["feature_models"] = normalize_feature_models(payload.get("feature_models", {}) if isinstance(payload, dict) else {}, base)
+    except ValueError:
+        base["feature_models"] = normalize_feature_models({}, base)
     return base
 
 

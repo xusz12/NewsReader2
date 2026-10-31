@@ -19,6 +19,39 @@ def create(service, kind="evening", start="2026-10-19T00:00:00+08:00", end="2026
     return service.create_manual(kind, start, end, request_id or uuid.uuid4().hex, service.manual_options()["database_token"])
 
 
+def test_archive_uses_covered_period_not_creation_date_and_returns_all_groups(service):
+    current = create(service, "morning", "2026-09-30T21:30:00+08:00", "2026-10-01T08:30:00+08:00")
+    old = create(service, "evening", "2026-08-30T21:30:00+08:00", "2026-08-31T21:30:00+08:00")
+    custom = create(service, "custom", "2026-09-30T10:00:00+08:00", "2026-10-02T10:00:00+08:00")
+    listing = service.listing("daily", group="current")
+    assert listing["group"] == "2026-10"
+    assert [row["id"] for row in listing["items"]] == [current["id"]]
+    assert listing["groups"] == [{"key": month, "count": 1, "active_count": 1} for month in ("2026-10", "2026-09", "2026-08")]
+    assert [row["id"] for row in service.listing("daily")["items"]] == [current["id"], custom["id"], old["id"]]
+    weekly = create(service, "weekly", "2026-09-28T00:00:00+08:00", "2026-10-05T00:00:00+08:00")
+    assert service.listing("weekly", group="current")["items"] == []
+    assert service.listing("weekly", group="2026-09")["items"][0]["id"] == weekly["id"]
+    monthly = create(service, "monthly", "2025-12-01T00:00:00+08:00", "2026-01-01T00:00:00+08:00")
+    assert service.listing("monthly", group="current")["items"] == []
+    assert service.listing("monthly", group="2025")["items"][0]["id"] == monthly["id"]
+
+
+def test_archive_pagination_keeps_complete_counts_and_no_duplicate_rows(service):
+    for _ in range(33):
+        create(service, "evening", "2026-09-29T21:30:00+08:00", "2026-09-30T21:30:00+08:00")
+    first = service.listing("daily", group="2026-09")
+    second = service.listing("daily", offset=30, group="2026-09")
+    assert first["total"] == second["total"] == first["groups"][0]["count"] == 33
+    assert first["has_more"] and not second["has_more"]
+    assert len({row["id"] for row in first["items"] + second["items"]}) == 33
+
+
+@pytest.mark.parametrize("kind,group", [("daily", "2026-13"), ("weekly", "2026"), ("monthly", "2026-10"), ("daily", "x' OR 1=1")])
+def test_archive_rejects_invalid_groups(service, kind, group):
+    with pytest.raises(ValueError, match="invalid_report_group"):
+        service.listing(kind, group=group)
+
+
 def test_defaults_cover_six_types_without_changing_schedule(service, db, monkeypatch):
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     data = service.manual_options()

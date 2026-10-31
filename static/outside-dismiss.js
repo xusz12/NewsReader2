@@ -8,8 +8,8 @@ const consume = event => {
   event.stopImmediatePropagation();
 };
 
-export function dismissOnOutsidePress({ panel, trigger, isOpen, dismiss, priority = 0 }) {
-  panels.push({ panel, trigger, isOpen, dismiss, priority });
+export function dismissOnOutsidePress({ panel, trigger, isOpen, dismiss, priority = 0, contains = () => false }) {
+  panels.push({ panel, trigger, isOpen, dismiss, priority, contains });
   panels.sort((a, b) => b.priority - a.priority);
 }
 
@@ -20,7 +20,7 @@ document.addEventListener('pointerdown', event => {
   // Native confirmations and the shortcut modal sit above these panels.
   if (document.querySelector('dialog[open], #shortcutsModal.show')) return;
   const active = panels.find(entry => entry.isOpen());
-  if (!active || active.panel.contains(event.target) || active.trigger?.contains(event.target)) return;
+  if (!active || active.panel.contains(event.target) || active.trigger?.contains(event.target) || active.contains(event.target)) return;
   blockedPointer = event.pointerId;
   consume(event);
   active.dismiss();

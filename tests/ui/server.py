@@ -237,7 +237,7 @@ def fixture_topics():
             for number,stamp,title in ((0,"2026-01-01","公布收购"),(1,"2026-10-24","审查进展")):
                 node_id=ident+"-node-"+str(number)
                 conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES (?,?,'history',?,?,?,'2026-10-24')",
-                             (node_id,ident,stamp,title,title+"的详细内容。"))
+                             (node_id,ident,stamp,title,body.get("node_summary") or title+"的详细内容。"))
             if body.get("long_timeline"):
                 for number in range(2,14):
                     conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES (?,?,'history',?,?,?,'2026-10-24')",
@@ -332,8 +332,8 @@ def fixture_reports():
         if body.get('empty'):
             return {'ok': True}
         for index, kind in enumerate(('morning', 'noon', 'evening', 'weekly', 'monthly')):
-            sources = [{'ref': 'N1', 'id': 'ui-000', 'title': '合成资料：存储新工艺进入试产', 'source_name': '示例媒体', 'published_at': '2026-11-02T07:00:00+08:00', 'url': 'https://example.com/source'},
-                       {'ref': 'N2', 'id': 'ui-001', 'title': '合成资料：技术验证与规模交付的差距', 'source_name': '示例媒体', 'published_at': '2026-11-02T07:10:00+08:00', 'url': ''}]
+            sources = [{'ref': 'N1', 'id': 'ui-000', 'title': '合成资料：存储新工艺进入试产', 'source_name': '示例媒体', 'published_at': '2026-10-22T07:00:00+08:00', 'url': 'https://example.com/source'},
+                       {'ref': 'N2', 'id': 'ui-001', 'title': '合成资料：技术验证与规模交付的差距', 'source_name': '示例媒体', 'published_at': '2026-10-22T07:10:00+08:00', 'url': ''}]
             content = {'overview': [{'text': '产线取得技术进展，规模交付仍待验证。', 'refs': ['N1']}],
                 'sections': [{'title': '试产取得进展，交付能力仍待验证', 'paragraphs': [{'text': '示例公司公布试产计划，规模交付仍待验证。<script>window.reportInjected=true</script>', 'emphasis': '规模交付仍待验证', 'refs': ['N1', 'N2']}]},
                              {'title': '需求扩张与成本压力同时存在', 'paragraphs': [{'text': '示例行业需求增长，同时面临生产成本压力。' * 15, 'emphasis': '生产成本压力', 'refs': ['N1']}]}],
@@ -347,14 +347,22 @@ def fixture_reports():
             status = ('pending' if body.get('pending') else 'failed') if body.get('failed') and kind == 'evening' else 'done'
             if body.get('running') and kind == 'evening': status = 'running'
             error = body.get('error', 'report_index_failed') if status in ('failed','pending') else ''
-            ts = f'2026-11-0{index+2}T21:30:00+08:00'
+            ts = f'2026-10-{index+22}T21:30:00+08:00'
             conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,error,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-11-02T00:00:00+08:00',ts,ts,status,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-10-19T00:00:00+08:00',ts,ts,status,
                 json.dumps(content,ensure_ascii=False) if status == 'done' else None, error,ts,ts))
             if status == 'pending':
                 conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
             if status == 'running':
                 conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), module.periodic_reports.stamp(module.periodic_reports.now()),time.time()+1200,'report-'+kind))
+        if body.get('archive'):
+            archive = [('archive-daily-'+str(index), 'evening', '2026-09-29T21:30:00+08:00', '2026-09-30T21:30:00+08:00') for index in range(35)]
+            archive += [('archive-weekly', 'weekly', '2026-09-28T00:00:00+08:00', '2026-10-05T00:00:00+08:00'),
+                        ('archive-monthly', 'monthly', '2025-12-01T00:00:00+08:00', '2026-01-01T00:00:00+08:00')]
+            for ident, kind, start, end in archive:
+                conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?,'done',?,?,?)''', (ident, 'manual:'+ident, kind, '历史'+module.periodic_reports.KINDS[kind], start, end, end,
+                    json.dumps(content,ensure_ascii=False),'2026-10-30T15:00:00+08:00','2026-10-30T15:00:00+08:00'))
     return {'ok': True}
 
 

@@ -1,3 +1,4 @@
+import { choosePicker, openModelAdvanced } from "./helpers.js";
 import { answerConfirm } from "./helpers.js";
 import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from "@playwright/test";
@@ -47,7 +48,7 @@ test("independent release shows its version and disabled update source", async (
     "独立项目尚未配置更新仓库",
   );
   await expect(page.locator("#applyUpdateBtn")).toBeHidden();
-  await page.locator("#settingsContent summary").click();
+  await page.getByText("版本记录",{exact:true}).click();
   await expect(page.locator("#releaseNotes")).toContainText("v0.0.1");
   await expect(page.locator("#releaseNotes")).toContainText(
     "作为独立项目开始版本管理",
@@ -68,7 +69,7 @@ test("three-column shell, real data and retired feature removal", async ({
     "page",
   );
   await expect(
-    page.getByRole("button", { name: /^(日报|提醒|复盘|跟踪|板块)$/ }),
+    page.getByRole("button", { name: /^(提醒|复盘|跟踪|板块)$/ }),
   ).toHaveCount(0);
   expect(await page.locator('script[src*="news_summaries"]').count()).toBe(0);
   await select(page);
@@ -202,7 +203,8 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).toBeVisible();
   await page.locator('[data-settings-tab="models"]').click();
-  await page.locator('[data-runtime="codex"]').click();
+  await choosePicker(page,'Runtime','Codex CLI');
+  await openModelAdvanced(page);
   await page.locator('[name="agent.codex.provider"]').fill("fixture-provider");
   await page.locator('[name="agent.codex.profile"]').fill("test-profile");
   await page.route("**/api/settings/models", (route) =>
@@ -223,7 +225,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
     }),
   );
   await page.locator("#refreshModelsBtn").click();
-  await page.getByRole('combobox', { name: '模型选择 (Model)', exact: true }).click();
+  await page.getByRole('combobox', { name: '模型', exact: true }).click();
   await page.getByRole('option', { name: 'Model A', exact: true }).click();
   await expect(
     page.locator('select[name="agent.codex.reasoning_effort"] option'),
@@ -546,7 +548,8 @@ test("late catalog and connection results cannot replace a changed draft", async
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await page.locator('[data-runtime="codex"]').click();
+  await choosePicker(page,'Runtime','Codex CLI');
+  await openModelAdvanced(page);
   let releaseCatalog;
   const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
   await page.route("**/api/settings/models", async (route) => {
@@ -646,7 +649,8 @@ test("failed settings save keeps draft and allows retry", async ({ page }) => {
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await page.locator('[data-runtime="codex"]').click();
+  await choosePicker(page,'Runtime','Codex CLI');
+  await openModelAdvanced(page);
   await page.locator('[name="agent.codex.profile"]').fill("unsaved-draft");
   await page.route("**/api/settings", (route) =>
     route.request().method() === "PUT"
@@ -732,7 +736,7 @@ test("settings is an inline three-column workspace with compact categories", asy
     "page",
   );
   await expect(page.locator("#settingsSearchInput, .settings-category-meta, .settings-category-description, .settings-list-footer")).toHaveCount(0);
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(8);
+  await expect(page.locator(".settings-category-card:visible")).toHaveCount(9);
   await expect(page.locator("[data-settings-tab]").first()).toHaveAttribute("data-settings-tab", "system");
   await page.locator('[data-settings-tab="storage"]').click();
   await expect(page.locator("#settingsDetailTitle")).toHaveText("数据库与存储");
@@ -773,7 +777,8 @@ test("settings navigation preserves unsaved fields and the reading position", as
     .evaluate((node) => node.scrollTop);
   await page.locator("#leftNavSettingsBtn").click();
   await page.locator('[data-settings-tab="models"]').click();
-  await page.locator('[data-runtime="codex"]').click();
+  await choosePicker(page,'Runtime','Codex CLI');
+  await openModelAdvanced(page);
   await page.locator('[name="agent.codex.profile"]').fill("three-column-draft");
   await page.locator('[data-settings-tab="deepseek"]').click();
   await page

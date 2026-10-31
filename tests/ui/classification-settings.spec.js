@@ -273,7 +273,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark', 'eink']) 
     await page.goto('/');
     await chooseTheme(page, theme);
     await openSettings(page);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(8);
+    await expect(page.locator('.settings-category-card:visible')).toHaveCount(9);
     await section(page, 'classification');
     await expect(page.getByRole('switch', { name: '启用自动分类' })).toBeVisible();
     expect(await page.locator('#classificationSettings').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

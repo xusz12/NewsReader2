@@ -21,18 +21,19 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=reports-manual-1";
+import { SettingsPanel } from "./settings-panel.js?v=tasks-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
-import { TopicPanel } from "./topic-panel.js?v=0.3.2";
-import { ReportPanel } from "./report-panel.js?v=report-dates-1";
-import { SelectControls } from "./select-control.js?v=0.2.0";
-import { AgentPanel } from "./agent-panel.js?v=0.2.3";
+import { TopicPanel } from "./topic-panel.js?v=tasks-1";
+import { ReportPanel } from "./report-panel.js?v=feature-pickers-1";
+import { SelectControls } from "./select-control.js?v=report-layout-1";
+import { AgentPanel } from "./agent-panel.js?v=report-layout-1";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=0.3.2";
+import { ClassificationProgress } from "./classification-progress.js?v=tasks-1";
+import { TaskProgress } from "./task-progress.js?v=tasks-1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.3.2";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.3.0";
+import { UpstreamErrors } from "./upstream-errors.js?v=feature-pickers-1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -294,11 +295,23 @@ const reports = new ReportPanel({
 
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
 const classification = new ClassificationProgress({
-  onChange: snapshot => settings.updateClassificationProgress(snapshot),
+  onChange: snapshot => {settings.updateClassificationProgress(snapshot);tasks.updateClassification(snapshot);},
+});
+const tasks = new TaskProgress({
+  classification,
   onSettings: async () => {
     if (!settings.open) await settings.toggle();
     settings.selectSection("classification");
   },
+  onTopic: async id => {
+    switchCollection("topics", {restoreReader:false});
+    await topics.openRecord(id);
+  },
+  onReport: async (id,kind) => {
+    switchCollection("reports", {restoreReader:false});
+    await reports.openRecord(id,kind);
+  },
+  onReports: () => switchCollection("reports", {restoreReader:false}),
 });
 
 function renderCategories() {
@@ -321,7 +334,7 @@ function renderCategories() {
   }
 }
 
-function refreshClassification() { return classification.refresh(); }
+function refreshClassification() { return Promise.all([classification.refresh(),tasks.refresh()]); }
 
 $("#newsCategoryFilters").addEventListener("keydown", event => {
   if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -1734,7 +1747,7 @@ refreshButton.onclick = () => refreshIndex(true);
 
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.isComposing) return;
-  if (document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !classification.panel.hidden) return;
+  if (reports.popover.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));

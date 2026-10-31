@@ -1,6 +1,6 @@
-import { DatePicker, dateKey, localDate } from "./date-picker.js?v=0.2.2";
+import { DatePicker, dateKey, localDate } from "./date-picker.js?v=feature-pickers-1";
 import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
-import { dismissOnOutsidePress } from "./outside-dismiss.js?v=0.2.3";
+import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 
 const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
 

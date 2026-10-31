@@ -83,6 +83,8 @@ export async function api(path, { method = "GET", body, signal } = {}) {
       throw NewsErrors.fromResponse(data, response, `http_${response.status}`);
     throw new Error(data?.error || `请求失败（HTTP ${response.status}）`);
   }
+  if (method !== "GET" && /^\/api\/(topics|reports)(\/|$)/.test(path) && !path.endsWith("/seen"))
+    document.dispatchEvent(new Event("tasks:changed"));
   return data;
 }
 export function errorText(error) {

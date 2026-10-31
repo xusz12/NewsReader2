@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 import codex_client
 import news_summary_selection as selection
+from settings import feature_model_config
 from oar_client import (
     bridge_command,
     bridge_request,
@@ -306,8 +307,8 @@ def input_budget(s, config):
     }
 
 
-def capture_config(settings):
-    agent = settings["agent"]
+def capture_config(settings, feature="summaries"):
+    agent = feature_model_config(settings, feature)
     config = {
         "runtime": agent["runtime"],
         "limits": selection.limits(settings.get("news_summary")),
@@ -316,8 +317,8 @@ def capture_config(settings):
         config["codex"] = codex_client.normalize_config(agent["codex"])
     elif config["runtime"] == "pi":
         config.update(
-            pi_provider=settings["llm"]["pi_chat"]["provider"],
-            pi_model=settings["llm"]["pi_chat"]["model"],
+            pi_provider=agent["pi"].get("provider", ""),
+            pi_model=agent["pi"].get("model", ""),
         )
         if not config["pi_provider"] or not config["pi_model"]:
             raise ValueError("pi_model_not_selected")
@@ -1067,7 +1068,7 @@ class Service:
                 # Input-size limits are applied by prepare(), not this metadata-only view.
                 counts["excluded_by"] = {key: counts["excluded_by"][key] for key in ("date", "count")}
             visible = scope_query[2].get("feed_visible_unread_count", len(rows)) if len(scope_query) > 2 else len(rows)
-            agent = settings["agent"]
+            agent = feature_model_config(settings, "summaries")
             return {
                 **counts,
                 "database_token": token, "limits": options,
@@ -1077,7 +1078,7 @@ class Service:
                 "locked_count": len(rows), "feed_visible_unread_count": visible,
                 "hidden_source_unread_count": len(rows) - visible,
                 "runtime": agent["runtime"],
-                "model": agent.get("codex", {}).get("model", "") if agent["runtime"] == "codex" else settings["llm"]["pi_chat"].get("model", ""),
+                "model": agent.get("codex", {}).get("model", "") if agent["runtime"] == "codex" else agent["pi"].get("model", ""),
             }
         finally:
             c.close()

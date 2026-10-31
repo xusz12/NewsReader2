@@ -14,6 +14,7 @@ import time
 
 import codex_client
 import model_catalogs
+from settings import feature_model_config
 from oar_client import parse_event, terminate_group
 
 ROOT = Path(__file__).resolve().parent
@@ -142,11 +143,11 @@ def codex_restrictions(config: dict) -> list[str]:
 
 
 def configuration(settings: dict, *, resolve=True) -> dict:
-    agent = settings.get("agent", {})
+    agent = feature_model_config(settings, "reports")
     if agent.get("runtime") == "codex":
         config = {"runtime": "codex", "codex": codex_client.normalize_config(agent.get("codex", {}))}
     else:
-        pi = settings.get("llm", {}).get("pi_chat", {})
+        pi = agent["pi"]
         if not pi.get("provider") or not pi.get("model"):
             raise RuntimeError("report_model_unconfigured")
         config = {"runtime": "pi", "provider": pi["provider"], "model": pi["model"]}

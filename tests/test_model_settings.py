@@ -19,10 +19,98 @@ def isolate_catalog_cache(tmp_path, monkeypatch):
 def test_empty_pi_default_and_legacy_config(monkeypatch,tmp_path):
     p=tmp_path/'settings.json';monkeypatch.setenv('NEWS_READER_APP_SETTINGS_PATH',str(p))
     assert settings.load_app_settings()['llm']['pi_chat']=={'provider':'','model':''}
+
     p.write_text(json.dumps({'llm':{'pi_chat':{'provider':'ollama','model':'old'}}}))
     assert settings.load_app_settings()['llm']['pi_chat']=={'provider':'ollama','model':'old'}
     p.write_text(json.dumps({'llm':{'pi_chat':{'provider':'','model':''}}}))
     assert settings.load_app_settings()['llm']['pi_chat']=={'provider':'','model':''}
+
+
+def test_feature_models_migrate_once_and_do_not_share_mutable_settings(monkeypatch, tmp_path):
+    import app
+    path = tmp_path / 'settings.json'
+    legacy = settings.default_app_settings()
+    legacy['agent'].update(runtime='codex', codex={**CONFIG, 'profile':'old-profile'})
+    legacy['llm']['pi_chat'] = {'provider':'old-provider', 'model':'old-pi'}
+    path.write_text(json.dumps(legacy))
+    first = settings.load_app_settings()
+    for feature in settings.MODEL_FEATURES:
+        assert first['feature_models'][feature] == settings.feature_model_config(first, 'chat')
+    # Saving a changed Chat choice freezes the previously inherited values.
+    monkeypatch.setattr(app, 'load_app_settings', settings.load_app_settings)
+    saved = app.validate_runtime_settings({'agent':{'runtime':'pi'}, 'llm':{**legacy['llm'],'pi_chat':{'provider':'new','model':'new'}}})
+    settings.save_app_settings(saved)
+    loaded = settings.load_app_settings()
+    assert loaded['agent']['runtime'] == 'pi'
+    assert loaded['feature_models']['topics']['runtime'] == 'codex'
+    assert loaded['feature_models']['reports']['pi']['model'] == 'old-pi'
+    copy = settings.feature_model_config(loaded, 'topics')
+    copy['codex']['model'] = 'changed'
+    assert loaded['feature_models']['topics']['codex']['model'] == 'm'
+    loaded['feature_models']['topics']['pi']['model'] = 'changed'
+    assert loaded['feature_models']['summaries']['pi']['model'] == 'old-pi'
+
+
+def test_feature_settings_reach_each_executor_and_preserve_chat(monkeypatch, tmp_path):
+    import news_summaries, report_model
+    from test_api import _setup_agent_api_fixture
+    app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    value = settings.default_app_settings()
+    value['agent'].update(runtime='codex', codex={**CONFIG, 'model':'chat-model'})
+    value['llm']['pi_chat'] = {'provider':'chat-provider', 'model':'chat-pi'}
+    monkeypatch.setattr(app, 'load_app_settings', lambda:value)
+    monkeypatch.setattr(news_summaries, 'native_config_stamp', lambda _: [])
+    chosen = {
+        'topics': {'runtime':'pi', 'pi':{'provider':'topic-provider','model':'topic-model'}},
+        'summaries': {'runtime':'codex', 'codex':{**CONFIG,'model':'summary-model'}},
+        'reports': {'runtime':'pi', 'pi':{'provider':'report-provider','model':'report-model'}},
+    }
+    normalized = app.validate_runtime_settings({'llm':value['llm'], 'feature_models':chosen})
+    value.update(normalized)
+    snapshot = client.get('/api/settings').get_json()
+    assert set(snapshot['feature_model_catalogs']) == set(settings.MODEL_FEATURES)
+    assert snapshot['feature_models'] == value['feature_models']
+    topic = news_summaries.capture_config(value, 'topics')
+    assert (topic['runtime'],topic['pi_provider'],topic['pi_model']) == ('pi','topic-provider','topic-model')
+    summary = news_summaries.capture_config(value)
+    assert summary['runtime'] == 'codex' and summary['codex']['model'] == 'summary-model'
+    assert report_model.configuration(value, resolve=False) == {'runtime':'pi','provider':'report-provider','model':'report-model'}
+    response = client.post(f"/api/news/{item['id']}/agent/session", json={})
+    assert response.status_code == 200
+    with app.agent_db_conn() as conn:
+        row = conn.execute('SELECT executor_config FROM agent_sessions WHERE id=?', (response.get_json()['session']['id'],)).fetchone()
+    assert json.loads(row[0])['model'] == 'chat-model'
+    # A partial edit and an older client both preserve unrelated feature choices.
+    updated = app.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'topics':{'runtime':'codex'}}})
+    assert updated['feature_models']['reports'] == value['feature_models']['reports']
+    assert updated['feature_models']['topics']['pi'] == chosen['topics']['pi']
+    assert updated['agent'] == value['agent']
+    assert app.validate_runtime_settings({'llm':value['llm'],'agent':{'runtime':'pi'}})['feature_models'] == value['feature_models']
+    # Report Codex settings must also come from its own feature.
+    value['feature_models']['reports'].update(runtime='codex', codex={**CONFIG,'model':'report-codex'})
+    assert report_model.configuration(value, resolve=False)['codex']['model'] == 'report-codex'
+
+
+@pytest.mark.parametrize('invalid', [None, [], {'unknown':{}}, {'topics':None}, {'reports':{'runtime':'unknown'}},
+    {'summaries':{'pi':[]}}, {'reports':{'pi':{'model':False}}}, {'topics':{'pi':{'model':'bad\nvalue'}}}])
+def test_invalid_feature_models_rejected(invalid):
+    with pytest.raises(ValueError, match='invalid_feature_models'):
+        settings.normalize_feature_models(invalid, settings.default_app_settings())
+
+
+def test_feature_effort_validated_for_selected_provider_and_profile(monkeypatch):
+    import app
+    value = settings.default_app_settings()
+    monkeypatch.setattr(app, 'load_app_settings', lambda:value)
+    calls = []
+    def validate(config):
+        calls.append(config)
+        raise ValueError('invalid_codex_reasoning_effort')
+    monkeypatch.setattr(app.model_catalogs, 'validate_effort', validate)
+    chosen = {**CONFIG, 'provider':'feature-provider', 'profile':'feature-profile','reasoning_effort':'high'}
+    with pytest.raises(ValueError, match='reasoning_effort'):
+        app.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'reports':{'codex':chosen}}})
+    assert calls == [chosen]
 
 @pytest.mark.parametrize('thread',['','0199a213-81c0-7800-8aa1-bbab2a035a53'])
 def test_reasoning_actual_command_legacy(thread,monkeypatch):

@@ -1,19 +1,11 @@
 import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
+import { jobErrorText } from "./topic-status.js";
 
 const activeJob = job => job && ["pending", "running"].includes(job.status);
 const viewedDelay = 6000;
 const activityVersion = data => JSON.stringify([data.topic.latest_news_at, data.topic.latest_progress_at, [...data.unread_ids].sort()]);
 const statusLabel = { defining: "正在明确主题", draft: "待确认定义", initializing: "正在整理历史", ready: "持续追踪" };
-const jobErrors = {
-  topic_search_required: "未完成联网检索，请检查 Agent 的搜索能力后重试。",
-  topic_interrupted: "上次整理中断，可以重试。",
-  topic_invalid_result: "整理结果不完整，请重试。",
-  topic_invalid_input: "模型返回的日期或内容不符合要求，请重试。",
-  topic_source_changed: "新闻资料已变化，请重新整理。",
-  topic_runtime_failed: "整理失败，请检查模型与 Agent 设置后重试。",
-  topic_timeline_too_large: "现有脉络资料较多，暂时无法一次精简。",
-};
 const uuid = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(20))].map(n => n.toString(16).padStart(2, "0")).join("");
 const field = (name, label, value, limit, rows = 0) => '<label class="field-item"><span class="field-label">' + label + '</span>' +
   (rows ? '<textarea name="' + name + '" maxlength="' + limit + '" rows="' + rows + '" class="field-input'+(rows===2?' field-input--auto" data-auto-rows="2:7'+(["include_scope","exclude_scope"].includes(name)?'" data-equal-height="topic-scope':''):'')+'">' + e(value) + '</textarea>'
@@ -184,6 +176,16 @@ export class TopicPanel {
     this.selected = ""; this.data = null; this.page = "new"; this.renderList(); this.render(); this.onViewChange(); this.enterReader();
     this.content.querySelector("textarea")?.focus({preventScroll:true});
   }
+  async openRecord(id) {
+    this.deactivate(); this.searchQuery = ""; this.listFilter = "all";
+    $("#topicSearchInput").value = ""; this.search.sync();
+    this.selected = id; this.listSelected = id; this.page = "topic";
+    const loading = this.load({quiet:true}), sequence = this.listSequence;
+    await loading;
+    if (sequence !== this.listSequence || !this.isVisible()) return;
+    if (this.entries.some(topic=>topic.id===id)) await this.select(id,true);
+    else toast("主题已不存在，请刷新列表。");
+  }
   async select(id, mobile = true) {
     const entry = this.entries.find(topic => topic.id === id);
     if (entry && !this.matchesList(entry)) this.listFilter = "all";
@@ -306,7 +308,7 @@ export class TopicPanel {
     const chatAtEnd=!chat || chat.scrollHeight-chat.scrollTop-chat.clientHeight<48;
     this.renderedMatching=JSON.stringify([this.configured,this.matchingError]);
     const t=this.data?.topic, job=this.data?.job;
-    const error = job?.status==="failed" ? '<div class="button-row error-state topic-error" role="alert"><p>'+e(job.kind==="milestone" ? "横向筛选失败，请检查 Jev 配置后重试。已收录新闻保留。" : jobErrors[job.error] || "整理失败，请检查模型与 Agent 设置。")+'</p><button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>' : "";
+    const error = job?.status==="failed" ? '<div class="button-row error-state topic-error" role="alert"><p>'+e(jobErrorText(job))+'</p><button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>' : "";
     let html;
     if(this.page==="new") {
       html=formHeading("新建主题", "输入事件，联网生成主题定义。")+'<form class="settings-sheet" id="topicCreateForm">'+field("query","事件或主题",this.query,1500,5)+
@@ -347,7 +349,7 @@ export class TopicPanel {
         (!t.archived_at && !this.data.refinement?.preview && !t.refine_cooldown && nodes.filter(n=>n.kind!=="month").length>1 ? '<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="refine" title="使用 Agent 合并已有阶段节点并改写概括，保留关联新闻，不联网" '+(activeJob(job)||job?.status==="failed"?'disabled':'')+'>精简进程</button>' : '')+'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="expand-timeline" aria-controls="topicTimeline" aria-expanded="'+this.expandedTimelines.has(t.id)+'">'+(this.expandedTimelines.has(t.id)?'收起':'展开')+'</button>'+(!t.archived_at && this.data.refinement?.restore && !this.data.refinement?.preview?'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="restore-refinement" '+(activeJob(job)?'disabled':'')+'>恢复精简前</button>':'')+'</span></h2>'+this.refinementHTML()+
         '<div class="topic-timeline'+(this.expandedTimelines.has(t.id)?' is-expanded':'')+'" id="topicTimeline" role="region" tabindex="0" aria-label="重要进展时间线">'+nodes.map(n=>'<button class="news-card topic-node'+(n.id===this.node?' is-active':'')+'" type="button" data-topic-node="'+e(n.id)+'" data-has-news="'+(n.news_count>0)+'" aria-pressed="'+(n.id===this.node)+'"><time class="meta-time-row">'+e(n.kind==="month"?n.date.slice(0,7):n.date)+'</time><span class="topic-node-track"><span class="topic-node-dot"></span></span><strong class="news-card-title">'+e(n.title)+'</strong><span class="news-card-meta">'+(n.news_count>0?'查看 '+n.news_count.toLocaleString()+' 条报道 →':(n.kind==='history'?'历史概述':'节点概述'))+'</span></button>').join("")+'</div>'+
         '<input class="scroll-slider" id="topicTimelineSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="重要进展浏览位置" aria-controls="topicTimeline"'+(this.expandedTimelines.has(t.id)?' hidden':'')+'>'+
-        (node?'<div class="article-body article-body--compact topic-node-summary" id="topicNodeSummary" data-topic-summary="'+e(node.id)+'" aria-live="polite"><p><strong>'+e(node.date)+' · '+e(node.title)+'</strong></p><p>'+e(node.body)+'</p></div>':'')+'</section>'+error+
+        (node?'<div class="article-body article-body--compact topic-node-summary" id="topicNodeSummary" data-topic-summary="'+e(node.id)+'" aria-live="polite"><p><strong>'+e(node.date)+' · '+e(node.title)+'</strong></p>'+markdown(node.body)+'</div>':'')+'</section>'+error+
         (activeJob(job)&&job.kind==="update"?'<p class="muted topic-status" role="status">正在整理新进展…</p>':'')+
         (activeJob(job)&&job.kind==="milestone"?'<p class="muted topic-status" role="status">正在筛选横向重要进展…</p>':'')+
         (activeJob(job)&&job.kind==="refine"?'<p class="muted topic-status" role="status">正在合并阶段里程碑…</p>':'')+

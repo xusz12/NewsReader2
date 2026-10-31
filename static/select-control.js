@@ -36,7 +36,11 @@ export class SelectControls {
       if (this.button && !this.button.contains(event.target) && !this.menu.contains(event.target)) this.close(false);
     });
     document.addEventListener("scroll", event => {
-      if (this.button && !this.menu.contains(event.target)) this.close(false);
+      if (!this.button || this.menu.contains(event.target)) return;
+      // A scroll queued by bringing the trigger into view can arrive after
+      // opening. Only dismiss when the anchor actually moved since placement.
+      const rect = this.button.getBoundingClientRect();
+      if (!this.anchorRect || Math.abs(rect.top-this.anchorRect.top)>1 || Math.abs(rect.left-this.anchorRect.left)>1) this.close(false);
     }, true);
     window.addEventListener("resize", () => this.close(false));
     window.visualViewport?.addEventListener("resize", () => this.close(false));
@@ -112,6 +116,7 @@ export class SelectControls {
     this.menu.hidden = false;
     button.setAttribute("aria-expanded", "true");
     const rect = button.getBoundingClientRect();
+    this.anchorRect = rect;
     const viewport = window.visualViewport;
     const top = viewport?.offsetTop || 0;
     const height = viewport?.height || window.innerHeight;

@@ -1,3 +1,4 @@
+import { choosePicker, openModelAdvanced } from "./helpers.js";
 import {test,expect} from '@playwright/test';
 import {openSettings,chooseTheme} from './helpers.js';
 
@@ -34,11 +35,12 @@ async function observe(page) {
 
 test.beforeEach(async({request})=>{await request.post('/__test/reports');});
 
-test('模型使用范围包含报告，独立连接测试显示精简结果',async({page})=>{
+test('功能选择包含各功能，独立连接测试显示精简结果',async({page})=>{
   await page.route('**/api/settings/connection-test',route=>route.fulfill({json:{ok:true,status:'success',message:'本次模型请求成功。',elapsed_ms:42}}));
   await page.goto('/');await openSettings(page);await section(page,'models');
-  for(const text of ['Chat 与 Agent','主题追踪','积压新闻总结','日报、周报、月报','早午晚报、周期回顾及手动生成'])
-    await expect(page.locator('#modelUsage')).toContainText(text);
+  await page.getByRole('combobox',{name:'功能',exact:true}).click();
+  for(const text of ['Chat','主题追踪','新闻总结','日报']) await expect(page.getByRole('option',{name:text,exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.locator('#testConnectionBtn').click();
   await expect(page.locator('#connTestTerminal')).toContainText('[SUCCESS] 本次模型请求成功。');
   await expect(page.locator('#connTestTerminal')).not.toContainText('不代表后续稳定或网页工具可用');
@@ -60,7 +62,8 @@ test('观察真实接口只读，排期与执行记录可见',async({page})=>{
 test('自动刷新保留设置草稿，离开分类后停止，失败保留最后成功状态',async({page})=>{
   const state=await observe(page);
   await section(page,'models');
-  await page.locator('[data-runtime="codex"]').click();
+  await choosePicker(page,'Runtime','Codex CLI');
+  await openModelAdvanced(page);
   await page.locator('input[name="agent.codex.model"]').fill('unsaved-test-model');
   await section(page,'schedules');
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('2');
@@ -101,7 +104,7 @@ test('迟到响应不覆盖已切换页面',async({page})=>{
   await page.goto('/');await openSettings(page);await section(page,'schedules');
   await expect(page.locator('#scheduleSettings')).toContainText('正在读取任务状态');
   await section(page,'models');release();
-  await expect(page.locator('#modelUsage')).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'功能',exact:true})).toBeVisible();
   await expect(page.locator('#scheduleSettings')).toBeHidden();
 });
 
