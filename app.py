@@ -2035,6 +2035,10 @@ def current_runtime_settings() -> dict:
     merged["api_models"] = model_apis.normalize_api_models(raw.get("api_models", {}))
     merged["classification"] = normalize_classification(raw.get("classification", {}))
     merged["feature_models"] = normalize_feature_models(raw.get("feature_models", {}), merged)
+    merged["report_schedule"] = raw["report_schedule"]
+    merged["report_schedule_history"] = raw["report_schedule_history"]
+    merged["report_windows"] = raw["report_windows"]
+    merged["report_window_history"] = raw["report_window_history"]
     return merged
 
 
@@ -2494,6 +2498,9 @@ def serialize_runtime_settings() -> dict:
         "tracked": settings["tracked"],
         "agent": settings["agent"],
         "feature_models": settings["feature_models"],
+        "report_schedule": settings["report_schedule"],
+        "report_windows": settings["report_windows"],
+        "report_window_times": dict(periodic_reports.report_schedule.WINDOW_TIMES),
         "feature_model_catalogs": {feature: model_catalogs.cached_catalog(config["codex"])
                                    for feature, config in settings["feature_models"].items()},
         "news_summary": settings["news_summary"],
@@ -2565,6 +2572,8 @@ def validate_runtime_settings(payload: object) -> dict:
     api_models = payload.get("api_models")
     legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
     normalized = {
+        "report_schedule": periodic_reports.report_schedule.normalize(payload.get("report_schedule", {}), current_settings["report_schedule"]),
+        "report_windows": periodic_reports.report_schedule.normalize_windows(payload.get("report_windows", {}), current_settings["report_windows"]),
         "feature_models": feature_models,
         "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"]), defaults=current_settings["api_models"]),
         "classification": normalize_classification(payload.get("classification", {}),
@@ -2593,6 +2602,13 @@ def validate_runtime_settings(payload: object) -> dict:
             "path": configured_db_path,
         },
     }
+    if any(normalized[key] != current_settings[key] for key in ("report_schedule", "report_windows")):
+        periodic_reports.report_schedule.validate_windows(normalized["report_schedule"], normalized["report_windows"])
+    report_changed_at = periodic_reports.now()
+    normalized["report_schedule_history"] = periodic_reports.report_schedule.changed_history(
+        current_settings, normalized["report_schedule"], report_changed_at)
+    normalized["report_window_history"] = periodic_reports.report_schedule.changed_window_history(
+        current_settings, normalized["report_windows"], report_changed_at)
     return normalized
 
 
@@ -8393,6 +8409,7 @@ def api_settings_update():
     with NEWS_SUMMARY_SERVICE.lock:
         save_app_settings(normalized)
         CLASSIFICATION_SERVICE.configure(**normalized["classification"])
+    REPORT_SERVICE.schedule_wake.set()
     refresh_agent_session_expiries()
     return jsonify({"ok": True, **serialize_runtime_settings()})
 
@@ -12379,6 +12396,18 @@ def api_report_manual_options():
     return jsonify(ok=True, **REPORT_SERVICE.manual_options())
 
 
+@app.post("/api/reports/model-options")
+def api_report_model_options():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        catalog = periodic_reports.report_model.catalog(REPORT_SERVICE.settings(), body.get("runtime"))
+        return jsonify(ok=True, catalog=catalog)
+    except (ValueError, RuntimeError) as exc:
+        return report_request_error(exc)
+
+
 @app.post("/api/reports/manual")
 def api_report_create_manual():
     body = request.get_json(silent=True) or {}
@@ -12386,10 +12415,10 @@ def api_report_create_manual():
         return jsonify(ok=False, error="invalid_payload"), 400
     try:
         if "selection" in body:
-            report = REPORT_SERVICE.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"), body.get("database_token"))
+            report = REPORT_SERVICE.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"), body.get("database_token"), body.get("schedule_times"), body.get("model_override"), body.get("window"))
         else:
-            report = REPORT_SERVICE.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"), body.get("request_id"), body.get("database_token"))
-    except (ValueError, LookupError) as exc:
+            report = REPORT_SERVICE.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"), body.get("request_id"), body.get("database_token"), body.get("model_override"))
+    except (ValueError, LookupError, RuntimeError) as exc:
         return report_request_error(exc)
     REPORT_SERVICE.start()
     return jsonify(ok=True, report=report), 202
@@ -12415,6 +12444,35 @@ def api_report_schedule_status():
         return jsonify(ok=False, error="report_schedule_unavailable"), 503
 
 
+@app.post("/api/reports/schedule-pause")
+def api_report_schedule_pause():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("paused"), bool):
+        return jsonify(ok=False, error="invalid_report_pause"), 400
+    try:
+        result = REPORT_SERVICE.set_schedule_paused(body["paused"], body.get("database_token"))
+        return jsonify(ok=True, **result)
+    except ValueError as exc:
+        return report_request_error(exc)
+    except (sqlite3.Error, OSError):
+        return jsonify(ok=False, error="report_pause_unavailable"), 503
+
+
+@app.post("/api/reports/snapshots/clear")
+def api_report_snapshots_clear():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        return jsonify(ok=True, **REPORT_SERVICE.clear_snapshots(body.get("database_token")))
+    except ValueError as exc:
+        return report_request_error(exc)
+    except RuntimeError:
+        return jsonify(ok=False, error="report_materials_busy"), 409
+    except (sqlite3.Error, OSError):
+        return jsonify(ok=False, error="report_snapshot_clear_failed"), 503
+
+
 @app.get("/api/tasks/progress")
 def api_task_progress():
     try:
@@ -12431,7 +12489,8 @@ def report_request_error(exc):
     code = str(exc)
     if code not in {"report_preview_invalid", "report_preview_conflict", "report_database_changed",
                     "report_preview_only", "report_preview_running", "report_not_found", "report_window_invalid",
-                    "report_manual_conflict", "report_delete_running", "report_deleted"}:
+                    "report_manual_conflict", "report_delete_running", "report_deleted", "report_model_unconfigured",
+                    "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed", "report_window_changed"}:
         code = "report_preview_invalid"
     return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
 
@@ -12443,7 +12502,7 @@ def api_report_create_preview():
         return jsonify(ok=False, error="invalid_payload"), 400
     try:
         report = REPORT_SERVICE.create_preview(body.get("kind"), body.get("scheduled_at"), body.get("request_id"), body.get("database_token"))
-    except (ValueError, LookupError) as exc:
+    except (ValueError, LookupError, RuntimeError) as exc:
         return report_request_error(exc)
     REPORT_SERVICE.start()
     return jsonify(ok=True, report=report), 202

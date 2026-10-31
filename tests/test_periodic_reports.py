@@ -142,7 +142,7 @@ def test_index_refresh_precedes_snapshot_and_keeps_newly_indexed_news(db):
     with closing(db()) as conn:
         saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?",(job["id"],)).fetchone()
         assert saved["status"] == "done", saved["error"]
-        assert [source["id"] for source in json.loads(saved["snapshot_json"])["sources"]] == ["new"]
+        assert [source["id"] for source in pr.stored_snapshot(conn, saved)["sources"]] == ["new"]
         assert dict(conn.execute("SELECT * FROM item_state").fetchone())["updated_at"] == "before"
         assert len(json.loads(saved["result_json"])["sections"]) == 1
     assert service.run_one() is False
@@ -330,13 +330,13 @@ def test_scheduler_queues_exact_slot_while_generation_is_blocked(db, monkeypatch
         blocked.set()
         assert release.wait(5)
         return runner(config, prompt)
-    service = pr.Service(db, lambda: SETTINGS, lambda: None, slow_model)
+    service = pr.Service(db, lambda: SETTINGS, lambda: None, slow_model, concurrency=1)
     try:
         service.start()
-        worker, scheduler = service.thread, service.scheduler_thread
+        workers, scheduler = list(service.threads), service.scheduler_thread
         assert blocked.wait(3)
         service.start()
-        assert (worker, scheduler) == (service.thread, service.scheduler_thread)
+        assert (workers, scheduler) == (service.threads, service.scheduler_thread)
         clock[0] = pr.local("2026-10-30T08:30:01+08:00")
         service.schedule_wake.set()
         deadline = time.monotonic() + 3
@@ -351,7 +351,7 @@ def test_scheduler_queues_exact_slot_while_generation_is_blocked(db, monkeypatch
         service.stopped.set()
         release.set()
         service.stop()
-    assert not worker.is_alive() and not scheduler.is_alive()
+    assert not any(worker.is_alive() for worker in workers) and not scheduler.is_alive()
 
 
 def test_scheduler_next_wake_and_resume_skip_intraday(db):
@@ -367,7 +367,7 @@ def test_scheduler_next_wake_and_resume_skip_intraday(db):
     assert next(row for row in rows if row["kind"] == "noon")["status"] == "skipped"
 
 
-def test_manual_retry_keeps_checkpoints_only_for_same_model(db):
+def test_manual_retry_keeps_bound_model_and_checkpoints_after_settings_change(db):
     job = due(db)
     config = pr.report_model.configuration(SETTINGS)
     with closing(db()) as conn, conn:
@@ -382,7 +382,8 @@ def test_manual_retry_keeps_checkpoints_only_for_same_model(db):
     service.settings = lambda: {"agent": {"runtime": "pi"}, "llm": {"pi_chat": {"provider": "test", "model": "new"}}}
     service.retry(job["id"], token)
     with closing(db()) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM periodic_report_steps").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM periodic_report_steps").fetchone()[0] == 1
+        assert json.loads(conn.execute("SELECT config_json FROM periodic_reports").fetchone()[0]) == config
 
 
 def test_retry_reports_actionable_capacity_error_without_losing_saved_work(db, monkeypatch):

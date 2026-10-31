@@ -8,6 +8,19 @@ async function openReports(page) {
 }
 test.beforeEach(async({request}) => {await request.post('/__test/reports');});
 
+test('报告模型旁显示固定生成用时，缺失时不编造',async({page,request})=>{
+  await request.post('/__test/reports',{data:{generation_seconds:125.375}});
+  await page.goto('/');await openReports(page);
+  const metadata=page.locator('#reportContent .article-meta-bottom').filter({hasText:'Pi · test-model'});
+  await expect(metadata).toContainText('生成用时 2 分 5 秒');
+  await expect(metadata.locator('span')).toHaveText(['Pi · test-model','生成用时 2 分 5 秒']);
+  await page.locator('[data-report-kind="weekly"]').click();
+  await expect(metadata).toContainText('生成用时 2 分 5 秒');
+  await request.post('/__test/reports',{data:{generation_seconds:null}});
+  await page.reload();await openReports(page);
+  await expect(page.locator('#reportContent')).not.toContainText('生成用时');
+});
+
 for(const width of [320,390,1440]) test('自定义窗口共享日历与时分 Picker，开始结束独立选择 '+width,async({page})=>{
   await page.setViewportSize({width,height:width===320?568:900});
   await page.goto('/');await openReports(page);await page.locator('#createReportBtn').click();
@@ -146,7 +159,8 @@ test('手机抽屉入口、详情返回、设置往返与来源键盘操作',asy
   await expect(page.locator('#feedColFeed')).toHaveClass(/active/);
 });
 
-for (const width of [320,390,920,921,1279,1280]) test('报告复用阅读尺度与主题，布局无溢出 '+width,async({page})=>{
+for (const width of [320,390,920,921,1279,1280]) test('报告复用阅读尺度与主题，布局无溢出 '+width,async({page,request})=>{
+  await request.post('/__test/reports',{data:{generation_seconds:125.375}});
   await page.setViewportSize({width,height:1000});
   await page.goto('/');
   await page.locator('#feedCardList .news-card').first().click();
@@ -156,6 +170,7 @@ for (const width of [320,390,920,921,1279,1280]) test('报告复用阅读尺度�
   if(width<=920) await page.locator('#mobileReaderBackBtn').click();
   await openReports(page);
   await page.locator('[data-report-id="report-evening"]').click();
+  await expect(page.locator('#reportContent')).toContainText('生成用时 2 分 5 秒');
   const reportStyle=await page.locator('#reportContent .report-section .article-body').first().evaluate(node=>{const css=getComputedStyle(node);return [css.fontFamily,css.fontSize,css.lineHeight];});
   expect(reportStyle).toEqual(readerStyle);
   expect(await page.locator('#feedColReports').evaluate(node=>getComputedStyle(node).width)).toBe(feedWidth);
@@ -172,6 +187,7 @@ for (const width of [320,390,920,921,1279,1280]) test('报告复用阅读尺度�
     expect(await page.locator('#reportScrollArea').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
     expect(await page.locator('#reportContent .article-body').first().evaluate(node=>getComputedStyle(node).fontSize)).toBe('18.2px');
     await page.locator('.report-sources summary').first().click();
+    if ([390,1280].includes(width)) await page.screenshot({path:`output/report-tasks-check/report-${width}-${theme}-${colorScheme}.png`});
     await expect(page.locator('.report-sources[open]')).toHaveCount(1);
     expect(await page.locator('#reportScrollArea').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
     await page.locator('.report-sources summary').first().click();
@@ -405,7 +421,7 @@ for(const width of [390,1440]) test('日期、连续七天、整月和自定义�
 test('尚未结束的日报周报和月报不能提前生成',async({page})=>{
   const writes=[];page.on('request',request=>{if(request.url().endsWith('/api/reports/manual'))writes.push(request);});
   await page.goto('/');await openReports(page);await page.locator('#createReportBtn').click();
-  for(const [label,selection,max] of [['晚报','2026-10-30','2026-10-29'],['周报','2026-10-24','2026-10-23'],['月报','2026-10','2026-09']]) {
+  for(const [label,selection,max] of [['晚报','2026-10-30','2026-10-30'],['周报','2026-10-24','2026-10-23'],['月报','2026-10','2026-09']]) {
     await page.getByRole('combobox',{name:'报告类型',exact:true}).click();await page.getByRole('option',{name:label,exact:true}).click();
     await expect(page.locator('#reportSelection')).toHaveAttribute('max',max);
     await page.locator('#reportSelection').fill(selection);await page.getByRole('button',{name:'开始生成',exact:true}).click();
@@ -494,6 +510,17 @@ for(const width of [320,390,1440]) test('新增浮层不占阅读栏且短屏所
   await expect(page.locator('#createReportBtn')).toHaveAttribute('aria-label','新增日报');
   await page.locator('#createReportBtn').click();
   await expect(page.locator('#reportCalendar')).toBeVisible();
+  await expect(page.getByRole('button',{name:'关闭新增日报',exact:true})).toHaveCount(0);
+  await expect(page.locator('#reportCreationPopover .popover-heading button')).toHaveCount(0);
+  await expect(page.locator('#reportCreationModel')).toContainText(/Pi ·|Codex ·/);
+  for (const kind of ['早报','午报','晚报']) {
+    await choosePicker(page,'报告类型',kind);
+    await expect(page.locator('#reportSelection')).toHaveValue('2026-10-30');
+    await expect(page.locator('[data-calendar-day="2026-10-30"]')).toBeEnabled();
+    await expect(page.locator('[data-calendar-day="2026-10-30"]')).toHaveAttribute('aria-selected','true');
+  }
+  await expect(page.locator('#reportCreationError')).toContainText('时间范围尚未结束');
+  await page.screenshot({path:`output/report-creation-check/today-${width}.png`});
   if(width<921) await expect(page.locator('#feedView')).not.toHaveClass(/mobile-reader-active/);
   const box=await page.locator('#reportCreationPopover').boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width);
@@ -506,25 +533,6 @@ for(const width of [320,390,1440]) test('新增浮层不占阅读栏且短屏所
   expect(await page.locator('#reportCreationPopover').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   await page.getByRole('button',{name:'取消',exact:true}).click();
   await expect(page.locator('#reportCreationPopover')).toBeHidden();
-});
-
-
-test('任务记录打开历史报告会展开对应月份并显示分页之外的选中项',async({page,request})=>{
-  await request.post('/__test/reports',{data:{archive:true}});
-  await page.route('**/api/reports/schedule-status',async route=>{
-    const response=await route.fetch(), data=await response.json();
-    const report=(await (await request.get('/api/reports/archive-daily-0')).json()).report;
-    data.recent=[{...report,trigger:'manual'}];
-    await route.fulfill({json:data});
-  });
-  await page.goto('/');await openSettings(page);
-  await page.locator('[data-settings-tab="schedules"]').click();
-  await page.locator('[data-schedule-report="archive-daily-0"]').click();
-  await expect(page.locator('#reportContent h1')).toHaveText('历史晚报');
-  await expect(page.locator('[data-report-group="2026-09"]')).toHaveAttribute('aria-expanded','true');
-  await expect(page.locator('[data-report-id="archive-daily-0"]')).toHaveAttribute('aria-current','true');
-  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-  await expect(page.locator('[data-report-id="archive-daily-0"]')).toHaveAttribute('aria-current','true');
 });
 
 

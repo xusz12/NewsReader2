@@ -1318,6 +1318,9 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
   transform: scale(0.97);
 }
 
+.reader-tool-btn[data-tone="success"] { color: var(--status-success); }
+.reader-tool-btn[data-tone="danger"] { color: var(--status-danger); }
+
 /* 快捷键轻量徽标 */
 .reader-btn-kbd {
   font-family: var(--font-mono);
@@ -2189,6 +2192,7 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 .settings-section-card--compact > .article-meta-top { gap: var(--space-2); }
 .article-body--compact p { text-align: start; overflow-wrap: anywhere; }
 .section-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+details > summary.reader-tool-btn + .section-stack { margin-top: var(--space-3); }
 .section-title-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .section-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--accent); }
 .status-pill { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border-radius: var(--radius-lg); background: var(--surface-subtle); color: var(--muted); font-size: var(--fs-meta); font-weight: 600; }
@@ -4725,6 +4729,7 @@ button:disabled {
 .field-input[data-calendar-active="true"] { border-color: var(--accent); }
 .calendar-time { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
 .calendar-time .field-item { flex: 1; min-width: 0; }
+.form-group-grid > .field-item > .calendar-time { margin-top: auto; }
 .calendar-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 8px; }
 .date-calendar button:where(:not(.select-trigger)) { border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--fg); font: inherit; min-height: 32px; cursor: pointer; }
 .date-calendar button:where(:not(.select-trigger)):hover, .calendar-trigger:hover { border-color: var(--border-strong); }

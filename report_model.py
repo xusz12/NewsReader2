@@ -142,8 +142,73 @@ def codex_restrictions(config: dict) -> list[str]:
     return restrictions
 
 
-def configuration(settings: dict, *, resolve=True) -> dict:
+def selection(settings: dict) -> dict:
+    """Only public choices needed by the creation form, never credentials."""
     agent = feature_model_config(settings, "reports")
+    return {"runtime": agent.get("runtime", "pi"),
+            "codex": codex_client.normalize_config(agent.get("codex", {})),
+            "pi": {key: agent.get("pi", {}).get(key, "") for key in ("provider", "model")}}
+
+
+def pi_metadata(request):
+    node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
+    if not node:
+        raise RuntimeError("report_model_catalog_failed")
+    try:
+        result = subprocess.run([node, str(ROOT / "scripts/report_model.mjs")],
+            input=json.dumps(request), text=True, capture_output=True, timeout=20, check=True)
+        return json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        raise RuntimeError("report_model_catalog_failed") from None
+
+
+def catalog(settings: dict, runtime: str) -> dict:
+    if runtime == "pi":
+        return pi_metadata({"action": "catalog"})
+    if runtime != "codex":
+        raise ValueError("report_model_selection_invalid")
+    config = selection(settings)["codex"]
+    saved = model_catalogs.cached_catalog(config)
+    return saved if saved.get("options") else model_catalogs.safe_catalog(config)
+
+
+def configuration(settings: dict, *, resolve=True, override=None) -> dict:
+    agent = feature_model_config(settings, "reports")
+    if override is not None:
+        if not isinstance(override, dict) or set(override) - {"runtime", "model", "provider", "reasoning_effort"}:
+            raise ValueError("report_model_selection_invalid")
+        runtime = override.get("runtime")
+        if runtime not in ("codex", "pi"):
+            raise ValueError("report_model_selection_invalid")
+        for key, limit in (("model", 120), ("provider", 40), ("reasoning_effort", 20)):
+            value = override.get(key, "")
+            if not isinstance(value, str) or len(value) > limit or value != value.strip() or any(ord(c) < 32 for c in value):
+                raise ValueError("report_model_selection_invalid")
+        effort = override.get("reasoning_effort", "")
+        agent["runtime"] = runtime
+        if runtime == "codex":
+            if override.get("provider"):
+                raise ValueError("report_model_selection_invalid")
+            try:
+                agent["codex"] = codex_client.normalize_config({**agent.get("codex", {}),
+                    "model": override.get("model", ""), "reasoning_effort": effort})
+            except ValueError:
+                raise ValueError("report_model_selection_invalid") from None
+            if effort:
+                available = catalog(settings, runtime)
+                if available.get("error") and not available.get("options"):
+                    raise RuntimeError("report_model_catalog_failed")
+                entry = next((m for m in available["options"] if m["value"] == agent["codex"]["model"]), {})
+                if effort not in entry.get("reasoning_efforts", []):
+                    raise ValueError("report_reasoning_unsupported")
+        else:
+            agent["pi"] = {key: override.get(key, "") for key in ("provider", "model")}
+            if not all(agent["pi"].values()):
+                raise ValueError("report_model_selection_invalid")
+            if effort:
+                metadata = pi_metadata({"action": "metadata", **agent["pi"]})
+                if effort not in metadata.get("reasoning_efforts", []):
+                    raise ValueError("report_reasoning_unsupported")
     if agent.get("runtime") == "codex":
         config = {"runtime": "codex", "codex": codex_client.normalize_config(agent.get("codex", {}))}
     else:
@@ -151,6 +216,8 @@ def configuration(settings: dict, *, resolve=True) -> dict:
         if not pi.get("provider") or not pi.get("model"):
             raise RuntimeError("report_model_unconfigured")
         config = {"runtime": "pi", "provider": pi["provider"], "model": pi["model"]}
+        if override and override.get("reasoning_effort"):
+            config["reasoning_effort"] = override["reasoning_effort"]
     if resolve:
         config["limits"] = capacity(config)
     return config
@@ -177,6 +244,8 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
             command = [node, str(ROOT / "scripts/report_model.mjs")]
             request = {"prompt": prompt, "provider": config["provider"], "model": config["model"],
                        "maxTokens": config.get("limits", {}).get("output_tokens", 32768)}
+            if config.get("reasoning_effort"):
+                request["reasoning_effort"] = config["reasoning_effort"]
             pending = json.dumps(request, ensure_ascii=False).encode()
             parser = None
         if len(pending) > MAX_BYTES:

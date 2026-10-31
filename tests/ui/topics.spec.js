@@ -454,6 +454,11 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
     await page.goto("/");await chooseTheme(page,theme);
     await page.locator('#feedCardList .news-card').first().click();
     await expect(page.locator('#detailContent .article-title')).toBeVisible();
+    const important = page.locator('#btnToggleImportant');
+    const wasImportant = await important.getAttribute('aria-pressed') === 'true';
+    if (wasImportant) await important.click();
+    await expect(important).toHaveAttribute('aria-pressed', 'false');
+    await page.mouse.move(0, 0);
     const reference = {
       toolbar: await styles(page.locator('#detailPanelFeed > .detail-toolbar'), ['height','padding-left','padding-right','border-bottom-width','background-color']),
       content: await styles(page.locator('#detailScrollArea'), ['padding-top','padding-right','padding-bottom','padding-left']),
@@ -465,6 +470,10 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
       searchBox: await styles(page.locator('#feedSearchRow .feed-search-box'), controlStyle),
       searchInput: await styles(page.locator('#feedSearchInput'), typography),
     };
+    if (wasImportant) {
+      await important.click();
+      await expect(important).toHaveAttribute('aria-pressed', 'true');
+    }
     await openTopics(page);
     await page.locator('[data-topic-id="test-acquisition"]').click();
     await expect(page.locator("#topicContent h1")).toHaveText("北辰科技收购远川数据");

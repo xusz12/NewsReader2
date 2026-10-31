@@ -1,10 +1,12 @@
+import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
 import { classificationStatus } from "./classification-progress.js?v=tasks-1";
-import { ScheduleObserver } from "./schedule-observer.js?v=reports-manual-1";
+import { ScheduleObserver } from "./schedule-observer.js?v=report-windows-edit-1";
+import { defaultReportWindows, windowError } from "./report-windows.js";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);
@@ -19,17 +21,9 @@ function set(object, path, value) {
 }
 const field = (label, path, value, extra = "") =>
   `<label class="field-item"><span class="field-label">${label}</span><input class="field-input" name="${path}" value="${e(value)}" ${extra}></label>`;
-function select(label, path, value, options, placeholder = "沿用默认") {
-  const values = options.map((x) =>
-    typeof x === "string" ? { value: x, label: x } : x,
-  );
-  if (value && !values.some((x) => x.value === value))
-    values.push({ value, label: value, custom: true });
-  const id = `setting-${path.replaceAll(".", "-")}`;
-  return `<div class="field-item"><span class="field-label" id="${id}-label">${label}</span><select id="${id}" class="field-select" name="${path}" aria-labelledby="${id}-label">${placeholder === null ? "" : `<option value="">${placeholder}</option>`}${values.map((x) => `<option value="${e(x.value)}" ${x.custom ? 'data-custom-option="true"' : ""} ${x.value === value ? "selected" : ""}>${e(x.label || x.value)}</option>`).join("")}</select></div>`;
-}
+
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry, onReportOpen }) {
+  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry }) {
     this.onOpen = onOpen;
     this.onViewChange = onViewChange;
     this.onSaved = onSaved;
@@ -41,7 +35,24 @@ export class SettingsPanel {
     this.section = "system";
     this.schedules = new ScheduleObserver({
       isVisible: () => this.open && this.section === "schedules" && (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active")),
-      onReportOpen,
+      selects,
+      getTimes: () => this.draft?.report_schedule,
+      getWindows: () => this.draft?.report_windows,
+      onTimeChange: (kind, value) => {
+        this.draft.report_schedule ||= this.payload().report_schedule;
+        this.draft.report_schedule[kind] = value;
+        this.status("有未保存的更改");
+      },
+      onWindowChange: (kind, window) => {
+        this.draft.report_windows ||= clone(defaultReportWindows);
+        this.draft.report_windows[kind] = window;
+        this.status("有未保存的更改");
+      },
+      onCancelEdit: () => {
+        this.draft.report_schedule = clone(this.payload(this.saved).report_schedule);
+        this.draft.report_windows = clone(this.payload(this.saved).report_windows);
+        this.status("有未保存的更改");
+      },
     });
     this.connectionSequence = 0;
     this.catalogSequence = 0;
@@ -274,6 +285,7 @@ export class SettingsPanel {
     if (!this.saved) return;
     this.draft = clone(this.saved);
     this.dirty = false;
+    this.schedules.editing = false;
     this.apiStates.clear();
     this.catalogNotice = "";
     this.catalogSequence++;
@@ -290,6 +302,8 @@ export class SettingsPanel {
       feed: clone(d.feed),
       agent: clone(d.agent),
       feature_models: clone(d.feature_models || {}),
+      report_schedule: clone(d.report_schedule || {morning:"08:30",noon:"14:30",evening:"21:30",weekly:"08:30",monthly:"08:30"}),
+      report_windows: clone(d.report_windows || defaultReportWindows),
       news_summary: clone(d.news_summary || { max_days: 20, max_items: 6000 }),
       database: { path: d.database.configured_path || "" },
     };
@@ -742,6 +756,22 @@ export class SettingsPanel {
   }
   async save() {
     if (!this.draft) return;
+    const times = this.draft.report_schedule;
+    if (times && !(times.morning < times.noon && times.noon < times.evening)) {
+      this.selectSection("schedules");
+      this.schedules.setEditing(true);
+      this.status("早报时间须早于午报，午报时间须早于晚报", true);
+      return;
+    }
+    const windows = this.draft.report_windows || defaultReportWindows;
+    const invalidWindow = times && Object.entries(windows).map(([kind,window]) => [kind,windowError(window,times[kind])]).find(([,error]) => error);
+    const reportChanged = ["report_schedule","report_windows"].some(key => JSON.stringify(this.payload()[key]) !== JSON.stringify(this.payload(this.saved)[key]));
+    if (invalidWindow && reportChanged) {
+      this.selectSection("schedules"); this.schedules.setEditing(true);
+      const [kind,error] = invalidWindow;
+      this.status(`${{morning:"早报",noon:"午报",evening:"晚报",weekly:"周报",monthly:"月报"}[kind]}${error}`, true);
+      return;
+    }
     let keyboardDraft;
     try { keyboardDraft = normalizeShortcuts(this.draft.keyboard); }
     catch (error) {
@@ -782,6 +812,7 @@ export class SettingsPanel {
       if (unchanged) {
         this.draft = clone(data);
         this.dirty = false;
+        this.schedules.setEditing(false);
       }
       this.syncDirty();
       this.status(
@@ -789,6 +820,7 @@ export class SettingsPanel {
       );
       if (!serverUnchanged) { this.onSources(); this.onSaved(); }
       if (this.section === "catchup") this.loadCatchupScope();
+      if (this.section === "schedules") void this.schedules.refresh();
       toast("设置已保存");
     } catch (error) {
       this.status(errorText(error), true);

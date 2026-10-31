@@ -75,8 +75,8 @@ def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatc
     assert 'web_search="disabled"' in args
 
 
-@pytest.mark.parametrize("finish_reason", ["stop", "length"])
-def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason):
+@pytest.mark.parametrize("finish_reason,effort", [("stop", ""), ("length", ""), ("stop", "high"), ("stop", "off")])
+def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason, effort):
     if not shutil.which("node") or not (model.ROOT / "node_modules/@earendil-works/pi-coding-agent").exists():
         pytest.skip("Pi SDK requires npm ci")
     requests = []
@@ -99,7 +99,7 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
     (tmp_path / "auth.json").write_text("{}")
     (tmp_path / "models.json").write_text(json.dumps({"providers":{"report-test":{
         "baseUrl":f"http://127.0.0.1:{server.server_port}/v1", "api":"openai-completions", "apiKey":"fixture-key",
-        "models":[{"id":"fixture", "name":"Fixture", "reasoning":False, "input":["text"],
+        "models":[{"id":"fixture", "name":"Fixture", "reasoning":bool(effort), "input":["text"],
                    "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":131072, "maxTokens":16384}]
     }}}))
     monkeypatch.setenv("NEWS_READER_PI_AGENT_DIR", str(tmp_path))
@@ -107,6 +107,11 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
     monkeypatch.delenv("NEWS_READER_NODE", raising=False)
     try:
         config = {"runtime":"pi", "provider":"report-test", "model":"fixture"}
+        catalog = model.catalog({}, "pi")
+        option = next(m for m in catalog["options"] if m["provider"] == "report-test" and m["value"] == "fixture")
+        assert ("high" in option["reasoning_efforts"]) == bool(effort)
+        if effort:
+            config["reasoning_effort"] = effort
         config["limits"] = model.capacity(config)
         assert config["limits"]["context_window"] == 131072
         assert requests == []  # Model registry lookup never invokes inference.
@@ -118,6 +123,7 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
                 model.run(config, "isolated fixture", timeout=20)
         assert len(requests) == 1
         assert requests[0]["model"] == "fixture"
+        assert requests[0].get("reasoning_effort") == ("high" if effort == "high" else None)
         assert not requests[0].get("tools")
         assert requests[0]["messages"][-1]["content"] == "isolated fixture"
         assert (requests[0].get("max_tokens") or requests[0].get("max_completion_tokens")) == 4096

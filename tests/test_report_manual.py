@@ -53,12 +53,20 @@ def test_archive_rejects_invalid_groups(service, kind, group):
 
 
 def test_defaults_cover_six_types_without_changing_schedule(service, db, monkeypatch):
+    monkeypatch.setattr(pr.report_model, "capacity", lambda *args: pytest.fail("Opening the form must not probe a model"))
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     data = service.manual_options()
     assert [p["kind"] for p in data["periods"]] == list(pr.REPORT_KINDS)
+    assert data["model_label"] == "Pi · test"
     assert all(pr.local(p["period_start"]) < pr.local(p["period_end"]) <= pr.now() for p in data["periods"])
     monkeypatch.setattr(pr, "calendar_data", lambda: {})
     assert len(service.manual_options()["periods"]) == 6
+    service.settings = lambda: {**SETTINGS, "feature_models": {"reports": {
+        "runtime": "codex", "codex": {"model": "report-model", "reasoning_effort": "high", "provider": "private-provider"},
+        "pi": {"model": "unused-model"}}}}
+    assert service.manual_options()["model_label"] == "Codex · report-model · high"
+    service.settings = lambda: {"agent": {"runtime": "pi"}, "llm": {"pi_chat": {}}}
+    assert service.manual_options()["model_label"] == "Pi · 未配置模型"
     with closing(db()) as conn:
         assert tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone()) == before
         assert conn.execute("SELECT COUNT(*) FROM periodic_reports").fetchone()[0] == 0
@@ -88,12 +96,12 @@ def test_custom_window_refresh_capture_and_actual_progress(service, db):
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     assert service.run_one()
     assert calls == ["refresh", "model"]
-    assert stages == ["indexing", "capturing", "preparing", "writing", "validating", "saving"]
+    assert stages == ["waiting_material", "indexing", "capturing", "preparing", "writing", "validating", "saving"]
     with closing(db()) as conn:
         result = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (row["id"],)).fetchone()
         assert result["status"] == "done"
         assert json.loads(result["progress_json"])["stage"] == "done"
-        assert [s["id"] for s in json.loads(result["snapshot_json"])["sources"]] == ["inside"]
+        assert [s["id"] for s in pr.stored_snapshot(conn, result)["sources"]] == ["inside"]
         assert tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone()) == before
         assert conn.execute("SELECT COUNT(*) FROM item_state").fetchone()[0] == 0
 
@@ -204,7 +212,7 @@ def test_custom_report_runs_and_appears_in_daily_without_adding_an_automatic_sch
     assert service.run_one()
     result = service.listing("daily")["items"][0]
     assert result["id"] == row["id"] and result["status"] == "done"
-    assert [item["kind"] for item in service.observation()["schedules"]] == list(pr.KINDS)
+    assert {item["kind"] for item in service.observation()["schedules"]} == set(pr.KINDS) | {"snapshot_cleanup"}
 
 
 def test_api_resolves_selection_instead_of_accepting_conflicting_client_range(service, monkeypatch):

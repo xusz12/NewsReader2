@@ -37,7 +37,7 @@
 | 顶栏控件 | `.topbar-tool-btn`、`.theme-select` | 桌面高 32px，单栏高 36px，垂直居中且等高 |
 | 全应用下拉框 | `SelectControls(document.body)` | 主题与所有设置共用自绘菜单，保留键盘、触屏、焦点恢复与主题持久化 |
 | 滚动容器 | 新闻列表、阅读区、设置、Agent、菜单等 | 全局隐藏滚动条外观，保留原有 overflow 和滚轮／触屏／键盘滚动 |
-| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 九类配置（系统与版本、模型与 Agent、API 管理、新闻分类、定时任务、信源与采集、数据库与存储、积压新闻总结范围、快捷键）沿用主布局；窄屏分类／详情流转 |
+| 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 九类配置（系统与版本、模型与 Agent、API 管理、新闻分类、日报任务、信源与采集、数据库与存储、积压新闻总结范围、快捷键）沿用主布局；窄屏分类／详情流转 |
 
 ## 2026-10-29 二级分类数量边框
 
@@ -47,7 +47,9 @@
 ## 2026-10-30 设置中的任务观察
 
 - `#settingsCategory-schedules` 复用 `.settings-category-card`，`#scheduleSettings` 复用 `.settings-sheet / .settings-section-card`，排期与状态复用 `.field-item / .field-label / .section-stack`，队列计数沿用 `.catchup-metrics` 的文字与状态色。
-- 最近执行使用 `.feed-date-cards / button.news-card`，显示自动生成、手动生成、旧试生成或样稿，失败原因及重试时间；点击打开原报告阅读器。只更新此容器，保留焦点、滚动与设置草稿；窄屏返回分类、窗口隐藏时停止轮询。没有独立的字号、间距、颜色或断点。
+- 设置入口名为「日报任务」，区块标题仅为「报告排期」。排期按下一次执行时间升序，无日期置后；默认文本显示，点击右上「编辑」后每类报告以共享 `.calendar-time / .field-select` 和 `SelectControls` 选择小时、分钟，桌面和手机均保持两列，选项直接显示「08 时／30 分」，可访问名称包含报告类型。沿用设置保存、撤销、分类切换草稿与错误反馈，不使用原生时间弹窗。轮询只更新排期文字，保留控件节点、未保存时间及打开的 Picker；保存成功或全局撤销后回到文本模式；「取消编辑」还原启动时间与窗口，不丢弃其他设置草稿。每类报告独立显示「新闻窗口」，复用 `.muted` 文本。编辑态使用 `.section-stack / .field-item / .form-group-grid` 分组「开始生成、新闻起点、新闻终点」，每个时刻沿用 `.calendar-time` 小时／分钟 Picker；早午晚起点日期为前日／当日 Picker，周月起止日期保持周一／1日边界。当前窗口随草稿预览；启动排期与窗口互不联动。每类启动不得早于窗口结束，同日起点须早于终点，错误复用 `.error-state` 和设置状态反馈。两列中的时分控件在共享 `.form-group-grid > .field-item > .calendar-time` 层对齐底部，手机沿用单列布局；不增加专属基础CSS。保存后立即刷新实际下次排期。材料快照清理以固定「每7天」列在同一排期列表，不提供时分 Picker，复用下一次、上次结果及错误文本。阅读字号不改变设置控件。
+- 排期标题右侧复用 `.reader-action-toolbar / .reader-tool-btn` 并列定时图标按钮与「编辑」：暂停为红色双竖线，恢复为绿色三角形，使用共享 `[data-tone="danger|success"]` 和 `--status-danger/success`，悬停保留语义色；墨水屏按 Token 使用黑色，以形状区分。仅图标保留 title／aria-label，等待响应时禁用并设置 aria-busy，不以文字撑宽按钮。暂停即时生效，独立于时间草稿保存／撤销，禁用重复请求；状态说明使用 `.muted`，错误使用 `.error-state`，不增加确认弹窗。暂停只影响五类报告自动排期，行内显示「已暂停」，清理任务保留日期并按最近排期顺序上移。空报告列表显示「自动生成已暂停」。
+- 移除「最近执行」区块；页面底部用 `.settings-section-card / .section-card-title / .muted / .button-row` 展示「报告材料快照」及大小，按钮复用 `.reader-action-btn.danger`。调用共享确认框后清除闲置快照，使用中大小仅在非零时显示；空快照或全部使用中时禁用清理，保留原有设置草稿。成功就地更新大小，失败显示可重试原因。共享 `formatBytes` 供此处与新闻总结统一使用 KiB／MiB。
 - 模型与 Agent 使用共享 `.form-group-grid / .field-item / .field-select` 与 `SelectControls`：首行「功能／Runtime」，下方按 Runtime 显示模型／推理强度或服务商／模型。功能 Picker 包含 Chat、主题追踪、新闻总结、日报，各自保存 Pi 与 Codex 选择；切换保留草稿，旧连接测试和目录响应不能覆盖新功能。高级字段置于原生 `details > summary.reader-tool-btn`，未运行连接测试时隐藏空终端；会话保留与清空操作仅在 Chat 显示。
 
 ## 2026-10-30 定期报告
@@ -57,10 +59,12 @@
 - 报告页眉使用 `.article-header / .article-meta-top / .article-title / .article-meta-bottom`，正文直接使用 `.article-body`。新增共享 `.reader-section-heading` 使用 `--font-display / --fs-h3`、600／1.4，`--lead` 变体使用 `--fs-h2`、600／1.35；均消费 `--reading-scale`。报告特有样式只安排主题分隔、编号、导读与来源展开结构，间距消费 `--space-*`。
 - 来源默认收起，原生 `details > summary.reader-tool-btn` 保留键盘语义，一次只展开一个主题。来源标题和时间从存档映射，不执行模型返回的HTML，不显示内联引用堆栈；没有URL的来源显示纯文本。报告内容轮询仅在状态变化时更新，不重置已完成正文的滚动或展开状态。
 - 次重点放在正文末尾「简讯」，复用 `.report-section / .reader-section-heading / .article-body` 和共享列表样式；来源在简讯区集中折叠。页眉按实际数量显示主题、简讯与阅读时长。允许只有简讯，旧报告缺少简讯字段时保持原有呈现；不另设字号、颜色或响应式断点。
-- 中栏右上角加号「新增日报」复用 `.feed-list-tools / .filter-chip.icon-chip`，保留可访问名称与 tooltip。共享 `AnchoredPopover` 在按钮旁打开非模态浮层，复用 surface-raised、border-strong、radius-lg、shadow-float；宽360px并受可见视口限制，短屏内部滚动。Escape、外部首次点击、焦点离开及导航切换关闭；外部首次点击不穿透，子下拉菜单独立处理 Escape，Escape或外部点击关闭回到加号，Tab离开时保留新焦点，阅读位置和展开来源不变。共享下拉在滚动确实移动锚点时关闭，忽略打开前已完成滚动的迟到事件，避免短屏点选时立即收起。临时关闭保留草稿，取消清空；提交后才打开对应报告。
-- 浮层表单复用 `.field-item / .field-input / .field-select / .button-row` 与 `SelectControls`。共享 `Calendar` 与既有 `DatePicker` 共用日历网格和主题，增加内嵌、连续7天高亮和12个月份选择；保留纯文本日期／月份输入以快速跳转年份，避免原生日期控件再打开第二个日历，方向键移动、Enter选中，未完成时段禁用。自定义由共享 `DateTimePicker` 提供两个纯文本起止输入及一个内嵌日历，聚焦端点切换当前编辑项，输入边框使用 `--accent` 标示；`.calendar-time` 沿用字段组件与间距 Token，小时／分钟同样使用 `SelectControls`，禁用当前时间之后的选项。保留 YYYY-MM-DD HH:mm 手输校验。窗口按北京时间计算并由服务端重新校验，单栏与桌面使用同一浮层结构。
+- 中栏右上角加号「新增日报」复用 `.feed-list-tools / .filter-chip.icon-chip`，保留可访问名称与 tooltip。共享 `AnchoredPopover` 在按钮旁打开非模态浮层，复用 surface-raised、border-strong、radius-lg、shadow-float；宽360px并受可见视口限制，短屏内部滚动。Escape、外部首次点击、焦点离开及导航切换关闭；外部首次点击不穿透，子下拉菜单独立处理 Escape，Escape或外部点击关闭回到加号，Tab离开时保留新焦点，阅读位置和展开来源不变。共享下拉在滚动确实移动锚点时关闭，忽略打开前已完成滚动的迟到事件，避免短屏点选时立即收起。浮层不设右上角关闭按钮，加载与报错状态也保留底部取消。临时关闭保留草稿，取消清空；提交后才打开对应报告。
+- 浮层表单复用 `.field-item / .field-input / .field-select / .button-row` 与 `SelectControls`。报告类型上方以 `.muted / .catchup-runtime` 显示已保存的日报 Runtime、模型及推理强度（如适用），长名称自然换行；重新打开或从后台返回时刷新默认模型，不重置日期或已选临时模型。读取失败时提供重试。共享 `Calendar` 与既有 `DatePicker` 共用日历网格和主题，增加内嵌、连续7天高亮和12个月份选择；保留纯文本日期／月份输入以快速跳转年份，避免原生日期控件再打开第二个日历，方向键移动、Enter选中。早午晚报默认选中北京时间当日，当日可选；时段未结束时显示提示并阻止提交，不自动退回前一天；未来日期禁用。周报、月报仍默认最近完整周期，未完成周期禁用。自定义由共享 `DateTimePicker` 提供两个纯文本起止输入及一个内嵌日历，聚焦端点切换当前编辑项，输入边框使用 `--accent` 标示；`.calendar-time` 沿用字段组件与间距 Token，小时／分钟同样使用 `SelectControls`，禁用当前时间之后的选项。保留 YYYY-MM-DD HH:mm 手输校验。窗口按北京时间计算并由服务端重新校验，单栏与桌面使用同一浮层结构。
+- 「临时模型设置」默认收起，复用 `details > summary.reader-tool-btn`、`.section-stack` 与共享 `form-controls.js` 的 Picker 字段（设置页同用）。共享折叠区标题与 `.section-stack` 之间使用 `--space-3` 间距，设置页高级参数同步生效。展开后按 Runtime／模型／推理程度排列，Pi 模型选项同时绑定服务商；只列出目录支持的推理程度，换模型重置推理程度。顶部元信息显示实际临时选择；「恢复日报设置」清除覆盖，折叠或临时关闭保留草稿，取消／成功提交清空。仅在展开时读取模型目录，失败可重试；切换 Runtime 时忽略迟到目录，保留键盘焦点；短屏使用现有浮层滚动，无独立字号、颜色或断点。
 - 列表复用 `.feed-date-group / .feed-date-heading / .feed-date-cards`，共享 `.feed-group-toggle` 增加箭头、计数、焦点与收折语义；鼠标悬停保持透明背景、无阴影，键盘焦点保留轮廓。日报／周报按月份、月报按年份，默认展开当前周期，刷新保留手动展开状态；计数包含未加载报告，各组独立分页。早午晚按结束日，周报／月报／自定义按起始日归档。卡片只保留期别、日期、标题、导读，生成或失败时显示状态；已完成不重复显示状态标签。
 - 阅读页沿用共享标题和正文；报头以细强调线区分刊期，导读以左侧细线和留白聚拢，首个重点使用共享 lead 标题，其余主题使用常规二级阅读标题，来源仍折叠。章节与页尾用主题边框和间距 Token 分隔，不增加页面专属基础字号、内容宽度或断点。右栏「删除」适用于所有报告，生成中禁用，确认使用共享对话框。
+- 2026-10-31起，报告在创建时固定Runtime与模型，最多3份并行生成，同时间范围复用新闻快照。卡片使用 `.news-card-meta` 显示固定的模型名称，日报任务运行状态同样保留模型信息；正文报头及生成状态复用 `.article-meta-bottom` 依次显示模型、生成用时与取材时间；没有可靠用时的旧样稿不显示耗时。顶栏任务列表同样区分每份报告的模型，日报任务观察展示所有运行任务及并行上限。重试保留原模型，列表和正文不增加解释性标签、对比评分或独立配色。
 - 共享 `.field-input` 的原生日期、时间和月份输入通过 `color-scheme` 跟随浅色／深色／系统主题，墨水屏采用浅色原生控件；不复制报告页专属日期样式。
 - 生成状态使用 `.settings-sheet / .settings-section-card--compact / .section-card-title / .section-stack / .field-item / .muted` 展示真实阶段、批数、新闻条数与耗时；当前步骤使用 `aria-current="step"`，状态使用 `role="status"`，不增加独立字体、颜色或响应式规则。
 - 页尾为「本期完」，无无限推荐、已读记录和阅读进度。预计阅读时间按实际文字数估算，不固定伪装为五分钟。未生成时显示真实空态与下期时间；失败显示可重试状态，不能用旧样稿填充。

@@ -94,6 +94,22 @@ def test_invalid_config_rejected(config):
     with pytest.raises(ValueError): codex.normalize_config(config)
 
 
+@pytest.mark.parametrize('options', [{}, {'thread_id': THREAD}, {'ephemeral': True}, {'live_search': True}])
+@pytest.mark.parametrize('inherited_tier', ['fast', 'priority', 'ultrafast'])
+def test_all_execution_modes_force_standard_without_changing_model_binding(monkeypatch, options, inherited_tier):
+    monkeypatch.setattr(codex, 'executable', lambda: 'codex')
+    config = {**CONFIG, 'reasoning_effort': 'max', 'service_tier': inherited_tier, 'features': {'fast_mode': True}}
+    args = codex.command(config, **options)
+    overrides = dict(args[i+1].split('=', 1) for i, flag in enumerate(args[:-1]) if flag == '-c')
+    assert overrides['service_tier'] == '"default"'
+    assert overrides['features.fast_mode'] == 'false'
+    assert overrides['model_reasoning_effort'] == '"max"'
+    assert args[args.index('--model')+1] == CONFIG['model']
+    assert args[args.index('--profile')+1] == CONFIG['profile']
+    assert config['service_tier'] == inherited_tier
+    assert codex.normalize_config(config) == {**CONFIG, 'reasoning_effort': 'max'}
+
+
 @pytest.mark.parametrize('mode,error', [('auth','codex_auth_required'),('malformed','codex_protocol_error'),
  ('unknown','codex_protocol_error'),('empty','codex_empty_answer'),('missing','codex_protocol_error'),
  ('duplicate','codex_protocol_error'),('duplicate_item','codex_protocol_error'),

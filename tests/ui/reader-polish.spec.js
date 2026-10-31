@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openModelAdvanced } from './helpers.js';
 
 const path = '/api/news/ui-064';
 async function ready(page) {
@@ -221,6 +222,7 @@ test('saving settings updates the model of an already expanded unused Agent', as
   // Keyboard navigation leaves the Agent expanded while settings are saved.
   await page.locator('#leftNavSettingsBtn').press('Enter');
   await page.locator('[data-settings-tab="models"]').click();
+  await openModelAdvanced(page);
   await page.locator('input[name="agent.codex.model"]').fill('saved-through-settings');
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#agentRuntimeBadge')).toContainText('saved-through-settings');

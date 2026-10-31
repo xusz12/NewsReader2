@@ -5,6 +5,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 from model_apis import normalize_api_models
+import report_schedule
 
 
 DEFAULT_DAILY_NEWS_DIR = Path(
@@ -88,6 +89,10 @@ def normalize_classification(value: object, *, defaults: dict | None = None, leg
 
 
 DEFAULT_APP_SETTINGS = {
+    "report_schedule": dict(report_schedule.DEFAULT_TIMES),
+    "report_schedule_history": [],
+    "report_windows": report_schedule.normalize_windows({}),
+    "report_window_history": [],
     "api_models": normalize_api_models({}),
     "classification": normalize_classification({}),
     "llm": {
@@ -275,11 +280,34 @@ def load_app_settings() -> dict:
         base["feature_models"] = normalize_feature_models(payload.get("feature_models", {}) if isinstance(payload, dict) else {}, base)
     except ValueError:
         base["feature_models"] = normalize_feature_models({}, base)
+    if isinstance(payload, dict):
+        try:
+            times = report_schedule.normalize(payload.get("report_schedule", {}))
+            revisions = report_schedule.history(payload.get("report_schedule_history"), times)
+            base.update(report_schedule=times, report_schedule_history=revisions)
+        except ValueError:
+            pass
+        try:
+            windows = report_schedule.normalize_windows(payload.get("report_windows", {}))
+            revisions = report_schedule.window_history(payload.get("report_window_history"), windows)
+            base.update(report_windows=windows, report_window_history=revisions)
+        except ValueError:
+            pass
     return base
 
 
 def save_app_settings(payload: dict) -> Path:
     path = resolve_app_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # The scheduler also reads this file: never expose a partially written JSON.
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
     return path

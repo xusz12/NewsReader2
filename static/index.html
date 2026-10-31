@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.3.5</title>
+    <title>News Reader v0.4.0</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.3.5" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.3.5" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.4.0" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.4.0" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.3.5-tasks-1"
+      href="/static/style.css?v=0.4.0"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.3.5</span>
+            <span class="brand-version">v0.4.0</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -807,7 +807,7 @@
                     <polyline points="14 2 14 8 20 8"></polyline></svg
                 ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-schedules" data-settings-tab="schedules" data-title="定时任务" data-description="查看报告排期、运行状态和执行记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="settings-category-copy"><strong>定时任务</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
+              <button class="settings-category-card" id="settingsCategory-schedules" data-settings-tab="schedules" data-title="日报任务" data-description="查看报告排期、运行状态和执行记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="settings-category-copy"><strong>日报任务</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="管理来源开关，增量扫描新闻输入。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
                   ><svg
                     fill="none"
@@ -1020,9 +1020,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.3.5"></script>
+    <script src="/static/error_ui.js?v=0.4.0"></script>
     <script
-      src="/static/app.js?v=0.3.5-tasks-1"
+      src="/static/app.js?v=0.4.0"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

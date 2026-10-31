@@ -2,7 +2,8 @@
 
 Normalized events match the existing Agent transport, not Pi session identifiers.
 Commands always pin cwd, read-only sandbox and noninteractive approvals, including
-resume. No bypass/add-dir flags, credential/config copies or automatic fallback.
+resume. Service tier is always Standard, independently of native Fast settings.
+No bypass/add-dir flags, credential/config copies or automatic fallback.
 """
 from __future__ import annotations
 
@@ -122,6 +123,9 @@ def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: b
         args += ["-c", "model_provider=" + json.dumps(config["provider"])]
     if config.get("reasoning_effort"):
         args += ["-c", "model_reasoning_effort=" + json.dumps(config["reasoning_effort"])]
+    # Apply at execution, including resumed sessions and already queued jobs.
+    # Do not change serialized model configs or the user's native CLI settings.
+    args += ["-c", 'service_tier="default"', "-c", "features.fast_mode=false"]
     if ephemeral:
         args.append("--ephemeral")
     if live_search:

@@ -1,12 +1,9 @@
-import { $, api, escapeHTML as e, errorText, toast, markdown, safeURL, singlePane } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, toast, markdown, safeURL, singlePane, formatBytes as bytes } from "./ui.js";
 
 const running = job => !!job && ["pending", "generating", "checking"].includes(job.status);
 const runtimeLabel = data => `${data?.runtime === "pi" ? "Pi Agent" : "Codex Agent"} · ${data?.model || "沿用本机默认"}`;
 const range = data => `${data.start_date || data.window_start} → ${data.end_date || data.window_end}`;
 const count = value => Number(value || 0).toLocaleString("zh-CN");
-const bytes = value => Number(value) < 1024 * 1024
-  ? `${(Number(value || 0) / 1024).toFixed(1)} KiB`
-  : `${(Number(value) / 1024 / 1024).toFixed(2)} MiB`;
 function sourceURL(value) {
   try {
     const url = new URL(value);

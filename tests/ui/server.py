@@ -5,6 +5,7 @@ import sys
 import tempfile
 import re
 import time
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,14 @@ module.ensure_db()
 # Summary UI exercises real preview/transaction APIs against this temporary DB.
 # Only model execution is replaced; never invoke a user's CLI from this server.
 summary_mode = {"value": "success"}
+# The fixture news is dated October 10–14; its selection window must not age
+# with the machine's clock while the real preview/selection code is exercised.
+class SummaryFixtureDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 10, 14)
+
+module.news_summaries.selection.date = SummaryFixtureDate
 module.news_summaries.native_config_stamp = lambda config: []
 def fixture_summary(config, prompt, cancel, diagnostics):
     mode = summary_mode["value"]
@@ -305,6 +314,10 @@ module.REPORT_SERVICE.start = lambda: None
 module.periodic_reports.now = lambda: module.periodic_reports.local('2026-10-30T16:00:00+08:00')
 module.periodic_reports.report_model.capacity = lambda config: {
     'context_window': 128000, 'input_tokens': 100000, 'output_tokens': 16000, 'source': 'ui-fixture'}
+module.periodic_reports.report_model.pi_metadata = lambda request: {
+    'options': [{'value': name, 'label': name, 'provider': provider, 'reasoning_efforts': ['off', 'low', 'high']}
+                for provider in ('test', 'test-provider') for name in ('test-model', 'comparison-model')],
+    'reasoning_efforts': ['off', 'low', 'high']}
 
 
 def fixture_report_model(config, prompt):
@@ -326,9 +339,11 @@ def fixture_run_report():
 def fixture_reports():
     body = module.request.get_json(silent=True) or {}
     with module.db_conn() as conn:
+        conn.execute('DELETE FROM periodic_report_schedule_pauses')
         conn.execute('DELETE FROM periodic_report_deletions')
         conn.execute('DELETE FROM periodic_report_steps')
         conn.execute('DELETE FROM periodic_reports')
+        conn.execute('DELETE FROM periodic_report_snapshots')
         if body.get('empty'):
             return {'ok': True}
         for index, kind in enumerate(('morning', 'noon', 'evening', 'weekly', 'monthly')):
@@ -351,10 +366,21 @@ def fixture_reports():
             conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,error,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-10-19T00:00:00+08:00',ts,ts,status,
                 json.dumps(content,ensure_ascii=False) if status == 'done' else None, error,ts,ts))
+            if 'generation_seconds' in body:
+                conn.execute('UPDATE periodic_reports SET model_label=?,generation_seconds=? WHERE id=?',
+                    ('Pi · test-model', body['generation_seconds'], 'report-'+kind))
             if status == 'pending':
                 conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
             if status == 'running':
                 conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), module.periodic_reports.stamp(module.periodic_reports.now()),time.time()+1200,'report-'+kind))
+        if body.get('snapshots'):
+            for kind in ('evening','weekly'):
+                report = conn.execute('SELECT period_start,period_end FROM periodic_reports WHERE id=?', ('report-'+kind,)).fetchone()
+                raw = json.dumps({'sources':[{'title':'合成快照材料' * 100}]}, ensure_ascii=False)
+                conn.execute('INSERT INTO periodic_report_snapshots VALUES (?,?,?,?,?)',
+                    ('snapshot-'+kind,report['period_start'],report['period_end'],'2026-10-30T15:00:00+08:00',raw))
+                conn.execute('UPDATE periodic_reports SET snapshot_id=? WHERE id=?',('snapshot-'+kind,'report-'+kind))
+            conn.execute("UPDATE periodic_reports SET status='pending' WHERE id='report-weekly'")
         if body.get('archive'):
             archive = [('archive-daily-'+str(index), 'evening', '2026-09-29T21:30:00+08:00', '2026-09-30T21:30:00+08:00') for index in range(35)]
             archive += [('archive-weekly', 'weekly', '2026-09-28T00:00:00+08:00', '2026-10-05T00:00:00+08:00'),

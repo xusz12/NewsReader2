@@ -3,7 +3,9 @@ import { chooseTheme, openNavigation } from './helpers.js';
 
 async function setLimits(request, limits = { max_days: 20, max_items: 2 }) {
   const settings = await (await request.get('/api/settings')).json();
-  await request.put('/api/settings', { data: { llm: settings.llm, agent: { ...settings.agent, runtime: 'codex', codex: { ...settings.agent.codex, model: 'ui-summary-model', reasoning_effort: '' } }, feed: { hidden_source_subkeys: [] }, news_summary: limits } });
+  const config = { runtime: 'codex', codex: { ...settings.agent.codex, model: 'ui-summary-model', reasoning_effort: '' }, pi: settings.llm.pi_chat };
+  const saved = await request.put('/api/settings', { data: { llm: settings.llm, feature_models: { ...settings.feature_models, summaries: config }, feed: { hidden_source_subkeys: [] }, news_summary: limits } });
+  expect(saved.ok(), await saved.text()).toBe(true);
 }
 async function open(page) {
   await page.goto('/');
@@ -163,7 +165,7 @@ test('scope settings persist, validate and retain drafts across navigation', asy
   await page.locator('#catchupSettingsBtn').click();
   await expect(page.locator('[data-section="catchup"]')).toBeVisible();
   await expect(page.locator('#settingsCatchupScope')).toContainText('候选未读 65 条');
-  expect(await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.settingsTab))).toEqual(['system', 'models', 'deepseek', 'classification', 'pipeline', 'storage', 'catchup', 'shortcuts']);
+  expect(await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.settingsTab))).toEqual(['system', 'models', 'deepseek', 'classification', 'schedules', 'pipeline', 'storage', 'catchup', 'shortcuts']);
   await expect(page.locator('[data-section="catchup"]')).not.toContainText('全局默认值');
   await page.locator('[name="news_summary.max_days"]').fill('0');
   await page.locator('#settingsSaveBtn').click();

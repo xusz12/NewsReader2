@@ -57,7 +57,7 @@ def test_trial_refreshes_and_runs_full_window_even_before_activation(service, db
     with closing(db()) as conn:
         job = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (row["id"],)).fetchone()
         assert job["status"] == "done"
-        snapshot = json.loads(job["snapshot_json"])
+        snapshot = pr.stored_snapshot(conn, job)
         assert snapshot["period_start"] == "2026-10-29T21:30:00+08:00"
         assert [s["id"] for s in snapshot["sources"]] == ["newly-indexed"]
         assert tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone()) == before

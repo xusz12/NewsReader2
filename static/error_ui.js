@@ -10,6 +10,11 @@
   register('model', 'api_test_timeout', '模型连接测试超时。');
   register('input', 'invalid_api_models', 'API 模型配置格式无效。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
+  register('input', 'invalid_report_schedule', '请为每类报告选择有效的小时和分钟。');
+  register('input', 'invalid_report_schedule_order', '早报时间须早于午报，午报时间须早于晚报。');
+  register('input', 'invalid_report_schedule_window', '开始生成时间不能早于对应新闻窗口的结束时间。');
+  register('input', 'invalid_report_windows', '请选择有效的新闻起止日期、小时和分钟。');
+  register('input', 'invalid_report_window_order', '同一天的新闻起点必须早于终点。');
   register('input', 'invalid_classification_unread_only', '仅对未读新闻分类必须为开启或关闭。');
   register('input', 'invalid_classification_enabled', '自动分类必须为开启或关闭。');
   register('input', 'invalid_classification_settings', '新闻分类设置格式无效。');

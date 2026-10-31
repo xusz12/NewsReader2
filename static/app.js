@@ -21,15 +21,15 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=tasks-1";
+import { SettingsPanel } from "./settings-panel.js?v=report-windows-edit-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
 import { TopicPanel } from "./topic-panel.js?v=tasks-1";
-import { ReportPanel } from "./report-panel.js?v=feature-pickers-1";
+import { ReportPanel } from "./report-panel.js?v=report-windows-edit-1";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=report-layout-1";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
 import { ClassificationProgress } from "./classification-progress.js?v=tasks-1";
-import { TaskProgress } from "./task-progress.js?v=tasks-1";
+import { TaskProgress } from "./task-progress.js?v=reports-parallel-1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.3.2";
@@ -138,10 +138,6 @@ const topbarObserver = new ResizeObserver(() => {
 topbarSides.forEach(node => topbarObserver.observe(node));
 const settings = new SettingsPanel({
   selects,
-  onReportOpen: ({id, kind}) => {
-    switchCollection("reports", {restoreReader:false});
-    void reports.openRecord(id, kind);
-  },
   onClassificationRefresh: () => classification.refresh(),
   onClassificationRetry: async () => {
     await api("/api/news/classification/retry", {method:"POST"});

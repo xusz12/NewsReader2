@@ -6,6 +6,9 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [
   ...root.querySelectorAll(selector),
 ];
+export const formatBytes = value => Number(value) < 1024 * 1024
+  ? `${(Number(value || 0) / 1024).toFixed(1)} KiB`
+  : `${(Number(value) / 1024 / 1024).toFixed(2)} MiB`;
 export const escapeHTML = (value = "") =>
   String(value ?? "").replace(
     /[&<>"']/g,

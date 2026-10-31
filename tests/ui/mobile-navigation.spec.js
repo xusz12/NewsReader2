@@ -183,7 +183,7 @@ test('settings swipe preserves the draft while ignoring editing and canceled ges
   }
   await swipe(page, { target: '.settings-main' });
   await expect(page.locator('#detailPanelSettings')).toBeHidden();
-  await expect(page.locator('.settings-category-card:visible')).toHaveCount(8);
+  await expect(page.locator('.settings-category-card:visible')).toHaveCount(9);
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(input).toHaveValue('settings-swipe-draft');
   await expect(page.locator('#settingsStatus')).toHaveClass(/dirty-state/);

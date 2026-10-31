@@ -50,6 +50,18 @@ flowchart LR
 
 ## 模块职责与修改入口
 
+2026-10-31排期与可编辑新闻窗口：启动配置与历史为 `report_schedule`／`report_schedule_history`，窗口独立使用 `report_windows`／`report_window_history`；旧配置缺省沿用08:30／14:30／21:30及整周整月边界。`report_schedule.news_window()` 统一计算五类范围，自动任务按历史启动时刻选择生效窗口，补报不追溯改写。保存校验启动不早于窗口结束、同日起点早于终点，旧过早启动等候完整窗口。已创建任务、快照、重试保持原起止时间。设置编辑复用小时／分钟及前日／当日 Picker；手动表单绑定 `windows` 中所选规则并随 `selection` 提交单份 `window`，打开期间改设置不改变所见范围。旧表单窗口不匹配时提示刷新。
+
+2026-10-31固定标准速度：共享 `codex_client.command()` 在每次执行时显式传入 `service_tier="default"` 与 `features.fast_mode=false`。覆盖 Chat、主题追踪、新闻总结、日报、归档及连接测试，以及续聊、临时会话、既有队列和报告重试；本机默认或 Profile 开启 Fast 也不会覆盖。模型、推理程度、会话映射及已绑定报告配置保持兼容，不修改本机 Codex 配置；Pi 不使用该开关。
+
+2026-10-31临时报告模型：新增日报默认收起临时 Runtime／模型／推理程度 Picker；`GET /api/reports/manual-options` 增加公开默认选择，`POST /api/reports/model-options` 按需读取目录，创建的 `model_override` 经白名单与能力校验后绑定单份报告。Pi SDK 传入实际推理程度，Codex 保留已保存 Profile／服务商与只读限制；不保存到全局设置。重复提交保持原配置，目录读取在数据库写事务外。
+
+2026-10-31报告模型对比：所有创建入口将日报功能配置写入每份任务的 `config_json`；自动／手动重试均保留绑定，旧未绑定任务在首次执行或重试时补齐。生成池最多3线程，领取在SQLite写事务内检查运行数量与租约，运行期间60秒心跳续租。`periodic_report_snapshots` 按标准化起止时间唯一保存材料及规则，`snapshot_id` 引用共享输入，报告类型保持独立。索引刷新、取材和发布共享现有索引锁，模型调用在锁外并行；步骤缓存仍按报告ID隔离，删除最后一份同窗口报告时清理对应快照；另外每7天自动清理保存满7天且没有未完成报告占用的材料，排期与失败重试保存在 `periodic_report_snapshot_cleanup`，索引锁不可用时稍后再检查。清理移除材料引用，保留最终内容与来源，过期后新建对比报告会重新取材。完成内容不被改写。报告 `generation_seconds` 独立保存最后一次成功执行耗时，页面显示在模型旁。观察接口增加 `concurrency`、`current_reports` 及预先保存的模型名称，保留 `current` 的兼容字段，不解析模型配置或材料正文。
+
+2026-10-31材料快照管理：观察接口通过 SQLite 字节长度聚合返回 `snapshot_storage`，共享材料不按报告引用数重复计数。`POST /api/reports/snapshots/clear` 验证库令牌，沿用自动清理的共享保护条件和索引／事务锁；手动不限制材料年龄，不改变周期间隔。页面移除最近执行区块，底部提供大小与清理，定时控制改为语义色图标。
+
+2026-10-31报告主动暂停：`periodic_report_schedule_pauses` 保存按数据库隔离的起止区间，唯一索引限制一个活动暂停。`POST /api/reports/schedule-pause` 事务内验证数据库令牌，幂等写入目标暂停状态并唤醒调度。暂停与自动入队共享写事务锁；暂停不推进报告游标，恢复扫描时剔除暂停区间中的到期任务，保留普通停机缺期规则。已创建任务、手动生成及材料清理独立继续。观察／列表返回 `schedule_control`，前端立即控制不混入设置草稿。
+
 2026-10-31新增顶栏统一进度：`GET /api/tasks/progress` 通过 `task_progress.snapshot()` 在一个只读事务中读取主题任务、主题匹配队列及报告阶段，不加载新闻正文、模型配置或生成结果，也不启动工作线程。只保留当前主题生命周期的最新活动／失败任务及未处理匹配，排除归档与已完成任务；报告返回全量状态计数及最多10条元数据。`static/task-progress.js` 与分类轮询共享顶栏浮层，运行中每2秒、空闲每30秒观察；成功的主题／报告写请求发出 `tasks:changed` 立即刷新，查看状态本身没有生成或标读副作用。
 
 2026-10-30新增定期报告：`periodic_reports.py` 使用独立调度与生成线程，负责排期、刷新后的快照、重试与归档；`report_generation.py` 负责按模型容量规划一次成文或分批编辑、引用覆盖及局部修复；`report_model.py` 解析模型容量并执行无工具调用；`static/report-panel.js` 复用工作台阅读器，展示重点与简讯。完整窗口、启用边界、数据表和日历维护约定见 [定期报告](../periodic-reports.md)。
@@ -74,7 +86,8 @@ flowchart LR
 | `static/standalone-ideas.js` / `frontend/idea-markdown-editor.js` | 独立想法及 Markdown 编辑器源文件 | 草稿、撤销、异步保存；变更编辑器后重新构建 |
 | `static/vendor/idea-markdown-editor.js` | 已提交的编辑器构建产物 | 用 `npm run build:idea-editor` 生成，不手工改压缩代码 |
 | `static/keyboard-shortcuts.js` | 快捷键默认表、组合键规范化、冲突校验、本地持久化与提示同步 | 与设置草稿、新闻／想法／总结按键处理一起回归；不写服务器配置 |
-| `static/settings-panel.js` / `static/update-panel.js` / `static/schedule-observer.js` | 设置草稿、保存、模型、更新状态及只读报告排期观察 | 防止旧响应覆盖新草稿 |
+| `static/settings-panel.js` / `static/update-panel.js` / `static/schedule-observer.js` | 设置草稿、保存、模型、更新状态及报告排期编辑／观察 | 防止旧响应覆盖新草稿，排期按下次执行时间升序 |
+| `report_schedule.py` | 北京时间排期校验与生效历史，独立计算启动时刻与可编辑新闻窗口 | 不追溯更改已创建的报告，旧漏期按原时刻补齐 |
 | `static/upstream-errors.js` / `static/error_ui.js` | 上游报错浏览及错误反馈 | 区分采集异常、API 错误、模型错误 |
 | `static/tokens.css` / `static/style.css` / `static/design-tokens.json` | 主题与布局 | CSS Token 和 JSON 映射保持一致 |
 | `static/brand/` / `docs/brand-assets.md` | 标志、字标、favicon 及来源说明 | 保留轮廓字标和第三方许可文件 |
