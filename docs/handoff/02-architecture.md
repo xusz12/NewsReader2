@@ -15,6 +15,7 @@
 
 ### 正文翻译与 API 后备
 
+- OpenCode 与 Jev 的手动目录请求使用 `model_apis.MODEL_CATALOG_TIMEOUT_SECONDS`（25秒），作用于 urllib 的阻塞网络操作，包含 HTTPS 握手，不是整个请求的总时限。`managed_api_snapshot()` 区分 `connection_timeout`（含 `URLError.reason` 包装的超时）、HTTP 已知原因、`network_error`、`response_parse_failed` 及 `key_read_failed`；模型接口继续返回 `error=models_unavailable`，增加 `reason` 与适用的 `upstream_status / retry_after_seconds`，超时返回504，其余目录失败返回502。页面沿用原状态提示，不回显原始异常或响应。
 - `model_apis.API_PROVIDERS` 统一登记目录、测试、密钥名、模型路径和翻译地址。DeepSeek 与 OpenCode 支持正文翻译，Jev 使用专用判断协议，不进入翻译链路。Jev 配置仍保存于 `api_models.jev.model`，仅设置入口移到新闻分类。`model_apis.is_hidden_model()` 在 HTTP、Pi 及日报临时模型目录统一过滤 OpenCode／OpenCode Go 免费项（名称、Big Pickle 别名或零价格元数据），只影响候选目录；其他服务商及已有配置不变。过滤后空目录仍表示读取成功。
 - `llm.translation.provider` 指定首选 DeepSeek／OpenCode；`fallback_enabled` 控制另一家直连 API，`pi_fallback_enabled` 控制最后一级 Pi，旧设置缺省均为 true。`normalize_translation()` 在加载和保存时统一校验，旧客户端省略开关时保留已保存值。`llm.translation.model` 始终是 DeepSeek 模型（兼容旧配置），OpenCode 模型独立保存于 `api_models.opencode.model`，不能把前者解释为随首选服务变化的通用模型字段。
 - `app.generate_news_translation()` 在每次任务开始时固定配置快照，先尝试首选 HTTP API，失败后按开关尝试另一家 API，最后才尝试快照内 `llm.pi_chat` 的 Pi 模型，与 Chat 当前 Runtime 无关。`llm_client._generate_translation()` 用 OpenAI 兼容 SDK 发送提示词与正文：DeepSeek 保留严格函数参数协议，OpenCode 使用 JSON 文本响应。请求禁用 SDK 内部重试，正文翻译120秒、含精读180秒超时。调用失败、结构错误、截断、拒绝或缺少中文正文均作为失败进入后备；X 仅保存正文，不生成精读摘要。

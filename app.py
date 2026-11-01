@@ -2429,13 +2429,14 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
         "status_text": "点击获取模型以读取可用目录。" if configured else "尚未配置 API 密钥。",
     }
     source = "fallback" if options else "unavailable"
-    if refresh and configured:
+    if refresh and configured and not key:
+        service.update(models_endpoint_reachable=False, reason="key_read_failed",
+                       status_text="读取已保存的 API 密钥失败，请重新保存密钥后重试。")
+    elif refresh and configured:
         service["models_endpoint_reachable"] = False
         try:
-            if not key:
-                raise ValueError("unreadable_key")
             probe = Request(config["models_url"], headers=model_apis.request_headers(key))
-            with urlopen(probe, timeout=5) as response:
+            with urlopen(probe, timeout=model_apis.MODEL_CATALOG_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 parsed = model_apis.parse_model_options(provider, payload)
             # A valid OpenCode directory may contain only hidden free models.
@@ -2447,9 +2448,22 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
             service.update(models_endpoint_reachable=True, status_text="模型目录已获取。")
         except HTTPError as exc:
             details = model_apis.http_error_details(exc)
-            service["status_text"] = f"获取模型失败（HTTP {exc.code}）。{details['message']}"
+            service.update(status_text=f"获取模型失败（HTTP {exc.code}）。{details['message']}",
+                           **{name: value for name, value in details.items() if name != "message"})
+        except (URLError, OSError) as exc:
+            # urllib wraps connect/TLS timeouts in URLError.reason; reads may
+            # raise TimeoutError directly. Neither indicates invalid credentials.
+            cause = exc.reason if isinstance(exc, URLError) else exc
+            if isinstance(cause, TimeoutError):
+                service.update(reason="connection_timeout", status_text=(
+                    f"模型目录请求超时（{model_apis.MODEL_CATALOG_TIMEOUT_SECONDS} 秒，"
+                    "含连接、HTTPS 握手或响应读取），请检查网络后重试。"))
+            else:
+                service.update(reason="network_error", status_text="无法连接模型目录服务，请检查网络或代理设置后重试。")
+        except ValueError:
+            service.update(reason="response_parse_failed", status_text="模型目录响应解析失败：返回内容不是有效的 JSON 或模型目录格式，请稍后重试。")
         except Exception:
-            service["status_text"] = "暂时无法获取模型目录，请稍后重试。"
+            service.update(reason="catalog_error", status_text="暂时无法获取模型目录，请稍后重试。")
     return {"service": service, "catalog": {
         "source": source, "saved_model": saved_model, "custom_allowed": True,
         "resolved_default_model": config["default_model"],
@@ -8317,8 +8331,11 @@ def api_translation_models(provider: str = "deepseek"):
     snapshot = managed_api_snapshot(provider, refresh=True)
     if not snapshot["service"]["configured"]:
         return jsonify(ok=False, error="missing_api_key"), 400
-    if snapshot["service"].get("models_endpoint_reachable") is not True:
-        return jsonify(ok=False, error="models_unavailable", message=snapshot["service"]["status_text"]), 502
+    service = snapshot["service"]
+    if service.get("models_endpoint_reachable") is not True:
+        details = {name: service[name] for name in ("reason", "upstream_status", "retry_after_seconds") if name in service}
+        status = 504 if details.get("reason") == "connection_timeout" else 502
+        return jsonify(ok=False, error="models_unavailable", message=service["status_text"], **details), status
     return jsonify(ok=True, **snapshot)
 
 

@@ -11,6 +11,10 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 
+# urllib applies this to blocking socket operations, including HTTPS handshakes.
+MODEL_CATALOG_TIMEOUT_SECONDS = 25
+
+
 def request_headers(api_key: str) -> dict[str, str]:
     # OpenCode rejects urllib's default client signature with Cloudflare 1010.
     # Identify this application, consistently with the existing DeepSeek client.

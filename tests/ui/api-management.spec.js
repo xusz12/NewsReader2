@@ -159,6 +159,39 @@ test('reset ignores outstanding tests and failed model lookups retain the catalo
   await expect(terminal(page, 'opencode')).not.toContainText('STALE SUCCESS');
 });
 
+for (const width of [1440, 390]) test(`catalog error details preserve drafts and allow retry at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 900 });
+  await setup(page, request);
+  let failure = null, calls = 0;
+  await page.route('**/api/settings/apis/opencode/models', route => {
+    calls++;
+    return route.fulfill(failure || { json: { ok: true, catalog: { options: [{ value: 'model-found', source: 'official' }] } } });
+  });
+  await action(page, 'opencode', 'translationModelsBtn').click();
+  const status = card(page, 'opencode').locator('[id$="translationStatus"]');
+  await expect(status).toHaveText('已获取 1 个模型');
+  await card(page, 'opencode').locator('input[name]').fill('unsaved-model');
+  const errors = [
+    [504, 'connection_timeout', '模型目录请求超时（25 秒，含连接、HTTPS 握手或响应读取），请检查网络后重试。'],
+    [502, 'authentication_failed', '获取模型失败（HTTP 401）。密钥鉴权失败，请检查密钥是否有效。'],
+    [502, 'access_denied', '获取模型失败（HTTP 403）。服务端拒绝访问，请检查所选模型、账户权限及客户端限制。'],
+    [502, 'response_parse_failed', '模型目录响应解析失败：返回内容不是有效的 JSON 或模型目录格式，请稍后重试。'],
+  ];
+  for (const [httpStatus, reason, message] of errors) {
+    failure = { status: httpStatus, json: { ok: false, error: 'models_unavailable', reason, message } };
+    await action(page, 'opencode', 'translationModelsBtn').click();
+    await expect(status).toHaveText(message);
+    await expect(action(page, 'opencode', 'translationModelsBtn')).toBeEnabled();
+    await expect(card(page, 'opencode').locator('input[name]')).toHaveValue('unsaved-model');
+    await expect(page.locator('select[name="api_models.opencode.model"] option[value="model-found"]')).toHaveCount(1);
+  }
+  failure = null;
+  await action(page, 'opencode', 'translationModelsBtn').click();
+  await expect(status).toHaveText('已获取 1 个模型');
+  await expect(card(page, 'opencode').locator('input[name]')).toHaveValue('unsaved-model');
+  expect(calls).toBe(6);
+});
+
 test('OpenCode filtered catalog and 429 reason preserve model drafts', async ({page, request}) => {
   await setup(page, request);
   await page.route('**/api/settings/apis/opencode/models', route => route.fulfill({json:{ok:true,catalog:{options:[
@@ -275,6 +308,16 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-l
     expect(panel.x).toBeGreaterThanOrEqual(0);
     expect(panel.x + panel.width).toBeLessThanOrEqual(width + 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const timeoutMessage = '模型目录请求超时（25 秒，含连接、HTTPS 握手或响应读取），请检查网络后重试。';
+    await page.route('**/api/settings/apis/opencode/models', route => route.fulfill({ status: 504,
+      json: { ok: false, error: 'models_unavailable', reason: 'connection_timeout', message: timeoutMessage } }));
+    await action(page, 'opencode', 'translationModelsBtn').click();
+    const notice = card(page, 'opencode').locator('[id$="translationStatus"]');
+    await expect(notice).toHaveText(timeoutMessage);
+    await notice.scrollIntoViewIfNeeded();
+    await expect(notice).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `.ui-artifacts/api-catalog-timeout-${width}-${theme}.png` });
     await page.locator('#apiTitle-opencode').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `.ui-artifacts/api-management-${width}-${theme}.png` });
   });

@@ -128,6 +128,7 @@ CI=1 npm run test:ui
 | 启动健康检查失败 | 端口占用、服务终端输出、localhost DNS 和系统代理；本地请求应绕过代理 |
 | 抓取失败 | opencli 是否在服务 PATH，适配器大小写、浏览器连接、登录状态和错误详情 |
 | Agent 不可用 | Node 版本、npm 依赖、CLI 登录、模型选择、Pi 项目信任及扩展 |
+| OpenCode 获取模型超时或解析失败 | v0.4.3 将手动目录的网络超时由5秒延长至25秒，包含 HTTPS 握手。`URLError.reason` 中的 `TimeoutError` 表示超时，不代表密钥鉴权失败；接口返回504及 `reason=connection_timeout`。401、403等 HTTP 错误保留上游状态与已知原因；无效 JSON／目录格式返回 `response_parse_failed`。检查网络或代理后手动重试，更新代码后重启后端；失败保留已有目录和模型草稿 |
 | OpenCode 获取模型返回 403 | 区分密钥错误与 Cloudflare `1010 / browser_signature_banned`；目录及连接测试必须通过 `model_apis.request_headers()` 标识本应用，避免 urllib 默认客户端标识被拒绝。2026-11-01已复现并修复；修改后须重启后端，获取目录成功不等于所选模型鉴权／额度可用 |
 | OpenCode 模型测试返回 429 | 免费聊天模型有外部调用限制，输入密钥不会解除；候选目录已统一隐藏 OpenCode 免费模型，已有配置不自动改写。使用支持外部调用的文本模型。`model_apis.http_error_details()` 仅按已知结构化错误码区分免费／Go额度、消费上限、余额与临时限流，未知429不推断具体原因；解析 `Retry-After` 秒数／HTTP日期与 `retry-after-ms`，提示等待但不自动发起重试，不回显原始错误正文或账户信息。正文翻译仍按已保存策略切换其他 API |
 | 总结失败 | 预览是否过期、库或配置是否变化、引用校验错误、模型结果及 job.error |
