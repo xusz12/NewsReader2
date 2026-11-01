@@ -81,7 +81,8 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | `NEWS_READER_PI_AGENT_DIR` | Pi 配置来源覆盖 | 不配置时继承本机 Pi；迁移扩展和信任配置需单独核验 |
 | `DEEPSEEK_API_KEY` | 环境变量优先，否则 macOS Keychain | 由接手方设置；不要放进源码或交付说明 |
 | `TYPESAFE_API_KEY` | 环境变量优先，否则 macOS Keychain | Jev 新闻分类、主题归属和重要进展筛选 |
-| `OPENCODE_API_KEY` | 环境变量优先，否则 macOS Keychain | OpenCode 正文翻译／精读、目录及测试，模型在「API 管理」选择；也通过子进程环境供 Pi 功能调用，Pi 模型在「模型与 Agent」选择 |
+| `OPENCODE_API_KEY` | 环境变量优先，否则 macOS Keychain | OpenCode Go 订阅的正文翻译／精读、目录与测试；沿用原 OpenCode 密钥槽，Keychain 密钥不再注入 Pi 子进程 |
+
 | `NEWS_READER_LLM_MODEL` | 空时由代码使用翻译默认模型 | 显式保存的模型设置需与服务可用目录核对 |
 
 `NEWS_READER_MANAGED`、`NEWS_READER_INSTANCE_ID`、`NEWS_READER_SUPERVISOR_SOCKET`、`NEWS_READER_SUPERVISOR_TOKEN` 由启动器生成，不应作为手工配置或对外分发。Keychain 账号为 `newsreader-workbench`，服务名使用 `DEEPSEEK_API_KEY` 等；非 macOS 环境不能依赖设置页的 Keychain 写入。
@@ -102,9 +103,11 @@ opencli 不包含在 Python 或 npm 依赖清单中。交付方需另提供安�
 
 代码兼容 opencli 2.x 的 `ok/data/error` 包装以及旧列表/对象。具体调用参数见 `app.py` 的抓取函数。先在接手方终端确认这些适配器可用，再通过页面用少量真实文章验证。
 
+设置中的原 OpenCode 分区已替换为「OpenCode Go 订阅」，沿用现有密钥与模型。旧首选 `opencode` 归并为 `opencode-go`；首选 Go 时为 Go → DeepSeek → Pi，后备可分别关闭。已有明确 Go 模型优先，密钥须具有 Go 订阅权限；获取目录成功不代表额度可用。Pi 功能使用自身登录或显式环境变量，API 管理不再共享 Keychain 密钥。
+
 设置中分别验收：翻译模型、Pi/Codex 研究模型、模型目录刷新、连接测试、单篇回答和新闻总结。单篇研究使用实时外部检索的能力取决于所选 CLI/provider；总结使用锁定材料。未配置模型和 opencli 不影响纯索引阅读。
 
-Pi 登出后回到「模型与 Agent」会重新读取可用目录，也可点「刷新模型目录」。若服务商仍存在，检查同服务商的环境变量、自定义 models 配置或 NewsReader API 管理密钥；登出只删除 Pi 登录凭据。当前选项消失时保留原配置并提示重新选择，不自动切换其他服务商。推理强度按模型支持的档位显示；保存后用于新任务，已有会话和已创建报告保持原快照。连接测试只检查当前模型的一次简短请求，完整工具能力需通过实际功能验收。
+Pi 登出后回到「模型与 Agent」会重新读取可用目录，也可点「刷新模型目录」。若服务商仍存在，检查同服务商的环境变量或自定义 models 配置；登出只删除 Pi 登录凭据。当前选项消失时保留原配置并提示重新选择，不自动切换其他服务商。推理强度按模型支持的档位显示；保存后用于新任务，已有会话和已创建报告保持原快照。连接测试只检查当前模型的一次简短请求，完整工具能力需通过实际功能验收。
 
 ## 开发与测试
 

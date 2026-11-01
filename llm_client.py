@@ -328,7 +328,8 @@ def _build_body_translation_only_messages(*, title: str, source: str, content: s
 
 def _generate_translation(*, title: str, source: str, content: str, model: str | None,
                           provider: str, body_only: bool) -> dict[str, Any]:
-    from model_apis import API_PROVIDERS, TRANSLATION_PROVIDERS
+    from model_apis import API_PROVIDERS, TRANSLATION_PROVIDERS, canonical_provider, client_headers
+    provider = canonical_provider(provider)
     if provider not in TRANSLATION_PROVIDERS:
         raise LLMClientError("UNSUPPORTED_TRANSLATION_PROVIDER")
     config = API_PROVIDERS[provider]
@@ -375,14 +376,15 @@ def _generate_translation(*, title: str, source: str, content: str, model: str |
     client = None
     try:
         # Fail over once per provider instead of waiting for SDK retries first.
-        client = OpenAI(api_key=api_key, base_url=config["translation_base_url"], max_retries=0)
+        client = OpenAI(api_key=api_key, base_url=config["translation_base_url"], max_retries=0,
+                        default_headers=client_headers(provider))
         resp = client.chat.completions.create(model=model_name, messages=messages,
                                               timeout=120 if body_only else 180, **options)
     except Exception as exc:
         status = getattr(exc, "status_code", None)
         category = f"HTTP_{status}" if isinstance(status, int) else (
             "TIMEOUT" if "timeout" in type(exc).__name__.lower() else "REQUEST_FAILED")
-        raise LLMClientError(f"{provider.upper()}_CALL_FAILED: {category}") from None
+        raise LLMClientError(f"{provider.upper().replace('-', '_')}_CALL_FAILED: {category}") from None
     finally:
         if client is not None and callable(getattr(client, "close", None)):
             client.close()
@@ -778,11 +780,9 @@ def _pi_subprocess_env() -> dict[str, str]:
     # Slock 会注入指向其 runtime-pkg 的 PI_PACKAGE_DIR，该目录缺少 pi 主题文件，
     # 导致 pi 启动崩溃。清掉它，让 pi 使用自身真实安装目录。
     env.pop("PI_PACKAGE_DIR", None)
-    # API management and every Pi transport share the same managed credential.
-    # Keep it in the child environment, never in arguments or saved settings.
-    opencode_key = _resolve_api_key("OPENCODE_API_KEY")
-    if opencode_key:
-        env["OPENCODE_API_KEY"] = opencode_key
+    # API management is a direct Go subscription client. Do not promote its
+    # Keychain key to OPENCODE_API_KEY: Pi maps that variable to both providers.
+    # Explicit parent environment and Pi's own login remain Pi's responsibility.
     return env
 
 

@@ -2035,7 +2035,7 @@ def current_runtime_settings() -> dict:
 
 
 def provider_secret_name(provider: str) -> str:
-    secret_name = SECRET_PROVIDER_MAP.get((provider or "").strip().lower())
+    secret_name = SECRET_PROVIDER_MAP.get(model_apis.canonical_provider(provider))
     if not secret_name:
         raise ValueError("unsupported_provider")
     return secret_name
@@ -2414,6 +2414,7 @@ def database_runtime_snapshot(settings: dict | None = None) -> dict:
 
 
 def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool = False) -> dict:
+    provider = model_apis.canonical_provider(provider)
     if provider == "deepseek":
         return deepseek_settings_snapshot(saved_model)
     config = model_apis.API_PROVIDERS[provider]
@@ -2435,12 +2436,12 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
     elif refresh and configured:
         service["models_endpoint_reachable"] = False
         try:
-            probe = Request(config["models_url"], headers=model_apis.request_headers(key))
+            probe = Request(config["models_url"], headers=model_apis.request_headers(key, provider))
             with urlopen(probe, timeout=model_apis.MODEL_CATALOG_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
                 parsed = model_apis.parse_model_options(provider, payload)
-            # A valid OpenCode directory may contain only hidden free models.
-            empty_filtered = provider == "opencode" and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
+            # A valid directory may contain only free or incompatible models.
+            empty_filtered = provider in {"opencode", "opencode-go"} and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
                 isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip() for row in payload["data"])
             if not parsed and not empty_filtered:
                 raise ValueError("empty_models")
@@ -6981,9 +6982,9 @@ def enqueue_ai_job(conn: sqlite3.Connection, url: str) -> bool:
 
 
 def generate_news_translation(settings: dict, *, title: str, source: str, content: str) -> dict:
-    """Use one settings snapshot: preferred HTTP API, other API, then optional Pi."""
+    """Use one settings snapshot: preferred HTTP API, other APIs, then optional Pi."""
     config = settings["llm"]["translation"]
-    preferred = config["provider"]
+    preferred = model_apis.canonical_provider(config["provider"])
     providers = [preferred]
     if config.get("fallback_enabled", True):
         providers += [provider for provider in model_apis.TRANSLATION_PROVIDERS if provider != preferred]
@@ -8326,6 +8327,7 @@ def api_release_notes():
 @app.post("/api/settings/apis/<provider>/models")
 @app.post("/api/settings/translation/models")
 def api_translation_models(provider: str = "deepseek"):
+    provider = model_apis.canonical_provider(provider)
     if provider not in model_apis.API_PROVIDERS:
         return jsonify(ok=False, error="unsupported_provider"), 400
     snapshot = managed_api_snapshot(provider, refresh=True)
@@ -8342,6 +8344,7 @@ def api_translation_models(provider: str = "deepseek"):
 @app.post("/api/settings/apis/<provider>/test")
 @app.post("/api/settings/translation/test")
 def api_translation_test(provider: str = "deepseek"):
+    provider = model_apis.canonical_provider(provider)
     if provider not in model_apis.API_PROVIDERS:
         return jsonify(ok=False, error="unsupported_provider"), 400
     body = request.get_json(silent=True)
@@ -8359,7 +8362,7 @@ def api_translation_test(provider: str = "deepseek"):
         return jsonify(ok=False, error="invalid_model", message="请先选择或填写测试模型。"), 400
     probe = Request(config["test_url"],
                     data=json.dumps(model_apis.probe_payload(provider, model)).encode(),
-                    headers={**model_apis.request_headers(key), "Content-Type": "application/json"}, method="POST")
+                    headers={**model_apis.request_headers(key, provider), "Content-Type": "application/json"}, method="POST")
     started = time.monotonic()
     try:
         with urlopen(probe, timeout=30) as response:

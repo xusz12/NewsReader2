@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.4.3`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.4.4`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 团队接手请从 [项目交接总览](docs/handoff/README.md) 开始，包含产品范围、架构接口、安装维护、数据迁移、实测结果及移交验收清单。
 
@@ -113,17 +113,19 @@ Agent 会话默认保留 72 小时，可在设置中改为 24 小时；运行中
 
 顶栏上游报错入口会展开非模态下拉，可切换日期、按时间或来源分类、筛选并复制日志；日期可直接输入 YYYY-MM-DD 或使用主题日历，支持月份切换、方向键和 Enter 选择，只能选到今天。非法日期会就地提示，保留当前记录。Escape 先关闭日历，再关闭报错下拉；外点关闭，和 Agent 通知同时只显示一个。设置中的更新检查以独立结果区显示结论，说明与检查时间分开呈现。
 
-设置中的「API 管理」按 DeepSeek、OpenCode 分区展开，分别管理密钥、翻译模型和连接测试，并说明使用位置与失败处理。Jev 的密钥、模型和测试位于「新闻分类」，与自动分类开关、范围和并发一起管理；它使用 [TypeSafe 原生接口](https://docs.typesafe.ai/api/system-one)，默认 `jev-latest`，同时供新闻分类、主题归属与重要进展筛选使用。
+设置中的「API 管理」按 DeepSeek、OpenCode Go 订阅两个分区展开，分别管理密钥、翻译模型和连接测试，并说明使用位置与失败处理。原普通 OpenCode 入口由 Go 订阅入口替代。Jev 的密钥、模型和测试位于「新闻分类」，与自动分类开关、范围和并发一起管理；它使用 [TypeSafe 原生接口](https://docs.typesafe.ai/api/system-one)，默认 `jev-latest`，同时供新闻分类、主题归属与重要进展筛选使用。
 
-「正文翻译」可选择首选 DeepSeek 或 OpenCode，并独立设置「失败后切换其他 API」与「API 均失败后尝试 Pi」（默认均开启）。例如首选 OpenCode 时依次尝试 OpenCode → DeepSeek → Pi，关闭某级后备后跳过该级。两家模型分别保存，DeepSeek 沿用 `llm.translation.model`，OpenCode 使用 `api_models.opencode.model`；切换首选不会覆盖模型。保存后新翻译和手动重新翻译采用新策略，已有译文保留。Pi 使用 Chat 保存的 Pi 服务商与模型，即使 Chat 当前使用 Codex；仍须安装 Pi 并具备可用凭据。X 正文也使用同一翻译顺序，X 评论总结仍单独使用 DeepSeek。
+「正文翻译」可选择首选 DeepSeek 或 OpenCode Go 订阅，并独立设置「失败后切换其他 API」与「API 均失败后尝试 Pi」（默认均开启）。首选 Go 时依次尝试 Go → DeepSeek → Pi，关闭某级后备后跳过该级。DeepSeek 沿用 `llm.translation.model`，Go 使用 `api_models.opencode-go.model`；旧 `opencode` 首选与模型自动归并到 Go，已有明确的 Go 模型优先。保存后新翻译和手动重新翻译采用新策略，已有译文保留。Pi 使用 Chat 保存的 Pi 服务商与模型，即使 Chat 当前使用 Codex；仍须安装 Pi 并具备可用凭据。X 正文也使用同一翻译顺序，X 评论总结仍单独使用 DeepSeek。
 
-直连翻译由 Python 工作线程完成：读取已抓取正文，构造包含翻译要求的消息，经 OpenAI 兼容 SDK 向选定服务发送 HTTP 请求，再解析并校验中文正文、精读要点和结论后存入数据库。脚本负责流程和校验，译文由模型生成，不需要浏览器或 Agent。DeepSeek 使用严格函数参数输出；OpenCode 使用 JSON 文本输出，避免传入 DeepSeek 专属参数。鉴权失败、超时、非法结构、非中文正文或截断结果会触发后备；全部失败则显示失败状态，原文仍可阅读和重试。
+直连翻译由 Python 工作线程完成：读取已抓取正文，构造包含翻译要求的消息，经 OpenAI 兼容 SDK 向选定服务发送 HTTP 请求，再解析并校验中文正文、精读要点和结论后存入数据库。脚本负责流程和校验，译文由模型生成，不需要浏览器或 Agent。DeepSeek 使用严格函数参数输出；Go 使用 JSON 文本输出，避免传入 DeepSeek 专属参数。鉴权失败、超时、非法结构、非中文正文或截断结果会触发后备；全部失败则显示失败状态，原文仍可阅读和重试。
 
-OpenCode 使用 [Console API](https://opencode.ai/v2/docs/console/api/inference)，模型目录为 `/inference/v1/models`，翻译和连接测试使用 `/inference/openai/v1/chat/completions`。需显式选择支持 Chat Completions 协议、可由外部应用调用的文本模型；免费聊天模型仅供 OpenCode 本体使用，第三方调用可能返回 403 或429，输入密钥不会解除限制。API 管理、Pi 功能和日报临时模型的候选目录统一隐藏 OpenCode 免费模型（包括 Big Pickle），其他服务商的模型不受影响；非 free 模型通过连接测试后，保存设置才用于翻译。测试失败展示服务端已知的限制类型及建议等待时间；不自动重试，也不自动改选付费模型。密钥保存在系统钥匙串，环境变量 `DEEPSEEK_API_KEY`、`TYPESAFE_API_KEY`、`OPENCODE_API_KEY` 优先，不写入设置 JSON。OpenCode 密钥也传给 Pi 的目录、测试及功能子进程；Pi 功能模型在「模型与 Agent」选择，Pi 已独立保存的凭据优先仅适用于 Pi，不影响直连翻译和 HTTP 连接测试。
+OpenCode Go 使用[订阅接口](https://opencode.ai/v2/docs/console/go/)：目录为 `https://opencode.ai/inference/go/v1/models`，翻译和测试为 `https://opencode.ai/inference/go/openai/v1/chat/completions`。沿用原 OpenCode 分区的 `OPENCODE_API_KEY` 密钥槽；密钥须属于开通 Go 的账户。API 管理只保留一个订阅分区，不直接调用普通 OpenCode 按量接口。Go 请求携带本应用标识和独立会话标识；额度或权限不足按已保存开关切换后备。目录过滤免费模型与明确不支持 Chat Completions 的条目，Pi 的其他协议模型不受影响。
+
+模型连接测试单次执行，不自动重试或改选模型；失败展示服务端明确的限制类型及建议等待时间。密钥保存在系统钥匙串，环境变量 `DEEPSEEK_API_KEY`、`TYPESAFE_API_KEY`、`OPENCODE_API_KEY` 优先，不写入设置 JSON。API 管理的密钥不再作为共享环境变量注入 Pi；Pi 功能继续使用本机登录或用户显式设置的环境变量，模型在「模型与 Agent」选择。已有 Pi 登录不被改写。
 
 各分区独立保留模型／密钥草稿和测试结果，获取目录失败时保留上次结果。底部用途说明显示已保存的功能配置。Jev 临时失败会退避重试，限流降低并发，凭据失效暂停；已有分类及主题内容保留。Chat 与主题研究可重试，积压新闻总结失败不标读；日报最多尝试3次，之后可手动重试，沿用创建时绑定的模型。这些功能的重试不自动切换服务商，已有新闻、译文和报告可继续阅读。
 
-OpenCode 与 Jev 的手动目录请求使用 25 秒网络超时，适用于连接、HTTPS 握手与响应读取。失败时分别提示超时、HTTP 鉴权／权限问题、网络不可达或响应解析失败；握手超时不表示密钥无效。错误提示不回显密钥或原始响应，修复后需重启后端生效。
+OpenCode Go 与 Jev 的手动目录请求使用 25 秒网络超时，适用于连接、HTTPS 握手与响应读取。失败时分别提示超时、HTTP 鉴权／权限问题、网络不可达或响应解析失败；握手超时不表示密钥无效。错误提示不回显密钥或原始响应，修复后需重启后端生效。
 
 全部已读、Agent 新建／清空、删除 API 密钥、更新重启、放弃设置刷新及删除独立想法使用统一主题确认框，默认聚焦“取消”。确认过程中目标或范围变化时会提示重新操作。浏览器离页保护与系统选库窗口仍保留。
 
@@ -179,7 +181,7 @@ OpenCode 与 Jev 的手动目录请求使用 25 秒网络超时，适用于连�
 
 ## 版本与更新
 
-版本统一为 `v0.4.3`；npm 包版本为 `0.4.3`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
+版本统一为 `v0.4.4`；npm 包版本为 `0.4.4`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
 
 在设置 → 系统状态与版本升级中点击「检查更新」，会重新读取 GitHub 的稳定版本 tag（`vN.N.N` 或 `vN.N.N.N`，不含预发布后缀），显示目标版本、检查时间和本地更新条件。没有稳定版本、已是最新版和本地版本领先会分别提示。GitHub 连接或访问限制导致检查失败时可稍后重试。
 

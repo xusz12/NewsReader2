@@ -9,17 +9,24 @@ import json
 import math
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from uuid import uuid4
 
 
 # urllib applies this to blocking socket operations, including HTTPS handshakes.
 MODEL_CATALOG_TIMEOUT_SECONDS = 25
 
 
-def request_headers(api_key: str) -> dict[str, str]:
+def client_headers(provider: str, *, session_id: str = "") -> dict[str, str]:
+    headers = {"User-Agent": "news-reader-settings/1.0"}
+    if provider == "opencode-go":
+        headers["x-opencode-session"] = session_id or f"newsreader-{uuid4()}"
+    return headers
+
+
+def request_headers(api_key: str, provider: str = "") -> dict[str, str]:
     # OpenCode rejects urllib's default client signature with Cloudflare 1010.
     # Identify this application, consistently with the existing DeepSeek client.
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json",
-            "User-Agent": "news-reader-settings/1.0"}
+    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json", **client_headers(provider)}
 
 
 def http_error_details(error) -> dict:
@@ -104,19 +111,26 @@ API_PROVIDERS = {
         "description": "TypeSafe 的判断模型，用于新闻分类、主题新闻归属和重要进展筛选。",
         "fallback": "临时错误自动退避重试，限流时降低并发；密钥失效时暂停等待修复。已有分类与主题内容保留，未分类新闻仍可在「全部」阅读；不会自动改用其他服务。",
     },
-    "opencode": {
-        "label": "OpenCode", "secret_name": "OPENCODE_API_KEY",
-        "models_url": "https://opencode.ai/inference/v1/models",
-        "test_url": "https://opencode.ai/inference/openai/v1/chat/completions",
-        "translation_base_url": "https://opencode.ai/inference/openai/v1",
-        "model_path": "api_models.opencode.model", "default_model": "",
-        "description": "直接用于新闻正文翻译与精读，使用本页密钥和模型。也可供 Pi 调用；Pi 功能的模型在「模型与 Agent」选择，Pi 自有凭据优先的规则仅适用于 Pi。",
-        "fallback": "正文翻译按上方顺序切换 API。模型目录已隐藏免费模型；选择后可测试当前账户是否能够调用。",
-        "docs_url": "https://opencode.ai/v2/docs/console/api/inference",
+    "opencode-go": {
+        # Reuse the original managed key slot when replacing the OpenCode card.
+        "label": "OpenCode Go 订阅", "secret_name": "OPENCODE_API_KEY",
+        "models_url": "https://opencode.ai/inference/go/v1/models",
+        "test_url": "https://opencode.ai/inference/go/openai/v1/chat/completions",
+        "translation_base_url": "https://opencode.ai/inference/go/openai/v1",
+        "model_path": "api_models.opencode-go.model", "default_model": "",
+        "description": "使用 Go 订阅完成新闻正文翻译与精读。沿用原 OpenCode 分区保存的密钥与模型；密钥须属于已开通 Go 的账户。可在上方设为首选翻译服务。Pi 功能使用 Pi 自身的登录配置。",
+        "fallback": "订阅额度不足或调用失败时，按上方开关尝试 DeepSeek 和 Pi。正文翻译不再直接调用普通 OpenCode 按量接口。目录只显示适用于此翻译接口的非免费订阅模型。",
+        "docs_url": "https://opencode.ai/v2/docs/console/go/",
     },
 }
 
 TRANSLATION_PROVIDERS = tuple(provider for provider, config in API_PROVIDERS.items() if config.get("translation_base_url"))
+
+
+def canonical_provider(provider: str) -> str:
+    """Old HTTP settings/routes now refer to the Go subscription entry."""
+    value = (provider or "").strip().lower()
+    return "opencode-go" if value == "opencode" else value
 
 
 def normalize_translation(value: object, *, defaults: dict | None = None) -> dict:
@@ -126,14 +140,14 @@ def normalize_translation(value: object, *, defaults: dict | None = None) -> dic
     result.update({key: val for key, val in (defaults or {}).items() if key in result})
     result.update({key: val for key, val in value.items() if key in result})
     provider, model = result["provider"], result["model"]
-    if not isinstance(provider, str) or provider.strip().lower() not in TRANSLATION_PROVIDERS:
+    if not isinstance(provider, str) or canonical_provider(provider) not in TRANSLATION_PROVIDERS:
         raise ValueError("unsupported_translation_provider")
     if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
         raise ValueError("invalid_translation_model")
     for key in ("fallback_enabled", "pi_fallback_enabled"):
         if type(result[key]) is not bool:
             raise ValueError("invalid_translation_fallback")
-    result.update(provider=provider.strip().lower(), model=model.strip())
+    result.update(provider=canonical_provider(provider), model=model.strip())
     return result
 
 
@@ -141,6 +155,12 @@ def normalize_api_models(value: object, *, defaults: dict | None = None) -> dict
     if not isinstance(value, dict):
         raise ValueError("invalid_api_models")
     normalized = {}
+    legacy = value.get("opencode", (defaults or {}).get("opencode", {}))
+    if not isinstance(legacy, dict):
+        raise ValueError("invalid_api_models")
+    legacy_model = legacy.get("model", "")
+    if not isinstance(legacy_model, str) or len(legacy_model.strip()) > 120 or any(ord(c) < 32 for c in legacy_model):
+        raise ValueError("invalid_model")
     for provider in API_PROVIDERS:
         if provider == "deepseek":
             continue  # Keep the existing translation setting as the single source.
@@ -150,6 +170,10 @@ def normalize_api_models(value: object, *, defaults: dict | None = None) -> dict
         model = config.get("model", (defaults or {}).get(provider, {}).get("model", ""))
         if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
             raise ValueError("invalid_model")
+        # Existing explicit Go selections win. An empty newly added Go entry
+        # migrates the old model; the normalized result no longer has that alias.
+        if provider == "opencode-go" and not model.strip():
+            model = legacy_model
         normalized[provider] = {"model": model.strip()}
     return normalized
 
@@ -186,6 +210,11 @@ def parse_model_options(provider: str, payload: object) -> list[dict]:
         seen.add(name)
         if is_hidden_model(provider, name, row):
             continue
+        # These HTTP translation clients use Chat Completions. Pi has its own
+        # catalog and supports other API families; do not filter that catalog.
+        if provider in {"opencode", "opencode-go"} and isinstance(row.get("api"), dict):
+            if "chat-completions" not in row["api"]:
+                continue
         result.append({"value": name, "label": name, "source": "official"})
     return result
 
@@ -196,7 +225,7 @@ def probe_payload(provider: str, model: str) -> dict:
             "connection_check": {"type": "noul", "instructions": "Does the text mention the sky?"},
         }}
     return {"model": model, "messages": [{"role": "user", "content": "Reply OK."}],
-            "max_tokens": 128 if provider == "opencode" else 16}
+            "max_tokens": 128 if provider in {"opencode", "opencode-go"} else 16}
 
 
 def valid_probe_response(provider: str, payload: object) -> bool:

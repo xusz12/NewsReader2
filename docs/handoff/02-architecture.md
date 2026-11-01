@@ -11,14 +11,18 @@
 - 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
 - Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。OAR 通过 `SessionOptions.effort`、Pi CLI 通过 `--thinking`、报告 SDK 通过 reasoning 参数执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
 - `connection_tests.py` 使用当前功能草稿。Pi 显式传入 provider、model、thinking，禁用工具／MCP／扩展／持久会话，要求返回 `NEWSREADER_CONNECTION_OK`；Codex 创建临时只读请求，发送 `hi` 并检查非空完成结果。45秒超时、全局单次执行锁；不写入应用会话。测试结果说明一次模型请求成功，不证明 Agent 搜索或其他工具可用。
-- 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
+- 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode Go 订阅，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
 
 ### 正文翻译与 API 后备
 
-- OpenCode 与 Jev 的手动目录请求使用 `model_apis.MODEL_CATALOG_TIMEOUT_SECONDS`（25秒），作用于 urllib 的阻塞网络操作，包含 HTTPS 握手，不是整个请求的总时限。`managed_api_snapshot()` 区分 `connection_timeout`（含 `URLError.reason` 包装的超时）、HTTP 已知原因、`network_error`、`response_parse_failed` 及 `key_read_failed`；模型接口继续返回 `error=models_unavailable`，增加 `reason` 与适用的 `upstream_status / retry_after_seconds`，超时返回504，其余目录失败返回502。页面沿用原状态提示，不回显原始异常或响应。
-- `model_apis.API_PROVIDERS` 统一登记目录、测试、密钥名、模型路径和翻译地址。DeepSeek 与 OpenCode 支持正文翻译，Jev 使用专用判断协议，不进入翻译链路。Jev 配置仍保存于 `api_models.jev.model`，仅设置入口移到新闻分类。`model_apis.is_hidden_model()` 在 HTTP、Pi 及日报临时模型目录统一过滤 OpenCode／OpenCode Go 免费项（名称、Big Pickle 别名或零价格元数据），只影响候选目录；其他服务商及已有配置不变。过滤后空目录仍表示读取成功。
-- `llm.translation.provider` 指定首选 DeepSeek／OpenCode；`fallback_enabled` 控制另一家直连 API，`pi_fallback_enabled` 控制最后一级 Pi，旧设置缺省均为 true。`normalize_translation()` 在加载和保存时统一校验，旧客户端省略开关时保留已保存值。`llm.translation.model` 始终是 DeepSeek 模型（兼容旧配置），OpenCode 模型独立保存于 `api_models.opencode.model`，不能把前者解释为随首选服务变化的通用模型字段。
-- `app.generate_news_translation()` 在每次任务开始时固定配置快照，先尝试首选 HTTP API，失败后按开关尝试另一家 API，最后才尝试快照内 `llm.pi_chat` 的 Pi 模型，与 Chat 当前 Runtime 无关。`llm_client._generate_translation()` 用 OpenAI 兼容 SDK 发送提示词与正文：DeepSeek 保留严格函数参数协议，OpenCode 使用 JSON 文本响应。请求禁用 SDK 内部重试，正文翻译120秒、含精读180秒超时。调用失败、结构错误、截断、拒绝或缺少中文正文均作为失败进入后备；X 仅保存正文，不生成精读摘要。
+- API 管理只保留 DeepSeek 与 OpenCode Go 订阅；Go 沿用原 OpenCode 的 `OPENCODE_API_KEY`（环境变量优先，否则 Keychain）。目录为 `https://opencode.ai/inference/go/v1/models`，测试及翻译为 `https://opencode.ai/inference/go/openai/v1/chat/completions`。旧 HTTP 服务商标识 `opencode` 通过 `canonical_provider()` 映射到 `opencode-go`，包括密钥路由、模型目录与测试，避免旧客户端继续调用按量入口。
+- Go 请求以本应用 User-Agent 标识，每次翻译或连接测试生成独立的 `x-opencode-session`；SDK 不自动重试，单次翻译内使用同一会话标识。`_pi_subprocess_env()` 不再读取并注入 API 管理的 Keychain 密钥，Pi 的自身登录、用户显式设置的父进程环境仍有效。Pi provider 名称不参与 HTTP 旧标识迁移，用户的功能模型选择与 Pi 凭据不被改写。按[官方 Go 接口](https://opencode.ai/v2/docs/console/go/)接入，订阅权限、额度和流量限制以服务端响应为准。
+- Go HTTP 目录仅提供 Chat Completions 支持项：有 `api` 元数据时必须含 `chat-completions`，兼容旧目录缺少元数据的情况。Pi 的模型目录支持其他协议，不受此过滤影响。
+
+- OpenCode Go 与 Jev 的手动目录请求使用 `model_apis.MODEL_CATALOG_TIMEOUT_SECONDS`（25秒），作用于 urllib 的阻塞网络操作，包含 HTTPS 握手，不是整个请求的总时限。`managed_api_snapshot()` 区分 `connection_timeout`（含 `URLError.reason` 包装的超时）、HTTP 已知原因、`network_error`、`response_parse_failed` 及 `key_read_failed`；模型接口继续返回 `error=models_unavailable`，增加 `reason` 与适用的 `upstream_status / retry_after_seconds`，超时返回504，其余目录失败返回502。页面沿用原状态提示，不回显原始异常或响应。
+- `model_apis.API_PROVIDERS` 统一登记目录、测试、密钥名、模型路径和翻译地址。DeepSeek 与 OpenCode Go 支持正文翻译，Jev 使用专用判断协议，不进入翻译链路。Jev 配置仍保存于 `api_models.jev.model`，仅设置入口移到新闻分类。`model_apis.is_hidden_model()` 在 HTTP、Pi 及日报临时模型目录统一过滤 OpenCode／OpenCode Go 免费项（名称、Big Pickle 别名或零价格元数据），只影响候选目录；其他服务商及已有配置不变。过滤后空目录仍表示读取成功。
+- `llm.translation.provider` 指定首选 DeepSeek／OpenCode Go；旧 `opencode` 自动归并到 Go。`fallback_enabled` 控制另一直连 API，`pi_fallback_enabled` 控制最后一级 Pi，旧设置缺省均为 true。DeepSeek 模型仍为 `llm.translation.model`，Go 为 `api_models.opencode-go.model`。`normalize_api_models()` 把旧 `api_models.opencode.model` 迁入 Go，已有非空 Go 模型优先；输出移除旧入口，归并后清空模型不会恢复旧值。旧客户端省略配置时保留已保存的设置。
+- `app.generate_news_translation()` 在每次任务开始时固定配置快照，先尝试首选 HTTP API，失败后按开关、按 `TRANSLATION_PROVIDERS` 顺序尝试其余 API（DeepSeek、OpenCode Go，跳过首选），最后才尝试快照内 `llm.pi_chat` 的 Pi 模型，与 Chat 当前 Runtime 无关。`llm_client._generate_translation()` 用 OpenAI 兼容 SDK 发送提示词与正文：DeepSeek 保留严格函数参数协议，Go 使用 JSON 文本响应。请求禁用 SDK 内部重试，正文翻译120秒、含精读180秒超时。调用失败、结构错误、截断、拒绝或缺少中文正文均作为失败进入后备；X 仅保存正文，不生成精读摘要。
 - 只有校验成功后才写入 `article_ai`；`raw_json.translation_route` 记录首选、实际成功服务、是否后备及各次尝试的脱敏错误码。全部失败时任务为 failed，原文和已有译文不改写，可手动重试；保存新设置不重新生成已有译文。外部错误正文、密钥不写入任务错误或结果。其他使用 DeepSeek 的 X 评论总结及旧接口不跟随正文翻译的首选与后备配置。
 
 

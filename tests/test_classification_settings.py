@@ -16,14 +16,14 @@ def test_legacy_settings_migrate_without_losing_model_or_scope(tmp_path, monkeyp
     legacy = {'api_models': {'jev': {'model': 'jev-custom', 'concurrency': 12, 'unread_only': True}}}
     path.write_text(json.dumps(legacy))
     loaded = settings.load_app_settings()
-    assert loaded['api_models'] == {'jev': {'model': 'jev-custom'}, 'opencode': {'model': ''}}
+    assert loaded['api_models'] == {'jev': {'model': 'jev-custom'}, 'opencode-go': {'model': ''}}
     assert loaded['classification'] == {'enabled': True, 'concurrency': 12, 'unread_only': True}
     legacy['classification'] = {'enabled': False, 'concurrency': 3, 'unread_only': False}
     path.write_text(json.dumps(legacy))
     loaded = settings.load_app_settings()
     assert loaded['classification'] == legacy['classification']
     settings.save_app_settings(loaded)
-    assert json.loads(path.read_text())['api_models'] == {'jev': {'model': 'jev-custom'}, 'opencode': {'model': ''}}
+    assert json.loads(path.read_text())['api_models'] == {'jev': {'model': 'jev-custom'}, 'opencode-go': {'model': ''}}
     assert settings.load_app_settings()['classification'] == legacy['classification']
 
 
@@ -40,7 +40,7 @@ def test_switch_persists_applies_live_and_survives_api_only_writes_and_restart(a
         'llm': body['llm'], 'api_models': {'jev': {'model': 'jev-next'}},
     })
     assert result.status_code == 200 and result.json['classification'] == config
-    assert result.json['api_models'] == {'jev': {'model': 'jev-next'}, 'opencode': {'model': ''}}
+    assert result.json['api_models'] == {'jev': {'model': 'jev-next'}, 'opencode-go': {'model': ''}}
     assert client.get('/api/news/classification').json['enabled'] is False
     assert client.post('/api/news/classification/retry').status_code == 409
     app = importlib.reload(app)

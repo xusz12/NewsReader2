@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=pi-model-settings-2";
+import { SettingsPanel } from "./settings-panel.js?v=opencode-go-subscription-2";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
 import { ReportPanel } from "./report-panel.js?v=report-windows-edit-1";

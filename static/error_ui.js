@@ -10,7 +10,7 @@
   register('model', 'api_test_timeout', '模型连接测试超时。');
   register('input', 'invalid_api_models', 'API 模型配置格式无效。');
   register('input', 'invalid_translation_fallback', '翻译后备选项必须为开启或关闭。');
-  register('input', 'unsupported_translation_provider', '请选择 DeepSeek 或 OpenCode 作为首选翻译服务。');
+  register('input', 'unsupported_translation_provider', '请选择 DeepSeek 或 OpenCode Go 订阅作为首选翻译服务。');
   register('input', 'invalid_translation_model', '翻译模型名称格式无效。');
   register('model', 'TRANSLATION_PROVIDERS_FAILED', '启用的翻译服务均未完成翻译，请在 API 管理中检查密钥与模型后重试。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');

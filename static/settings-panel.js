@@ -613,7 +613,8 @@ export class SettingsPanel {
   }
   translationOrder(settings = this.draft) {
     const config = settings.llm.translation, preferred = config.provider || "deepseek";
-    return [preferred, ...(config.fallback_enabled !== false ? [preferred === "deepseek" ? "opencode" : "deepseek"] : []),
+    const others = settings.api_providers.filter(p => p.translation_base_url && p.id !== preferred).map(p => p.id);
+    return [preferred, ...(config.fallback_enabled !== false ? others : []),
       ...(config.pi_fallback_enabled !== false ? ["pi"] : [])];
   }
   translationRoutingHTML() {
@@ -628,8 +629,8 @@ export class SettingsPanel {
   updateTranslationRoute() {
     const description = $("#translationRouteDescription");
     if (!description) return;
-    const order = this.translationOrder(), labels = {deepseek:"DeepSeek", opencode:"OpenCode", pi:"Pi"};
-    const missing = order.filter(p => p !== "pi" && (!this.draft.api_status?.[p]?.configured || (p === "opencode" && !get(this.draft, this.apiConfig(p).model_path)?.trim())));
+    const order = this.translationOrder(), labels = {pi:"Pi", ...Object.fromEntries(this.draft.api_providers.map(p => [p.id, p.label]))};
+    const missing = order.filter(p => p !== "pi" && (!this.draft.api_status?.[p]?.configured || (p !== "deepseek" && !get(this.draft, this.apiConfig(p).model_path)?.trim())));
     description.textContent = `调用顺序：${order.map(p => labels[p]).join(" → ")}。${missing.length ? `${missing.map(p => labels[p]).join("、")} 尚未配置密钥或模型，无法调用。` : ""}`;
   }
   apiUsageHTML() {
@@ -689,8 +690,8 @@ export class SettingsPanel {
     return `<div class="section-card-title"><span id="apiTitle-${provider}" tabindex="-1">${e(config.label)}</span><span class="muted">${configured ? "已配置密钥" : "未配置密钥"}</span></div>
       <div class="field-item"><span class="field-label">使用位置</span><p class="muted">${e(config.description)}</p></div>
       <div class="field-item"><span class="field-label">失效后</span><p class="muted">${e(config.fallback || "失败后可重试。")}</p></div>
-      ${config.docs_url ? `<p class="muted"><a href="${e(config.docs_url)}" target="_blank" rel="noopener noreferrer">OpenCode API 文档</a></p>` : ""}
-      <div class="translation-model-row">${select(config.translation_base_url ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : provider === "opencode" ? "请选择模型" : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" ${action("translationModelsBtn")} type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
+      ${config.docs_url ? `<p class="muted"><a href="${e(config.docs_url)}" target="_blank" rel="noopener noreferrer">${e(config.label)} API 文档</a></p>` : ""}
+      <div class="translation-model-row">${select(config.translation_base_url ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : provider !== "deepseek" ? "请选择模型" : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" ${action("translationModelsBtn")} type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
       <p class="muted" id="${id("translationStatus")}" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
@@ -748,7 +749,7 @@ export class SettingsPanel {
       ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}], null)}</div>
       ${codex ? `<div class="form-group-grid">${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认")}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认")}</div>
       <details id="modelAdvanced" data-feature="${this.modelFeature}" ${this.modelAdvanced.get(this.modelFeature)?'open':''}><summary class="reader-tool-btn">高级设置</summary><div class="section-stack">${field("自定义模型",paths.codex+".model",custom,'maxlength="120"')}<div class="form-group-grid">${field("服务商覆盖",paths.codex+".provider",d.codex.provider)}${field("Profile",paths.codex+".profile",d.codex.profile)}</div></div></details>`
-      : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div><p class="muted">Pi 可复用 API 管理中的 OpenCode 密钥：opencode 按量付费，opencode-go 需要 Go 订阅。两个入口同时出现不代表已开通 Go。</p>`}
+      : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div><p class="muted">Pi 使用自身的登录或环境配置。使用 Go 订阅时，请在 Pi 中登录 opencode-go；API 管理中的密钥仅用于正文翻译。</p>`}
       <div class="button-row"><button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><button class="btn-primary" id="testConnectionBtn" type="button" ${this.canTestModel()?'':'disabled'}>${this.testing?'测试中…':'运行连接测试'}</button></div>
       <p class="muted" id="modelsNotice" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="connTestTerminal" role="status" ${this.connectionResult?'':'hidden'}>${e(this.connectionResult || "")}</div>
       ${this.modelFeature === "chat" ? `<div class="form-group-grid">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div><button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>` : ""}`;
@@ -1092,10 +1093,6 @@ export class SettingsPanel {
     for (const settings of [this.saved, this.draft]) {
       settings.api_status[provider] = clone(data.api_status[provider]);
       settings.model_catalogs[catalogKey] = clone(data.model_catalogs[catalogKey]);
-      if (provider === "opencode" && data.model_catalogs.pi_chat) settings.model_catalogs.pi_chat = clone(data.model_catalogs.pi_chat);
-    }
-    if (provider === "opencode" && data.model_catalogs.pi_chat && !data.model_catalogs.pi_chat.error) {
-      this.catalogs.set(this.catalogKey("pi"), clone(data.model_catalogs.pi_chat));
     }
     const state = this.apiState(provider);
     state.catalog = null;

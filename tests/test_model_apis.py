@@ -34,9 +34,9 @@ class Reply:
 def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, tmp_path):
     app, client, _ = api_fixture
     initial = client.get('/api/settings').json
-    assert initial['api_models'] == {'jev': {'model': ''}, 'opencode': {'model': ''}}
+    assert initial['api_models'] == {'jev': {'model': ''}, 'opencode-go': {'model': ''}}
     assert initial['classification'] == {'enabled': True, 'concurrency': 8, 'unread_only': False}
-    assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev', 'opencode']
+    assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev', 'opencode-go']
     assert initial['api_status']['jev']['configured'] is False
     assert initial['model_catalogs']['jev']['options'] == []
     initial['api_models']['jev']['model'] = ' jev-custom '
@@ -145,7 +145,7 @@ def test_jev_catalog_uses_native_names_and_bearer(api_fixture, monkeypatch):
 
 @pytest.mark.parametrize('provider,model,answer,url', [
     ('jev', '', {'answers': {'connection_check': {'type': 'noul', 'noul': .98}}}, 'https://api.typesafe.ai/v1/systemone'),
-    ('opencode', 'chosen-opencode', {'choices': [{'message': {'content': 'OK'}}]}, 'https://opencode.ai/inference/openai/v1/chat/completions'),
+    ('opencode-go', 'chosen-opencode', {'choices': [{'message': {'content': 'OK'}}]}, 'https://opencode.ai/inference/go/openai/v1/chat/completions'),
     ('deepseek', 'chosen-deepseek', {'choices': [{'message': {'content': 'OK'}}]}, 'https://api.deepseek.com/beta/chat/completions'),
 ])
 def test_shared_probe_dispatches_native_protocol_without_saving(api_fixture, monkeypatch, provider, model, answer, url):
@@ -222,49 +222,49 @@ def test_opencode_model_and_key_survive_legacy_client_writes(api_fixture, monkey
     from settings import resolve_app_settings_path
     app, client, secrets = api_fixture
     settings = client.get('/api/settings').json
-    settings['api_models']['opencode']['model'] = ' custom-model '
+    settings['api_models']['opencode-go']['model'] = ' custom-model '
     saved = client.put('/api/settings', json={'llm': settings['llm'], 'api_models': settings['api_models']})
     assert saved.status_code == 200
-    assert saved.json['api_models']['opencode']['model'] == 'custom-model'
+    assert saved.json['api_models']['opencode-go']['model'] == 'custom-model'
     key = 'open-test-secret-middle-1234'
-    result = client.put('/api/settings/secrets/opencode', json={'key': key})
+    result = client.put('/api/settings/secrets/opencode-go', json={'key': key})
     assert result.status_code == 200
     assert secrets == {'OPENCODE_API_KEY': key}
-    assert result.json['api_status']['opencode']['masked_key'] == 'open••••••••1234'
+    assert result.json['api_status']['opencode-go']['masked_key'] == 'open••••••••1234'
     assert result.json['api_status']['jev']['configured'] is False
     assert key not in result.text
     legacy = client.put('/api/settings', json={'llm': settings['llm'], 'api_models': {'jev': {'model': 'jev-next'}}})
-    assert legacy.json['api_models']['opencode']['model'] == 'custom-model'
+    assert legacy.json['api_models']['opencode-go']['model'] == 'custom-model'
     assert key not in resolve_app_settings_path().read_text()
     monkeypatch.setenv('OPENCODE_API_KEY', 'environment-key')
-    assert app.provider_secret_value('opencode') == 'environment-key'
-    removed = client.delete('/api/settings/secrets/opencode')
+    assert app.provider_secret_value('opencode-go') == 'environment-key'
+    removed = client.delete('/api/settings/secrets/opencode-go')
     assert removed.status_code == 200 and secrets == {}
-    assert removed.json['api_status']['opencode']['configured'] is True
-    assert removed.json['api_status']['opencode']['environment_override'] is True
-    assert removed.json['api_models']['opencode']['model'] == 'custom-model'
+    assert removed.json['api_status']['opencode-go']['configured'] is True
+    assert removed.json['api_status']['opencode-go']['environment_override'] is True
+    assert removed.json['api_models']['opencode-go']['model'] == 'custom-model'
 
 
 def test_opencode_catalog_and_explicit_model_selection(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'test-key'
     # No arbitrary paid model is silently selected for a connection test.
-    result = client.post('/api/settings/apis/opencode/test', json={})
+    result = client.post('/api/settings/apis/opencode-go/test', json={})
     assert result.status_code == 400 and result.json['error'] == 'invalid_model'
     calls = []
     def models(request, timeout):
         calls.append(request)
         return Reply({'data': [{'id': 'model-a'}, {'id': 'model-b'}, {'id': 'model-a'}, {'id': 2}, None]})
     monkeypatch.setattr(app, 'urlopen', models)
-    result = client.post('/api/settings/apis/opencode/models', json={})
+    result = client.post('/api/settings/apis/opencode-go/models', json={})
     assert result.status_code == 200
     assert [r['value'] for r in result.json['catalog']['options']] == ['model-a', 'model-b']
-    assert calls[0].full_url == 'https://opencode.ai/inference/v1/models'
+    assert calls[0].full_url == 'https://opencode.ai/inference/go/v1/models'
     assert calls[0].get_header('Authorization') == 'Bearer test-key'
 
 
 def test_opencode_catalog_hides_free_models_and_preserves_paid_ids():
-    options = model_apis.parse_model_options('opencode', {'data': [
+    options = model_apis.parse_model_options('opencode-go', {'data': [
         {'id': 'big-pickle'}, {'id': 'example-free'},
         {'id': 'zero-priced', 'cost': {'text': {'input': {'price': 0}, 'output': {'price': 0}}}},
         {'id': 'paid-model', 'cost': {'text': {'input': {'price': .1}, 'output': {'price': 1}}}},
@@ -273,22 +273,22 @@ def test_opencode_catalog_hides_free_models_and_preserves_paid_ids():
     assert [item['value'] for item in options] == ['paid-model', 'unknown-cost', 'missing-price']
     assert all(item['label'] == item['value'] for item in options)
     assert model_apis.parse_model_options('deepseek', {'data': [{'id': 'example-free'}]})[0]['label'] == 'example-free'
-    assert model_apis.parse_model_options('opencode', {'data': [{'id': 'jev-free', 'type': 'systemone'}]}) == []
+    assert model_apis.parse_model_options('opencode-go', {'data': [{'id': 'jev-free', 'type': 'systemone'}]}) == []
 
 
 def test_filtered_empty_catalog_succeeds_without_restoring_saved_free_model(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'isolated-key'
     settings = app.load_app_settings()
-    settings['api_models']['opencode']['model'] = 'big-pickle'
+    settings['api_models']['opencode-go']['model'] = 'big-pickle'
     app.save_app_settings(settings)
     monkeypatch.setattr(app, 'urlopen', lambda *args, **kwargs: Reply({'data': [{'id': 'big-pickle'}, {'id': 'example-free'}]}))
-    response = client.post('/api/settings/apis/opencode/models', json={})
+    response = client.post('/api/settings/apis/opencode-go/models', json={})
     assert response.status_code == 200
     assert response.json['service']['models_endpoint_reachable'] is True
     assert response.json['catalog']['options'] == []
-    assert app.managed_api_snapshot('opencode', 'big-pickle')['catalog']['options'] == []
-    assert app.load_app_settings()['api_models']['opencode']['model'] == 'big-pickle'
+    assert app.managed_api_snapshot('opencode-go', 'big-pickle')['catalog']['options'] == []
+    assert app.load_app_settings()['api_models']['opencode-go']['model'] == 'big-pickle'
 
 
 def test_pi_catalog_hides_only_opencode_free_candidates(api_fixture):
@@ -326,7 +326,7 @@ def test_probe_429_distinguishes_limit_types_without_leaking_response(api_fixtur
         body = {'error': {'type': upstream_type, 'message': 'PRIVATE_KEY account@example.com usage limit exhausted'}}
         raise HTTPError(request.full_url, 429, 'PRIVATE_KEY', headers, io.BytesIO(json.dumps(body).encode()))
     monkeypatch.setattr(app, 'urlopen', fail)
-    response = client.post('/api/settings/apis/opencode/test', json={'model': 'selected-model'})
+    response = client.post('/api/settings/apis/opencode-go/test', json={'model': 'selected-model'})
     assert response.status_code == 502
     assert response.json['reason'] == reason
     assert response.json['upstream_status'] == 429
@@ -404,12 +404,12 @@ def test_opencode_catalog_and_probe_work_when_default_urllib_signature_is_reject
         assert caught.value.code == 403
         caught.value.close()
         monkeypatch.setattr(app, 'urlopen', transport)
-        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode'], 'models_url', address + '/models')
-        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode'], 'test_url', address + '/chat/completions')
-        catalog = client.post('/api/settings/apis/opencode/models', json={})
+        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address + '/models')
+        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'test_url', address + '/chat/completions')
+        catalog = client.post('/api/settings/apis/opencode-go/models', json={})
         assert catalog.status_code == 200
         assert [row['value'] for row in catalog.json['catalog']['options']] == ['test-model']
-        probe = client.post('/api/settings/apis/opencode/test', json={'model': 'test-model'})
+        probe = client.post('/api/settings/apis/opencode-go/test', json={'model': 'test-model'})
         assert probe.status_code == 200
         assert requests[1:] == [('GET', 'Bearer isolated-key'), ('POST', 'Bearer isolated-key')]
         assert 'isolated-key' not in catalog.text + probe.text
@@ -427,7 +427,7 @@ def test_opencode_failures_are_redacted_and_leave_settings_intact(api_fixture, m
     def fail(*a, **kw): raise failure
     monkeypatch.setattr(app, 'urlopen', fail)
     for action in ('test', 'models'):
-        result = client.post(f'/api/settings/apis/opencode/{action}', json={'model': 'chosen-model'})
+        result = client.post(f'/api/settings/apis/opencode-go/{action}', json={'model': 'chosen-model'})
         assert result.status_code in (502, 504)
         assert result.json['ok'] is False
         assert 'PRIVATE_KEY' not in result.text
@@ -438,19 +438,19 @@ def test_opencode_failures_are_redacted_and_leave_settings_intact(api_fixture, m
 def test_invalid_opencode_config_is_atomic(api_fixture, value):
     app, client, _ = api_fixture
     before = app.load_app_settings()
-    result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'opencode': value}})
+    result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'opencode-go': value}})
     assert result.status_code == 400
     assert app.load_app_settings() == before
 
 
-def test_managed_opencode_key_reaches_pi_and_preserves_environment_precedence(monkeypatch):
+def test_managed_go_key_does_not_enable_pi_providers_and_preserves_explicit_environment(monkeypatch):
     import os
     import llm_client
     monkeypatch.delenv('OPENCODE_API_KEY', raising=False)
     monkeypatch.setenv('PI_PACKAGE_DIR', '/incompatible/runtime')
     monkeypatch.setattr(llm_client, 'read_secret', lambda name: 'stored-key' if name == 'OPENCODE_API_KEY' else None)
     env = llm_client._pi_subprocess_env()
-    assert env['OPENCODE_API_KEY'] == 'stored-key'
+    assert 'OPENCODE_API_KEY' not in env
     assert 'PI_PACKAGE_DIR' not in env
     assert 'OPENCODE_API_KEY' not in os.environ
     monkeypatch.setenv('OPENCODE_API_KEY', 'environment-key')
@@ -461,7 +461,7 @@ def test_managed_opencode_key_reaches_pi_and_preserves_environment_precedence(mo
     assert 'OPENCODE_API_KEY' not in llm_client._pi_subprocess_env()
 
 
-def test_pi_report_and_connection_transports_receive_managed_key(tmp_path, monkeypatch):
+def test_pi_report_and_connection_transports_do_not_receive_managed_key(tmp_path, monkeypatch):
     import sys
     import llm_client
     import report_model
@@ -470,7 +470,7 @@ def test_pi_report_and_connection_transports_receive_managed_key(tmp_path, monke
     monkeypatch.setattr(llm_client, 'read_secret', lambda _: 'isolated-managed-key')
     script = tmp_path / 'pi_transport.py'
     script.write_text('''import sys, json, os
-assert os.environ.get('OPENCODE_API_KEY') == 'isolated-managed-key'
+assert 'OPENCODE_API_KEY' not in os.environ
 request = sys.stdin.read()
 if request.startswith('{'):
     if json.loads(request).get('action') == 'metadata':
@@ -483,6 +483,6 @@ else:
 ''')
     monkeypatch.setattr(report_model, 'pi_command', lambda: [sys.executable, str(script)])
     assert report_model.pi_metadata({'action': 'metadata'})['maxTokens'] == 1000
-    assert report_model.run({'runtime':'pi','provider':'opencode','model':'test-model'}, 'prompt', timeout=5) == 'transport-ok'
+    assert report_model.run({'runtime':'pi','provider':'opencode-go','model':'test-model'}, 'prompt', timeout=5) == 'transport-ok'
     monkeypatch.setattr(connection_tests, 'pi_command', lambda _: [sys.executable, str(script)])
-    connection_tests.run_pi({'provider':'opencode','model':'test-model'})
+    connection_tests.run_pi({'provider':'opencode-go','model':'test-model'})

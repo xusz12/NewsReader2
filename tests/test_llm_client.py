@@ -10,7 +10,7 @@ import pytest
 
 def _install_fake_openai(monkeypatch, create_impl):
     class FakeOpenAI:
-        def __init__(self, api_key=None, base_url=None, max_retries=0):
+        def __init__(self, api_key=None, base_url=None, max_retries=0, default_headers=None):
             self.chat = types.SimpleNamespace(
                 completions=types.SimpleNamespace(create=create_impl)
             )
