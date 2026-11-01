@@ -1,4 +1,4 @@
-import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast } from "./ui.js";
+import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
 import { selectField } from "./form-controls.js";
@@ -29,9 +29,9 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
 };
 import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=report-windows-edit-1";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
-const dateText = value => {
+const dateText = (value, full = false) => {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "时间无效" : new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
+  return Number.isNaN(date.getTime()) ? "时间无效" : new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", ...(full ? {year:"numeric"} : {}), month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
 };
 const emphasis = p => {
   const at = p.emphasis ? p.text.indexOf(p.emphasis) : -1;
@@ -51,6 +51,13 @@ export class ReportPanel {
     this.errorNotifications = new Map();
     this.creation = null; this.expandedGroups = new Map(); this.groupSizes = new Map();
     this.content = $("#reportContent");
+    $("#copyReportBtn").onclick = event => {
+      const button = event.currentTarget, focused = document.activeElement === button;
+      return busy(button, () => this.copyReport()).finally(() => {
+        if (focused && document.activeElement === document.body && button.isConnected && !button.hidden && this.isVisible())
+          button.focus({preventScroll:true});
+      });
+    };
     this.creationHost = $("#reportCreationPopover");
     this.popover = new AnchoredPopover({panel:this.creationHost, trigger:$("#createReportBtn"),
       owns:target => this.creationHost.contains(this.selects.button) && this.selects.menu.contains(target),
@@ -231,11 +238,10 @@ export class ReportPanel {
     }
   }
   cardMarkup(row) {
-    const period = row.kind === "monthly" ? row.period_start.slice(0,7) : row.kind === "weekly" || row.kind === "custom"
-      ? `${dateText(row.period_start).slice(0,5)} — ${dateText(new Date(new Date(row.period_end).getTime()-1)).slice(0,5)}` : dateText(row.period_end).slice(0,5);
+    const executed = row.started_at ? dateText(row.started_at) : row.status === "pending" ? "等待执行" : "未记录执行时间";
     return `<button class="news-card ${row.id === this.selected ? "is-active active" : ""}" type="button" data-report-id="${e(row.id)}" aria-current="${row.id === this.selected}">
-      <span class="news-card-meta"><span class="meta-source-box">${e(row.kind_label)}${originText(row)}</span><span class="card-time">${e(period)}</span></span>
-      <span class="news-card-title">${e(row.title)}</span>${row.excerpt ? `<span class="news-card-snippet">${e(row.excerpt)}</span>` : ""}
+      <span class="news-card-meta"><span class="meta-source-box">${e(row.kind_label)}${originText(row)}</span><span class="card-time" title="执行时间（北京时间）">${e(executed)}</span></span>
+      <span class="news-card-title">${e(row.title)}</span>
       ${row.model_label ? `<span class="news-card-meta">${e(row.model_label)}</span>` : ""}
       ${row.status !== "done" ? `<span class="news-card-snippet ${row.error && row.status !== 'skipped'?'error-state':''}">${e(row.error ? `${statusText(row)} · ${failureText(row)}` : row.status === 'running' ? progressText(row) : statusText(row))}</span>` : ""}</button>`;
   }
@@ -267,6 +273,7 @@ export class ReportPanel {
     const report = this.details;
     $("#reportToolbarTitle").textContent = report ? report.kind_label + originText(report) : kindLabels[this.kind];
     $("#retryReportBtn").hidden = report?.status !== "failed";
+    $("#copyReportBtn").hidden = report?.status !== "done";
     $("#deleteReportBtn").hidden = !report;
     $("#deleteReportBtn").disabled = report?.status === "running";
     $("#deleteReportBtn").title = report?.status === "running" ? "正在生成，完成后可删除" : "删除报告";
@@ -285,17 +292,33 @@ export class ReportPanel {
     const hasContent = content.sections.length || briefs.length;
     const metadata = [content.sections.length ? `${content.sections.length}个主题` : "", briefs.length ? `${briefs.length}条简讯` : "", hasContent ? `约${content.reading_minutes}分钟` : ""].filter(Boolean).join(" · ");
     this.content.innerHTML = `<header class="article-header report-masthead"><div class="article-meta-top"><span class="report-edition">${e(report.kind_label)}${originText(report)}</span><span>${e(metadata)}</span></div><h1 class="article-title">${e(report.title)}</h1><div class="article-meta-bottom"><span>${e(dateText(report.period_start))} — ${e(dateText(report.period_end))}</span><span>北京时间</span></div>${this.modelMarkup(report)}</header>` +
-      (content.overview.length ? `<div class="report-overview article-body"><ul>${content.overview.map(point => `<li>${e(point.text)}</li>`).join("")}</ul></div>` : "") +
       content.sections.map((section,index) => {
         const refs = [...new Set(section.paragraphs.flatMap(p => p.refs))];
         return `<section class="report-section" aria-labelledby="report-section-${index}"><div class="report-heading"><span class="report-number" aria-hidden="true">${String(index+1).padStart(2,"0")}</span><h2 class="reader-section-heading ${index === 0 ? "reader-section-heading--lead" : ""}" id="report-section-${index}">${e(section.title)}</h2></div><div class="article-body">${section.paragraphs.map(p => `<p>${emphasis(p)}</p>`).join("")}</div>${sourceMarkup(refs,sources)}</section>`;
       }).join("") + (briefs.length ? `<section class="report-section" aria-labelledby="report-briefs"><div class="report-heading"><h2 class="reader-section-heading" id="report-briefs">简讯</h2></div><div class="article-body"><ul>${briefs.map(brief=>`<li>${e(brief.text)}</li>`).join("")}</ul></div>${sourceMarkup([...new Set(briefs.flatMap(brief=>brief.refs))],sources)}</section>` : "") +
       (!hasContent ? '<div class="reader-empty"><p>本期暂无符合条件的新闻。</p></div>' : "") + '<footer class="report-end">本期完</footer>';
   }
-  modelMarkup(report) {
+  async copyReport() {
+    const report = this.details;
+    if (report?.status !== "done") return;
+    const {sections, briefs = [], sources = []} = report.content;
+    const text = [report.title, report.kind_label + originText(report),
+      `${dateText(report.period_start, true)} — ${dateText(report.period_end, true)} · 北京时间`,
+      this.modelMetadata(report, true).join(" · "),
+      ...sections.map((section, index) => `${String(index+1).padStart(2,"0")} ${section.title}\n\n${section.paragraphs.map(p=>p.text).join("\n\n")}`),
+      briefs.length ? `简讯\n\n${briefs.map(brief=>"• "+brief.text).join("\n\n")}` : "",
+      sources.length ? `来源\n\n${sources.map((source,index)=>`${index+1}. ${source.title}\n${source.source_name} · ${dateText(source.published_at, true)}${source.url && safeURL(source.url) ? "\n"+safeURL(source.url) : ""}`).join("\n\n")}` : "",
+      !sections.length && !briefs.length ? "本期暂无符合条件的新闻。" : "", "本期完"
+    ].filter(Boolean).join("\n\n");
+    toast(await copyText(text) ? "已复制报告全文" : "复制失败，请重试或手动选择正文复制");
+  }
+  modelMetadata(report, full = false) {
     const seconds = Number.isFinite(report.generation_seconds) ? Math.round(report.generation_seconds) : null;
     const duration = seconds === null || report.status !== "done" ? "" : `生成用时 ${seconds < 1 ? "不足 1 秒" : seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds/60)} 分 ${seconds%60} 秒`}`;
-    const parts = [report.model_label, duration, report.snapshot_captured_at ? `取材于 ${dateText(report.snapshot_captured_at)}` : ""].filter(Boolean);
+    return [report.model_label, duration, report.snapshot_captured_at ? `取材于 ${dateText(report.snapshot_captured_at, full)}` : ""].filter(Boolean);
+  }
+  modelMarkup(report) {
+    const parts = this.modelMetadata(report);
     return parts.length ? `<div class="article-meta-bottom">${parts.map(part=>`<span>${e(part)}</span>`).join("")}</div>` : "";
   }
   progressMarkup(report) {

@@ -31,11 +31,12 @@ export function withClassificationBatch(progress) {
     ['total','done','pending','running','failed'].map(key=>[key, progress[key] || 0]))};
 }
 
-export async function choosePicker(page, name, label) {
-  await page.getByRole('combobox', {name, exact:true}).click();
+export async function choosePicker(page, name, label, feature) {
+  const scope = feature ? page.locator(`[data-model-feature="${feature}"]`) : page;
+  await scope.getByRole('combobox', {name, exact:true}).click();
   await page.getByRole('option', {name:label, exact:true}).click();
 }
-export async function openModelAdvanced(page) {
-  const advanced = page.locator('#modelAdvanced');
+export async function openModelAdvanced(page, feature = "chat") {
+  const advanced = page.locator(feature === "chat" ? "#modelAdvanced" : `#modelAdvanced-${feature}`);
   if (!await advanced.evaluate(node=>node.open)) await advanced.locator('summary').click();
 }

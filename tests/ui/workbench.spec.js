@@ -203,7 +203,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).toBeVisible();
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   await page.locator('[name="agent.codex.provider"]').fill("fixture-provider");
   await page.locator('[name="agent.codex.profile"]').fill("test-profile");
@@ -225,7 +225,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
     }),
   );
   await page.locator("#refreshModelsBtn").click();
-  await page.getByRole('combobox', { name: '模型', exact: true }).click();
+  await page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '模型', exact: true }).click();
   await page.getByRole('option', { name: 'Model A', exact: true }).click();
   await expect(
     page.locator('select[name="agent.codex.reasoning_effort"] option'),
@@ -548,7 +548,7 @@ test("late catalog and connection results cannot replace a changed draft", async
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   let releaseCatalog;
   const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
@@ -649,7 +649,7 @@ test("failed settings save keeps draft and allows retry", async ({ page }) => {
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   await page.locator('[name="agent.codex.profile"]').fill("unsaved-draft");
   await page.route("**/api/settings", (route) =>
@@ -777,7 +777,7 @@ test("settings navigation preserves unsaved fields and the reading position", as
     .evaluate((node) => node.scrollTop);
   await page.locator("#leftNavSettingsBtn").click();
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   await page.locator('[name="agent.codex.profile"]').fill("three-column-draft");
   await page.locator('[data-settings-tab="deepseek"]').click();

@@ -21,10 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=opencode-go-subscription-2";
+import { SettingsPanel } from "./settings-panel.js?v=feature-sections-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
-import { ReportPanel } from "./report-panel.js?v=report-windows-edit-1";
+import { ReportPanel } from "./report-panel.js?v=report-copy-1";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=report-layout-1";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";

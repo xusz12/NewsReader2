@@ -121,6 +121,24 @@ export async function busy(button, work) {
     }
   }
 }
+export async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* Fall back when clipboard permission or HTTPS is unavailable. */ }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.style.cssText = "position:fixed;left:-9999px;top:0";
+  const previous = document.activeElement;
+  document.body.appendChild(area);
+  area.select();
+  try { return !!document.execCommand?.("copy"); }
+  catch { return false; }
+  finally { area.remove(); previous?.focus({ preventScroll: true }); }
+}
 export function storage(key, fallback) {
   try {
     return localStorage.getItem(key) ?? fallback;

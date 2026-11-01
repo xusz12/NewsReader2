@@ -14,7 +14,7 @@ def source(number, title="关键进展", **extra):
 
 
 def edition(refs):
-    return {"overview": [], "sections": [{"title": "主要变化", "paragraphs": [
+    return {"sections": [{"title": "主要变化", "paragraphs": [
         {"text": "本期关键进展。", "emphasis": "", "refs": refs}]}], "briefs": [], "omitted": []}
 
 
@@ -127,3 +127,18 @@ def test_repair_cannot_replace_unrequested_correct_content():
 def test_empty_period_does_not_need_model_or_capacity():
     result = gen.generate({"kind": "evening", "sources": []}, {}, lambda *_: pytest.fail("No inference"), Checkpoints())
     assert result["reading_minutes"] == 0 and result["briefs"] == []
+
+
+def test_reports_do_not_require_or_preserve_an_overview(budget):
+    def model(config, prompt):
+        assert '"overview"' not in prompt
+        return gen.encoded(edition(["N00001"]))
+    result = gen.generate({"kind": "evening", "sources": [source(1)]}, budget, model, Checkpoints())
+    assert "overview" not in result
+    old = edition(["N00001"])
+    old["overview"] = [{"text": "旧导读" * 500, "refs": ["not-a-source"]}]
+    assert gen.validate_edition(old, [source(1)], "evening")["report"] == result
+    # An overview cannot satisfy the required coverage of news materials.
+    old["overview"] = [{"text": "旧导读", "refs": ["N00002"]}]
+    with pytest.raises(gen.InvalidReport):
+        gen.validate_edition(old, [source(1), source(2)], "evening")

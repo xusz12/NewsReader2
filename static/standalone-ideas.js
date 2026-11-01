@@ -1,5 +1,5 @@
 import { confirmAction } from "./confirm-dialog.js";
-import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, toast, copyText } from "./ui.js";
 import { IdeaMarkdownEditor } from "./vendor/idea-markdown-editor.js?v=0.0.15-md1";
 
 const markdownExamples = [
@@ -13,25 +13,6 @@ const markdownExamples = [
   ["链接", "[链接文字](https://example.com)"],
   ["代码块", "```\n代码内容\n```"],
 ];
-
-async function copyMarkdown(text) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch { /* Fall back for browsers without clipboard permission. */ }
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.readOnly = true;
-  area.style.cssText = "position:fixed;left:-9999px;top:0";
-  const previous = document.activeElement;
-  document.body.appendChild(area);
-  area.select();
-  try { return !!document.execCommand?.("copy"); }
-  catch { return false; }
-  finally { area.remove(); previous?.focus({ preventScroll: true }); }
-}
 
 export const standaloneTitle = idea =>
   idea.title?.trim() || idea.note?.trim().split("\n")[0].replace(/^#+\s*/, "").slice(0, 120) || "独立想法";
@@ -60,7 +41,7 @@ export class StandaloneIdeas {
       const button = event.target.closest("[data-markdown-example]");
       if (!button) return;
       const [label, snippet] = markdownExamples[Number(button.dataset.markdownExample)];
-      const copied = await copyMarkdown(snippet);
+      const copied = await copyText(snippet);
       if (!copied && button.isConnected) {
         const range = document.createRange();
         range.selectNodeContents(button.querySelector("code"));

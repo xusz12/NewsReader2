@@ -46,14 +46,13 @@ async function observe(page) {
 
 test.beforeEach(async({request})=>{await request.post('/__test/reports');});
 
-test('功能选择包含各功能，独立连接测试显示精简结果',async({page})=>{
+test('各功能展开显示，独立连接测试显示精简结果',async({page})=>{
   await page.route('**/api/settings/connection-test',route=>route.fulfill({json:{ok:true,status:'success',message:'本次模型请求成功。',elapsed_ms:42}}));
   await page.goto('/');await openSettings(page);await section(page,'models');
-  await page.getByRole('combobox',{name:'功能',exact:true}).click();
-  for(const text of ['Chat','主题追踪','新闻总结','日报']) await expect(page.getByRole('option',{name:text,exact:true})).toBeVisible();
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('combobox',{name:'功能',exact:true})).toHaveCount(0);
+  for(const feature of ['chat','topics','summaries','reports']) await expect(page.locator(`[data-model-feature="${feature}"]`)).toBeVisible();
   await page.locator('#testConnectionBtn').click();
-  await expect(page.locator('#connTestTerminal')).toContainText('[SUCCESS] 本次模型请求成功。');
+  await expect(page.locator('#connTestTerminal')).toContainText('本次模型请求成功。');
   await expect(page.locator('#connTestTerminal')).not.toContainText('不代表后续稳定或网页工具可用');
 });
 
@@ -202,7 +201,7 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   await expect(cleanup).toContainText('每 7 天');
   await expect(cleanup).toContainText('11/06 10:00');
   await section(page,'models');
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   await page.locator('input[name="agent.codex.model"]').fill('retain-this-model-draft');
   await section(page,'schedules');
@@ -392,7 +391,7 @@ test('同日窗口起止顺序与生成截止校验，窗口 Picker 刷新保留
 test('自动刷新保留设置草稿，离开分类后停止，失败保留最后成功状态',async({page})=>{
   const state=await observe(page);
   await section(page,'models');
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await openModelAdvanced(page);
   await page.locator('input[name="agent.codex.model"]').fill('unsaved-test-model');
   await section(page,'schedules');
@@ -434,7 +433,7 @@ test('迟到响应不覆盖已切换页面',async({page})=>{
   await page.goto('/');await openSettings(page);await section(page,'schedules');
   await expect(page.locator('#scheduleSettings')).toContainText('正在读取任务状态');
   await section(page,'models');release();
-  await expect(page.getByRole('combobox',{name:'功能',exact:true})).toBeVisible();
+  await expect(page.locator('[data-model-feature="reports"]')).toBeVisible();
   await expect(page.locator('#scheduleSettings')).toBeHidden();
 });
 

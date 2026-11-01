@@ -86,15 +86,8 @@ def validate_report(value, sources, kind):
     if not isinstance(value, dict):
         raise InvalidReport([{"path": "/", "reason": "报告必须是 JSON 对象"}])
     allowed = {source["ref"] for source in sources}
-    issues, overview, sections, briefs, used = [], [], [], [], set()
-    if not isinstance(value.get("overview"), list) or len(value["overview"]) > 3:
-        issues.append({"path": "/overview", "reason": "导读应为数组，最多三条"})
-    else:
-        for index, point in enumerate(value["overview"]):
-            try:
-                overview.append({"text": text_field(point.get("text")), "refs": refs_field(point.get("refs"), allowed)})
-            except (ValueError, AttributeError) as exc:
-                issues.append({"path": f"/overview/{index}", "reason": str(exc)})
+    # Old drafts may still contain overview; it is no longer part of a report.
+    issues, sections, briefs, used = [], [], [], set()
     if not isinstance(value.get("sections"), list):
         issues.append({"path": "/sections", "reason": "sections 必须是数组"})
     else:
@@ -127,16 +120,18 @@ def validate_report(value, sources, kind):
                 used.update(refs)
             except (ValueError, AttributeError) as exc:
                 issues.append({"path": f"/briefs/{index}", "reason": str(exc)})
-    if not issues and any(not set(point["refs"]) <= used for point in overview):
-        issues.append({"path": "/overview", "reason": "导读的来源必须同时出现在正文或简讯中"})
     if issues:
         raise InvalidReport(issues)
-    count = sum(len(p["text"]) for section in sections for p in section["paragraphs"])
-    count += sum(len(section["title"]) for section in sections) + sum(len(p["text"]) for p in overview + briefs)
-    return {"overview": overview, "sections": sections, "briefs": briefs,
+    return {"sections": sections, "briefs": briefs,
             "sources": [{k: v for k, v in source.items() if k not in {"body", "summary", "body_excerpt"}}
                         for source in sources if source["ref"] in used],
-            "reading_minutes": max(1, math.ceil(count / 300)) if sections or briefs else 0}
+            "reading_minutes": reading_minutes(sections, briefs)}
+
+
+def reading_minutes(sections, briefs):
+    count = sum(len(p["text"]) for section in sections for p in section["paragraphs"])
+    count += sum(len(section["title"]) for section in sections) + sum(len(p["text"]) for p in briefs)
+    return max(1, math.ceil(count / 300)) if sections or briefs else 0
 
 
 def validate_edition(value, sources, kind):
@@ -170,13 +165,13 @@ EDITOR = """你是用户的中文新闻编辑。只用输入新闻资料，不�
 """
 
 EDITION = """
-整理成适合扫读的报告。overview 最多三条短导读，帮助读者迅速抓住主线。
+整理成适合扫读的报告，直接呈现重点主题与简讯，不写简介、导读或总览。
 sections 只详述本期最值得展开的重点，每个主题用少量短段落；briefs 用一两句话保留值得知道的次重点。
 早午晚报以5—10分钟阅读为目标，周月报允许更充分的回顾；这是编辑目标，不是硬字数门槛。
 不设置固定主题数，不为凑篇幅删掉关键数字、条件、相反证据，不把无关事件硬塞在同一主题里。
 没有必要展开的新闻放入简讯；价值不足的新闻舍弃。简讯不要重复主题正文，也不要变成无差别标题清单。
-返回 {"overview":[{"text":"一句导读","refs":["N00001"]}],"sections":[{"title":"主题结论","paragraphs":[{"text":"正文","emphasis":"正文中的少量原文或空字符串","refs":["N00001"]}]}],"briefs":[{"text":"简讯","refs":["N00002"]}],"omitted":["N00003-N00020"]}。
-所有正文、简讯和导读都应有依据，导读的来源必须同时出现在正文或简讯中。不输出链接、HTML、Markdown或自造来源。
+返回 {"sections":[{"title":"主题结论","paragraphs":[{"text":"正文","emphasis":"正文中的少量原文或空字符串","refs":["N00001"]}]}],"briefs":[{"text":"简讯","refs":["N00002"]}],"omitted":["N00003-N00020"]}。
+所有正文和简讯都应有依据。不输出链接、HTML、Markdown或自造来源。
 每个输入编号必须出现在正文/简讯引用或 omitted 中，二者不能重叠。连续舍弃编号可压成 N00003-N00020 范围；不能包含本期不存在的编号。
 """
 
@@ -291,7 +286,7 @@ def generate(snapshot, config, call, checkpoint, progress=None):
     sources = snapshot["sources"]
     if not sources:
         progress("validating")
-        return validate_report({"overview": [], "sections": [], "briefs": []}, [], snapshot["kind"])
+        return validate_report({"sections": [], "briefs": []}, [], snapshot["kind"])
     context = encoded({key: value for key, value in snapshot.items() if key != "sources"})
     compact, duplicates = [], {}
     for source in sources:
@@ -339,7 +334,7 @@ def generate(snapshot, config, call, checkpoint, progress=None):
             raise RuntimeError("report_input_too_large")
     if not events:
         progress("validating")
-        return validate_report({"overview": [], "sections": [], "briefs": []}, sources, snapshot["kind"])
+        return validate_report({"sections": [], "briefs": []}, sources, snapshot["kind"])
     allowed = {ref for item in events for ref in item["refs"]}
     selected = [source for source in sources if source["ref"] in allowed]
     progress("writing")

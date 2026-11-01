@@ -24,7 +24,7 @@ async function settings(page, request, { model = 'catalog-a', many = false } = {
   await expect(page.locator('#modelSettings')).toBeVisible();
   return { saved, submitted: () => submitted };
 }
-const modelBox = page => page.getByRole('combobox', { name: '模型', exact: true });
+const modelBox = page => page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '模型', exact: true });
 const customModel = page => page.locator('input[name="agent.codex.model"]');
 
 test.describe('touch selection', () => {
@@ -45,7 +45,7 @@ test.describe('touch selection', () => {
 
 test('custom selects open only inside the visible field', async ({ page, request }) => {
   await settings(page, request);
-  async function checkField(name, scope = page) {
+  async function checkField(name, scope = page.locator('[data-model-feature="chat"]')) {
     const field = scope.getByRole('combobox', { name, exact: true });
     const label = page.locator(`#${await field.getAttribute('aria-labelledby')}`);
     await label.click();
@@ -67,7 +67,7 @@ test('custom selects open only inside the visible field', async ({ page, request
   await checkField('推理强度');
   await checkField('临时会话保留时间');
   await page.locator('[data-settings-tab="deepseek"]').click();
-  for (const provider of ['deepseek', 'opencode']) await checkField('翻译模型', page.locator(`[data-api-provider="${provider}"]`));
+  for (const provider of ['deepseek', 'opencode-go']) await checkField('翻译模型', page.locator(`[data-api-provider="${provider}"]`));
 });
 
 test('Codex catalog and custom models stay synchronized through typing, save and reopen', async ({ page, request }) => {
@@ -127,7 +127,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await expect(customModel(page)).toHaveValue('');
   await modelBox(page).click();
   await page.getByRole('option', { name: 'ui-catalog-b', exact: true }).click();
-  await page.getByRole('combobox', { name: '推理强度', exact: true }).click();
+  await page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '推理强度', exact: true }).click();
   await page.getByRole('option', { name: 'medium', exact: true }).click();
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
@@ -136,11 +136,11 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await page.locator('[data-settings-tab="models"]').click();
   await expect(modelBox(page)).toHaveText('ui-catalog-b');
   await expect(customModel(page)).toHaveValue('');
-  await expect(page.getByRole('combobox', { name: '推理强度', exact: true })).toHaveText('medium');
-  await choosePicker(page,'Runtime','Pi SDK / OAR');
-  await choosePicker(page,'Runtime','Codex CLI');
+  await expect(page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '推理强度', exact: true })).toHaveText('medium');
+  await choosePicker(page,'Runtime','Pi SDK / OAR','chat');
+  await choosePicker(page,'Runtime','Codex CLI','chat');
   await expect(page.locator('#settingsResetBtn')).toBeHidden();
-  await choosePicker(page,'Runtime','Pi SDK / OAR');
+  await choosePicker(page,'Runtime','Pi SDK / OAR','chat');
   await page.locator('#settingsResetBtn').click();
   await modelBox(page).click();
   await expect(page.getByRole('option', { name: 'ui-catalog-a', exact: true })).toBeVisible();
@@ -185,7 +185,7 @@ test('custom menus support keyboard selection, cancel, typeahead and normal Tab 
   await page.keyboard.press('Enter');
   await expect(modelBox(page)).toHaveText('目录模型 B');
   await page.keyboard.press('Tab');
-  const effort = page.getByRole('combobox', { name: '推理强度', exact: true });
+  const effort = page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '推理强度', exact: true });
   await expect(effort).toBeFocused();
   await page.keyboard.press('m');
   await expect(effort).toHaveAttribute('aria-expanded', 'true');

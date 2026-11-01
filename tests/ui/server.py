@@ -366,6 +366,8 @@ def fixture_reports():
             conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,error,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-10-19T00:00:00+08:00',ts,ts,status,
                 json.dumps(content,ensure_ascii=False) if status == 'done' else None, error,ts,ts))
+            if 'started_at' in body:
+                conn.execute('UPDATE periodic_reports SET started_at=? WHERE id=?', (body['started_at'], 'report-'+kind))
             if 'generation_seconds' in body:
                 conn.execute('UPDATE periodic_reports SET model_label=?,generation_seconds=? WHERE id=?',
                     ('Pi · test-model', body['generation_seconds'], 'report-'+kind))

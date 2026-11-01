@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import report_model
 import report_schedule
-from report_generation import generate, parse_json, partition, validate_events, validate_report
+from report_generation import generate, parse_json, partition, reading_minutes, validate_events, validate_report
 
 ROOT = Path(__file__).resolve().parent
 TZ = ZoneInfo("Asia/Shanghai")
@@ -379,6 +379,9 @@ def stored_snapshot(conn, report):
 
 def serialize(row, detail=False):
     result = json.loads(row["result_json"]) if row["result_json"] else None
+    if result:
+        result.pop("overview", None)
+        result["reading_minutes"] = reading_minutes(result["sections"], result.get("briefs", []))
     value = {key:row[key] for key in ("id", "kind", "title", "period_start", "period_end", "scheduled_at", "status", "error", "created_at", "updated_at")}
     value["kind_label"] = REPORT_KINDS[row["kind"]]
     value["is_preview"] = row["edition_key"].startswith(PREVIEW_PREFIX)
@@ -389,7 +392,6 @@ def serialize(row, detail=False):
     value["attempts"] = row["attempts"]
     value["next_retry_at"] = (stamp(datetime.fromtimestamp(row["next_attempt"], TZ))
                               if row["status"] == "pending" and row["error"] and row["next_attempt"] else None)
-    value["excerpt"] = " ".join(p["text"] for p in result["overview"]) if result else ""
     if detail:
         value["content"] = result
     return value
