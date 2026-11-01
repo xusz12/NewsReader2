@@ -222,7 +222,7 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   await expect(page.locator('.masked-secret')).toHaveText('sk-n••••••••5678');
   await expect(custom).toHaveValue('my-model');
   await page.locator('#translationModelsBtn').click();
-  await page.getByRole('combobox', { name: '翻译模型', exact: true }).click();
+  await page.locator('[data-api-provider="deepseek"]').getByRole('combobox', { name: '翻译模型', exact: true }).click();
   await page.getByRole('option', { name: 'new-model', exact: true }).click();
   await expect(custom).toHaveValue('');
   await page.locator('#translationTestBtn').click();

@@ -36,7 +36,7 @@ test('unconfigured translation settings ignore stale default candidates and pres
   await page.locator('[data-settings-tab="deepseek"]').click();
   const dropdown = page.locator('select[name="llm.translation.model"]');
   await expect(dropdown.locator('option')).toHaveCount(1);
-  await expect(page.getByRole('combobox', { name: '翻译模型', exact: true })).toHaveText('请先配置 API 密钥');
+  await expect(page.locator('[data-api-provider="deepseek"]').getByRole('combobox', { name: '翻译模型', exact: true })).toHaveText('请先配置 API 密钥');
   await expect(page.locator('#translationModelsBtn')).toBeHidden();
   await expect(page.locator('#translationTestBtn')).toBeDisabled();
   saved.llm.translation.model = 'my-saved-model';

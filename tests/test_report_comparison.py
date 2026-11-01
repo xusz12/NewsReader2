@@ -160,6 +160,31 @@ def test_scheduled_jobs_bind_when_enqueued(service, db):
     assert json.loads(rows(db)[0]['config_json'])['runtime'] == 'codex'
 
 
+def test_pi_report_session_survives_retry_and_restart_but_isolates_reports(service, db):
+    service.settings = lambda: settings('pi', 'gemini')
+    first = create(service)
+    seen = []
+    def model(config, prompt):
+        seen.append(config['session_id'])
+        if len(seen) == 1:
+            raise RuntimeError('report_model_failed')
+        return runner(config, prompt)
+    service.runner = model
+    assert service.run_one()
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET status='failed' WHERE id=?", (first['id'],))
+    # A new worker must derive the same identity without changing the saved model.
+    restarted = pr.Service(db, service.settings, lambda: None, model)
+    restarted.retry(first['id'], restarted.manual_options()['database_token'])
+    assert restarted.run_one()
+    second = create(restarted)
+    assert restarted.run_one()
+    assert seen[0] == seen[1] and seen[1] != seen[2]
+    assert all(row['status'] == 'done' for row in rows(db))
+    assert {first['id'], second['id']} == {row['id'] for row in rows(db)}
+    assert all('session_id' not in json.loads(row['config_json']) for row in rows(db))
+
+
 def test_legacy_snapshot_is_adopted_without_overwriting_legacy_input(service, db):
     first = create(service)
     with closing(db()) as conn:

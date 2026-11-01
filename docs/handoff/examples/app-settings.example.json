@@ -1,8 +1,8 @@
 {
-  "api_models": { "jev": { "model": "" } },
+  "api_models": { "jev": { "model": "" }, "opencode": { "model": "" } },
   "classification": { "enabled": true, "concurrency": 8, "unread_only": false },
   "llm": {
-    "translation": { "provider": "deepseek", "model": "" },
+    "translation": { "provider": "deepseek", "model": "", "fallback_enabled": true, "pi_fallback_enabled": true },
     "pi_chat": { "provider": "", "model": "" }
   },
   "feed": { "hidden_source_subkeys": [] },

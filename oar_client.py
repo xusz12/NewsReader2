@@ -37,9 +37,10 @@ def bridge_command(session_id: str) -> list[str]:
     return [node, str(ROOT / "scripts/oar_bridge.mjs"), "--session-id", session_id]
 
 
-def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str) -> dict:
+def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "") -> dict:
     return {"prompt": prompt, "resume_prompt": resume_prompt, "state_dir": str(state_dir),
             "cwd": str(ROOT), "provider": provider, "model": model,
+            **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
             "config_id": uuid.uuid4().hex}
 
 

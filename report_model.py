@@ -7,15 +7,16 @@ import math
 import os
 from pathlib import Path
 import selectors
-import shutil
 import subprocess
 import tempfile
 import time
 
 import codex_client
 import model_catalogs
+import pi_models
 from settings import feature_model_config
 from oar_client import parse_event, terminate_group
+from llm_client import _pi_subprocess_env
 
 ROOT = Path(__file__).resolve().parent
 MAX_BYTES = 16 * 1024 * 1024
@@ -153,35 +154,20 @@ def selection(settings: dict) -> dict:
     agent = feature_model_config(settings, "reports")
     return {"runtime": agent.get("runtime", "pi"),
             "codex": codex_client.normalize_config(agent.get("codex", {})),
-            "pi": {key: agent.get("pi", {}).get(key, "") for key in ("provider", "model")}}
+            "pi": pi_models.normalize_config(agent.get("pi", {}))}
 
 
 def pi_command():
-    node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
-    if not node:
-        raise RuntimeError("report_model_dependencies_missing")
-    return [node, str(ROOT / "scripts/report_model.mjs")]
+    return pi_models.command(root=ROOT)
 
 
 def pi_metadata(request):
-    try:
-        result = subprocess.run(pi_command(), input=json.dumps(request), text=True,
-                                capture_output=True, timeout=20, check=False)
-        metadata = json.loads(result.stdout)
-        if not isinstance(metadata, dict):
-            raise ValueError()
-        if result.returncode:
-            if metadata.get("error") == "report_model_dependencies_missing":
-                raise RuntimeError("report_model_dependencies_missing")
-            raise ValueError()
-        return metadata
-    except (OSError, ValueError, subprocess.SubprocessError):
-        raise RuntimeError("report_model_catalog_failed") from None
+    return pi_models.metadata(request, argv=pi_command())
 
 
 def catalog(settings: dict, runtime: str) -> dict:
     if runtime == "pi":
-        return pi_metadata({"action": "catalog"})
+        return pi_models.filter_catalog(pi_metadata({"action": "catalog"}))
     if runtime != "codex":
         raise ValueError("report_model_selection_invalid")
     config = selection(settings)["codex"]
@@ -226,6 +212,7 @@ def configuration(settings: dict, *, resolve=True, override=None) -> dict:
                 metadata = pi_metadata({"action": "metadata", **agent["pi"]})
                 if effort not in metadata.get("reasoning_efforts", []):
                     raise ValueError("report_reasoning_unsupported")
+                agent["pi"]["reasoning_effort"] = effort
     if agent.get("runtime") == "codex":
         config = {"runtime": "codex", "codex": codex_client.normalize_config(agent.get("codex", {}))}
     else:
@@ -233,8 +220,8 @@ def configuration(settings: dict, *, resolve=True, override=None) -> dict:
         if not pi.get("provider") or not pi.get("model"):
             raise RuntimeError("report_model_unconfigured")
         config = {"runtime": "pi", "provider": pi["provider"], "model": pi["model"]}
-        if override and override.get("reasoning_effort"):
-            config["reasoning_effort"] = override["reasoning_effort"]
+        if pi.get("reasoning_effort"):
+            config["reasoning_effort"] = pi["reasoning_effort"]
     if resolve:
         config["limits"] = capacity(config)
     return config
@@ -260,13 +247,16 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                        "maxTokens": config.get("limits", {}).get("output_tokens", 32768)}
             if config.get("reasoning_effort"):
                 request["reasoning_effort"] = config["reasoning_effort"]
+            if config.get("session_id"):
+                request["session_id"] = config["session_id"]
             pending = json.dumps(request, ensure_ascii=False).encode()
             parser = None
         if len(pending) > MAX_BYTES:
             raise RuntimeError("report_input_too_large")
         try:
             proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    cwd=ROOT, start_new_session=True, bufsize=0)
+                                    cwd=ROOT, start_new_session=True, bufsize=0,
+                                    **({"env": _pi_subprocess_env()} if config["runtime"] == "pi" else {}))
             terminal = None
             buffer = b""
             total = 0

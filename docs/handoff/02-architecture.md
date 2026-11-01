@@ -9,7 +9,16 @@
 - 设置页在「模型与 Agent」中通过功能 Picker 分别编辑 Chat、主题追踪、新闻总结、日报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；另三项保存在 `feature_models.topics / summaries / reports`，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。
 - `settings.feature_model_config()` 返回独立副本。旧文件缺少功能配置时从原 Chat 配置填充；首次保存固化这些初值，以后改变 Chat 或旧客户端省略 `feature_models` 均不覆盖其他功能。`normalize_feature_models()` 校验 Runtime、模型字段和 Codex 配置，设置接口对变化的 Codex 配置核验推理强度；模型目录按 Runtime、服务商和 Profile 缓存。
 - 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
-- 主题新闻归属与重要进展筛选仍由 API 管理中的 Jev 提供，正文精读与翻译仍由 DeepSeek 提供。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
+- Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。OAR 通过 `SessionOptions.effort`、Pi CLI 通过 `--thinking`、报告 SDK 通过 reasoning 参数执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
+- `connection_tests.py` 使用当前功能草稿。Pi 显式传入 provider、model、thinking，禁用工具／MCP／扩展／持久会话，要求返回 `NEWSREADER_CONNECTION_OK`；Codex 创建临时只读请求，发送 `hi` 并检查非空完成结果。45秒超时、全局单次执行锁；不写入应用会话。测试结果说明一次模型请求成功，不证明 Agent 搜索或其他工具可用。
+- 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
+
+### 正文翻译与 API 后备
+
+- `model_apis.API_PROVIDERS` 统一登记目录、测试、密钥名、模型路径和翻译地址。DeepSeek 与 OpenCode 支持正文翻译，Jev 使用专用判断协议，不进入翻译链路。Jev 配置仍保存于 `api_models.jev.model`，仅设置入口移到新闻分类。`model_apis.is_hidden_model()` 在 HTTP、Pi 及日报临时模型目录统一过滤 OpenCode／OpenCode Go 免费项（名称、Big Pickle 别名或零价格元数据），只影响候选目录；其他服务商及已有配置不变。过滤后空目录仍表示读取成功。
+- `llm.translation.provider` 指定首选 DeepSeek／OpenCode；`fallback_enabled` 控制另一家直连 API，`pi_fallback_enabled` 控制最后一级 Pi，旧设置缺省均为 true。`normalize_translation()` 在加载和保存时统一校验，旧客户端省略开关时保留已保存值。`llm.translation.model` 始终是 DeepSeek 模型（兼容旧配置），OpenCode 模型独立保存于 `api_models.opencode.model`，不能把前者解释为随首选服务变化的通用模型字段。
+- `app.generate_news_translation()` 在每次任务开始时固定配置快照，先尝试首选 HTTP API，失败后按开关尝试另一家 API，最后才尝试快照内 `llm.pi_chat` 的 Pi 模型，与 Chat 当前 Runtime 无关。`llm_client._generate_translation()` 用 OpenAI 兼容 SDK 发送提示词与正文：DeepSeek 保留严格函数参数协议，OpenCode 使用 JSON 文本响应。请求禁用 SDK 内部重试，正文翻译120秒、含精读180秒超时。调用失败、结构错误、截断、拒绝或缺少中文正文均作为失败进入后备；X 仅保存正文，不生成精读摘要。
+- 只有校验成功后才写入 `article_ai`；`raw_json.translation_route` 记录首选、实际成功服务、是否后备及各次尝试的脱敏错误码。全部失败时任务为 failed，原文和已有译文不改写，可手动重试；保存新设置不重新生成已有译文。外部错误正文、密钥不写入任务错误或结果。其他使用 DeepSeek 的 X 评论总结及旧接口不跟随正文翻译的首选与后备配置。
 
 
 ### v0.2.1 新闻分类
@@ -17,7 +26,7 @@
 - `news_classification.py` 负责原生 Jev 请求、响应校验、确定性主分类选择及持久队列；`classification/rules.json` 保存第二轮评估后的规则（`news-category-v2`）。主题 Choice 与中国主体 Noul 同次请求，只有主题是 AI 时优先选 AI，否则中国概率严格大于 0.5 归中国，其余按主题选择。
 - `item_classifications` 以 `item_id` 为主键，保存标题原文／SHA-256、规则版本、类别、模型、概率、复核标记、token 用量、任务状态与租约。与投资标签和阅读状态独立；不设置删除级联，以便全量索引复用相同 ID 和标题的分类。
 - `ensure_db()` 首次补齐历史任务；`scanner.reindex()` 结束时只排队新增、标题变化或规则过期的记录并清理已删除新闻。索引事务内不调用外部服务。升级规则需显式修改规则版本；只改模型配置不会使已完成结果全部重跑，实际使用的模型逐条留存。
-- `main()` 按 `classification.concurrency` 启动后台分类线程（默认 8，范围 1–32），复用 API 管理的 Jev 密钥／模型。设置保存后热更新共享并发门限，增加上限时按需增建线程，减少时允许已有请求完成。SQLite 写事务领取任务，180 秒租约允许崩溃恢复；完成时核验租约令牌、标题指纹、规则与当前标题，拒绝过期结果。网络及一般服务错误按 5／30／120 秒退避，最多 4 次；凭据／模型配置错误暂停该配置，不将失败归入其他。
+- `main()` 按 `classification.concurrency` 启动后台分类线程（默认 8，范围 1–32），读取新闻分类设置中的 Jev 密钥／模型。设置保存后热更新共享并发门限，增加上限时按需增建线程，减少时允许已有请求完成。SQLite 写事务领取任务，180 秒租约允许崩溃恢复；完成时核验租约令牌、标题指纹、规则与当前标题，拒绝过期结果。网络及一般服务错误按 5／30／120 秒退避，最多 4 次；凭据／模型配置错误暂停该配置，不将失败归入其他。
 - `classification.enabled` 为自动分类总开关（默认 true），服务初始化及设置保存时加载。关闭与任务领取共用锁，关闭后不领取新的分类任务、不为主分类发起新的模型调用（主题归属不受此开关影响），已领取请求允许完成；索引仍维护队列，结果和筛选保留，重新开启后继续处理。关闭时重试接口返回409 `classification_disabled`，状态接口返回 `enabled=false`，前端隐藏分类分组并将分类降为空闲轮询，主题与日报进度独立保留。旧 Jev 并发与未读配置在读取时迁入 `classification`，新对象字段优先，后续保存仅在 `api_models.jev` 保留模型；兼容旧客户端传入分类字段，API 模型单独保存不重置分类开关。
 - `AdaptiveConcurrency` 对当前进程的全部分类线程共享有效并发和冷却。429／529 使有效并发减半，按请求代次避免同批响应重复降速；指数等待 5–300 秒并遵守更长的 `Retry-After`（秒数或 HTTP 日期）。冷却后稳定至少 30 秒且累计 `max(8, 有效并发×2)` 次连续成功，每次增加 1，最多恢复至配置上限；限流前发出的请求即使迟到成功也不能触发恢复。限流任务保留 pending、撤销本次失败次数并保存下次执行时间；手动重试和调整并发不清除共享冷却。调速状态在进程内维护，重启按保存的上限开始，已有分类和队列重试时间继续保留；多进程部署需另做跨进程限速。
 - `classification.unread_only` 是布尔开关（默认 false），保存后即时更新服务，启动时恢复。开启时 `claim`、`status`、`retry_failed` 使用同一未读条件：不存在 `item_state.read_at IS NOT NULL` 的状态记录；无状态记录也视为未读。领取任务与设置切换串行，模型请求在锁外执行；切换前已领取的请求继续完成。索引仍维护全部新闻的队列，已读待处理记录不消耗请求或尝试次数，改为未读或关闭开关后自动恢复资格。已有结果不清除，分类筛选不受开关影响；进度接口返回 `unread_only` 及当前范围的计数。
@@ -38,7 +47,9 @@ flowchart LR
   UI[浏览器 static] --> API[Flask app.py]
   API --> DB
   API --> W[正文和翻译工作线程]
-  W --> CLI[opencli 与翻译模型]
+  W --> CLI[opencli 正文抓取]
+  W --> HTTP[DeepSeek 或 OpenCode HTTP 翻译]
+  HTTP -. 启用且 API 均失败 .-> PI[Pi 翻译后备]
   API --> A[研究会话和任务]
   A --> ADB[(Agent 独立 SQLite)]
   A --> R[OAR Pi 或 Codex CLI]
@@ -75,8 +86,8 @@ flowchart LR
 | `llm_client.py` | 翻译、精读、摘要及兼容模型调用 | 与新闻研究 Agent 的配置通道区分 |
 | `oar_client.py` / `scripts/oar_bridge.mjs` | Python 与 Node 的私有桥接、Pi/OAR 运行和资源继承 | stdin JSON / stdout 事件；终止时清理子进程组 |
 | `codex_client.py` | Codex CLI 命令、事件流、会话映射 | 本机凭据；read-only 沙盒及不请求审批配置 |
-| `model_catalogs.py` / `connection_tests.py` | 模型目录缓存、草稿连接测试 | 失败保留有效目录；不覆盖其他设置草稿 |
-| `model_apis.py` | HTTP 模型服务注册、配置规范化及原生测试协议 | DeepSeek Chat Completions 与 Jev System One 各自解析响应；密钥仍由 `secret_store.py` 管理 |
+| `model_catalogs.py` / `pi_models.py` / `connection_tests.py` | Codex 目录缓存、Pi 当前可用目录及能力、草稿连接测试 | Codex 失败保留缓存；Pi 刷新替换旧目录；不覆盖其他设置草稿 |
+| `model_apis.py` | HTTP 模型服务注册、配置规范化及原生测试协议 | DeepSeek／OpenCode Chat Completions 与 Jev System One 各自解析响应；密钥仍由 `secret_store.py` 管理 |
 | `news_summary_selection.py` / `news_summaries.py` | 选择范围、预览快照、任务执行、验证、事务归档 | 成功保存报告和批量标读必须原子完成 |
 | `daily_briefings.py` | 旧日报文件解析 | 保留兼容 API |
 | `launcher.py` / `updater.py` | 单实例服务管理、健康检查、版本更新与恢复 | Git 工作区、更新源、版本和实例校验 |
@@ -171,7 +182,7 @@ flowchart LR
 | `POST /api/news-summaries` | 原 request_id、preview_id、database_token；返回 202 和 job |
 | `GET /api/news-summaries/jobs/<job_id>` | 轮询；取消用 POST 同路径 `/cancel` 并传 database_token |
 | `GET/PUT /api/settings` | 获取和保存配置；UI 连接测试使用当前草稿；路径环境变量优先 |
-| `POST /api/settings/apis/<provider>/models`、`/test` | `deepseek`／`jev` 共用模型获取与测试入口；测试传 `{model}`，不保存配置；旧 `/translation/models`、`/translation/test` 路径继续可用 |
+| `POST /api/settings/apis/<provider>/models`、`/test` | `deepseek`／`jev`／`opencode` 共用模型获取与测试入口；测试传 `{model}`，不保存配置；旧 `/translation/models`、`/translation/test` 路径继续可用 |
 | `PUT/DELETE /api/settings/secrets/<provider>` | 按服务保存／删除钥匙串密钥；Jev 使用 `TYPESAFE_API_KEY`，环境变量优先；响应仅返回掩码 |
 | `GET /api/update/check` / `/api/update/status` | 检查远端稳定标签及读取进度；实际应用更新用 POST `/api/update/apply` |
 

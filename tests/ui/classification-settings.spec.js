@@ -117,7 +117,7 @@ test('首次读取失败不伪造零进度，配置异常可重试失败项',asy
   const state={progress:{...progressFixture(),configured:false}};
   await page.route('**/api/news/classification',route=>route.fulfill({json:withClassificationBatch(state.progress)}));
   await page.locator('#classificationRefreshBtn').click();
-  await expect(page.locator('#classificationSettingsStatus')).toContainText('等待在 API 管理中配置 Jev');
+  await expect(page.locator('#classificationSettingsStatus')).toContainText('等待在新闻分类设置中配置 Jev');
   await expect(page.locator('#classificationRetryBtn')).toBeHidden();
   Object.assign(state.progress,{configured:true,error:'invalid_api_key'});
   await page.locator('#classificationRefreshBtn').click();
@@ -184,8 +184,9 @@ for (const width of [390, 1050, 1440]) {
     await concurrency.fill('12');
     await enabled.uncheck();
     await page.locator('#classificationApiSettingsBtn').click();
-    await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
-    await expect(page.getByRole('combobox', { name: 'API 服务', exact: true })).toContainText('Jev');
+    await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+    await expect(page.locator('#apiTitle-jev')).toBeFocused();
+    await expect(page.locator('#apiTitle-jev')).toBeInViewport();
     await expect(page.locator('#translationSettings [name^="classification."], #translationSettings [name$=".concurrency"], #translationSettings [name$=".unread_only"]')).toHaveCount(0);
     await page.locator('input[name="api_models.jev.model"]').fill('jev-classification-test');
     await section(page, 'classification');

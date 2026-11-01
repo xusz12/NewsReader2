@@ -5000,9 +5000,9 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
 
     initial = client.get("/api/settings").get_json()
     assert set(initial["llm"]) == {"translation", "pi_chat"}
-    assert set(initial["api_status"]) == {"deepseek", "jev", "pi", "codex"}
+    assert set(initial["api_status"]) == {"deepseek", "jev", "opencode", "pi", "codex"}
     assert initial["agent"]["runtime"] == "pi"
-    assert set(initial["model_catalogs"]) == {"translation", "jev", "pi_chat", "codex"}
+    assert set(initial["model_catalogs"]) == {"translation", "jev", "opencode", "pi_chat", "codex"}
     assert initial["llm"]["translation"]["model"] == "deepseek-saved"
 
     saved = client.put(
@@ -5162,138 +5162,51 @@ def test_parse_pi_model_catalog():
     assert grouped_two == {"deepseek": ["deepseek-v4-pro"]}
 
 
-def _fake_pi_subprocess(*, help_ok=True, models_stdout=None, models_ok=True):
-    def _run(args, **kwargs):
-        class Completed:
-            pass
-
-        if "--help" in args:
-            Completed.returncode = 0 if help_ok else 1
-            Completed.stdout = "pi help"
-            Completed.stderr = "" if help_ok else "boom"
-            return Completed()
-        if "--list-models" in args:
-            Completed.returncode = 0 if (models_ok and models_stdout is not None) else 1
-            Completed.stdout = models_stdout or ""
-            Completed.stderr = "" if models_ok else "boom"
-            return Completed()
-        Completed.returncode = 0
-        Completed.stdout = ""
-        Completed.stderr = ""
-        return Completed()
-
-    return _run
+def _pi_catalog_fixture(monkeypatch, app_module, rows):
+    monkeypatch.setattr(app_module.pi_models, "catalog", lambda: {
+        "error": "", "options": [{"provider": provider, "value": model, "label": model,
+                                   "reasoning_efforts": ["off", "low", "high"]} for provider, model in rows]})
 
 
-def test_pi_chat_settings_snapshot_detects_providers(tmp_path: Path, monkeypatch):
-    settings_path = tmp_path / "app_settings.json"
-    settings_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(settings_path))
+def test_pi_chat_settings_snapshot_detects_providers(monkeypatch):
     import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module.shutil, "which", lambda name: "/opt/homebrew/bin/pi")
-    monkeypatch.setattr(
-        app_module.subprocess,
-        "run",
-        _fake_pi_subprocess(
-            models_stdout=(
-                "provider  model              context  max-out  thinking  images\n"
-                "deepseek  deepseek-v4-flash  1M       384K     yes       no\n"
-                "ollama    minimax-m3:cloud   524.3K   16.4K    yes       yes\n"
-            )
-        ),
-    )
-    snapshot = app_module.pi_chat_settings_snapshot("minimax-m3:cloud", "deepseek")
-    catalog = snapshot["catalog"]
+    _pi_catalog_fixture(monkeypatch, app_module, [("deepseek", "deepseek-v4-flash"), ("ollama", "minimax-m3:cloud")])
+    catalog = app_module.pi_chat_settings_snapshot("minimax-m3:cloud", "deepseek")["catalog"]
     assert catalog["saved_provider"] == "deepseek"
-    assert catalog["resolved_default_provider"] == ""
-    provider_values = [opt["value"] for opt in catalog["provider_options"]]
-    assert "deepseek" in provider_values and "ollama" in provider_values
-    # 默认模型选项仍保留
-    assert catalog["resolved_default_model"] == ""
-    # 真实目录成功：source/used_fallback 准确反映 pi-list-models。
-    assert catalog["source"] == "pi-list-models"
-    assert snapshot["catalog"]["source"] == "pi-list-models"
-    grouped = catalog["model_options_by_provider"]
-    # 已保存模型不在其保存 provider 的真实目录内时，只追加到保存 provider 组。
-    assert [opt["value"] for opt in grouped["deepseek"]] == ["deepseek-v4-flash"]
-    assert [opt["value"] for opt in grouped["ollama"]] == ["minimax-m3:cloud"]
-    assert all(opt["source"] == "pi-list-models" for opt in grouped["deepseek"])
-    # 顶层兼容 options 为保存 provider 的分组（含已保存追加）。
-    assert [opt["value"] for opt in catalog["options"]] == ["deepseek-v4-flash"]
+    assert catalog["resolved_default_provider"] == catalog["resolved_default_model"] == ""
+    assert catalog["source"] == "pi-model-registry"
+    assert [option["value"] for option in catalog["provider_options"]] == ["deepseek", "ollama"]
+    assert [option["value"] for option in catalog["options"]] == ["deepseek-v4-flash"]
+    assert catalog["options"][0]["reasoning_efforts"] == ["off", "low", "high"]
+    assert catalog["model_options_by_provider"]["ollama"][0]["value"] == "minimax-m3:cloud"
 
 
-def test_pi_chat_settings_snapshot_falls_back_and_keeps_saved_provider(tmp_path: Path, monkeypatch):
+def test_pi_chat_settings_snapshot_error_does_not_reuse_candidates(monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module.subprocess, "run", _fake_pi_subprocess(models_ok=False))
-    snapshot = app_module.pi_chat_settings_snapshot("old-model", "custom-provider")
-    catalog = snapshot["catalog"]
-    assert catalog["provider_options"] == []
-    assert catalog["options"] == []
+    def fail():
+        raise RuntimeError("private error")
+    monkeypatch.setattr(app_module.pi_models, "catalog", fail)
+    catalog = app_module.pi_chat_settings_snapshot("old-model", "custom-provider")["catalog"]
+    assert catalog["provider_options"] == catalog["options"] == []
     assert catalog["saved_provider"] == "custom-provider"
     assert catalog["saved_model"] == "old-model"
     assert catalog["error"] and catalog["source"] == "unavailable"
-    assert catalog["model_options_by_provider"] == {}
+    assert "private" not in catalog["error"]
 
 
-def test_pi_chat_settings_snapshot_appends_saved_provider_not_detected(tmp_path: Path, monkeypatch):
-    # 已保存 provider 不在检测列表时，追加到下拉并保留为当前选项。
-    settings_path = tmp_path / "app_settings.json"
-    settings_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(settings_path))
+def test_pi_chat_settings_snapshot_removes_logged_out_provider_even_when_saved(monkeypatch):
     import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module.shutil, "which", lambda name: "/opt/homebrew/bin/pi")
-    monkeypatch.setattr(
-        app_module.subprocess,
-        "run",
-        _fake_pi_subprocess(models_stdout="provider  model\nollama  minimax-m3:cloud  524K  16K  yes  yes\n"),
-    )
-    snapshot = app_module.pi_chat_settings_snapshot("minimax-m3:cloud", "deepseek")
-    provider_values = [opt["value"] for opt in snapshot["catalog"]["provider_options"]]
-    assert "ollama" in provider_values
-    assert "deepseek" not in provider_values  # 保存值单独保留，不伪装发现候选
-    assert snapshot["catalog"]["saved_provider"] == "deepseek"
-    # 已保存 provider 缺失时补组，且已保存模型只进自己的组；ollama 组不被污染。
-    grouped = snapshot["catalog"]["model_options_by_provider"]
-    assert "deepseek" not in grouped
-    assert snapshot["catalog"]["saved_model"] == "minimax-m3:cloud"
-    assert [opt["value"] for opt in grouped["ollama"]] == ["minimax-m3:cloud"]
-
-
-def test_pi_chat_settings_snapshot_keeps_saved_model_in_real_group_without_duplicate(tmp_path: Path, monkeypatch):
-    # 已保存 provider/model 都在真实目录内：不重复追加，options 即真实分组。
-    settings_path = tmp_path / "app_settings.json"
-    settings_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(settings_path))
-    import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module.shutil, "which", lambda name: "/opt/homebrew/bin/pi")
-    monkeypatch.setattr(
-        app_module.subprocess,
-        "run",
-        _fake_pi_subprocess(
-            models_stdout=(
-                "provider  model              context  max-out  thinking  images\n"
-                "deepseek  deepseek-v4-flash  1M       384K     yes       no\n"
-                "deepseek  deepseek-v4-pro    1M       384K     yes       no\n"
-            )
-        ),
-    )
-    snapshot = app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")
-    catalog = snapshot["catalog"]
-    grouped = catalog["model_options_by_provider"]
-    values = [opt["value"] for opt in grouped["deepseek"]]
-    assert values == ["deepseek-v4-flash", "deepseek-v4-pro"]
-    assert all(opt["source"] == "pi-list-models" for opt in grouped["deepseek"])
-    assert [opt["value"] for opt in catalog["options"]] == values
-
-
-
-
+    _pi_catalog_fixture(monkeypatch, app_module, [("deepseek", "deepseek-v4-pro"), ("ollama", "local")])
+    assert len(app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]["provider_options"]) == 2
+    _pi_catalog_fixture(monkeypatch, app_module, [("ollama", "local")])
+    catalog = app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
+    assert [option["value"] for option in catalog["provider_options"]] == ["ollama"]
+    assert catalog["options"] == [] and "deepseek" not in catalog["model_options_by_provider"]
+    _pi_catalog_fixture(monkeypatch, app_module, [])
+    empty = app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
+    assert empty["provider_options"] == [] and empty["model_options_by_provider"] == {}
+    assert empty["error"] == "" and empty["source"] == "pi-model-registry"
+    assert empty["saved_provider"] == "deepseek"
 
 
 def test_parse_pi_stdout_success_text_delta():

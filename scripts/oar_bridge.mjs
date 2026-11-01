@@ -149,6 +149,7 @@ export function validateRequest(request) {
       typeof request.state_dir !== 'string' || !path.isAbsolute(request.state_dir) ||
       typeof request.provider !== 'string' ||
       typeof request.model !== 'string' ||
+      (request.reasoning_effort !== undefined && !['', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(request.reasoning_effort)) ||
       (request.config_id !== undefined &&
        (typeof request.config_id !== 'string' || !/^[a-f0-9]{32}$/.test(request.config_id))) ||
       (request.legacy_native_id !== undefined &&
@@ -198,7 +199,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
     nativeId = saved.id;
     historyReplayed = Boolean(saved.history_replayed);
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const options = { cwd: request.cwd };
+  const options = { cwd: request.cwd, ...(request.reasoning_effort ? { effort: request.reasoning_effort } : {}) };
   // Resumed sessions own their model; a changed application default must not replace it.
   if (!nativeId) {
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
@@ -311,6 +312,7 @@ export async function executeCli(request, emit, signal, spawnProcess = spawn) {
   const cliFile = fileURLToPath(new URL('bundle/cli.js', import.meta.resolve('@earendil-works/pi-coding-agent')));
   const args = [cliFile, '-p', '--mode', 'json', '--session-dir', sessionDir,
     ...sessionArgs];
+  if (request.reasoning_effort) args.push('--thinking', request.reasoning_effort);
   if (!saved) {
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
     args.push('--provider', request.provider, '--model', request.model);

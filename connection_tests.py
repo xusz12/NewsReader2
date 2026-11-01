@@ -12,7 +12,9 @@ import time
 from pathlib import Path
 import re
 import codex_client
+import pi_models
 from oar_client import terminate_group
+from llm_client import _pi_subprocess_env
 
 LOCK = threading.Lock()
 MAX_BYTES = 1024 * 1024
@@ -45,6 +47,7 @@ def classify(text):
     return 'unknown'
 
 def pi_command(config):
+    config = pi_models.validate_effort(config)
     for key,limit in [('provider',40),('model',120)]:
         v=config.get(key,'')
         if not isinstance(v,str) or not v or len(v)>limit or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]*',v):
@@ -56,7 +59,10 @@ def pi_command(config):
     required = ['--no-tools','--no-mcp','--no-extensions','--no-session','--no-skills','--no-prompt-templates']
     if help_result.returncode or not all(flag in help_result.stdout for flag in required):
         raise RuntimeError('no_tool_mode_unsupported')
+    if config.get('reasoning_effort') and '--thinking' not in help_result.stdout:
+        raise RuntimeError('no_tool_mode_unsupported')
     return [executable,'-p','--mode','json',*required,'--provider',config['provider'],'--model',config['model'],
+            *(['--thinking', config['reasoning_effort']] if config.get('reasoning_effort') else []),
             '--system-prompt','Answer only the connection-check prompt. No tools are available.']
 
 def run_pi(config):
@@ -64,7 +70,7 @@ def run_pi(config):
     with tempfile.TemporaryDirectory(prefix='newsreader-connect-') as cwd:
         # Empty cwd avoids project resources; own login remains CLI-managed.
         proc = subprocess.Popen(command,cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                                start_new_session=True)
+                                start_new_session=True, env=_pi_subprocess_env())
         sel=selectors.DefaultSelector()
         sel.register(proc.stdout,selectors.EVENT_READ,'out');sel.register(proc.stderr,selectors.EVENT_READ,'err')
         proc.stdin.write(b'Reply with exactly NEWSREADER_CONNECTION_OK.\n');proc.stdin.close()

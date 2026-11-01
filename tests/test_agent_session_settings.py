@@ -3,6 +3,7 @@ import copy
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+import json
 from test_api import _setup_agent_api_fixture
 
 
@@ -68,6 +69,20 @@ def test_started_conversation_keeps_executor_and_messages_after_settings_change(
     assert continued.status_code == 202
     assert continued.json['job']['provider'] == runtime
     assert continued.json['job']['model'] == f'{runtime}-original'
+
+
+def test_pi_session_keeps_original_thinking_level_after_settings_change(fixture, tmp_path):
+    app, client, path, settings = fixture
+    configure(settings, 'pi', 'original')
+    settings['llm']['pi_chat']['reasoning_effort'] = 'high'
+    first = client.post(path + '/jobs', json={'question': '首次提问'}).json
+    settings['llm']['pi_chat']['reasoning_effort'] = 'off'
+    with app.agent_db_conn() as conn:
+        session = dict(conn.execute('SELECT * FROM agent_sessions WHERE id=?', (first['session']['id'],)).fetchone())
+        job = dict(conn.execute('SELECT * FROM agent_jobs WHERE id=?', (first['job_id'],)).fetchone())
+    assert json.loads(session['executor_config'])['reasoning_effort'] == 'high'
+    context = json.loads(session['context_json'])
+    assert app._agent_oar_request(job, session, context, [], tmp_path)['reasoning_effort'] == 'high'
 
 
 def test_invalid_new_settings_do_not_silently_use_an_unused_old_executor(fixture):

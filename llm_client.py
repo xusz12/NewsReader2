@@ -326,78 +326,105 @@ def _build_body_translation_only_messages(*, title: str, source: str, content: s
     ]
 
 
-def generate_article_ai(*, title: str, source: str, content: str, model: str | None = None) -> dict[str, Any]:
-    api_key = _resolve_api_key("DEEPSEEK_API_KEY")
+def _generate_translation(*, title: str, source: str, content: str, model: str | None,
+                          provider: str, body_only: bool) -> dict[str, Any]:
+    from model_apis import API_PROVIDERS, TRANSLATION_PROVIDERS
+    if provider not in TRANSLATION_PROVIDERS:
+        raise LLMClientError("UNSUPPORTED_TRANSLATION_PROVIDER")
+    config = API_PROVIDERS[provider]
+    api_key = _resolve_api_key(config["secret_name"])
     if not api_key:
-        raise LLMClientError("MISSING_DEEPSEEK_API_KEY")
-
+        raise LLMClientError(f"MISSING_{config['secret_name']}")
+    model_name = (model or "").strip() or (_configured_model() if provider == "deepseek" else "")
+    if not model_name:
+        raise LLMClientError("MISSING_TRANSLATION_MODEL")
+    body = (content or "").strip()
+    if not body:
+        raise LLMClientError("EMPTY_TRANSLATION_CONTENT")
     try:
         from openai import OpenAI
-    except Exception as exc:  # pragma: no cover - env-specific
-        raise LLMClientError(f"OPENAI_SDK_IMPORT_FAILED: {exc}") from exc
+    except ImportError:
+        raise LLMClientError("OPENAI_SDK_IMPORT_FAILED") from None
 
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/beta")
-    model_name = (model or "").strip() or _configured_model()
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "save_article_translation",
-                "description": "保存文章翻译与摘要结果",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key_points_zh": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "minItems": 3,
-                            "maxItems": 5,
-                        },
-                        "conclusion_zh": {"type": "string"},
-                        "body_zh": {"type": "string"},
-                    },
-                    "required": ["key_points_zh", "conclusion_zh", "body_zh"],
-                    "additionalProperties": False,
-                },
-            },
+    messages = (_build_body_translation_only_messages if body_only else _build_messages)(
+        title=title, source=source, content=body)
+    function_name = "save_body_translation_only" if body_only else "save_article_translation"
+    properties = {"body_zh": {"type": "string"}} if body_only else {
+        "key_points_zh": {"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 5},
+        "conclusion_zh": {"type": "string"}, "body_zh": {"type": "string"},
+    }
+    options = {}
+    if provider == "deepseek":
+        options = {
+            "tools": [{"type": "function", "function": {
+                "name": function_name, "description": "保存中文翻译结果", "strict": True,
+                "parameters": {"type": "object", "properties": properties,
+                               "required": list(properties), "additionalProperties": False},
+            }}],
+            "tool_choice": {"type": "function", "function": {"name": function_name}},
+            "temperature": 0.2, "extra_body": {"thinking": {"type": "disabled"}},
         }
-    ]
+    else:
+        # OpenCode translates text APIs for multiple model families. Plain JSON
+        # output avoids sending DeepSeek-only strict-tool/thinking parameters.
+        messages[0]["content"] = messages[0]["content"].replace(
+            "你必须调用给定函数并严格提供结构化参数。",
+            "只返回一个 JSON 对象，不要附加说明或 Markdown 代码块。")
+        messages[0]["content"] += "返回字段必须为：" + ", ".join(properties) + "。"
 
+    client = None
     try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=_build_messages(title=title, source=source, content=content),
-            tools=tools,
-            tool_choice={"type": "function", "function": {"name": "save_article_translation"}},
-            temperature=0.2,
-            timeout=180,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
+        # Fail over once per provider instead of waiting for SDK retries first.
+        client = OpenAI(api_key=api_key, base_url=config["translation_base_url"], max_retries=0)
+        resp = client.chat.completions.create(model=model_name, messages=messages,
+                                              timeout=120 if body_only else 180, **options)
     except Exception as exc:
-        raise LLMClientError(f"DEEPSEEK_CALL_FAILED: {exc}") from exc
-
+        status = getattr(exc, "status_code", None)
+        category = f"HTTP_{status}" if isinstance(status, int) else (
+            "TIMEOUT" if "timeout" in type(exc).__name__.lower() else "REQUEST_FAILED")
+        raise LLMClientError(f"{provider.upper()}_CALL_FAILED: {category}") from None
+    finally:
+        if client is not None and callable(getattr(client, "close", None)):
+            client.close()
     choices = getattr(resp, "choices", None) or []
     if not choices:
         raise LLMClientError("EMPTY_CHOICES")
-    msg = choices[0].message
-    tool_calls = getattr(msg, "tool_calls", None) or []
-    if not tool_calls:
-        raise LLMClientError("NO_TOOL_CALL")
-
-    args_text = getattr(tool_calls[0].function, "arguments", "") or ""
+    choice = choices[0]
+    if getattr(choice, "finish_reason", None) not in (None, "stop", "tool_calls"):
+        raise LLMClientError("INCOMPLETE_TRANSLATION")
+    message = choice.message
+    if getattr(message, "refusal", None):
+        raise LLMClientError("TRANSLATION_REFUSED")
+    if provider == "deepseek":
+        calls = getattr(message, "tool_calls", None) or []
+        if len(calls) != 1:
+            raise LLMClientError("NO_TOOL_CALL")
+        if getattr(calls[0].function, "name", function_name) != function_name:
+            raise LLMClientError("INVALID_TRANSLATION_TOOL")
+        text = getattr(calls[0].function, "arguments", "") or ""
+    else:
+        text = getattr(message, "content", "") or ""
+        if not isinstance(text, str):
+            raise LLMClientError("INVALID_TRANSLATION_JSON")
+        text = text.strip()
+        if text.startswith("```json\n") and text.endswith("```"):
+            text = text[8:-3].strip()
+        elif text.startswith("```\n") and text.endswith("```"):
+            text = text[4:-3].strip()
     try:
-        parsed = json.loads(args_text)
-    except Exception as exc:
-        raise LLMClientError(f"INVALID_TOOL_ARGUMENTS_JSON: {exc}") from exc
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        raise LLMClientError("INVALID_TOOL_ARGUMENTS_JSON") from None
+    normalized = (_validate_body_translation_only_payload if body_only else _validate_structured_translation_payload)(parsed)
+    return {"model": getattr(resp, "model", None) or model_name, "provider": provider,
+            "key_points_zh": [], "conclusion_zh": "", **normalized,
+            "raw_json": json.dumps(parsed, ensure_ascii=False)}
 
-    normalized = _validate_structured_translation_payload(parsed)
 
-    return {
-        "model": getattr(resp, "model", None) or model_name,
-        **normalized,
-        "raw_json": json.dumps(parsed, ensure_ascii=False),
-    }
+def generate_article_ai(*, title: str, source: str, content: str, model: str | None = None,
+                        provider: str = "deepseek") -> dict[str, Any]:
+    return _generate_translation(title=title, source=source, content=content, model=model,
+                                 provider=provider, body_only=False)
 
 
 def generate_twitter_comments_summary(
@@ -482,76 +509,10 @@ def generate_twitter_comments_summary(
     }
 
 
-def generate_body_translation_only(*, title: str, source: str, content: str, model: str | None = None) -> dict[str, Any]:
-    api_key = _resolve_api_key("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise LLMClientError("MISSING_DEEPSEEK_API_KEY")
-
-    body = (content or "").strip()
-    if not body:
-        raise LLMClientError("EMPTY_TRANSLATION_CONTENT")
-
-    try:
-        from openai import OpenAI
-    except Exception as exc:  # pragma: no cover - env-specific
-        raise LLMClientError(f"OPENAI_SDK_IMPORT_FAILED: {exc}") from exc
-
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com/beta")
-    model_name = (model or "").strip() or _configured_model()
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "save_body_translation_only",
-                "description": "保存仅正文中文翻译",
-                "strict": True,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "body_zh": {"type": "string"},
-                    },
-                    "required": ["body_zh"],
-                    "additionalProperties": False,
-                },
-            },
-        }
-    ]
-
-    try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=_build_body_translation_only_messages(title=title, source=source, content=body),
-            tools=tools,
-            tool_choice={"type": "function", "function": {"name": "save_body_translation_only"}},
-            temperature=0.2,
-            timeout=120,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
-    except Exception as exc:
-        raise LLMClientError(f"DEEPSEEK_CALL_FAILED: {exc}") from exc
-
-    choices = getattr(resp, "choices", None) or []
-    if not choices:
-        raise LLMClientError("EMPTY_CHOICES")
-    msg = choices[0].message
-    tool_calls = getattr(msg, "tool_calls", None) or []
-    if not tool_calls:
-        raise LLMClientError("NO_TOOL_CALL")
-
-    args_text = getattr(tool_calls[0].function, "arguments", "") or ""
-    try:
-        parsed = json.loads(args_text)
-    except Exception as exc:
-        raise LLMClientError(f"INVALID_TOOL_ARGUMENTS_JSON: {exc}") from exc
-
-    normalized = _validate_body_translation_only_payload(parsed)
-    return {
-        "model": getattr(resp, "model", None) or model_name,
-        "key_points_zh": [],
-        "conclusion_zh": "",
-        **normalized,
-        "raw_json": json.dumps(parsed, ensure_ascii=False),
-    }
+def generate_body_translation_only(*, title: str, source: str, content: str, model: str | None = None,
+                                   provider: str = "deepseek") -> dict[str, Any]:
+    return _generate_translation(title=title, source=source, content=content, model=model,
+                                 provider=provider, body_only=True)
 
 
 def generate_tracked_topic_rule_draft(
@@ -817,6 +778,11 @@ def _pi_subprocess_env() -> dict[str, str]:
     # Slock 会注入指向其 runtime-pkg 的 PI_PACKAGE_DIR，该目录缺少 pi 主题文件，
     # 导致 pi 启动崩溃。清掉它，让 pi 使用自身真实安装目录。
     env.pop("PI_PACKAGE_DIR", None)
+    # API management and every Pi transport share the same managed credential.
+    # Keep it in the child environment, never in arguments or saved settings.
+    opencode_key = _resolve_api_key("OPENCODE_API_KEY")
+    if opencode_key:
+        env["OPENCODE_API_KEY"] = opencode_key
     return env
 
 
@@ -906,6 +872,7 @@ def generate_pi_fallback_translation(
     content: str,
     pi_provider: str,
     pi_model: str,
+    reasoning_effort: str = "",
     timeout: int = 90,
     max_chars: int = 12000,
 ) -> dict[str, Any]:
@@ -944,6 +911,7 @@ def generate_pi_fallback_translation(
         pi_provider,
         "--model",
         pi_model,
+        *(["--thinking", reasoning_effort] if reasoning_effort else []),
         prompt,
     ]
 

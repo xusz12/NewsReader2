@@ -45,8 +45,8 @@ test.describe('touch selection', () => {
 
 test('custom selects open only inside the visible field', async ({ page, request }) => {
   await settings(page, request);
-  async function checkField(name) {
-    const field = page.getByRole('combobox', { name, exact: true });
+  async function checkField(name, scope = page) {
+    const field = scope.getByRole('combobox', { name, exact: true });
     const label = page.locator(`#${await field.getAttribute('aria-labelledby')}`);
     await label.click();
     await expect(field).toHaveAttribute('aria-expanded', 'false');
@@ -67,7 +67,7 @@ test('custom selects open only inside the visible field', async ({ page, request
   await checkField('推理强度');
   await checkField('临时会话保留时间');
   await page.locator('[data-settings-tab="deepseek"]').click();
-  await checkField('翻译模型');
+  for (const provider of ['deepseek', 'opencode']) await checkField('翻译模型', page.locator(`[data-api-provider="${provider}"]`));
 });
 
 test('Codex catalog and custom models stay synchronized through typing, save and reopen', async ({ page, request }) => {
@@ -118,8 +118,8 @@ test('catalogs persist through real settings save, page reload, runtime changes 
     llm: saved.llm,
     agent: { ...saved.agent, runtime: 'codex', codex: { model: 'ui-catalog-a', provider: '', profile: '', sandbox: 'read-only' } },
   } });
-  let refreshes = 0;
-  page.on('request', req => { if (req.url().endsWith('/api/settings/models')) refreshes++; });
+  const refreshes = [];
+  page.on('request', req => { if (req.url().endsWith('/api/settings/models')) refreshes.push(req.postDataJSON().runtime); });
   await page.goto('/');
   await page.locator('#leftNavSettingsBtn').click();
   await page.locator('[data-settings-tab="models"]').click();
@@ -146,7 +146,8 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await expect(page.getByRole('option', { name: 'ui-catalog-a', exact: true })).toBeVisible();
   await page.getByRole('option', { name: 'ui-catalog-a', exact: true }).click();
   await expect(customModel(page)).toHaveValue('');
-  expect(refreshes).toBe(1);
+  expect(refreshes.filter(runtime => runtime === 'codex')).toHaveLength(1);
+  expect(refreshes.filter(runtime => runtime === 'pi').length).toBeGreaterThanOrEqual(2);
   await page.route('**/api/settings/models', route => route.fulfill({ json: { catalog: { error: '刷新暂不可用', options: [] } } }));
   await page.locator('#refreshModelsBtn').click();
   await expect(page.locator('#modelsNotice')).toHaveText('刷新暂不可用');

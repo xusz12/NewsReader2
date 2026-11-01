@@ -234,6 +234,7 @@ const cliEvents=[{type:'session'},{type:'message_update',assistantMessageEvent:{
 test('CLI adapter streams, waits for native completion, resumes same native id without prompts in argv', async t => {
   const {executeCli}=await import('../scripts/oar_bridge.mjs');
   const request=await fixture(t), events=[];
+  request.reasoning_effort = 'off';
   let args;
   const runner=await fakeCli(t,cliEvents);
   const wrapped=(node,argv,options)=>{args=argv;return runner(node,argv,options);};
@@ -242,9 +243,22 @@ test('CLI adapter streams, waits for native completion, resumes same native id w
   assert.equal(events.at(-1).answer,'cli answer');
   assert.equal(JSON.stringify(events).includes('do not leak'),false);
   assert.equal(JSON.stringify(args).includes(request.prompt),false);
+  assert.equal(args[args.indexOf('--thinking')+1], 'off');
   assert.equal(await executeCli(request,()=>{},undefined,wrapped),true);
   assert.equal(args.includes('--session'),true);
   assert.equal(args.includes('--session-id'),false);
+});
+
+test('Pi OAR receives the selected effort for new, resumed, and rebuilt sessions', async t => {
+  const request = {...await fixture(t), reasoning_effort:'high'};
+  const runtime = fakeRuntime();
+  await execute(request, runtime, {}, ()=>{}, undefined, completed);
+  await execute(request, runtime, {}, ()=>{}, undefined, completed);
+  assert.deepEqual(runtime.calls.map(call=>call.effort), ['high','high']);
+  const missing = fakeRuntime({missing:true});
+  await execute(request, missing, {}, ()=>{}, undefined, completed);
+  assert.deepEqual(missing.calls.map(call=>call.effort), ['high','high']);
+  assert.throws(()=>validateRequest({...request,reasoning_effort:'guess'}), /oar_invalid_request/);
 });
 
 for(const [label,events,code] of [['partial',cliEvents.slice(0,-1),0],['nonzero',cliEvents,1],

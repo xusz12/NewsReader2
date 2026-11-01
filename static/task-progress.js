@@ -1,5 +1,5 @@
 import { $, api, busy, escapeHTML as e } from "./ui.js";
-import { classificationStatus } from "./classification-progress.js?v=tasks-1";
+import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { jobErrorText } from "./topic-status.js";
 import { failureText, statusText, progressText } from "./report-status.js?v=reports-parallel-1";
 

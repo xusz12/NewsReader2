@@ -1,11 +1,13 @@
 """Transport checks use local processes and a local HTTP model, never user credentials."""
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import uuid
 
 import pytest
 
@@ -24,6 +26,20 @@ def fake_codex(tmp_path, monkeypatch, events, *, linger=False):
 
 
 START = [{"type":"thread.started", "thread_id":"019a1234-1234-7123-8123-123456789abc"}, {"type":"turn.started"}]
+
+
+def test_report_catalog_hides_opencode_free_models_without_changing_other_providers(monkeypatch):
+    options = [
+        {'provider':'opencode', 'value':'big-pickle'},
+        {'provider':'opencode-go', 'value':'example-free'},
+        {'provider':'opencode', 'value':'zero-priced', 'cost':{'input':0, 'output':0}},
+        {'provider':'opencode', 'value':'paid-model', 'cost':{'input':1, 'output':2}},
+        {'provider':'local', 'value':'local-free', 'cost':{'input':0, 'output':0}},
+    ]
+    monkeypatch.setattr(model, 'pi_metadata', lambda request:{'error':'', 'options':options})
+    result = model.catalog({}, 'pi')
+    assert [row['value'] for row in result['options']] == ['paid-model', 'local-free']
+    assert len(options) == 5
 
 
 def test_terminal_answer_finishes_without_waiting_for_cli_teardown(tmp_path, monkeypatch):
@@ -76,14 +92,23 @@ def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatc
 
 
 @pytest.mark.parametrize("finish_reason,effort", [("stop", ""), ("length", ""), ("stop", "high"), ("stop", "off")])
-def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason, effort):
+@pytest.mark.parametrize("provider", ["report-test", "opencode", "opencode-go"])
+def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason, effort, provider):
     if not shutil.which("node") or not (model.ROOT / "node_modules/@earendil-works/pi-coding-agent").exists():
         pytest.skip("Pi SDK requires npm ci")
     requests = []
+    sessions = []
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def do_POST(self):
             requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            sessions.append(self.headers.get("x-opencode-session"))
+            if provider.startswith("opencode") and not sessions[-1]:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error":{"message":"Missing x-opencode-session header"}}')
+                return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -97,21 +122,24 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     (tmp_path / "auth.json").write_text("{}")
-    (tmp_path / "models.json").write_text(json.dumps({"providers":{"report-test":{
+    (tmp_path / "models.json").write_text(json.dumps({"providers":{provider:{
         "baseUrl":f"http://127.0.0.1:{server.server_port}/v1", "api":"openai-completions", "apiKey":"fixture-key",
         "models":[{"id":"fixture", "name":"Fixture", "reasoning":bool(effort), "input":["text"],
-                   "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":131072, "maxTokens":16384}]
+                   "cost":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}, "contextWindow":131072, "maxTokens":16384}]
     }}}))
     monkeypatch.setenv("NEWS_READER_PI_AGENT_DIR", str(tmp_path))
     monkeypatch.setenv("PI_OFFLINE", "1")
     monkeypatch.delenv("NEWS_READER_NODE", raising=False)
+    monkeypatch.setattr(model, "_pi_subprocess_env", lambda: os.environ.copy())
+    monkeypatch.setattr(model.pi_models, "_pi_subprocess_env", lambda: os.environ.copy())
     try:
-        config = {"runtime":"pi", "provider":"report-test", "model":"fixture"}
+        config = {"runtime":"pi", "provider":provider, "model":"fixture"}
         catalog = model.catalog({}, "pi")
-        option = next(m for m in catalog["options"] if m["provider"] == "report-test" and m["value"] == "fixture")
+        option = next(m for m in catalog["options"] if m["provider"] == provider and m["value"] == "fixture")
         assert ("high" in option["reasoning_efforts"]) == bool(effort)
         if effort:
             config["reasoning_effort"] = effort
+            config["session_id"] = "newsreader-report-fixture"
         config["limits"] = model.capacity(config)
         assert config["limits"]["context_window"] == 131072
         assert requests == []  # Model registry lookup never invokes inference.
@@ -127,6 +155,11 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
         assert not requests[0].get("tools")
         assert requests[0]["messages"][-1]["content"] == "isolated fixture"
         assert (requests[0].get("max_tokens") or requests[0].get("max_completion_tokens")) == 4096
+        if provider.startswith("opencode"):
+            if effort:
+                assert sessions == [config["session_id"]]
+            else:
+                assert uuid.UUID(sessions[0])  # Standalone calls also supply an identity.
     finally:
         server.shutdown()
         server.server_close()
@@ -201,7 +234,7 @@ def test_invalid_custom_catalog_does_not_fall_back_to_unrelated_cached_capacity(
 @pytest.mark.parametrize("operation", ["capacity", "catalog", "run"])
 def test_pi_missing_dependencies_are_not_reported_as_unknown_capacity(tmp_path, monkeypatch, missing, operation):
     if missing == "node":
-        monkeypatch.setattr(model.shutil, "which", lambda command: None)
+        monkeypatch.setattr(model.pi_models.shutil, "which", lambda command: None)
     else:
         if not shutil.which("node"):
             pytest.skip("Node is required to exercise missing SDK imports")

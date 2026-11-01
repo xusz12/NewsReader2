@@ -3,6 +3,7 @@ from contextlib import closing
 import model_catalogs
 import connection_tests
 import model_apis
+import pi_models
 
 import math
 import hashlib
@@ -1994,20 +1995,11 @@ def current_runtime_settings() -> dict:
     if isinstance(llm, dict):
         translation = llm.get("translation")
         if isinstance(translation, dict):
-            provider = (translation.get("provider") or "").strip().lower()
-            model = (translation.get("model") or "").strip()
-            if provider in {"deepseek"}:
-                merged["llm"]["translation"]["provider"] = provider
-            if isinstance(model, str):
-                merged["llm"]["translation"]["model"] = normalize_deepseek_model(model)
+            merged["llm"]["translation"] = model_apis.normalize_translation(translation)
+            merged["llm"]["translation"]["model"] = normalize_deepseek_model(merged["llm"]["translation"]["model"])
         pi_chat = llm.get("pi_chat")
         if isinstance(pi_chat, dict):
-            provider = (pi_chat.get("provider") or "").strip()
-            model = pi_chat.get("model")
-            if isinstance(provider, str):
-                merged["llm"]["pi_chat"]["provider"] = provider.strip()
-            if isinstance(model, str):
-                merged["llm"]["pi_chat"]["model"] = model.strip()
+            merged["llm"]["pi_chat"] = pi_models.normalize_config(pi_chat)
     feed = raw.get("feed") if isinstance(raw, dict) else {}
     if isinstance(feed, dict):
         merged["feed"]["hidden_source_subkeys"] = normalize_hidden_source_subkeys(
@@ -2174,11 +2166,7 @@ def deepseek_settings_snapshot(saved_model: str) -> dict:
         else:
             request = Request(
                 DEEPSEEK_MODELS_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Accept": "application/json",
-                    "User-Agent": "news-reader-settings/1.0",
-                },
+                headers=model_apis.request_headers(api_key),
             )
             try:
                 with urlopen(request, timeout=5) as response:
@@ -2249,6 +2237,8 @@ def parse_pi_model_catalog(stdout: str) -> tuple[list[str], dict[str, list[str]]
         model = parts[1].strip()
         if not provider or not model or provider.lower() == "provider":
             continue
+        if model_apis.is_hidden_model(provider, model):
+            continue
         if provider not in seen_providers:
             seen_providers.add(provider)
             providers.append(provider)
@@ -2267,26 +2257,23 @@ def parse_pi_providers(stdout: str) -> list[str]:
 
 
 def pi_chat_settings_snapshot(saved_model: str, saved_provider: str = "") -> dict:
-    providers, grouped = [], {}
-    error = ""
+    options = {}
+    error = notice = ""
     try:
-        probe = subprocess.run(["pi", "--list-models"], capture_output=True, text=True,
-                               timeout=15, cwd=str(BASE_DIR), env=_pi_subprocess_env())
-        if probe.returncode != 0:
-            error = "Pi 模型目录读取失败。"
-        else:
-            providers, grouped = parse_pi_model_catalog(probe.stdout)
-    except (OSError, subprocess.TimeoutExpired):
+        result = pi_models.catalog()
+        error, notice = result.get("error", ""), result.get("notice", "")
+        for option in result["options"]:
+            options.setdefault(option["provider"], []).append({**option, "source": "pi-model-registry"})
+    except RuntimeError:
         error = "Pi 模型目录读取失败。"
-    options = {p: [build_model_option(m, source="pi-list-models") for m in ms] for p, ms in grouped.items()}
     # Saved absent values are preserved by the form, not presented as discovered models.
     return {"service": {"last_error": error, "status_text": error or "目录仅表示候选，不证明调用成功。"},
-            "catalog": {"source": "unavailable" if error else "pi-list-models", "error": error,
+            "catalog": {"source": "unavailable" if error else "pi-model-registry", "error": error, "notice": notice,
                         "saved_model": saved_model, "saved_provider": saved_provider,
                         "resolved_default_model": "", "resolved_default_provider": "",
                         "default_label": "请选择模型", "custom_allowed": False,
                         "options": options.get(saved_provider, []),
-                        "provider_options": [build_model_option(p, source="pi-list-models") for p in providers],
+                        "provider_options": [build_model_option(p, source="pi-model-registry") for p in options],
                         "model_options_by_provider": options}}
 
 
@@ -2432,7 +2419,8 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
     config = model_apis.API_PROVIDERS[provider]
     key = provider_secret_value(provider)
     configured = bool(key) or provider_has_configured_key(provider)
-    options = fallback_model_options([config["default_model"]], source="fallback") if configured else []
+    default_model = config.get("default_model", "")
+    options = fallback_model_options([default_model], source="fallback") if configured and default_model else []
     service = {
         "configured": configured,
         "masked_key": (key[:4] + "••••••••" + key[-4:]) if len(key) > 12 else ("••••••••" if configured else ""),
@@ -2440,27 +2428,32 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
         "models_endpoint_reachable": None,
         "status_text": "点击获取模型以读取可用目录。" if configured else "尚未配置 API 密钥。",
     }
-    source = "fallback" if configured else "unavailable"
+    source = "fallback" if options else "unavailable"
     if refresh and configured:
         service["models_endpoint_reachable"] = False
         try:
             if not key:
                 raise ValueError("unreadable_key")
-            probe = Request(config["models_url"], headers={"Authorization": f"Bearer {key}", "Accept": "application/json"})
+            probe = Request(config["models_url"], headers=model_apis.request_headers(key))
             with urlopen(probe, timeout=5) as response:
-                parsed = model_apis.parse_model_options(provider, json.loads(response.read().decode("utf-8")))
-            if not parsed:
+                payload = json.loads(response.read().decode("utf-8"))
+                parsed = model_apis.parse_model_options(provider, payload)
+            # A valid OpenCode directory may contain only hidden free models.
+            empty_filtered = provider == "opencode" and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
+                isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip() for row in payload["data"])
+            if not parsed and not empty_filtered:
                 raise ValueError("empty_models")
             options, source = parsed, "official"
             service.update(models_endpoint_reachable=True, status_text="模型目录已获取。")
         except HTTPError as exc:
-            service["status_text"] = f"获取模型失败（HTTP {exc.code}）。"
+            details = model_apis.http_error_details(exc)
+            service["status_text"] = f"获取模型失败（HTTP {exc.code}）。{details['message']}"
         except Exception:
             service["status_text"] = "暂时无法获取模型目录，请稍后重试。"
     return {"service": service, "catalog": {
         "source": source, "saved_model": saved_model, "custom_allowed": True,
         "resolved_default_model": config["default_model"],
-        "options": merge_model_options(options, saved_model),
+        "options": merge_model_options(options, "" if model_apis.is_hidden_model(provider, saved_model) else saved_model),
     }}
 
 
@@ -2521,19 +2514,11 @@ def validate_runtime_settings(payload: object) -> dict:
     if not isinstance(translation, dict):
         raise ValueError("invalid_llm_settings")
 
-    translation_provider = (translation.get("provider") or "").strip().lower()
-    translation_model = normalize_deepseek_model((translation.get("model") or "").strip())
-    pi_chat = llm.get("pi_chat") if isinstance(llm.get("pi_chat"), dict) else {}
-    pi_chat_provider = (pi_chat.get("provider") or "").strip()
-    pi_chat_model = (pi_chat.get("model") or "").strip()
-    if translation_provider != "deepseek":
-        raise ValueError("unsupported_translation_provider")
-    if len(translation_model) > 120:
-        raise ValueError("invalid_translation_model")
-    if len(pi_chat_provider) > 40:
-        raise ValueError("invalid_pi_chat_provider")
-    if len(pi_chat_model) > 120:
-        raise ValueError("invalid_pi_chat_model")
+    translation = model_apis.normalize_translation(translation, defaults=current_settings["llm"]["translation"])
+    translation["model"] = normalize_deepseek_model(translation["model"])
+    pi_chat = pi_models.normalize_config(llm.get("pi_chat", {}), current_settings["llm"]["pi_chat"])
+    if pi_chat != current_settings["llm"]["pi_chat"] and pi_chat.get("reasoning_effort"):
+        pi_chat = pi_models.validate_effort(pi_chat)
 
     feed_payload = payload.get("feed") if isinstance(payload.get("feed"), dict) else None
     hidden_source_subkeys = normalize_hidden_source_subkeys(
@@ -2554,6 +2539,8 @@ def validate_runtime_settings(payload: object) -> dict:
     for feature, config in feature_models.items():
         if config["codex"] != current_settings["feature_models"][feature]["codex"] and config["codex"].get("reasoning_effort"):
             config["codex"] = model_catalogs.validate_effort(config["codex"])
+        if config["pi"] != current_settings["feature_models"][feature]["pi"] and config["pi"].get("reasoning_effort"):
+            config["pi"] = pi_models.validate_effort(config["pi"])
 
     configured_db_path = _database_path_from_payload(payload, current_settings)
     if os.environ.get("NEWS_READER_DB_PATH", "").strip():
@@ -2580,14 +2567,8 @@ def validate_runtime_settings(payload: object) -> dict:
             defaults=current_settings["classification"], legacy=legacy_classification),
         "news_summary": summary_limits,
         "llm": {
-            "translation": {
-                "provider": "deepseek",
-                "model": translation_model,
-            },
-            "pi_chat": {
-                "provider": pi_chat_provider,
-                "model": pi_chat_model,
-            },
+            "translation": translation,
+            "pi_chat": pi_chat,
         },
         "feed": {
             "hidden_source_subkeys": hidden_source_subkeys,
@@ -2767,6 +2748,7 @@ def run_pi_chat(
     context_level: str,
     pi_provider: str,
     pi_model: str,
+    reasoning_effort: str = "",
     session_id: str = "",
     reset: bool = False,
     timeout: int = 180,
@@ -2796,16 +2778,18 @@ def run_pi_chat(
     if config_path.exists():
         saved_pi = json.loads(config_path.read_text())
         pi_provider, pi_model = saved_pi["provider"], saved_pi["model"]
+        reasoning_effort = saved_pi.get("reasoning_effort", "")
     elif (runtime_dir / "session.json").exists():
         # Legacy native session owns its model; do not label it with today's default.
         pi_provider, pi_model = "", ""
+        reasoning_effort = ""
     request_payload = bridge_request(prompt=chat_prompt, resume_prompt=prompt, state_dir=runtime_dir,
-                                     provider=pi_provider, model=pi_model)
+                                     provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort)
     if legacy_native_id:
         request_payload["legacy_native_id"] = legacy_native_id
     answer = run_oar_once(bridge_command(session), request_payload, _pi_subprocess_env(), timeout)
     if not config_path.exists() and pi_provider and pi_model:
-        config_path.write_text(json.dumps({"provider": pi_provider, "model": pi_model}), encoding="utf-8")
+        config_path.write_text(json.dumps(pi_models.normalize_config({"provider": pi_provider, "model": pi_model, "reasoning_effort": reasoning_effort})), encoding="utf-8")
         config_path.chmod(0o600)
     return {"provider": "pi", "session_id": session, "model": pi_model, "answer": answer, **agent_runtime_metadata(session)}
 
@@ -2872,7 +2856,7 @@ def generate_chat_archive_summary(prompt: str, *, max_length: int, generate) -> 
     return "" if summary == CHAT_ARCHIVE_EMPTY_MARKER else summary
 
 
-def run_pi_chat_archive(*, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, timeout: int = 90) -> dict:
+def run_pi_chat_archive(*, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, reasoning_effort: str = "", timeout: int = 90) -> dict:
     prompt = build_chat_archive_prompt(
         title=title,
         source=source,
@@ -2888,7 +2872,7 @@ def run_pi_chat_archive(*, title: str, source: str, published_at: str, messages:
             prompt, max_length=chat_archive_summary_limit(messages),
             generate=lambda text: run_oar_once(bridge_command(session), bridge_request(
                 prompt=text, resume_prompt=text, state_dir=runtime_dir,
-                provider=pi_provider, model=pi_model), _pi_subprocess_env(), timeout),
+                provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort), _pi_subprocess_env(), timeout),
         )
         runtime_metadata = agent_runtime_metadata(session)
     finally:
@@ -3195,6 +3179,7 @@ def _agent_oar_request(job: dict, session: dict, context: dict, history: list[di
         resume_prompt=build_agent_resume_prompt(job["question"], job.get("quote_text") or ""),
         state_dir=runtime_dir, provider=session.get("executor_provider") or DEFAULT_PI_CHAT_PROVIDER,
         model=job.get("model") or DEFAULT_PI_CHAT_MODEL,
+        reasoning_effort=json.loads(session.get("executor_config") or "{}").get("reasoning_effort", ""),
     )
     payload["history_replayed"] = bool(history)
     # Resource limits are enforced by the worker timeout/cancellation path;
@@ -3623,7 +3608,8 @@ def _agent_executor_settings() -> dict:
     model = (config.get("model") or "").strip()
     if not provider or not model:
         raise ValueError("pi_model_not_selected")
-    return dict(provider="pi", model=model, executor_provider=provider, executor_config={})
+    return dict(provider="pi", model=model, executor_provider=provider,
+                executor_config={"reasoning_effort": config["reasoning_effort"]} if config.get("reasoning_effort") else {})
 
 
 def _serialize_agent_job(row: sqlite3.Row | dict | None) -> dict | None:
@@ -6980,6 +6966,54 @@ def enqueue_ai_job(conn: sqlite3.Connection, url: str) -> bool:
     return True
 
 
+def generate_news_translation(settings: dict, *, title: str, source: str, content: str) -> dict:
+    """Use one settings snapshot: preferred HTTP API, other API, then optional Pi."""
+    config = settings["llm"]["translation"]
+    preferred = config["provider"]
+    providers = [preferred]
+    if config.get("fallback_enabled", True):
+        providers += [provider for provider in model_apis.TRANSLATION_PROVIDERS if provider != preferred]
+    translate = generate_body_translation_only if source == "Twitter/X" else generate_article_ai
+    attempts = []
+
+    def failed(provider, exc):
+        # Never persist upstream response bodies, credentials or prompts.
+        code = str(exc).split(":", 1)[0]
+        if not re.fullmatch(r"[A-Z0-9_]{1,80}", code):
+            code = "TRANSLATION_FAILED"
+        attempts.append({"provider": provider, "status": "failed", "error": code})
+
+    def completed(provider, result):
+        attempts.append({"provider": provider, "status": "success"})
+        raw = json.loads(result.get("raw_json") or "{}")
+        if not isinstance(raw, dict):
+            raw = {}
+        raw["translation_route"] = {"preferred_provider": preferred, "provider": provider,
+                                    "fallback": provider != preferred, "attempts": attempts}
+        return {**result, "raw_json": json.dumps(raw, ensure_ascii=False)}
+
+    for provider in providers:
+        model = config["model"] if provider == "deepseek" else settings["api_models"][provider]["model"]
+        try:
+            result = translate(title=title, source=source, content=content, model=model, provider=provider)
+            return completed(provider, result)
+        except LLMClientError as exc:
+            failed(provider, exc)
+    if config.get("pi_fallback_enabled", True):
+        pi = settings["llm"]["pi_chat"]
+        try:
+            result = generate_pi_fallback_translation(title=title, source=source, content=content,
+                                                      pi_provider=pi["provider"], pi_model=pi["model"],
+                                                      **({"reasoning_effort": pi["reasoning_effort"]} if pi.get("reasoning_effort") else {}))
+            if source == "Twitter/X":
+                result.update(key_points_zh=[], conclusion_zh="")
+            return completed("pi", result)
+        except LLMClientError as exc:
+            failed("pi", exc)
+    raise LLMClientError("TRANSLATION_PROVIDERS_FAILED: " + " | ".join(
+        f"{attempt['provider']}:{attempt['error']}" for attempt in attempts))
+
+
 def process_pending_ai_once() -> bool:
     conn = db_conn()
     try:
@@ -7023,41 +7057,14 @@ def process_pending_ai_once() -> bool:
         payload: dict = {}
         error = ""
         try:
-            llm_settings = current_runtime_settings()["llm"]
-            if (detail["source"] or "").strip() == "Twitter/X":
-                payload = generate_body_translation_only(
-                    title=(detail["title"] or "").strip(),
-                    source=(detail["source"] or "").strip(),
-                    content=(detail["content"] or "").strip(),
-                    model=llm_settings["translation"]["model"],
-                )
-            else:
-                payload = generate_article_ai(
-                    title=(detail["title"] or "").strip(),
-                    source=(detail["source"] or "").strip(),
-                    content=(detail["content"] or "").strip(),
-                    model=llm_settings["translation"]["model"],
-                )
+            payload = generate_news_translation(
+                current_runtime_settings(), title=(detail["title"] or "").strip(),
+                source=(detail["source"] or "").strip(), content=(detail["content"] or "").strip())
             ok = True
         except LLMClientError as exc:
-            primary_error = str(exc)
-            try:
-                pi_cfg = current_pi_chat_config()
-                payload = generate_pi_fallback_translation(
-                    title=(detail["title"] or "").strip(),
-                    source=(detail["source"] or "").strip(),
-                    content=(detail["content"] or "").strip(),
-                    pi_provider=pi_cfg["provider"],
-                    pi_model=pi_cfg["model"],
-                )
-                if (detail["source"] or "").strip() == "Twitter/X":
-                    payload["key_points_zh"] = []
-                    payload["conclusion_zh"] = ""
-                ok = True
-            except LLMClientError as fallback_exc:
-                error = f"{primary_error} | {fallback_exc}"
-        except Exception as exc:
-            error = f"AI_UNKNOWN_ERROR: {exc}"
+            error = str(exc)
+        except Exception:
+            error = "AI_UNKNOWN_ERROR"
 
         finished = now_ts()
         with conn:
@@ -8331,9 +8338,11 @@ def api_translation_test(provider: str = "deepseek"):
     key = provider_secret_value(provider)
     if not key:
         return jsonify(ok=False, error="missing_api_key"), 400
+    if not model:
+        return jsonify(ok=False, error="invalid_model", message="请先选择或填写测试模型。"), 400
     probe = Request(config["test_url"],
                     data=json.dumps(model_apis.probe_payload(provider, model)).encode(),
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
+                    headers={**model_apis.request_headers(key), "Content-Type": "application/json"}, method="POST")
     started = time.monotonic()
     try:
         with urlopen(probe, timeout=30) as response:
@@ -8342,7 +8351,9 @@ def api_translation_test(provider: str = "deepseek"):
             return jsonify(ok=False, error="empty_model_response"), 502
         return jsonify(ok=True, message="模型连接成功", provider=provider, model=model, elapsed_ms=round((time.monotonic()-started)*1000))
     except HTTPError as exc:
-        return jsonify(ok=False, error="api_test_failed", message=f"模型测试失败（HTTP {exc.code}）"), 502
+        details = model_apis.http_error_details(exc)
+        details["message"] = f"模型测试失败（HTTP {exc.code}）。{details['message']}"
+        return jsonify(ok=False, error="api_test_failed", **details), 502
     except TimeoutError:
         return jsonify(ok=False, error="api_test_timeout", message="模型连接测试超时。"), 504
     except Exception:
@@ -10367,6 +10378,7 @@ def api_news_chat(item_id: str):
             session_id=session_id,
             pi_provider=pi_config["provider"],
             pi_model=requested_model or pi_config["model"],
+            **({"reasoning_effort": pi_config["reasoning_effort"]} if not use_codex and pi_config.get("reasoning_effort") else {}),
             reset=reset,
             title=chat_context["title"],
             source=chat_context["source"],
@@ -10467,7 +10479,7 @@ def api_news_chat_archive(item_id: str):
                 if saved["provider"] == "codex":
                     archive_config = json.loads(saved["executor_config"])
                 else:
-                    pi_config = {"provider": saved["executor_provider"], "model": saved["model"]}
+                    pi_config = {"provider": saved["executor_provider"], "model": saved["model"], **json.loads(saved["executor_config"] or "{}")}
                     pi_model = saved["model"]
             finally:
                 ac.close()
@@ -10499,6 +10511,7 @@ def api_news_chat_archive(item_id: str):
                 messages=messages,
                 pi_provider=pi_config["provider"],
                 pi_model=pi_model,
+                **({"reasoning_effort": pi_config["reasoning_effort"]} if pi_config.get("reasoning_effort") else {}),
             )
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400

@@ -116,6 +116,8 @@ Pi 报告桥接在锁定版本的 SDK 中仅加载 `core/model-runtime.js`，避
 
 新增日报的「临时模型设置」默认收起，未更改时仍使用已保存的日报配置。展开后通过三个 Picker 选择 Runtime、模型、推理程度，可恢复日报设置；临时关闭保留草稿，取消或创建成功后清空。`POST /api/reports/model-options` 按 Runtime 返回公开模型目录和可用推理程度：Codex 复用当前日报 Profile／服务商的本地缓存目录，缺失时读取 CLI；Pi 使用本机 SDK 注册表。仅展开时读取目录，不运行推理，也不修改全局配置。
 
+Pi 直接调用模型时传入由报告 ID 派生的 `sessionId`，同一报告的选材、成文、修复及重试共用，不同报告隔离。SDK 据此附加 OpenCode 所需的 `x-opencode-session` 请求头，避免 Go 返回缺少会话标识的 HTTP 400；独立传输调用没有报告 ID 时生成临时 UUID。此标识仅用于请求路由，不创建 Chat 会话，不改变已保存的模型配置。
+
 创建请求可附带 `model_override`（`runtime`、`model`、`reasoning_effort`，Pi 另含 `provider`）。服务端只允许这些字段，校验推理能力，继承 Codex 的已保存 Profile／服务商和只读沙箱限制，创建时写入该报告的不可变配置；Pi 的推理程度实际传入 `completeSimple`，`off` 使用关闭推理的 SDK 语义。Codex 执行统一固定 `service_tier="default"` 并关闭 `features.fast_mode`，不继承本机 Fast；已创建报告及重试同样适用，推理程度不变。目录校验在 SQLite 写事务外完成。同一 UUID 的重放直接保留原绑定，不重新查询模型能力；日期窗口和自定义窗口均支持覆盖，快照共享规则不变。
 
 `DELETE /api/reports/<id>` 接收数据库令牌，事务内验证运行状态、写入删除标识、删除报告与步骤。旧 `preview-options / previews / <id>/preview` 接口保留兼容旧前端；旧试生成仍使用 `trial:` 与 `is_preview`，新入口不再创建试生成。旧 `/api/daily-briefings` 仅保留兼容，不为新入口供稿。

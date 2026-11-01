@@ -9,6 +9,10 @@
   register('model', 'api_test_failed', '模型连接测试失败。');
   register('model', 'api_test_timeout', '模型连接测试超时。');
   register('input', 'invalid_api_models', 'API 模型配置格式无效。');
+  register('input', 'invalid_translation_fallback', '翻译后备选项必须为开启或关闭。');
+  register('input', 'unsupported_translation_provider', '请选择 DeepSeek 或 OpenCode 作为首选翻译服务。');
+  register('input', 'invalid_translation_model', '翻译模型名称格式无效。');
+  register('model', 'TRANSLATION_PROVIDERS_FAILED', '启用的翻译服务均未完成翻译，请在 API 管理中检查密钥与模型后重试。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
   register('input', 'invalid_report_schedule', '请为每类报告选择有效的小时和分钟。');
   register('input', 'invalid_report_schedule_order', '早报时间须早于午报，午报时间须早于晚报。');
@@ -24,6 +28,9 @@
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');
   register('model', 'model model_not_found model_not_supported oar_model_unavailable', '所选模型不存在或不可用。');
   register('model', 'pi_model_not_selected', '尚未选择模型。');
+  register('input', 'invalid_pi_reasoning_effort', '所选 Pi 模型不支持此推理强度，请刷新目录后重新选择。');
+  register('model', 'pi_model_catalog_unavailable', '无法确认 Pi 模型支持的推理强度，请刷新目录后重试。');
+  register('input', 'invalid_pi_settings', 'Pi 模型配置格式无效。');
   register('timeout', 'timeout codex_timeout agent_timeout provider_timeout summary_timeout TIMEOUT ETIMEDOUT', '请求超时。');
   register('capacity', 'capacity overloaded_error service_overloaded', '服务繁忙。');
   register('rate', 'rate rate_limit_exceeded rate_limit_error', '请求过于频繁。');

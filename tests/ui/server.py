@@ -63,7 +63,7 @@ module.deepseek_settings_snapshot = lambda model: {
 }
 module.pi_chat_settings_snapshot = lambda *args: {
     'service': {'configured': True},
-    'catalog': {'provider_options': [{'value': 'test', 'label': 'Test provider'}], 'options': [{'value': 'test-model', 'label': 'Test model'}], 'model_options_by_provider': {'test': [{'value': 'test-model', 'label': 'Test model'}]}},
+    'catalog': {'provider_options': [{'value': 'test', 'label': 'Test provider'}], 'options': [{'value': 'test-model', 'label': 'Test model'}], 'model_options_by_provider': {'test': [{'value': 'test-model', 'label': 'Test model', 'reasoning_efforts': ['off', 'low', 'high']}]}},
 }
 module.model_catalogs.codex_catalog = lambda config: {
     'source': 'fixture-codex', 'error': '', 'default_label': '沿用本机默认', 'resolved_default_model': '',
@@ -314,7 +314,7 @@ module.REPORT_SERVICE.start = lambda: None
 module.periodic_reports.now = lambda: module.periodic_reports.local('2026-10-30T16:00:00+08:00')
 module.periodic_reports.report_model.capacity = lambda config: {
     'context_window': 128000, 'input_tokens': 100000, 'output_tokens': 16000, 'source': 'ui-fixture'}
-module.periodic_reports.report_model.pi_metadata = lambda request: {
+module.pi_models.metadata = module.periodic_reports.report_model.pi_metadata = lambda request: {
     'options': [{'value': name, 'label': name, 'provider': provider, 'reasoning_efforts': ['off', 'low', 'high']}
                 for provider in ('test', 'test-provider') for name in ('test-model', 'comparison-model')],
     'reasoning_efforts': ['off', 'low', 'high']}

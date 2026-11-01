@@ -4,7 +4,7 @@ import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawer
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
-import { classificationStatus } from "./classification-progress.js?v=tasks-1";
+import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { ScheduleObserver } from "./schedule-observer.js?v=report-windows-edit-1";
 import { defaultReportWindows, windowError } from "./report-windows.js";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
@@ -58,7 +58,9 @@ export class SettingsPanel {
     this.catalogSequence = 0;
     this.catalogs = new Map();
     this.modelFeature = "chat"; this.modelAdvanced = new Map();
-    this.apiProvider = "deepseek";
+    const refreshPi = () => { if (!document.hidden) this.refreshPiCatalog(); };
+    window.addEventListener("focus", refreshPi);
+    document.addEventListener("visibilitychange", refreshPi);
     this.apiStates = new Map();
     this.selects = selects;
     this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || [...this.apiStates.values()].some(s => !!s.secretDraft), contextStamp: () => JSON.stringify([this.draft, [...this.apiStates], this.open]) });
@@ -259,6 +261,7 @@ export class SettingsPanel {
     $("#settingsDetailDescription").textContent = selected.dataset.description || '';
     $("#settingsDetailDescription").hidden = !selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
+    if (changed && section === "models" && this.draft) this.renderModels();
     if (section === "system" && $("#updateResult")) this.updater.restore();
     if (section === "catchup" && $("#settingsCatchupScope")) this.loadCatchupScope();
     if (section === "classification" && this.open) void this.onClassificationRefresh?.();
@@ -270,6 +273,7 @@ export class SettingsPanel {
       $("#settingsDetailTitle").focus({ preventScroll: true });
     }
     this.schedules.sync();
+    if (section === "models") this.refreshPiCatalog();
   }
   showCategories(focus = true) {
     this.selects.close(false);
@@ -332,19 +336,12 @@ export class SettingsPanel {
       $$("#shortcutSettings [aria-invalid]").forEach(node => node.removeAttribute("aria-invalid"));
       return;
     }
-    if (input.matches("[data-api-secret]")) { this.apiState().secretDraft = input.value; return; }
-    if (input.name === "managedApiProvider") {
-      if (this.apiProvider !== input.value) {
-        this.apiProvider = input.value;
-        this.renderTranslation();
-        $('[data-select-trigger="managedApiProvider"]').focus({ preventScroll: true });
-      }
-      return;
-    }
+    if (input.matches("[data-api-secret]")) { this.apiState(input.dataset.apiSecret).secretDraft = input.value; return; }
     if (input.name === "modelFeature") {
       if (this.modelFeature !== input.value) {
         this.modelFeature = input.value; this.catalogNotice = ""; this.catalogSequence++;
         this.invalidateModelTest(); this.renderModels();
+        this.refreshPiCatalog();
         $('[data-select-trigger="modelFeature"]').focus({preventScroll:true});
       }
       return;
@@ -358,15 +355,18 @@ export class SettingsPanel {
     if (unchanged && (input.name.startsWith("news_summary.") || event.type !== "change")) return;
     set(this.draft, input.name, value);
     if (input.name === "classification.enabled") $("#classificationOptions").disabled = !value;
-    if (input.name === this.apiConfig().model_path) {
-      const state = this.apiState();
+    const apiConfig = this.draft.api_providers.find(config => config.model_path === input.name);
+    if (apiConfig) {
+      const provider = apiConfig.id, state = this.apiState(provider);
       state.sequence++;
       state.notice = "模型已变化，可以测试当前选择。";
       state.testResult = "[READY] 模型已变化，请重新测试当前选择。";
-      $("#translationTestTerminal").textContent = state.testResult;
-      $("#translationStatus").textContent = state.notice;
-      this.syncModelFields(input, this.translationOptions());
+      this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
+      this.apiElement(provider, "translationStatus").textContent = state.notice;
+      this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
+      this.syncModelFields(input, this.translationOptions(provider));
     }
+    if (apiConfig || input.name.startsWith("llm.translation.")) this.updateTranslationRoute();
     if (input.name === paths.codex+".model") {
       this.syncModelFields(input, this.codexOptions());
       if (!unchanged) {
@@ -384,12 +384,20 @@ export class SettingsPanel {
     }
     if (input.name === paths.pi+".provider" && event.type === "change") {
       config.pi.model = "";
+      delete config.pi.reasoning_effort;
       this.renderModels();
       $(`[data-select-trigger="${paths.pi}.provider"]`)?.focus({preventScroll:true});
     }
+    if (input.name === paths.pi+".model" && !unchanged) {
+      delete config.pi.reasoning_effort;
+      this.renderReasoning();
+      this.renderModelNotice();
+    }
+    if (input.name === paths.pi+".reasoning_effort") this.renderModelNotice();
     if (input.name === paths.runtime) {
       this.catalogNotice = ""; this.catalogSequence++; this.renderModels();
       $(`[data-select-trigger="${paths.runtime}"]`)?.focus({preventScroll:true});
+      this.refreshPiCatalog();
     }
     this.status("有未保存的更改");
   }
@@ -416,7 +424,7 @@ export class SettingsPanel {
     for (const [runtime, name] of [["codex", "codex"], ["pi", "pi_chat"]]) {
       const catalog = data.model_catalogs?.[name];
       const key = this.catalogKey(runtime, data.agent.codex);
-      if (catalog && (catalog.options?.length || catalog.provider_options?.length || !this.catalogs.has(key)))
+      if (catalog && (runtime === "pi" || catalog.options?.length || catalog.provider_options?.length || !this.catalogs.has(key)))
         this.catalogs.set(key, clone(catalog));
     }
     for (const [feature,catalog] of Object.entries(data.feature_model_catalogs || {})) {
@@ -428,6 +436,29 @@ export class SettingsPanel {
     return this.catalogs.get(this.catalogKey(runtime)) || {};
   }
   codexOptions() { return this.modelCatalog("codex").options?.filter(option => option.source !== "saved") || []; }
+  piOptions() { return this.modelCatalog("pi").model_options_by_provider?.[this.modelConfig().pi.provider] || []; }
+  canTestModel() {
+    const config = this.modelConfig(), model = this.piOptions().find(option => option.value === config.pi.model);
+    return !this.testing && (config.runtime === "codex" || !!model && (!config.pi.reasoning_effort || model.reasoning_efforts?.includes(config.pi.reasoning_effort)));
+  }
+  modelNotice() {
+    const config = this.modelConfig(), catalog = this.modelCatalog();
+    const model = this.piOptions().find(option => option.value === config.pi.model);
+    const missing = config.runtime === "pi" && config.pi.provider && !model;
+    const unsupported = config.runtime === "pi" && model && config.pi.reasoning_effort && !model.reasoning_efforts?.includes(config.pi.reasoning_effort);
+    return [this.catalogNotice || catalog.error || catalog.notice,
+      missing ? `已保存或选择的 ${config.pi.provider} / ${config.pi.model || "未选模型"} 当前不在可用目录中，请重新登录或选择模型。` : "",
+      unsupported ? `当前模型已不支持保存的推理强度 ${config.pi.reasoning_effort}，请重新选择。` : ""].filter(Boolean).join(" ");
+  }
+  renderModelNotice() {
+    const notice = $("#modelsNotice");
+    notice.textContent = this.modelNotice(); notice.hidden = !notice.textContent;
+    $("#testConnectionBtn").disabled = !this.canTestModel();
+  }
+  refreshPiCatalog() {
+    if (this.open && this.section === "models" && this.draft && !this.testing && this.modelConfig().runtime === "pi")
+      void this.refreshModels({ automatic: true }).catch(() => {});
+  }
   renderCodexSelection() {
     const path = this.modelPaths().codex, current = $(`select[name="${path}.model"]`);
     if (!current) return;
@@ -440,12 +471,13 @@ export class SettingsPanel {
     this.renderReasoning();
   }
   renderReasoning() {
-    const path = this.modelPaths().codex, current = $(`select[name="${path}.reasoning_effort"]`);
+    const runtime = this.modelConfig().runtime, path = this.modelPaths()[runtime], current = $(`select[name="${path}.reasoning_effort"]`);
     if (!current) return;
-    const config = this.modelConfig().codex;
-    const efforts = this.codexOptions().find(option => option.value === config.model)?.reasoning_efforts || [];
+    const config = this.modelConfig()[runtime];
+    const efforts = (runtime === "pi" ? this.piOptions() : this.codexOptions()).find(option => option.value === config.model)?.reasoning_efforts || [];
     const container = document.createElement("div");
-    container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort, efforts, "沿用默认");
+    container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort || "", efforts, "沿用默认", {preserveUnknown:runtime !== "pi"});
+    if (runtime === "pi") container.querySelector("select").disabled = !efforts.length;
     current.closest(".field-item").replaceWith(container.firstElementChild);
     this.selects.refresh();
   }
@@ -457,7 +489,7 @@ export class SettingsPanel {
       `<section class="settings-section-card" data-section="models" id="modelSettings"></section>
       <div class="settings-sheet" data-section="schedules" id="scheduleSettings"></div>
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
-      <section class="settings-section-card" data-section="deepseek" id="translationSettings"></section>
+      <div class="settings-sheet" data-section="deepseek" id="translationSettings"></div>
       <section class="settings-section-card" data-section="classification" id="classificationSettingsProgress" aria-labelledby="classificationSettingsProgressTitle">
       <div class="section-card-title"><span id="classificationSettingsProgressTitle">分类进度</span><button class="reader-tool-btn" id="classificationRefreshBtn" type="button">刷新进度</button></div>
       <p id="classificationSettingsStatus" role="status">正在读取分类进度…</p>
@@ -480,8 +512,9 @@ export class SettingsPanel {
       ${field("分类并发上限", "classification.concurrency", d.classification?.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}
       <p class="muted">默认 8，可设置 1–32。遇到限流自动降速，稳定后逐步恢复。</p>
       </fieldset>
-      <p class="muted">分类使用 API 管理中的 Jev 密钥与模型。</p>
+      <p class="muted">下方 Jev 配置同时用于新闻分类、主题归属和重要进展筛选。</p>
       <button class="btn-secondary" id="classificationApiSettingsBtn" type="button">管理 Jev API</button></section>
+      <section class="settings-section-card" data-section="classification" id="classificationApiSettings" data-api-provider="jev" aria-labelledby="apiTitle-jev"></section>
       <section class="settings-section-card" data-section="catchup"><div class="section-card-title"><span>积压新闻总结范围</span></div>
       <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
       <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
@@ -556,42 +589,118 @@ export class SettingsPanel {
     $$("#shortcutSettings [aria-invalid]").forEach(node => node.removeAttribute("aria-invalid"));
     this.status("有未保存的更改");
   }
-  translationOptions() {
-    if (!this.draft.api_status?.[this.apiProvider]?.configured) return [];
-    const key = this.apiProvider === "deepseek" ? "translation" : this.apiProvider;
-    return (this.apiState().catalog || this.draft.model_catalogs?.[key])?.options?.filter(option => option.source !== "saved") || [];
+  translationOptions(provider) {
+    if (!this.draft.api_status?.[provider]?.configured) return [];
+    const key = provider === "deepseek" ? "translation" : provider;
+    return (this.apiState(provider).catalog || this.draft.model_catalogs?.[key])?.options?.filter(option => option.source !== "saved") || [];
   }
-  apiState(provider = this.apiProvider) {
+  apiState(provider) {
     if (!this.apiStates.has(provider)) this.apiStates.set(provider, {
       secretDraft: "", editingSecret: false, catalog: null, notice: "", testResult: "", sequence: 0,
       testing: false, refreshing: false, savingSecret: false,
     });
     return this.apiStates.get(provider);
   }
-  apiConfig(provider = this.apiProvider) {
+  apiConfig(provider) {
     return this.draft.api_providers.find(config => config.id === provider);
   }
-  renderTranslation() {
-    const d = this.draft, provider = this.apiProvider, config = this.apiConfig(), state = this.apiState();
+  apiId(provider, control) { return provider === "deepseek" ? control : `${provider}-${control}`; }
+  apiElement(provider, control) { return document.getElementById(this.apiId(provider, control)); }
+  canTestApi(provider) {
+    const config = this.apiConfig(provider);
+    return !!this.draft.api_status?.[provider]?.configured && !this.apiState(provider).testing
+      && (provider === "deepseek" || !!(get(this.draft, config.model_path) || config.default_model));
+  }
+  translationOrder(settings = this.draft) {
+    const config = settings.llm.translation, preferred = config.provider || "deepseek";
+    return [preferred, ...(config.fallback_enabled !== false ? [preferred === "deepseek" ? "opencode" : "deepseek"] : []),
+      ...(config.pi_fallback_enabled !== false ? ["pi"] : [])];
+  }
+  translationRoutingHTML() {
+    const config = this.draft.llm.translation;
+    return `<div class="section-card-title"><span>正文翻译</span></div>
+      <fieldset class="field-options" aria-label="首选翻译服务"><legend class="field-label">首选翻译服务</legend>${this.draft.api_providers.filter(p => p.translation_base_url).map(p => `<label class="settings-toggle"><input type="radio" name="llm.translation.provider" value="${p.id}" ${config.provider === p.id ? "checked" : ""}><span>${e(p.label)}</span></label>`).join("")}</fieldset>
+      <label class="settings-toggle settings-switch"><span>失败后切换其他 API</span><input type="checkbox" role="switch" name="llm.translation.fallback_enabled" ${config.fallback_enabled !== false ? "checked" : ""}></label>
+      <label class="settings-toggle settings-switch"><span>API 均失败后尝试 Pi</span><input type="checkbox" role="switch" name="llm.translation.pi_fallback_enabled" ${config.pi_fallback_enabled !== false ? "checked" : ""}></label>
+      <p class="muted" id="translationRouteDescription" role="status"></p>
+      <p class="muted">保存后用于新翻译任务；已有译文保持不变，可在正文点击「重新翻译」。各服务的翻译模型在下方设置。Pi 后备使用 Chat 中保存的 Pi 服务商与模型。</p>`;
+  }
+  updateTranslationRoute() {
+    const description = $("#translationRouteDescription");
+    if (!description) return;
+    const order = this.translationOrder(), labels = {deepseek:"DeepSeek", opencode:"OpenCode", pi:"Pi"};
+    const missing = order.filter(p => p !== "pi" && (!this.draft.api_status?.[p]?.configured || (p === "opencode" && !get(this.draft, this.apiConfig(p).model_path)?.trim())));
+    description.textContent = `调用顺序：${order.map(p => labels[p]).join(" → ")}。${missing.length ? `${missing.map(p => labels[p]).join("、")} 尚未配置密钥或模型，无法调用。` : ""}`;
+  }
+  apiUsageHTML() {
+    const saved = this.saved;
+    const legacy = { runtime: saved.agent.runtime, codex: saved.agent.codex, pi: saved.llm.pi_chat };
+    const features = [
+      ["chat", "Chat 与对话归档", "失败保留对话，可重试；不会自动切换服务。"],
+      ["topics", "主题研究与整理", "失败保留已有内容，可重试；新闻归属与重要进展筛选另由 Jev 执行。"],
+      ["summaries", "积压新闻总结", "失败不保存成功结果、不标记新闻已读，可重新生成。"],
+      ["reports", "日报、周报与月报", "失败自动重试，最多尝试 3 次，之后可手动重试；重试沿用该报告创建时的模型。"],
+    ];
+    return `<div class="section-card-title"><span id="apiUsageTitle">功能与后备措施</span></div>
+      <p class="muted">正文翻译按上方设置调用；Jev 在「新闻分类」管理。以下为其他功能已保存的模型配置，修改并保存后更新。</p>
+      <div class="section-stack">${features.map(([key, label, fallback]) => {
+        const config = key === "chat" ? legacy : saved.feature_models?.[key] || legacy;
+        const model = config.runtime === "codex" ? `Codex CLI · ${config.codex?.model || "本机默认模型"}${config.codex?.provider ? `（${config.codex.provider}）` : ""}`
+          : `Pi · ${config.pi?.provider && config.pi?.model ? `${config.pi.provider} / ${config.pi.model}` : "尚未选择服务商与模型"}`;
+        return `<div class="field-item" data-api-usage="${key}"><span class="field-label">${label}</span><span>${e(model)}</span><p class="muted">${fallback}</p></div>`;
+      }).join("")}</div>
+      <p class="muted">正文翻译的 Pi 后备仅在启用时使用，即使 Chat 当前选择 Codex，也读取其中保存的 Pi 配置。上述其他功能不会自动切换服务商；已有资料仍可阅读。</p>
+      <div class="button-row"><button class="btn-secondary" id="apiFeatureSettingsBtn" type="button">管理功能模型</button></div>`;
+  }
+  renderTranslation(provider) {
+    const root = $("#translationSettings");
+    if (!root) return;
+    if (provider) {
+      const panel = $(`[data-api-provider="${provider}"]`, $("#settingsContent"));
+      if (!panel) return;
+      const active = panel.contains(document.activeElement) ? document.activeElement : null;
+      const focusSelector = active?.id ? `#${CSS.escape(active.id)}` : active?.name ? `${active.tagName.toLowerCase()}[name="${CSS.escape(active.name)}"]` : null;
+      const selection = active?.tagName === "INPUT" && active.selectionStart !== null ? [active.selectionStart, active.selectionEnd] : null;
+      panel.innerHTML = this.apiProviderHTML(provider);
+      this.selects.refresh(panel);
+      if (active) {
+        const focus = (focusSelector && $(focusSelector, panel)) || this.apiElement(provider, "editSecretBtn") || $(`#${provider}Secret`, panel);
+        focus?.focus({ preventScroll: true });
+        if (selection && focus?.tagName === "INPUT") focus.setSelectionRange(...selection);
+      }
+      return;
+    }
+    root.innerHTML = `<section class="settings-section-card" id="translationRouting">${this.translationRoutingHTML()}</section>`
+      + this.draft.api_providers.filter(config => config.id !== "jev").map(config => `<section class="settings-section-card" data-api-provider="${e(config.id)}" aria-labelledby="apiTitle-${e(config.id)}">${this.apiProviderHTML(config.id)}</section>`).join("")
+      + `<section class="settings-section-card" id="apiUsage" aria-labelledby="apiUsageTitle">${this.apiUsageHTML()}</section>`;
+    this.selects.refresh(root);
+    this.renderTranslation("jev");
+    this.updateTranslationRoute();
+  }
+  apiProviderHTML(provider) {
+    const d = this.draft, config = this.apiConfig(provider), state = this.apiState(provider);
     const service = d.api_status?.[provider] || {};
     const configured = service.configured, editing = !configured || state.editingSecret;
-    const options = this.translationOptions();
+    const options = this.translationOptions(provider);
     const model = get(d, config.model_path) || "";
     const custom = options.some(option => option.value === model) ? "" : model;
-    $("#translationSettings").innerHTML = `${select("API 服务", "managedApiProvider", provider, d.api_providers.map(p => ({ value: p.id, label: p.label })), null)}
-      <p class="muted">${e(config.description)}</p>
-      <div class="translation-model-row">${select(provider === "deepseek" ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" id="translationModelsBtn" type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
+    const id = control => this.apiId(provider, control);
+    const action = control => `id="${id(control)}" data-api-action="${control}"`;
+    return `<div class="section-card-title"><span id="apiTitle-${provider}" tabindex="-1">${e(config.label)}</span><span class="muted">${configured ? "已配置密钥" : "未配置密钥"}</span></div>
+      <div class="field-item"><span class="field-label">使用位置</span><p class="muted">${e(config.description)}</p></div>
+      <div class="field-item"><span class="field-label">失效后</span><p class="muted">${e(config.fallback || "失败后可重试。")}</p></div>
+      ${config.docs_url ? `<p class="muted"><a href="${e(config.docs_url)}" target="_blank" rel="noopener noreferrer">OpenCode API 文档</a></p>` : ""}
+      <div class="translation-model-row">${select(config.translation_base_url ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : provider === "opencode" ? "请选择模型" : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" ${action("translationModelsBtn")} type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
-      <p class="muted" id="translationStatus" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
+      <p class="muted" id="${id("translationStatus")}" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
-      ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" id="saveSecretBtn" type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? '<button class="btn-secondary" id="cancelSecretBtn" type="button">取消</button>' : ""}</div>` : `<div class="button-row"><button class="btn-secondary" id="editSecretBtn" type="button">更新密钥</button><button class="reader-action-btn danger" id="deleteSecretBtn" type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
-      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" id="translationTestBtn" type="button" ${configured && !state.testing ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="translationTestTerminal" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
-    this.selects.refresh($("#translationSettings"));
+      ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret="${provider}" type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" ${action("saveSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? `<button class="btn-secondary" ${action("cancelSecretBtn")} type="button">取消</button>` : ""}</div>` : `<div class="button-row"><button class="btn-secondary" ${action("editSecretBtn")} type="button">更新密钥</button><button class="reader-action-btn danger" ${action("deleteSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
+      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="${id("translationTestTerminal")}" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
   }
-  async refreshTranslationModels() {
-    const provider = this.apiProvider, state = this.apiState();
+  async refreshTranslationModels(provider) {
+    const state = this.apiState(provider);
     if (state.refreshing) return;
     const seq = state.sequence;
     state.refreshing = true;
@@ -604,16 +713,16 @@ export class SettingsPanel {
       if (state === this.apiState(provider) && seq === state.sequence) state.notice = errorText(error);
     } finally {
       state.refreshing = false;
-      if (provider === this.apiProvider && state === this.apiState(provider)) this.renderTranslation();
+      if (state === this.apiState(provider)) this.renderTranslation(provider);
     }
   }
-  async testTranslation() {
-    const provider = this.apiProvider, state = this.apiState(), model = get(this.draft, this.apiConfig().model_path) || "";
+  async testTranslation(provider) {
+    const state = this.apiState(provider), model = get(this.draft, this.apiConfig(provider).model_path) || "";
     if (state.testing) return;
     const seq = state.sequence;
     state.testing = true;
     state.testResult = "[RUNNING] 正在测试当前模型…";
-    $("#translationTestTerminal").textContent = state.testResult;
+    this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
     try {
       const data = await api(`/api/settings/apis/${provider}/test`, { method: "POST", body: { model } });
       if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
@@ -621,10 +730,10 @@ export class SettingsPanel {
       if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[FAIL] ${errorText(error)}`;
     } finally {
       state.testing = false;
-      if (provider === this.apiProvider && state === this.apiState(provider)) {
-        $("#translationTestTerminal").textContent = state.testResult;
-        $("#translationTestBtn").disabled = !this.draft.api_status?.[provider]?.configured;
-        $("#translationTestBtn").textContent = "测试模型";
+      if (state === this.apiState(provider)) {
+        this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
+        this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
+        this.apiElement(provider, "translationTestBtn").textContent = "测试模型";
       }
     }
   }
@@ -633,16 +742,17 @@ export class SettingsPanel {
     const d = this.modelConfig(), paths = this.modelPaths(), codex = d.runtime === "codex";
     const catalog = this.modelCatalog(), options = this.codexOptions();
     const model = options.find(x=>x.value === d.codex.model), custom = model ? "" : d.codex.model;
-    const notice = this.catalogNotice || catalog.error || "";
+    const notice = this.modelNotice(), piModel = this.piOptions().find(option => option.value === d.pi.model);
     $("#modelSettings").innerHTML = `<div class="form-group-grid">
       ${select("功能", "modelFeature", this.modelFeature, [{value:"chat",label:"Chat"},{value:"topics",label:"主题追踪"},{value:"summaries",label:"新闻总结"},{value:"reports",label:"日报"}], null)}
       ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}], null)}</div>
       ${codex ? `<div class="form-group-grid">${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认")}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认")}</div>
       <details id="modelAdvanced" data-feature="${this.modelFeature}" ${this.modelAdvanced.get(this.modelFeature)?'open':''}><summary class="reader-tool-btn">高级设置</summary><div class="section-stack">${field("自定义模型",paths.codex+".model",custom,'maxlength="120"')}<div class="form-group-grid">${field("服务商覆盖",paths.codex+".provider",d.codex.provider)}${field("Profile",paths.codex+".profile",d.codex.profile)}</div></div></details>`
-      : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商")}${select("模型",paths.pi+".model",d.pi.model,catalog.model_options_by_provider?.[d.pi.provider] || catalog.options || [],"请选择模型")}</div>`}
-      <div class="button-row"><button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><button class="btn-primary" id="testConnectionBtn" type="button" ${this.testing?'disabled':''}>${this.testing?'测试中…':'运行连接测试'}</button></div>
+      : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div><p class="muted">Pi 可复用 API 管理中的 OpenCode 密钥：opencode 按量付费，opencode-go 需要 Go 订阅。两个入口同时出现不代表已开通 Go。</p>`}
+      <div class="button-row"><button class="btn-secondary" id="refreshModelsBtn" type="button">刷新模型目录</button><button class="btn-primary" id="testConnectionBtn" type="button" ${this.canTestModel()?'':'disabled'}>${this.testing?'测试中…':'运行连接测试'}</button></div>
       <p class="muted" id="modelsNotice" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="connTestTerminal" role="status" ${this.connectionResult?'':'hidden'}>${e(this.connectionResult || "")}</div>
       ${this.modelFeature === "chat" ? `<div class="form-group-grid">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div><button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>` : ""}`;
+    if (!codex) $(`select[name="${paths.pi}.reasoning_effort"]`).disabled = !piModel?.reasoning_efforts?.length;
     this.selects.refresh($("#modelSettings"));
   }
   sourceHTML() {
@@ -707,14 +817,30 @@ export class SettingsPanel {
       this.status("有未保存的更改");
     }
     if (!button) return;
+    const provider = button.closest("[data-api-provider]")?.dataset.apiProvider;
+    if (provider && button.dataset.apiAction) {
+      const actions = {
+        editSecretBtn: () => { this.apiState(provider).editingSecret = true; this.renderTranslation(provider); $(`#${provider}Secret`).focus(); },
+        cancelSecretBtn: () => { this.apiState(provider).secretDraft = ""; this.apiState(provider).editingSecret = false; this.renderTranslation(provider); this.apiElement(provider, "editSecretBtn").focus(); },
+        translationModelsBtn: () => this.refreshTranslationModels(provider),
+        translationTestBtn: () => this.testTranslation(provider),
+        saveSecretBtn: () => this.saveSecret(provider),
+        deleteSecretBtn: () => this.deleteSecret(provider),
+      };
+      if (actions[button.dataset.apiAction]) void busy(button, actions[button.dataset.apiAction]).finally(() => {
+        const test = this.apiElement(provider, "translationTestBtn");
+        if (test) test.disabled = !this.canTestApi(provider);
+      });
+      return;
+    }
     const actions = {
       classificationRefreshBtn: () => this.onClassificationRefresh?.(),
       classificationRetryBtn: () => this.onClassificationRetry?.(),
       classificationApiSettingsBtn: () => {
-        this.apiProvider = "jev";
-        this.renderTranslation();
-        this.selectSection("deepseek");
+        $("#apiTitle-jev").scrollIntoView({ block: "start" });
+        $("#apiTitle-jev").focus({ preventScroll: true });
       },
+      apiFeatureSettingsBtn: () => this.selectSection("models"),
       retryCatchupScopeBtn: () => this.loadCatchupScope(),
       resetCatchupDefaultsBtn: () => {
         this.draft.news_summary = { max_days: 20, max_items: 6000 };
@@ -724,12 +850,6 @@ export class SettingsPanel {
       retrySettingsBtn: () => this.load(),
       refreshModelsBtn: () => this.refreshModels(),
       testConnectionBtn: () => this.testConnection(),
-      editSecretBtn: () => { this.apiState().editingSecret = true; this.renderTranslation(); $("[data-api-secret]").focus(); },
-      cancelSecretBtn: () => { this.apiState().secretDraft = ""; this.apiState().editingSecret = false; this.renderTranslation(); },
-      translationModelsBtn: () => this.refreshTranslationModels(),
-      translationTestBtn: () => this.testTranslation(),
-      saveSecretBtn: () => this.saveSecret(),
-      deleteSecretBtn: () => this.deleteSecret(),
       pickDatabaseBtn: () => this.pickDatabase(),
       settingsReindexBtn: async () => {
         await api("/api/reindex", { method: "POST" });
@@ -809,12 +929,15 @@ export class SettingsPanel {
       data.keyboard = keyboardUnchanged ? keyboard.snapshot() : keyboard.save(keyboardDraft);
       this.saved = data;
       this.rememberModelCatalogs(data);
+      const usage = $("#apiUsage");
+      if (usage) usage.innerHTML = this.apiUsageHTML();
       if (unchanged) {
         this.draft = clone(data);
         this.dirty = false;
         this.schedules.setEditing(false);
       }
       this.syncDirty();
+      this.updateTranslationRoute();
       this.status(
         this.dirty ? "已保存提交的配置，仍有新的更改未保存" : "设置已保存",
       );
@@ -827,13 +950,16 @@ export class SettingsPanel {
       throw error;
     }
   }
-  async refreshModels() {
+  async refreshModels({ automatic = false } = {}) {
     const draft = this.modelDraft();
     const fingerprint = JSON.stringify([
       draft.runtime,
       draft.codex.provider,
       draft.codex.profile,
     ]);
+    const pendingKey = this.modelFeature + fingerprint;
+    if (automatic && this.pendingCatalog?.key === pendingKey) return;
+    const pending = this.pendingCatalog = {key:pendingKey};
     const seq = ++this.catalogSequence;
     try {
       const data = await api("/api/settings/models", {
@@ -850,16 +976,25 @@ export class SettingsPanel {
           ])
       )
         return;
-      if (!data.catalog.error || data.catalog.options?.length || !this.catalogs.has(this.catalogKey()))
+      const unchanged = JSON.stringify(this.modelCatalog()) === JSON.stringify(data.catalog);
+      if (draft.runtime === "pi" || !data.catalog.error || data.catalog.options?.length || !this.catalogs.has(this.catalogKey()))
         this.catalogs.set(this.catalogKey(), clone(data.catalog));
+      if (automatic && unchanged) return;
       this.catalogNotice =
         data.catalog.error || data.catalog.notice || "模型目录已刷新";
+      this.invalidateModelTest();
+      const focused = document.activeElement?.dataset.selectTrigger || document.activeElement?.id;
       this.renderModels();
+      if (focused) ($(`[data-select-trigger="${CSS.escape(focused)}"]`) || document.getElementById(focused))?.focus({preventScroll:true});
     } catch (error) {
       if (seq !== this.catalogSequence) return;
       this.catalogNotice = errorText(error);
+      if (draft.runtime === "pi") this.catalogs.set(this.catalogKey(), {error:this.catalogNotice});
+      this.invalidateModelTest();
       this.renderModels();
       throw error;
+    } finally {
+      if (this.pendingCatalog === pending) this.pendingCatalog = null;
     }
   }
   loadCatchupScope(delay = 0) {
@@ -891,11 +1026,14 @@ export class SettingsPanel {
     }, delay);
   }
   async testConnection() {
+    if (!this.canTestModel()) return;
     const draft = this.modelDraft(),
       fingerprint = JSON.stringify(draft),
       seq = ++this.connectionSequence;
     this.testing = true;
-    this.connectionResult = "[RUNNING] 正在测试当前模型连接…";
+    const selected = draft[draft.runtime];
+    const target = [draft.runtime === "pi" ? selected.provider : "Codex", selected.model || "本机默认", selected.reasoning_effort || "默认推理强度"].join(" · ");
+    this.connectionResult = `[RUNNING] ${target} · 正在测试…`;
     $("#connTestTerminal").textContent = this.connectionResult;
     $("#connTestTerminal").hidden = false;
     $("#testConnectionBtn").disabled = true;
@@ -911,8 +1049,8 @@ export class SettingsPanel {
         return;
       this.connectionResult =
         data.status === "success"
-          ? `[SUCCESS] ${data.message || "连接成功"} · ${data.elapsed_ms}ms · ${data.checked_at || ""}`
-          : `[FAILED] ${data.message || data.error || data.category || "模型请求未成功"}`;
+          ? `[SUCCESS] ${target} · ${data.message || "连接成功"} · ${data.elapsed_ms}ms · ${data.checked_at || ""}`
+          : `[FAILED] ${target} · ${data.message || data.error || data.category || "模型请求未成功"}`;
     } catch (error) {
       if (seq === this.connectionSequence)
         this.connectionResult = `[FAILED] ${errorText(error)}`;
@@ -922,13 +1060,13 @@ export class SettingsPanel {
         $("#connTestTerminal").textContent = this.connectionResult;
       const button = $("#testConnectionBtn");
       if (button) {
-        button.disabled = false;
+        button.disabled = !this.canTestModel();
         button.textContent = "运行连接测试";
       }
     }
   }
-  async saveSecret() {
-    const provider = this.apiProvider, state = this.apiState(), submitted = state.secretDraft;
+  async saveSecret(provider) {
+    const state = this.apiState(provider), submitted = state.secretDraft;
     if (state.savingSecret) return;
     const key = submitted.trim();
     if (!key) {
@@ -946,7 +1084,7 @@ export class SettingsPanel {
       }
     } finally {
       state.savingSecret = false;
-      if (provider === this.apiProvider) this.renderTranslation();
+      this.renderTranslation(provider);
     }
   }
   applySecretResponse(data, provider) {
@@ -954,19 +1092,24 @@ export class SettingsPanel {
     for (const settings of [this.saved, this.draft]) {
       settings.api_status[provider] = clone(data.api_status[provider]);
       settings.model_catalogs[catalogKey] = clone(data.model_catalogs[catalogKey]);
+      if (provider === "opencode" && data.model_catalogs.pi_chat) settings.model_catalogs.pi_chat = clone(data.model_catalogs.pi_chat);
+    }
+    if (provider === "opencode" && data.model_catalogs.pi_chat && !data.model_catalogs.pi_chat.error) {
+      this.catalogs.set(this.catalogKey("pi"), clone(data.model_catalogs.pi_chat));
     }
     const state = this.apiState(provider);
     state.catalog = null;
     state.sequence++;
     state.notice = "";
     state.testResult = "";
+    this.updateTranslationRoute();
   }
-  async deleteSecret() {
-    const provider = this.apiProvider, state = this.apiState(), config = this.apiConfig();
+  async deleteSecret(provider) {
+    const state = this.apiState(provider), config = this.apiConfig(provider);
     if (state.savingSecret) return;
     const status = this.saved.api_status[provider], draft = this.draft, secret = state.secretDraft, editing = state.editingSecret;
-    if (!await confirmAction({ title: `删除 ${config.label} 密钥`, trigger: "#deleteSecretBtn", message: `删除已保存的 ${config.label} API 密钥？删除后，依赖该密钥的服务需重新配置。${status?.environment_override ? "环境变量提供的密钥仍会生效。" : ""}`, action: "删除密钥" })) return;
-    if (this.apiProvider !== provider || this.apiState(provider) !== state || this.saved.api_status[provider] !== status || this.draft !== draft || state.secretDraft !== secret || state.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
+    if (!await confirmAction({ title: `删除 ${config.label} 密钥`, trigger: `#${this.apiId(provider, "deleteSecretBtn")}`, message: `删除已保存的 ${config.label} API 密钥？删除后，依赖该密钥的服务需重新配置。${status?.environment_override ? "环境变量提供的密钥仍会生效。" : ""}`, action: "删除密钥" })) return;
+    if (this.apiState(provider) !== state || this.saved.api_status[provider] !== status || this.draft !== draft || state.secretDraft !== secret || state.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
     state.savingSecret = true;
     try {
       const data = await api(`/api/settings/secrets/${provider}`, { method: "DELETE" });
@@ -978,7 +1121,7 @@ export class SettingsPanel {
       }
     } finally {
       state.savingSecret = false;
-      if (provider === this.apiProvider) this.renderTranslation();
+      this.renderTranslation(provider);
     }
   }
   async pickDatabase() {

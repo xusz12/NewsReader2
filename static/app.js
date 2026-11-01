@@ -21,15 +21,15 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=report-windows-edit-1";
+import { SettingsPanel } from "./settings-panel.js?v=pi-model-settings-2";
 import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
-import { TopicPanel } from "./topic-panel.js?v=tasks-1";
+import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
 import { ReportPanel } from "./report-panel.js?v=report-windows-edit-1";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=report-layout-1";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
-import { ClassificationProgress } from "./classification-progress.js?v=tasks-1";
-import { TaskProgress } from "./task-progress.js?v=reports-parallel-1";
+import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
+import { TaskProgress } from "./task-progress.js?v=translation-routing-1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.3.2";

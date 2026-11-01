@@ -294,6 +294,7 @@ def encoded_input_size(prompt, config):
                 state_dir=Path("/temporary-summary-preflight/" + "x" * 256),
                 provider=config["pi_provider"],
                 model=config["pi_model"],
+                reasoning_effort=config.get("pi_reasoning_effort", ""),
             )
         ).encode()
     )
@@ -319,6 +320,7 @@ def capture_config(settings, feature="summaries"):
         config.update(
             pi_provider=agent["pi"].get("provider", ""),
             pi_model=agent["pi"].get("model", ""),
+            pi_reasoning_effort=agent["pi"].get("reasoning_effort", ""),
         )
         if not config["pi_provider"] or not config["pi_model"]:
             raise ValueError("pi_model_not_selected")
@@ -376,6 +378,7 @@ def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
                 state_dir=tmp,
                 provider=config["pi_provider"],
                 model=config["pi_model"],
+                reasoning_effort=config.get("pi_reasoning_effort", ""),
             )
             command = bridge_command("newsreader-summary-" + uuid.uuid4().hex)
             pending = js(payload).encode()

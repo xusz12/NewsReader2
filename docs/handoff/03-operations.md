@@ -80,6 +80,8 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | `NEWS_READER_CODEX` | PATH 中的 codex | 使用接手方安装及登录的 CLI |
 | `NEWS_READER_PI_AGENT_DIR` | Pi 配置来源覆盖 | 不配置时继承本机 Pi；迁移扩展和信任配置需单独核验 |
 | `DEEPSEEK_API_KEY` | 环境变量优先，否则 macOS Keychain | 由接手方设置；不要放进源码或交付说明 |
+| `TYPESAFE_API_KEY` | 环境变量优先，否则 macOS Keychain | Jev 新闻分类、主题归属和重要进展筛选 |
+| `OPENCODE_API_KEY` | 环境变量优先，否则 macOS Keychain | OpenCode 正文翻译／精读、目录及测试，模型在「API 管理」选择；也通过子进程环境供 Pi 功能调用，Pi 模型在「模型与 Agent」选择 |
 | `NEWS_READER_LLM_MODEL` | 空时由代码使用翻译默认模型 | 显式保存的模型设置需与服务可用目录核对 |
 
 `NEWS_READER_MANAGED`、`NEWS_READER_INSTANCE_ID`、`NEWS_READER_SUPERVISOR_SOCKET`、`NEWS_READER_SUPERVISOR_TOKEN` 由启动器生成，不应作为手工配置或对外分发。Keychain 账号为 `newsreader-workbench`，服务名使用 `DEEPSEEK_API_KEY` 等；非 macOS 环境不能依赖设置页的 Keychain 写入。
@@ -101,6 +103,8 @@ opencli 不包含在 Python 或 npm 依赖清单中。交付方需另提供安�
 代码兼容 opencli 2.x 的 `ok/data/error` 包装以及旧列表/对象。具体调用参数见 `app.py` 的抓取函数。先在接手方终端确认这些适配器可用，再通过页面用少量真实文章验证。
 
 设置中分别验收：翻译模型、Pi/Codex 研究模型、模型目录刷新、连接测试、单篇回答和新闻总结。单篇研究使用实时外部检索的能力取决于所选 CLI/provider；总结使用锁定材料。未配置模型和 opencli 不影响纯索引阅读。
+
+Pi 登出后回到「模型与 Agent」会重新读取可用目录，也可点「刷新模型目录」。若服务商仍存在，检查同服务商的环境变量、自定义 models 配置或 NewsReader API 管理密钥；登出只删除 Pi 登录凭据。当前选项消失时保留原配置并提示重新选择，不自动切换其他服务商。推理强度按模型支持的档位显示；保存后用于新任务，已有会话和已创建报告保持原快照。连接测试只检查当前模型的一次简短请求，完整工具能力需通过实际功能验收。
 
 ## 开发与测试
 
@@ -124,6 +128,8 @@ CI=1 npm run test:ui
 | 启动健康检查失败 | 端口占用、服务终端输出、localhost DNS 和系统代理；本地请求应绕过代理 |
 | 抓取失败 | opencli 是否在服务 PATH，适配器大小写、浏览器连接、登录状态和错误详情 |
 | Agent 不可用 | Node 版本、npm 依赖、CLI 登录、模型选择、Pi 项目信任及扩展 |
+| OpenCode 获取模型返回 403 | 区分密钥错误与 Cloudflare `1010 / browser_signature_banned`；目录及连接测试必须通过 `model_apis.request_headers()` 标识本应用，避免 urllib 默认客户端标识被拒绝。2026-11-01已复现并修复；修改后须重启后端，获取目录成功不等于所选模型鉴权／额度可用 |
+| OpenCode 模型测试返回 429 | 免费聊天模型有外部调用限制，输入密钥不会解除；候选目录已统一隐藏 OpenCode 免费模型，已有配置不自动改写。使用支持外部调用的文本模型。`model_apis.http_error_details()` 仅按已知结构化错误码区分免费／Go额度、消费上限、余额与临时限流，未知429不推断具体原因；解析 `Retry-After` 秒数／HTTP日期与 `retry-after-ms`，提示等待但不自动发起重试，不回显原始错误正文或账户信息。正文翻译仍按已保存策略切换其他 API |
 | 总结失败 | 预览是否过期、库或配置是否变化、引用校验错误、模型结果及 job.error |
 | 更新按钮不可用 | ZIP/detached HEAD/脏工作区、本地分叉、启动入口、更新源和远端稳定 tag |
 | 媒体缺失 | 主库中的媒体索引和缓存目录是否一起迁移，缓存路径是否可写 |

@@ -4,8 +4,9 @@ import os
 import json
 from copy import deepcopy
 from pathlib import Path
-from model_apis import normalize_api_models
+from model_apis import normalize_api_models, normalize_translation
 import report_schedule
+import pi_models
 
 
 DEFAULT_DAILY_NEWS_DIR = Path(
@@ -55,12 +56,10 @@ def normalize_feature_models(value: object, settings: dict) -> dict:
         pi = selected.get("pi", previous["pi"])
         if not isinstance(pi, dict):
             raise ValueError("invalid_feature_models")
-        normalized_pi = {}
-        for key, limit in (("provider", 40), ("model", 120)):
-            text = pi.get(key, previous["pi"].get(key, ""))
-            if not isinstance(text, str) or len(text.strip()) > limit or any(ord(char)<32 for char in text):
-                raise ValueError("invalid_feature_models")
-            normalized_pi[key] = text.strip()
+        try:
+            normalized_pi = pi_models.normalize_config(pi, previous["pi"])
+        except ValueError as exc:
+            raise ValueError("invalid_feature_models") from exc
         result[feature] = {"runtime": selected.get("runtime", previous["runtime"]),
                            "codex": normalize_config(selected.get("codex", previous["codex"])), "pi": normalized_pi}
     return result
@@ -96,10 +95,7 @@ DEFAULT_APP_SETTINGS = {
     "api_models": normalize_api_models({}),
     "classification": normalize_classification({}),
     "llm": {
-        "translation": {
-            "provider": "deepseek",
-            "model": "",
-        },
+        "translation": normalize_translation({}),
         "pi_chat": {
             "provider": DEFAULT_PI_CHAT_PROVIDER,
             "model": DEFAULT_PI_CHAT_MODEL,
@@ -206,22 +202,17 @@ def load_app_settings() -> dict:
 
     translation = llm.get("translation")
     if isinstance(translation, dict):
-        provider = translation.get("provider")
-        model = translation.get("model")
-        if isinstance(provider, str) and provider.strip():
-            base["llm"]["translation"]["provider"] = provider.strip()
-        if isinstance(model, str):
-            base["llm"]["translation"]["model"] = model.strip()
+        try:
+            base["llm"]["translation"] = normalize_translation(translation)
+        except ValueError:
+            pass
 
     pi_chat = llm.get("pi_chat")
     if isinstance(pi_chat, dict):
-        provider = pi_chat.get("provider")
-        provider = provider.strip() if isinstance(provider, str) else ""
-        model = pi_chat.get("model")
-        if isinstance(provider, str):
-            base["llm"]["pi_chat"]["provider"] = provider
-        if isinstance(model, str):
-            base["llm"]["pi_chat"]["model"] = model.strip()
+        try:
+            base["llm"]["pi_chat"] = pi_models.normalize_config(pi_chat)
+        except ValueError:
+            pass
 
     try:
         base["api_models"] = normalize_api_models(payload.get("api_models", {}) if isinstance(payload, dict) else {})

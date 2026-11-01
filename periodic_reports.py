@@ -734,6 +734,10 @@ class Service:
                         (encoded(config), time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
                     if changed != 1:
                         raise RuntimeError("report_interrupted")
+            # Stable routing identity per report, including retries after a
+            # restart. Keep it out of the immutable saved model selection.
+            if config["runtime"] == "pi":
+                config = {**config, "session_id": "newsreader-report-" + job["id"]}
             result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, key, fn), progress=progress)
             progress("saving")
             with closing(self.connect()) as conn, conn:

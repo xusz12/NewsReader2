@@ -6,8 +6,8 @@ export function classificationStatus(progress) {
   if (p.enabled === false) return p.running ? "自动分类已关闭，正在处理的请求会继续完成" : "自动分类已关闭，保留现有进度";
   if (!p.total) return "当前范围暂无新闻";
   if (!p.pending && !p.running && !p.failed && !p.error) return "当前范围已全部分类完成";
-  if (!p.configured) return "等待在 API 管理中配置 Jev";
-  if (p.error) return "分类已暂停，请检查 API 管理中的 Jev 配置后重试";
+  if (!p.configured) return "等待在新闻分类设置中配置 Jev";
+  if (p.error) return "分类已暂停，请检查 新闻分类设置中的 Jev 配置后重试";
   if (throttle?.rate_limited && (p.pending || p.running)) return `限流降速 · 并发 ${throttle.effective_concurrency}/${throttle.configured_concurrency}${throttle.cooldown_seconds ? ` · ${throttle.cooldown_seconds} 秒后继续` : ""}`;
   return p.pending || p.running ? "正在分类" : "有失败项待重试";
 }
