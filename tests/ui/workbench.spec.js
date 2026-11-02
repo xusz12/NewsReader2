@@ -49,6 +49,7 @@ test("independent release shows its version and disabled update source", async (
   );
   await expect(page.locator("#applyUpdateBtn")).toBeHidden();
   await page.getByText("版本记录",{exact:true}).click();
+  await expect(page.locator("#releaseNotes")).toContainText(version);
   await expect(page.locator("#releaseNotes")).toContainText("v0.0.1");
   await expect(page.locator("#releaseNotes")).toContainText(
     "作为独立项目开始版本管理",

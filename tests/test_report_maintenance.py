@@ -142,6 +142,72 @@ def test_generation_duration_uses_execution_time_and_survives_metadata_updates(s
     assert service.observation()["recent"][0]["generation_seconds"] == 125.375
 
 
+@pytest.mark.parametrize("failures", [1, 3])
+def test_generation_duration_accumulates_failed_attempts_and_manual_retry(service, db, monkeypatch, failures):
+    report = create(service)
+    real_time = pr.time
+    # Large gaps represent time queued between attempts, never active work.
+    ticks = iter(tick for attempt in range(failures + 1) for tick in (1000 * attempt, 1000 * attempt + 30.25))
+    monkeypatch.setattr(pr, "time", SimpleNamespace(time=real_time.time, monotonic=lambda: next(ticks)))
+    calls = 0
+
+    def generate(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls <= failures:
+            raise RuntimeError("report_model_timeout")
+        return {"sections": [], "briefs": [], "sources": []}
+
+    monkeypatch.setattr(pr, "generate", generate)
+    for attempt in range(failures):
+        assert service.run_one()
+        row = rows(db)[0]
+        assert row["generation_seconds"] == 30.25 * (attempt + 1)
+        assert row["attempt_seconds"] == 0
+        assert not service.run_one()  # Backoff does not start or charge another attempt.
+        if row["status"] == "failed":
+            service.retry(report["id"], service.manual_options()["database_token"])
+            assert rows(db)[0]["generation_seconds"] == row["generation_seconds"]
+        else:
+            with closing(db()) as conn, conn:
+                conn.execute("UPDATE periodic_reports SET next_attempt=0")
+    assert service.run_one()
+    assert rows(db)[0]["status"] == "done"
+    assert pr.serialize(rows(db)[0], detail=True)["generation_seconds"] == 30.25 * (failures + 1)
+
+
+def test_interrupted_attempt_keeps_heartbeat_time_without_downtime_or_double_count(service, db, monkeypatch):
+    create(service)
+    job = service.claim()
+    real_time = pr.time
+    ticks = iter([1065.5, 2000, 2010, 10000, 10030])
+    monkeypatch.setattr(pr, "time", SimpleNamespace(time=real_time.time, monotonic=lambda: next(ticks)))
+
+    def heartbeat(job, started):
+        waits = iter([False, True])
+        service.renew_lease(job, SimpleNamespace(wait=lambda _: next(waits)), started)
+
+    heartbeat(job, 1000)
+    assert rows(db)[0]["attempt_seconds"] == 65.5
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET lease_until=0")
+    reclaimed = service.claim()
+    assert reclaimed["lease"] != job["lease"]
+    assert rows(db)[0]["generation_seconds"] == 65.5
+    assert rows(db)[0]["attempt_seconds"] == 0
+    heartbeat(job, 1000)  # The expired worker cannot charge the new attempt.
+    assert rows(db)[0]["attempt_seconds"] == 0
+    heartbeat(reclaimed, 2000)
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET lease_until=0")
+    assert service.run_one()
+    assert rows(db)[0]["status"] == "done"
+    assert rows(db)[0]["generation_seconds"] == 105.5
+    assert rows(db)[0]["attempt_seconds"] == 0
+    assert service.claim() is None
+    assert rows(db)[0]["generation_seconds"] == 105.5
+
+
 def test_legacy_duration_backfill_is_once_and_requires_valid_start(service, db):
     first, second = create(service), create(service)
     with closing(db()) as conn:

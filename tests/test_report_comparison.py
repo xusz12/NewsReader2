@@ -217,9 +217,12 @@ def test_lease_is_renewed_while_model_is_blocked(service, db, monkeypatch):
         assert service.claim() is None
         current = rows(db)[0]
         assert current['status']=='running' and current['attempts']==1 and current['lease_until']>time.time()
+        assert current['attempt_seconds'] >= .3
     finally:
         release.set(); thread.join(3)
-    assert rows(db)[0]['status'] == 'done'
+    finished = rows(db)[0]
+    assert finished['status'] == 'done' and finished['attempt_seconds'] == 0
+    assert finished['generation_seconds'] >= current['attempt_seconds']
 
 
 def test_missing_shared_reference_fails_without_changing_comparison_material(service, db):

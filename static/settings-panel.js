@@ -11,6 +11,13 @@ import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displa
 
 const clone = (value) => structuredClone(value);
 const modelFeatures = {chat:"Chat", topics:"主题追踪", summaries:"新闻总结", reports:"日报"};
+const testResultStatus = (text) => ({SUCCESS:"success", PASS:"success", FAILED:"failed", FAIL:"failed", RUNNING:"running"})[/^\[(\w+)\]/.exec(text)?.[1]] || "ready";
+function updateTestResult(terminal, text, hideEmpty = false) {
+  if (!terminal) return;
+  terminal.textContent = text;
+  terminal.dataset.status = testResultStatus(text);
+  terminal.hidden = hideEmpty && !text;
+}
 const get = (object, path) =>
   path.split(".").reduce((v, key) => v?.[key], object);
 function set(object, path, value) {
@@ -328,7 +335,7 @@ export class SettingsPanel {
     const state = this.modelState(feature);
     state.connectionSequence++; state.connectionResult = "";
     const terminal = this.modelElement(feature, "connTestTerminal");
-    if (terminal) {terminal.textContent = ""; terminal.hidden = true;}
+    updateTestResult(terminal, "", true);
   }
   updateDraft(event) {
     const input = event.target;
@@ -356,7 +363,7 @@ export class SettingsPanel {
       state.sequence++;
       state.notice = "模型已变化，可以测试当前选择。";
       state.testResult = "[READY] 模型已变化，请重新测试当前选择。";
-      this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
+      updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult);
       this.apiElement(provider, "translationStatus").textContent = state.notice;
       this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
       this.syncModelFields(input, this.translationOptions(provider));
@@ -531,7 +538,7 @@ export class SettingsPanel {
     this.renderClassificationProgress();
     this.schedules.mount($("#scheduleSettings"));
     this.selectSection(this.section, { reveal: false });
-    $("#settingsContent details").ontoggle = (event) => {
+    $("#releaseNotes").closest("details").ontoggle = (event) => {
       if (event.target.open) this.loadReleaseNotes();
     };
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
@@ -697,7 +704,7 @@ export class SettingsPanel {
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
       ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret="${provider}" type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" ${action("saveSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? `<button class="btn-secondary" ${action("cancelSecretBtn")} type="button">取消</button>` : ""}</div>` : `<div class="button-row"><button class="btn-secondary" ${action("editSecretBtn")} type="button">更新密钥</button><button class="reader-action-btn danger" ${action("deleteSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
-      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="${id("translationTestTerminal")}" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
+      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="${id("translationTestTerminal")}" data-status="${testResultStatus(state.testResult)}" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
   }
   async refreshTranslationModels(provider) {
     const state = this.apiState(provider);
@@ -722,7 +729,7 @@ export class SettingsPanel {
     const seq = state.sequence;
     state.testing = true;
     state.testResult = "[RUNNING] 正在测试当前模型…";
-    this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
+    updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult);
     try {
       const data = await api(`/api/settings/apis/${provider}/test`, { method: "POST", body: { model } });
       if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
@@ -731,7 +738,7 @@ export class SettingsPanel {
     } finally {
       state.testing = false;
       if (state === this.apiState(provider)) {
-        this.apiElement(provider, "translationTestTerminal").textContent = state.testResult;
+        updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult);
         this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
         this.apiElement(provider, "translationTestBtn").textContent = "测试模型";
       }
@@ -760,7 +767,7 @@ export class SettingsPanel {
       <details id="${id("modelAdvanced")}" data-model-advanced data-feature="${feature}" ${this.modelAdvanced.get(feature)?'open':''}><summary class="reader-tool-btn">高级设置</summary><div class="section-stack">${field("自定义模型",paths.codex+".model",custom,'maxlength="120"')}<div class="form-group-grid">${field("服务商覆盖",paths.codex+".provider",d.codex.provider)}${field("Profile",paths.codex+".profile",d.codex.profile)}</div></div></details>`
       : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(feature),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div><p class="muted">Pi 使用自身的登录或环境配置。使用 Go 订阅时，请在 Pi 中登录 opencode-go；API 管理中的密钥仅用于正文翻译。</p>`}
       <div class="button-row"><button class="btn-secondary" ${action("refreshModelsBtn")} type="button" ${state.pendingCatalog?'disabled':''}>刷新模型目录</button><button class="btn-primary" ${action("testConnectionBtn")} type="button" ${this.canTestModel(feature)?'':'disabled'}>${state.testing?'测试中…':'运行连接测试'}</button></div>
-      <p class="muted" id="${id("modelsNotice")}" role="status" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="${id("connTestTerminal")}" role="status" ${state.connectionResult?'':'hidden'}>${e(state.connectionResult || "")}</div>
+      <p class="muted" id="${id("modelsNotice")}" role="status" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="${id("connTestTerminal")}" data-status="${testResultStatus(state.connectionResult)}" role="status" ${state.connectionResult?'':'hidden'}>${e(state.connectionResult || "")}</div>
       ${feature === "chat" ? `<div class="form-group-grid">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div><button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>` : ""}`;
     if (!codex) $(`select[name="${paths.pi}.reasoning_effort"]`, panel).disabled = !piModel?.reasoning_efforts?.length;
     this.selects.refresh(panel);
@@ -1041,7 +1048,7 @@ export class SettingsPanel {
     const target = [draft.runtime === "pi" ? selected.provider : "Codex", selected.model || "本机默认", selected.reasoning_effort || "默认推理强度"].join(" · ");
     state.connectionResult = `[RUNNING] ${target} · 正在测试…`;
     const terminal = this.modelElement(feature, "connTestTerminal");
-    terminal.textContent = state.connectionResult; terminal.hidden = false;
+    updateTestResult(terminal, state.connectionResult, true);
     this.modelElement(feature, "testConnectionBtn").disabled = true;
     const current = () => state === this.modelState(feature) && seq === state.connectionSequence && fingerprint === JSON.stringify(this.modelDraft(feature));
     try {
@@ -1056,7 +1063,7 @@ export class SettingsPanel {
       state.testing = false;
       if (state === this.modelState(feature)) {
         const terminal = this.modelElement(feature, "connTestTerminal"), button = this.modelElement(feature, "testConnectionBtn");
-        if (terminal) { terminal.textContent = state.connectionResult; terminal.hidden = !state.connectionResult; }
+        updateTestResult(terminal, state.connectionResult, true);
         if (button) { button.disabled = !this.canTestModel(feature); button.textContent = "运行连接测试"; }
       }
     }

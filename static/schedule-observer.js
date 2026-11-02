@@ -1,6 +1,6 @@
 import { api, escapeHTML as e, singlePane, formatBytes } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
-import { statusText, progressText } from "./report-status.js?v=reports-parallel-1";
+import { statusText, progressText } from "./report-status.js?v=report-workspace-1";
 import { defaultReportWindows, windowDays, windowLabel, windowError } from "./report-windows.js";
 
 const time = value => value ? new Intl.DateTimeFormat("zh-CN", {

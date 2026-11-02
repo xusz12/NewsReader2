@@ -104,7 +104,8 @@ for (const width of [1440, 390]) {
     await page.screenshot({ path: `.ui-artifacts/reader-unfetched-${width}.png`, animations: 'disabled' });
     await page.locator('#fetchArticleBtn').click();
     await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
-    await expect(page.locator('.digest-box')).toContainText('DeepSeek 结构化精读');
+    await expect(page.locator('.digest-box')).toContainText('导读');
+    await expect(page.locator('.digest-box')).toHaveAttribute('aria-label','本篇导读');
     await page.locator('[data-body-mode="bilingual"]').click();
     await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
     await expect(page.locator('#articleNote, #saveArticleNoteBtn')).toHaveCount(0);
@@ -227,11 +228,19 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   await expect(custom).toHaveValue('');
   await page.locator('#translationTestBtn').click();
   await expect(page.locator('#translationTestTerminal')).toContainText('模型连接成功 · new-model');
+  await expect(page.locator('#translationTestTerminal')).toHaveAttribute('data-status','success');
   await page.screenshot({ path: '.ui-artifacts/v002-translation-settings.png', animations: 'disabled' });
+  await page.unroute('**/api/settings/apis/deepseek/test');
+  await page.route('**/api/settings/apis/deepseek/test',route=>route.fulfill({status:503,json:{error:'model_unavailable'}}));
+  await page.locator('#translationTestBtn').click();
+  await expect(page.locator('#translationTestTerminal')).toHaveAttribute('data-status','failed');
+  await custom.fill('changed-model');
+  await expect(page.locator('#translationTestTerminal')).toHaveAttribute('data-status','ready');
+  await expect(page.locator('#translationTestTerminal')).toContainText('[READY]');
   await page.locator('#deleteSecretBtn').click();
   await answerConfirm(page);
   await expect(page.locator('#deepseekSecret')).toBeVisible();
-  await expect(dropdown).toHaveValue('new-model');
+  await expect(dropdown).toHaveValue('changed-model');
 });
 
 

@@ -374,7 +374,7 @@ def fixture_reports():
             if status == 'pending':
                 conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
             if status == 'running':
-                conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), module.periodic_reports.stamp(module.periodic_reports.now()),time.time()+1200,'report-'+kind))
+                conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), body.get('started_at',module.periodic_reports.stamp(module.periodic_reports.now())),time.time()+1200,'report-'+kind))
         if body.get('snapshots'):
             for kind in ('evening','weekly'):
                 report = conn.execute('SELECT period_start,period_end FROM periodic_reports WHERE id=?', ('report-'+kind,)).fetchone()

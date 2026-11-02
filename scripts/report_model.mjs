@@ -41,10 +41,15 @@ try {
     // still need an identity even though they have no persisted agent session.
     sessionId:request.session_id || randomUUID(),
     ...(request.reasoning_effort && request.reasoning_effort !== 'off' ? {reasoning:request.reasoning_effort} : {})});
+  const usage = Object.fromEntries(Object.entries(answer.usage || {}).filter(([,v])=>typeof v === 'number' && Number.isFinite(v) && v >= 0));
+  if (answer.stopReason === 'length') {
+    process.stdout.write(JSON.stringify({type:'oar_result',outcome:'failed',error:'report_output_truncated',usage})+'\n');
+    process.exit(1);
+  }
   if (answer.stopReason !== 'stop' || answer.content.some(part=>part.type === 'toolCall')) throw new Error();
   const text = answer.content.filter(part=>part.type === 'text').map(part=>part.text).join('');
   if (!text.trim()) throw new Error();
-  process.stdout.write(JSON.stringify({type:'oar_result',outcome:'completed',answer:text})+'\n');
+  process.stdout.write(JSON.stringify({type:'oar_result',outcome:'completed',answer:text,usage})+'\n');
 } catch {
   const error = dependenciesReady ? 'report_model_failed' : 'report_model_dependencies_missing';
   process.stdout.write(JSON.stringify({type:'oar_result',outcome:'failed',error})+'\n');

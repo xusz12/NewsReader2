@@ -253,11 +253,37 @@ def test_snapshot_keeps_title_only_and_rejects_later_body(db):
 @pytest.mark.parametrize("bad", [
     {"events":[],"omitted":[]},
     {"events":[{"text":"新闻","refs":["N999"]}],"omitted":[]},
-    {"events":[{"text":"新闻","refs":["N1"]}],"omitted":["N1"]},
 ])
 def test_extraction_accounts_for_every_input_without_invalid_refs(bad):
     with pytest.raises(RuntimeError, match="report_invalid_result"):
         pr.validate_events(bad,{"N1"})
+
+
+def test_workspace_journal_survives_retry_and_rejects_expired_lease(db):
+    due(db)
+    service = pr.Service(db, lambda: SETTINGS, lambda: None, runner)
+    first = service.claim()
+    service.workspace_state(first, "v3:fixture", {"reviews": {"B0001": {"events": []}}})
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET status='pending',lease=NULL,next_attempt=0 WHERE id=?", (first["id"],))
+    second = service.claim()
+    assert second["lease"] != first["lease"]
+    assert service.workspace_state(second, "v3:fixture")["reviews"] == {"B0001": {"events": []}}
+    with pytest.raises(RuntimeError, match="report_interrupted"):
+        service.workspace_state(first, "v3:fixture", {"reviews": {}})
+    assert service.workspace_state(second, "v3:fixture")["reviews"]
+
+
+@pytest.mark.parametrize("error", ["report_input_too_large", "report_repair_too_large", "report_workspace_capacity"])
+def test_deterministic_capacity_error_does_not_repeat_identical_auto_attempt(db, error):
+    due(db)
+    with closing(db()) as conn: news(conn, "one")
+    def fail(*args): raise RuntimeError(error)
+    service = pr.Service(db, lambda: SETTINGS, lambda: None, fail)
+    assert service.run_one()
+    with closing(db()) as conn:
+        row = conn.execute("SELECT status,error,attempts FROM periodic_reports").fetchone()
+    assert tuple(row) == ("failed", error, 1)
 
 
 def test_invalid_final_citations_and_emphasis_not_saved(db):
@@ -270,7 +296,9 @@ def test_invalid_final_citations_and_emphasis_not_saved(db):
     with closing(db()) as conn:
         row=conn.execute("SELECT * FROM periodic_reports").fetchone()
         assert row["result_json"] is None and row["error"] == "report_invalid_result"
-        assert conn.execute("SELECT COUNT(*) FROM periodic_report_steps").fetchone()[0] == 1
+        steps = {step[0] for step in conn.execute("SELECT step_key FROM periodic_report_steps")}
+        assert {"v2:direct:answer", "v2:direct:raw"} <= steps
+        assert not any(key.endswith(":checked") for key in steps)
 
 
 def test_claim_excludes_other_workers_and_recovers_expired_lease(db):

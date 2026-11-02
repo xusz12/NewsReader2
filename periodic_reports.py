@@ -97,7 +97,8 @@ def initialize(conn, at=None):
     columns = {row[1] for row in conn.execute("PRAGMA table_info(periodic_reports)")}
     for name, declaration in (("progress_json", "TEXT NOT NULL DEFAULT '{}'"), ("started_at", "TEXT"),
                               ("model_label", "TEXT NOT NULL DEFAULT ''"), ("snapshot_id", "TEXT"),
-                              ("snapshot_captured_at", "TEXT"), ("generation_seconds", "REAL")):
+                              ("snapshot_captured_at", "TEXT"), ("generation_seconds", "REAL"),
+                              ("attempt_seconds", "REAL NOT NULL DEFAULT 0")):
         if name not in columns:
             conn.execute(f"ALTER TABLE periodic_reports ADD COLUMN {name} {declaration}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_periodic_reports_window ON periodic_reports(period_start,period_end)")
@@ -248,7 +249,9 @@ def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=Non
             return 0
         calendar = calendar if calendar is not None else calendar_data()
         conn.execute("""UPDATE periodic_reports SET status='skipped',error='report_intraday_expired',
-            lease=NULL,lease_until=NULL,updated_at=? WHERE kind IN ('morning','noon')
+            lease=NULL,lease_until=NULL,updated_at=?,
+            generation_seconds=CASE WHEN attempt_seconds>0 THEN COALESCE(generation_seconds,0)+attempt_seconds ELSE generation_seconds END,
+            attempt_seconds=0 WHERE kind IN ('morning','noon')
             AND edition_key NOT LIKE 'trial:%' AND edition_key NOT LIKE 'manual:%' AND scheduled_at<? AND (status IN ('pending','failed')
                 OR (status='running' AND lease_until<?))""",
             (stamp(at), stamp(intraday_since), time.time()))
@@ -613,7 +616,9 @@ class Service:
         with closing(self.connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("""UPDATE periodic_reports SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END,
-                lease=NULL,lease_until=NULL,error='report_interrupted' WHERE status='running' AND lease_until<?""", (time.time(),))
+                lease=NULL,lease_until=NULL,error='report_interrupted',
+                generation_seconds=COALESCE(generation_seconds,0)+attempt_seconds,attempt_seconds=0
+                WHERE status='running' AND lease_until<?""", (time.time(),))
             if conn.execute("SELECT COUNT(*) FROM periodic_reports WHERE status='running'").fetchone()[0] >= self.concurrency:
                 conn.commit()
                 return None
@@ -623,7 +628,7 @@ class Service:
                 conn.commit()
                 return None
             lease = uuid.uuid4().hex
-            conn.execute("UPDATE periodic_reports SET status='running',attempts=attempts+1,lease=?,lease_until=?,error='',progress_json='{}',started_at=?,updated_at=? WHERE id=?", (lease, time.time()+LEASE_SECONDS, stamp(now()), stamp(now()), row["id"]))
+            conn.execute("UPDATE periodic_reports SET status='running',attempts=attempts+1,lease=?,lease_until=?,error='',progress_json='{}',attempt_seconds=0,started_at=?,updated_at=? WHERE id=?", (lease, time.time()+LEASE_SECONDS, stamp(now()), stamp(now()), row["id"]))
             conn.commit()
             return {**dict(row), "lease": lease, "attempts": row["attempts"]+1}
 
@@ -640,6 +645,18 @@ class Service:
             conn.execute("INSERT OR REPLACE INTO periodic_report_steps VALUES (?,?,?)", (job["id"], key, encoded(result)))
         return result
 
+    def workspace_state(self, job, key, value=None):
+        """Mutable report work journal; the same lease guards every delegate."""
+        with closing(self.connect()) as conn, conn:
+            if value is None:
+                row = conn.execute("SELECT result_json FROM periodic_report_steps WHERE report_id=? AND step_key=?", (job["id"], key)).fetchone()
+                return json.loads(row[0]) if row else None
+            changed = conn.execute("UPDATE periodic_reports SET lease_until=? WHERE id=? AND lease=? AND status='running'",
+                                   (time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
+            if changed != 1 or self.stopped.is_set():
+                raise RuntimeError("report_interrupted")
+            conn.execute("INSERT OR REPLACE INTO periodic_report_steps VALUES (?,?,?)", (job["id"], key, encoded(value)))
+
     def update_progress(self, job, stage, **details):
         with closing(self.connect()) as conn, conn:
             changed = conn.execute("UPDATE periodic_reports SET progress_json=?,updated_at=?,lease_until=? WHERE id=? AND lease=? AND status='running'",
@@ -647,12 +664,15 @@ class Service:
             if changed != 1:
                 raise RuntimeError("report_interrupted")
 
-    def renew_lease(self, job, finished):
+    def renew_lease(self, job, finished, generation_started):
         while not finished.wait(LEASE_RENEW_SECONDS) and not self.stopped.is_set():
             try:
                 with closing(self.connect()) as conn, conn:
-                    changed = conn.execute("UPDATE periodic_reports SET lease_until=? WHERE id=? AND lease=? AND status='running'",
-                        (time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
+                    # Persist the active attempt separately: a restart keeps
+                    # confirmed work time without counting downtime or backoff.
+                    changed = conn.execute("""UPDATE periodic_reports SET lease_until=?,attempt_seconds=MAX(attempt_seconds,?)
+                        WHERE id=? AND lease=? AND status='running'""",
+                        (time.time()+LEASE_SECONDS, max(0, round(time.monotonic()-generation_started, 3)), job["id"], job["lease"])).rowcount
                     if not changed:
                         return
             except sqlite3.Error:
@@ -716,7 +736,7 @@ class Service:
             return False
         generation_started = time.monotonic()
         finished = threading.Event()
-        keeper = threading.Thread(target=self.renew_lease, args=(job, finished), name="report-lease", daemon=True)
+        keeper = threading.Thread(target=self.renew_lease, args=(job, finished, generation_started), name="report-lease", daemon=True)
         keeper.start()
         try:
             config = json.loads(job["config_json"]) if job["config_json"] else report_model.configuration(self.settings(), resolve=False)
@@ -729,7 +749,8 @@ class Service:
             snapshot = self.shared_snapshot(job)
             progress = lambda stage, **details: self.update_progress(job, stage, source_count=len(snapshot["sources"]), **details)
             progress("preparing")
-            if snapshot["sources"] and "limits" not in config:
+            if snapshot["sources"] and ("limits" not in config or
+                    (config["runtime"] == "pi" and config["limits"].get("output_budget_version") != 2)):
                 config["limits"] = report_model.capacity(config)
                 with closing(self.connect()) as conn, conn:
                     changed = conn.execute("UPDATE periodic_reports SET config_json=?,lease_until=? WHERE id=? AND lease=? AND status='running'",
@@ -740,20 +761,26 @@ class Service:
             # restart. Keep it out of the immutable saved model selection.
             if config["runtime"] == "pi":
                 config = {**config, "session_id": "newsreader-report-" + job["id"]}
-            result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, key, fn), progress=progress)
+            config = {**config, "_cancelled": lambda: self.stopped.is_set()}
+            result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, key, fn), progress=progress,
+                              state_store=lambda key, value=None: self.workspace_state(job, key, value))
             progress("saving")
             with closing(self.connect()) as conn, conn:
-                conn.execute("""UPDATE periodic_reports SET status='done',result_json=?,lease=NULL,lease_until=NULL,error='',progress_json='{"stage":"done"}',updated_at=?,generation_seconds=?
+                conn.execute("""UPDATE periodic_reports SET status='done',result_json=?,lease=NULL,lease_until=NULL,error='',progress_json='{"stage":"done"}',updated_at=?,
+                    generation_seconds=COALESCE(generation_seconds,0)+MAX(attempt_seconds,?),attempt_seconds=0
                     WHERE id=? AND lease=? AND status='running'""", (encoded(result), stamp(now()),
                     max(0, round(time.monotonic()-generation_started, 3)), job["id"], job["lease"]))
         except Exception as exc:
             error = str(exc)
-            if error not in INDEX_ERRORS | {"report_model_unconfigured", "report_model_dependencies_missing", "report_model_capacity_unknown", "report_model_timeout", "report_invalid_result", "report_input_too_large", "report_interrupted", "report_tools_not_allowed", "report_snapshot_missing"}:
+            permanent = {"report_input_too_large", "report_repair_too_large", "report_workspace_capacity", "report_model_capacity_unknown", "report_output_truncated"}
+            if error not in INDEX_ERRORS | permanent | {"report_model_unconfigured", "report_model_dependencies_missing", "report_model_timeout", "report_invalid_result", "report_interrupted", "report_tools_not_allowed", "report_snapshot_missing", "report_coverage_incomplete", "report_work_incomplete"}:
                 error = "report_model_failed"
             with closing(self.connect()) as conn, conn:
-                conn.execute("""UPDATE periodic_reports SET status=?,error=?,lease=NULL,lease_until=NULL,next_attempt=?,updated_at=?
-                    WHERE id=? AND lease=? AND status='running'""", ("failed" if job["attempts"] >= 3 else "pending", error,
-                    time.time() + (60 if job["attempts"] == 1 else 300), stamp(now()), job["id"], job["lease"]))
+                conn.execute("""UPDATE periodic_reports SET status=?,error=?,lease=NULL,lease_until=NULL,next_attempt=?,updated_at=?,
+                    generation_seconds=COALESCE(generation_seconds,0)+MAX(attempt_seconds,?),attempt_seconds=0
+                    WHERE id=? AND lease=? AND status='running'""", ("failed" if job["attempts"] >= 3 or error in permanent else "pending", error,
+                    time.time() + (60 if job["attempts"] == 1 else 300), stamp(now()),
+                    max(0, round(time.monotonic()-generation_started, 3)), job["id"], job["lease"]))
         finally:
             finished.set()
             keeper.join(timeout=1)

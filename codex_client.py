@@ -181,7 +181,7 @@ class EventParser:
     Tool/diagnostic contents are discarded. Unknown events fail closed instead
     of treating partial output as a successful response.
     """
-    def __init__(self, expected_thread: str = ""):
+    def __init__(self, expected_thread: str = "", *, allow_delegation=False):
         self.expected_thread = expected_thread
         self.thread_id = ""
         self.started = False
@@ -191,6 +191,7 @@ class EventParser:
         self.stream_text = ""
         self.failure_code = "codex_turn_failed"
         self.saw_error = False
+        self.allow_delegation = allow_delegation
 
     def parse(self, raw: str) -> dict:
         try:
@@ -198,6 +199,11 @@ class EventParser:
             if not isinstance(event, dict) or self.terminal:
                 raise ValueError()
             kind = event.get("type")
+            # A report's final answer belongs to the coordinator. Native CLI
+            # versions that forward child events must not let them complete it.
+            if (self.allow_delegation and self.thread_id and event.get("thread_id")
+                    and event["thread_id"] != self.thread_id):
+                return {"type": "oar_tool"}
             if kind == "thread.started":
                 value = event.get("thread_id")
                 if self.thread_id or not valid_thread_id(value) or (self.expected_thread and value != self.expected_thread):
@@ -228,7 +234,7 @@ class EventParser:
                 if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"] or item.get("type") not in {
                     "agent_message", "reasoning", "command_execution", "file_change", "mcp_tool_call",
                     "web_search", "todo_list", "error", "tool_call", "image_generation",
-                }:
+                } | ({"collab_tool_call"} if self.allow_delegation else set()):
                     raise ValueError()
                 if not self.started:
                     # CLI 0.158.0 can emit completed startup diagnostics between

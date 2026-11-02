@@ -1,7 +1,7 @@
 import { $, api, busy, escapeHTML as e } from "./ui.js";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { jobErrorText } from "./topic-status.js";
-import { failureText, statusText, progressText } from "./report-status.js?v=reports-parallel-1";
+import { failureText, statusText, progressText } from "./report-status.js?v=report-workspace-1";
 
 const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};
 const retryTime = value => value ? new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value)) : "";

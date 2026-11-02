@@ -75,6 +75,34 @@ test('报告模型旁显示固定生成用时，缺失时不编造',async({page,
   await expect(page.locator('#reportContent')).not.toContainText('生成用时');
 });
 
+test('错误重试期间累计用时冻结，恢复后继续计时，完成后保留总用时',async({page,request})=>{
+  await page.clock.setFixedTime(new Date('2026-11-02T12:00:00+08:00'));
+  await request.post('/__test/reports',{data:{failed:true,pending:true,generation_seconds:125}});
+  await page.goto('/');await openReports(page);
+  const metadata=page.locator('#reportContent .article-meta-bottom').filter({hasText:'Pi · test-model'});
+  await expect(metadata).toContainText('生成用时 2 分 5 秒');
+  await page.clock.setFixedTime(new Date('2026-11-02T12:10:00+08:00'));
+  await expect(metadata).toContainText('生成用时 2 分 5 秒');
+  await request.post('/__test/reports',{data:{running:true,generation_seconds:125,started_at:'2026-11-02T12:10:00+08:00'}});
+  await page.clock.setFixedTime(new Date('2026-11-02T12:10:10+08:00'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('#reportElapsed')).toHaveText('已用时 2分15秒');
+  await page.clock.setFixedTime(new Date('2026-11-02T12:10:15+08:00'));
+  await expect(page.locator('#reportElapsed')).toHaveText('已用时 2分20秒');
+  await request.post('/__test/reports',{data:{failed:true,generation_seconds:140}});
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(metadata).toContainText('生成用时 2 分 20 秒');
+  await expect(page.locator('#reportElapsed')).toHaveCount(0);
+  await request.post('/__test/reports',{data:{running:true,generation_seconds:140,started_at:'2026-11-02T13:00:00+08:00'}});
+  await page.clock.setFixedTime(new Date('2026-11-02T13:00:20+08:00'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('#reportElapsed')).toHaveText('已用时 2分40秒');
+  await request.post('/__test/reports',{data:{generation_seconds:160}});
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(metadata).toContainText('生成用时 2 分 40 秒');
+  await expect(page.locator('#reportElapsed')).toHaveCount(0);
+});
+
 for(const width of [320,390,1440]) test('自定义窗口共享日历与时分 Picker，开始结束独立选择 '+width,async({page})=>{
   await page.setViewportSize({width,height:width===320?568:900});
   await page.goto('/');await openReports(page);await page.locator('#createReportBtn').click();
@@ -385,6 +413,16 @@ for(const width of [390,1440]) test('生成进度随阶段和批次更新，生�
   await expect(page.locator('[data-report-id="report-evening"]')).toContainText('编写报告');
   await expect(page.locator('#reportContent')).not.toContainText('已完成 1 / 4 批');
   await expect(page.locator('#reportContent [aria-current="step"]')).toHaveText('3 · 编写报告 · 进行中');
+  await request.post('/__test/reports',{data:{running:true,progress:{stage:'drafting',completed:2,total:7,source_count:5678}}});
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('#reportContent')).toContainText('编写报告章节 · 已完成 2 / 7 章');
+  await expect(page.locator('[data-report-id="report-evening"]')).toContainText('编写报告章节');
+  await expect(page.locator('#reportContent [aria-current="step"]')).toHaveText('3 · 编写报告 · 进行中');
+  await request.post('/__test/reports',{data:{running:true,progress:{stage:'reviewing',completed:3,total:7,source_count:5678}}});
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('#reportContent')).toContainText('复核报告全文 · 已完成 3 / 7 章');
+  await expect(page.locator('[data-report-id="report-evening"]')).toContainText('复核报告全文');
+  await expect(page.locator('#reportContent [aria-current="step"]')).toHaveText('4 · 校验内容 · 进行中');
   for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
     await page.emulateMedia({colorScheme});await chooseTheme(page,theme);
     expect(await page.locator('#reportScrollArea').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);

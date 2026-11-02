@@ -88,12 +88,53 @@ def test_old_topic_and_total_character_caps_removed_and_briefs_are_cited():
     assert result["reading_minutes"] == 1 and len(result["sources"]) == 1
 
 
-@pytest.mark.parametrize("omitted", [[], ["N00001-N00003"], ["N00002-N00004"], ["N00003-N00002"]])
-def test_coverage_rejects_missing_overlapping_unknown_and_reversed_ranges(omitted):
+@pytest.mark.parametrize("omitted", [[], ["N00002-N00004"], ["N00003-N00002"]])
+def test_coverage_rejects_missing_unknown_and_reversed_ranges(omitted):
     value = edition(["N00001"])
     value["omitted"] = omitted
     with pytest.raises(gen.InvalidReport):
         gen.validate_edition(value, [source(i) for i in range(1, 4)], "evening")
+
+
+def test_overlap_normalizes_without_inference_or_losing_retained_facts(budget):
+    value = edition(["N00001"])
+    value["omitted"] = ["N00001-N00003"]
+    cache = Checkpoints()
+    cache.saved["v2:direct:raw"] = value
+    result = gen.generate({"kind": "evening", "sources": [source(i) for i in range(1, 4)]}, budget,
+                          lambda *_: pytest.fail("Overlap requires no inference"), cache)
+    assert result["sources"][0]["ref"] == "N00001"
+    assert cache.saved["v2:direct:checked"]["omitted"] == ["N00002", "N00003"]
+    event = {"text": "完整事实", "refs": ["N03373"]}
+    assert gen.validate_events({"events": [event], "omitted": ["N03373", "N03374"]}, {"N03373", "N03374"}) == {"events": [event], "omitted": ["N03374"]}
+
+
+def test_reference_spelling_is_normalized_but_unknown_ids_are_not_guessed():
+    result = gen.validate_events({"events": [{"text": "事实", "refs": ["01554", "n01554"]}], "omitted": []}, {"N01554"})
+    assert result["events"][0]["refs"] == ["N01554"]
+    with pytest.raises(gen.InvalidReport) as error:
+        gen.validate_events({"events": [{"text": "事实", "refs": ["N01554"]}, {"text": "未知来源", "refs": ["01555"]}], "omitted": []}, {"N01554"})
+    assert error.value.issues[0]["path"] == "/events/1"
+
+
+def test_explicit_omission_with_reason_is_not_mistaken_for_missing_coverage():
+    result = gen.validate_events({"events": [], "omitted": [{"ref": "N00079", "reason": "无新增事实"}]}, {"N00079"})
+    assert result == {"events": [], "omitted": ["N00079"]}
+    with pytest.raises(gen.InvalidReport):
+        gen.validate_events({"events": [], "omitted": [{"ref": "N00080", "reason": "不存在"}]}, {"N00079"})
+
+
+def test_coverage_repair_reads_only_missing_material_and_can_retain_it(budget):
+    cache = Checkpoints()
+    cache.saved["v2:direct:raw"] = edition(["N00001"])
+    sources = [source(1, "已有充分资料" * 10000), source(2, "遗漏的重要反证")]
+    seen = []
+    def call(config, prompt):
+        seen.append(prompt)
+        assert "已有充分资料" not in prompt and "遗漏的重要反证" in prompt
+        return gen.encoded({"events": [{"text": "遗漏的重要反证", "refs": ["N00002"]}], "omitted": []})
+    result = gen.generate({"kind": "evening", "sources": sources}, budget, call, cache)
+    assert len(seen) == 1 and result["briefs"][0]["refs"] == ["N00002"]
 
 
 def test_bad_block_repaired_without_rewriting_good_block_or_repeating_draft(budget):
@@ -122,6 +163,75 @@ def test_bad_block_repaired_without_rewriting_good_block_or_repeating_draft(budg
 def test_repair_cannot_replace_unrequested_correct_content():
     with pytest.raises(RuntimeError, match="report_invalid_result"):
         gen.apply_repairs(edition(["N00001"]), {"repairs": [{"path": "/sections", "value": []}]}, {"/briefs"})
+
+
+def test_format_repair_then_missing_coverage_resumes_without_repeating_good_work(budget):
+    cache, calls = Checkpoints(), []
+    good = {"text": "已核实的事实", "refs": ["N00001"]}
+    cache.saved["batch:raw"] = {"events": [good], "omitted": ["N00002?", "N00003?"]}
+    material = [{"text": text, "refs": [f"N{i:05}"]} for i, text in enumerate(
+        ["已有充分资料", "无新增信息", "值得保留的反证"], 1)]
+    def call(config, prompt):
+        calls.append(prompt)
+        assert "已有充分资料" not in prompt
+        if len(calls) == 1:
+            assert "本次仅修复" in prompt
+            return gen.encoded({"repairs": [{"path": "/omitted", "value": ["N00002"]}]})
+        assert "值得保留的反证" in prompt and "无新增信息" not in prompt
+        if len(calls) == 2:
+            raise RuntimeError("report_model_timeout")
+        return gen.encoded({"events": [{"text": "值得保留的反证", "refs": ["N00003"]}], "omitted": []})
+    def run():
+        return gen.edited_call("batch", "规则\n新闻资料："+gen.encoded(material), material, "{}", budget,
+                               call, cache, lambda value: gen.validate_events(value, {"N00001", "N00002", "N00003"}))
+    with pytest.raises(RuntimeError, match="report_model_timeout"):
+        run()
+    assert cache.saved["batch:repair"]["omitted"] == ["N00002"]
+    result = run()
+    assert result["events"][0] == good
+    assert result["events"][1]["refs"] == ["N00003"] and result["omitted"] == ["N00002"]
+    assert run() == result and len(calls) == 3
+
+
+def test_ineffective_field_repairs_are_bounded(budget):
+    cache, calls = Checkpoints(), []
+    cache.saved["batch:raw"] = {"events": [], "omitted": ["N00001?"]}
+    def call(config, prompt):
+        calls.append(prompt)
+        return gen.encoded({"repairs": [{"path": "/omitted", "value": ["N00001?"]}]})
+    for attempt in range(2):
+        with pytest.raises(gen.InvalidReport):
+            gen.edited_call("batch", "规则\n新闻资料：[]", [{"refs": ["N00001"]}], "{}", budget,
+                            call, cache, lambda value: gen.validate_events(value, {"N00001"}))
+        assert len(calls) == 3 * (attempt+1)
+    assert list(cache.saved) == ["batch:raw"]
+
+
+def test_invalid_json_repairs_only_saved_response_and_can_resume(budget):
+    cache, calls = Checkpoints(), []
+    raw = '{"sections":[],"briefs":[{"text":"待保留事实","refs":["N00001"]}],"omitted":[],}'
+    def model(config, prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            assert "完整原始新闻" in prompt
+            return raw
+        assert "完整原始新闻" not in prompt and "待保留事实" in prompt
+        if len(calls) == 2:
+            raise RuntimeError("report_model_timeout")
+        return raw.replace(',}', '}')
+    snapshot = {"kind": "evening", "sources": [source(1, "完整原始新闻")]}
+    with pytest.raises(RuntimeError, match="report_model_timeout"):
+        gen.generate(snapshot, budget, model, cache)
+    assert cache.saved["v2:direct:answer"] == raw
+    result = gen.generate(snapshot, budget, model, cache)
+    assert result["briefs"][0]["text"] == "待保留事实" and len(calls) == 3
+    gen.generate(snapshot, budget, model, cache)
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("fence", ["```", "```JSON", "```json"])
+def test_unambiguous_json_fence_is_removed_locally(fence):
+    assert gen.parse_json(fence+'\n{"events":[],"omitted":[]}\n```') == {"events": [], "omitted": []}
 
 
 def test_empty_period_does_not_need_model_or_capacity():

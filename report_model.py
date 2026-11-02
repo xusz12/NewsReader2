@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from contextlib import nullcontext
 from functools import lru_cache
 import math
 import os
@@ -48,12 +50,12 @@ def estimate_tokens(text: str) -> int:
     return len(text.encode("utf-8"))
 
 
-def limits(context_window, max_output=32768, *, effective_percent=100, source):
+def limits(context_window, max_output=32768, *, effective_percent=100, source, output_budget=32768):
     if not isinstance(context_window, int) or isinstance(context_window, bool) or context_window < 8192:
         raise RuntimeError("report_model_capacity_unknown")
     if not isinstance(max_output, int) or max_output < 1:
         max_output = 32768
-    output = min(max_output, 32768, context_window // 4)
+    output = min(max_output, output_budget, context_window // 4)
     effective = min(100, max(1, effective_percent if isinstance(effective_percent, int) else 100))
     available = math.floor(context_window * effective / 100) - output - max(4096, context_window // 10)
     if available < 1024:
@@ -67,7 +69,12 @@ def capacity(config):
     if config["runtime"] == "pi":
         try:
             metadata = pi_metadata({"action": "metadata", "provider": config["provider"], "model": config["model"]})
-            return limits(metadata["contextWindow"], metadata["maxTokens"], source="pi-model-registry")
+            # Most reasoning providers count thinking against maxTokens too.
+            # A 32k total cap left the observed Flash/max turn only ~6k tokens
+            # for JSON (25,773 thinking tokens).
+            reasoning = bool(metadata.get("reasoning_efforts")) and config.get("reasoning_effort") != "off"
+            return {**limits(metadata["contextWindow"], metadata["maxTokens"], source="pi-model-registry", output_budget=65536 if reasoning else 32768),
+                    "max_output_tokens": metadata["maxTokens"], "output_budget_version": 2}
         except RuntimeError as exc:
             if str(exc) == "report_model_dependencies_missing":
                 raise
@@ -95,10 +102,17 @@ def capacity(config):
     finally:
         if rpc:
             rpc.close()
+    model = selected.get("model") or native.get("model")
+    def resolved(result, default_effort=None):
+        if model and not selected.get("model"):
+            result["resolved_model"] = model
+        effort = native.get("model_reasoning_effort") or default_effort
+        if effort and not selected.get("reasoning_effort"):
+            result["resolved_reasoning_effort"] = effort
+        return result
     override = native.get("model_context_window")
     if override:
-        return limits(override, source="codex-resolved-config")
-    model = selected.get("model") or native.get("model")
+        return resolved(limits(override, source="codex-resolved-config"))
     provider = selected.get("provider") or native.get("model_provider") or "openai"
     try:
         # The CLI's resolved catalog also applies to custom providers/profiles.
@@ -116,8 +130,8 @@ def capacity(config):
             raise ValueError()
         entries = json.loads(path.read_text(encoding="utf-8"))["models"]
         entry = next(row for row in entries if isinstance(row, dict) and row.get("slug") == model)
-        return limits(entry["context_window"], entry.get("max_output_tokens", 32768),
-                      effective_percent=entry.get("effective_context_window_percent", 100), source="codex-model-catalog")
+        return resolved(limits(entry["context_window"], entry.get("max_output_tokens", 32768),
+                      effective_percent=entry.get("effective_context_window_percent", 100), source="codex-model-catalog"), entry.get("default_reasoning_level"))
     except (OSError, ValueError, KeyError, TypeError, StopIteration):
         raise RuntimeError("report_model_capacity_unknown") from None
 
@@ -126,7 +140,15 @@ def fits(config, prompt):
     return len(prompt.encode()) <= MAX_BYTES and estimate_tokens(prompt) <= config["limits"]["input_tokens"]
 
 
-def codex_restrictions(config: dict) -> list[str]:
+def toml_value(value):
+    if isinstance(value, dict):
+        return "{" + ",".join(json.dumps(k) + "=" + toml_value(v) for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(toml_value(v) for v in value) + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def codex_restrictions(config: dict, bridge=None) -> list[str]:
     # TOML table overrides merge, so mcp_servers={} does not disable saved servers.
     # Discover names without exposing server URLs, environment values or credentials.
     command = [codex_client.executable()]
@@ -143,8 +165,21 @@ def codex_restrictions(config: dict) -> list[str]:
     restrictions = ["--skip-git-repo-check", "-c", 'web_search="disabled"']
     # Bootstrap validates a transport even for disabled entries. Replace it with
     # an inert command rather than copying native server secrets into argv.
-    restrictions += ["-c", "mcp_servers={" + ",".join(json.dumps(server["name"]) + '={enabled=false,command="false"}' for server in servers) + "}"]
-    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "multi_agent", "hooks"):
+    entries = {server["name"]: {"enabled": False, "command": "false"} for server in servers}
+    if bridge:
+        entries["newsreader_report"] = bridge.config()
+        restrictions += ["--enable", "multi_agent", "-c", "agents.enabled=true",
+                         "-c", "agents.max_concurrent_threads_per_session=3",
+                         "-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
+        for source, target in (("model", "default_subagent_model"), ("reasoning_effort", "default_subagent_reasoning_effort")):
+            if config.get(source):
+                restrictions += ["-c", "agents." + target + "=" + toml_value(config[source])]
+        if not bridge.workspace.delegation:
+            restrictions += ["--disable", "multi_agent", "-c", "agents.enabled=false"]
+    else:
+        restrictions += ["--disable", "multi_agent"]
+    restrictions += ["-c", "mcp_servers=" + toml_value(entries)]
+    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "hooks", "memories", "goals"):
         restrictions += ["--disable", feature]
     return restrictions
 
@@ -228,19 +263,27 @@ def configuration(settings: dict, *, resolve=True, override=None) -> dict:
 
 
 def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
-    """One ephemeral turn. Reject external tool evidence and partial responses.
+    """One ephemeral turn, optionally with a private report evidence workspace.
 
     Reuse only the app's CLI transport/authentication, not its summary pipelines.
     Prompts travel over stdin; never log the prompt, credentials or raw errors.
     """
     proc = None
-    with tempfile.TemporaryDirectory(prefix="newsreader-report-") as directory:
+    workspace = config.get("_workspace")
+    from report_tools import Bridge
+    began = time.monotonic()
+    usage, delegates, collaboration_calls = {}, set(), Counter()
+    with tempfile.TemporaryDirectory(prefix="newsreader-report-") as directory, (Bridge(workspace) if workspace else nullcontext()) as bridge:
         if config["runtime"] == "codex":
             codex_client.require_ready()
-            command = codex_client.command(config["codex"], ephemeral=True, cwd=Path(directory))
-            command[-1:-1] = codex_restrictions(config["codex"])
+            selected = dict(config["codex"])
+            for field in ("model", "reasoning_effort"):
+                if not selected.get(field) and config.get("limits", {}).get("resolved_"+field):
+                    selected[field] = config["limits"]["resolved_"+field]
+            command = codex_client.command(selected, ephemeral=True, cwd=Path(directory))
+            command[-1:-1] = codex_restrictions(selected, bridge) if bridge else codex_restrictions(selected)
             pending = prompt.encode()
-            parser = codex_client.EventParser()
+            parser = codex_client.EventParser(allow_delegation=bool(workspace))
         else:
             command = pi_command()
             request = {"prompt": prompt, "provider": config["provider"], "model": config["model"],
@@ -260,7 +303,10 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
             terminal = None
             buffer = b""
             total = 0
-            deadline = time.monotonic() + timeout
+            deadline = time.monotonic() + (max(timeout, 3600) if workspace else timeout)
+            if config.get("_deadline"):
+                deadline = min(deadline, config["_deadline"])
+            last_activity = time.monotonic()
             with selectors.DefaultSelector() as selector:
                 os.set_blocking(proc.stdin.fileno(), False)
                 selector.register(proc.stdin, selectors.EVENT_WRITE, "input")
@@ -269,6 +315,13 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                 while selector.get_map():
                     if time.monotonic() >= deadline:
                         raise RuntimeError("report_model_timeout")
+                    activity = max(last_activity, workspace.last_activity if workspace else 0)
+                    if time.monotonic() - activity >= timeout:
+                        raise RuntimeError("report_model_timeout")
+                    if workspace and workspace.failed:
+                        raise RuntimeError(workspace.failed)
+                    if config.get("_cancelled") and config["_cancelled"]():
+                        raise RuntimeError("report_interrupted")
                     for key, _ in selector.select(.1):
                         if key.data == "input":
                             try:
@@ -284,7 +337,7 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                             selector.unregister(key.fileobj)
                         elif key.data == "output":
                             total += len(chunk)
-                            if total > MAX_OUTPUT_BYTES:
+                            if total > (MAX_OUTPUT_BYTES * 16 if workspace else MAX_OUTPUT_BYTES):
                                 raise RuntimeError("report_invalid_result")
                             buffer += chunk
                         if key.data != "output":
@@ -298,8 +351,24 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                                 continue
                             raw = json.loads(line)
                             item = raw.get("item", {})
-                            if parser and item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call", "image_generation"}:
+                            last_activity = time.monotonic()
+                            owned_tool = (workspace and item.get("type") == "mcp_tool_call"
+                                          and item.get("server") == "newsreader_report"
+                                          and item.get("tool") in {t["name"] for t in __import__("report_workspace").TOOLS})
+                            if parser and item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call", "image_generation"} and not owned_tool:
                                 raise RuntimeError("report_tools_not_allowed")
+                            if workspace and item.get("type") == "collab_tool_call":
+                                if raw.get("type") == "item.completed":
+                                    collaboration_calls[str(item.get("tool", "unknown"))] += 1
+                                if item.get("tool") in {"spawn_agent", "spawn"}:
+                                    delegates.update(item.get("receiver_thread_ids") or [])
+                                if config.get("_collaboration_trace"):
+                                    config["_collaboration_trace"]({k: v for k, v in item.items() if k in {"id", "type", "tool", "sender_thread_id", "receiver_thread_ids", "status"}})
+                                workspace.progress("delegating", agents=len(delegates), completed=len(workspace.state["reviews"]), total=len(workspace.batches))
+                            if raw.get("type") in {"turn.completed", "oar_result"} and (not parser or not raw.get("thread_id") or raw["thread_id"] == parser.thread_id):
+                                observed = raw.get("usage", {})
+                                if isinstance(observed, dict):
+                                    usage = {k: v for k, v in observed.items() if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 10**15}
                             event = parser.parse(line.decode()) if parser else parse_event(line.decode())
                             if not parser and event["type"] == "oar_tool":
                                 raise RuntimeError("report_tools_not_allowed")
@@ -308,11 +377,21 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                     # A completed protocol result is authoritative; do not wait for CLI teardown.
                     if terminal:
                         break
-            if terminal and not parser and terminal.get("error") == "report_model_dependencies_missing":
-                raise RuntimeError("report_model_dependencies_missing")
+            if terminal and not parser and terminal.get("error") in {"report_model_dependencies_missing", "report_output_truncated"}:
+                raise RuntimeError(terminal["error"])
             if not terminal or terminal.get("outcome") != "completed" or not terminal.get("answer", "").strip():
                 raise RuntimeError("report_model_failed")
             return terminal["answer"]
         finally:
             if proc is not None:
                 terminate_group(proc)
+            metric = {"runtime": config["runtime"], "seconds": round(time.monotonic()-began, 3),
+                      "estimated_prompt_tokens": estimate_tokens(prompt), "usage": usage,
+                      "delegate_threads_observed": len(delegates), "collaboration_calls": dict(collaboration_calls),
+                      "usage_scope": "cli_turn_as_reported" if parser else "provider_completion",
+                      "requested_reasoning": config.get("codex", {}).get("reasoning_effort") if config["runtime"] == "codex" else config.get("reasoning_effort", ""),
+                      "outcome": terminal.get("outcome") if 'terminal' in locals() and terminal else "interrupted"}
+            if workspace:
+                workspace.metric(metric)
+            elif config.get("_metric"):
+                config["_metric"](metric)

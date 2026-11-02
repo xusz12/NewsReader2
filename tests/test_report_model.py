@@ -21,7 +21,7 @@ def fake_codex(tmp_path, monkeypatch, events, *, linger=False):
                       ("\ntime.sleep(30)\n" if linger else "\n"))
     monkeypatch.setattr(model.codex_client, "require_ready", lambda:None)
     monkeypatch.setattr(model.codex_client, "command", lambda *args, **kwargs:[sys.executable, str(script), "-"])
-    monkeypatch.setattr(model, "codex_restrictions", lambda config:[])
+    monkeypatch.setattr(model, "codex_restrictions", lambda config, bridge=None:[])
     return {"runtime":"codex", "codex":{}}
 
 
@@ -69,6 +69,54 @@ def test_timeout_terminates_only_owned_process(tmp_path, monkeypatch):
     config = fake_codex(tmp_path, monkeypatch, START, linger=True)
     with pytest.raises(RuntimeError, match="report_model_timeout"):
         model.run(config, "input", timeout=.2)
+
+
+def test_workspace_accepts_only_owned_mcp_and_root_completion(tmp_path, monkeypatch):
+    from report_workspace import Workspace
+    child = "019a1234-1234-7123-8123-123456789abd"
+    events = START + [
+        {"type": "item.started", "item": {"id": "read", "type": "mcp_tool_call", "server": "newsreader_report", "tool": "report_sources"}},
+        {"type": "item.completed", "item": {"id": "read", "type": "mcp_tool_call", "server": "newsreader_report", "tool": "report_sources"}},
+        {"type": "item.completed", "item": {"id": "delegate", "type": "collab_tool_call", "tool": "spawn_agent", "receiver_thread_ids": [child]}},
+        {"type": "item.completed", "thread_id": child, "item": {"id": "answer", "type": "agent_message", "text": "child only"}},
+        {"type": "turn.completed", "thread_id": child, "usage": {"input_tokens": 999999}},
+        {"type": "item.completed", "item": {"id": "answer", "type": "agent_message", "text": "root done"}},
+        {"type": "turn.completed", "usage": {"input_tokens": 123, "output_tokens": 20}},
+    ]
+    config = fake_codex(tmp_path, monkeypatch, events)
+    config["limits"] = {"input_tokens": 100000}
+    workspace = Workspace({"kind": "monthly", "sources": []}, config)
+    assert model.run({**config, "_workspace": workspace}, "test", timeout=3) == "root done"
+    assert workspace.state["calls"][0]["usage"]["input_tokens"] == 123
+    assert workspace.state["calls"][0]["delegate_threads_observed"] == 1
+    events[2]["item"]["server"] = "outside"
+    config = fake_codex(tmp_path, monkeypatch, events)
+    with pytest.raises(RuntimeError, match="report_tools_not_allowed"):
+        model.run({**config, "_workspace": workspace}, "test", timeout=3)
+
+
+def test_service_stop_interrupts_running_transport(tmp_path, monkeypatch):
+    config = fake_codex(tmp_path, monkeypatch, START, linger=True)
+    with pytest.raises(RuntimeError, match="report_interrupted"):
+        model.run({**config, "_cancelled": lambda: True}, "input", timeout=3)
+
+
+def test_workspace_enables_native_delegation_and_only_private_tools(monkeypatch):
+    from report_tools import Bridge
+    from report_workspace import Workspace
+    import tomllib
+    monkeypatch.setattr(model.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess([], 0, b'[{"name":"private","url":"secret"}]'))
+    workspace = Workspace({"kind": "monthly", "sources": []}, {"limits": {"input_tokens": 100000}})
+    with Bridge(workspace) as bridge:
+        args = model.codex_restrictions({"model": "gpt-6.1-terra", "reasoning_effort": "ultra"}, bridge)
+    config = tomllib.loads(next(arg for arg in args if arg.startswith("mcp_servers=")))
+    assert config["mcp_servers"]["private"] == {"enabled": False, "command": "false"}
+    owned = config["mcp_servers"]["newsreader_report"]
+    assert owned["enabled"] and owned["required"] and "report_finish" in owned["enabled_tools"]
+    assert "agents.enabled=true" in args and "secret" not in " ".join(args)
+    assert args[args.index("multi_agent")-1] == "--enable"
+    command = model.codex_client.command({"model": "gpt-6.1-terra", "reasoning_effort": "ultra"}, ephemeral=True)
+    assert 'service_tier="default"' in command and 'features.fast_mode=false' in command
 
 
 def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatch):
@@ -147,7 +195,7 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
         if finish_reason == "stop":
             assert model.run(config, "isolated fixture", timeout=20) == '{"ok":true}'
         else:
-            with pytest.raises(RuntimeError, match="report_model_failed"):
+            with pytest.raises(RuntimeError, match="report_output_truncated"):
                 model.run(config, "isolated fixture", timeout=20)
         assert len(requests) == 1
         assert requests[0]["model"] == "fixture"
@@ -215,7 +263,8 @@ def test_codex_uses_resolved_custom_catalog_before_default_cache(tmp_path, monke
         "model_provider": provider, "model_catalog_json": str(catalog)})
     result = model.capacity({"runtime": "codex", "codex": selected})
     assert result == {"context_window": 1048576, "input_tokens": 875290,
-                      "output_tokens": 16000, "source": "codex-model-catalog"}
+                      "output_tokens": 16000, "source": "codex-model-catalog",
+                      **({"resolved_model": "fixture"} if selected.get("profile") else {})}
 
 
 @pytest.mark.parametrize("contents", [None, "invalid json", "[]", '{"models": [null]}',
@@ -268,3 +317,12 @@ def test_token_estimate_and_conservative_fallback(monkeypatch):
         assert 0 < model.estimate_tokens("标题：某公司公布计划。") < len("标题：某公司公布计划。".encode())
     monkeypatch.setattr(model, "tokenizer", lambda: None)
     assert model.estimate_tokens("中文") == len("中文".encode())
+
+
+def test_pi_reserves_thinking_and_output_within_registry_capacity(monkeypatch):
+    monkeypatch.setattr(model, "pi_metadata", lambda _: {"contextWindow": 1000000, "maxTokens": 384000, "reasoning_efforts": ["low", "high", "max"]})
+    config = {"runtime": "pi", "provider": "fixture", "model": "fixture", "reasoning_effort": "max"}
+    result = model.capacity(config)
+    assert result["output_tokens"] == 65536 and result["input_tokens"] == 834464
+    assert result["max_output_tokens"] == 384000 and result["output_budget_version"] == 2
+    assert model.capacity({**config, "reasoning_effort": "off"})["output_tokens"] == 32768

@@ -27,7 +27,7 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=report-windows-edit-1";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=report-workspace-1";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);
@@ -314,7 +314,7 @@ export class ReportPanel {
   }
   modelMetadata(report, full = false) {
     const seconds = Number.isFinite(report.generation_seconds) ? Math.round(report.generation_seconds) : null;
-    const duration = seconds === null || report.status !== "done" ? "" : `生成用时 ${seconds < 1 ? "不足 1 秒" : seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds/60)} 分 ${seconds%60} 秒`}`;
+    const duration = seconds === null || report.status === "running" ? "" : `生成用时 ${seconds < 1 ? "不足 1 秒" : seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds/60)} 分 ${seconds%60} 秒`}`;
     return [report.model_label, duration, report.snapshot_captured_at ? `取材于 ${dateText(report.snapshot_captured_at, full)}` : ""].filter(Boolean);
   }
   modelMarkup(report) {
@@ -325,13 +325,15 @@ export class ReportPanel {
     const progress = report.progress || {}, stage = progress.stage;
     if (report.status !== "running") return stage ? `<p class="muted">上次进行到：${e(progressText(report))}</p>` : "";
     const steps = ["准备取材", "新闻快照", "编写报告", "校验内容", "保存报告"];
-    const current = {waiting_material:0,indexing:0,capturing:1,reusing_material:1,preparing:2,selecting:2,merging:2,checking_material:2,repairing_material:2,writing:2,repairing:2,validating:3,saving:4,done:5}[stage] ?? 0;
+    const current = {waiting_material:0,indexing:0,capturing:1,reusing_material:1,preparing:2,selecting:2,merging:2,reading:2,delegating:2,planning:2,drafting:2,checking_material:2,repairing_material:2,writing:2,repairing:2,reviewing:3,validating:3,saving:4,done:5}[stage] ?? 0;
     return `<section class="settings-section-card settings-section-card--compact" aria-label="生成进度"><div class="section-card-title"><span>生成进度</span><span class="muted" id="reportElapsed"></span></div><p role="status" aria-live="polite">${e(progressText(report))}</p>${Number.isInteger(progress.source_count) ? `<p class="muted">已读取 ${e(progress.source_count)} 条新闻</p>` : ""}<ol class="section-stack">${steps.map((label,index)=>`<li class="field-item ${index === current ? "" : "muted"}" ${index===current?'aria-current="step"':''}>${index<current?'✓':index+1} · ${e(label)}${index===current?' · 进行中':''}</li>`).join("")}</ol></section>`;
   }
   renderElapsed() {
     const host = $("#reportElapsed"), start = this.details?.started_at;
     if (!host || !start) return;
-    const seconds = Math.max(0, Math.floor((Date.now()-new Date(start).getTime())/1000));
+    const previous = Number.isFinite(this.details.generation_seconds) ? this.details.generation_seconds : 0;
+    const elapsed = (Date.now()-new Date(start).getTime())/1000;
+    const seconds = Math.floor(Math.max(0, previous) + (Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0));
     host.textContent = `已用时 ${Math.floor(seconds/60)}分${seconds%60}秒`;
   }
   async retry() {

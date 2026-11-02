@@ -1521,7 +1521,7 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
   font-family: var(--font-mono);
 }
 
-/* DeepSeek 结构化精读面板 */
+/* 导读面板 */
 .digest-box {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -2315,8 +2315,11 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
 }
 
 .terminal-box {
-  background: oklch(14% 0.01 250);
-  color: oklch(90% 0.01 250);
+  --terminal-status: var(--border-strong);
+  background: var(--surface-subtle);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-inline-start: 4px solid var(--terminal-status);
   font-family: var(--font-mono);
   font-size: 11.5px;
   padding: 12px 14px;
@@ -2325,6 +2328,14 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
   min-height: 80px;
   max-height: 160px;
   overflow-y: auto;
+}
+
+.terminal-box[data-status="success"] { --terminal-status: var(--status-success); }
+.terminal-box[data-status="failed"] { --terminal-status: var(--status-danger); }
+.terminal-box[data-status="running"] { --terminal-status: var(--status-info); }
+.terminal-box:is([data-status="success"], [data-status="failed"], [data-status="running"]) {
+  background: color-mix(in oklab, var(--terminal-status) 10%, var(--surface-subtle));
+  color: color-mix(in oklab, var(--terminal-status) 60%, var(--fg));
 }
 
 .term-line-ok {

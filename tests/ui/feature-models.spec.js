@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {choosePicker,chooseTheme,openSettings,openModelAdvanced} from './helpers.js';
+import {choosePicker,chooseTheme,openSettings,openModelAdvanced,contrast} from './helpers.js';
 
 async function openModels(page) {
   await page.goto('/'); await openSettings(page);
@@ -14,6 +14,50 @@ async function saveModels(request,data) {
 const section = (page, feature) => page.locator(`[data-model-feature="${feature}"]`);
 const box = (page, feature, name) => section(page, feature).getByRole('combobox',{name,exact:true});
 const pick = (page, feature, name, label) => choosePicker(page, name, label, feature);
+
+for (const width of [390,1440]) test('连接测试状态区分成功失败与运行中，主题切换与重绘保持状态 '+width,async({page,request})=>{
+  const original=await (await request.get('/api/settings')).json();
+  const config=model=>({runtime:'codex',codex:{model,profile:'',provider:'',sandbox:'read-only'},pi:{provider:'',model:''}});
+  await saveModels(request,{...original,agent:{...original.agent,...config('ui-running')},
+    feature_models:{...original.feature_models,topics:config('ui-failed'),reports:config('ui-success')}});
+  let release;
+  const gate=new Promise(resolve=>release=resolve);
+  await page.route('**/api/settings/connection-test',async route=>{
+    const model=route.request().postDataJSON().codex.model;
+    if(model==='ui-running') await gate;
+    await route.fulfill({json:{status:model==='ui-failed'?'failed':'success',message:model==='ui-failed'?'模型连接失败':'模型连接成功',elapsed_ms:15}});
+  });
+  try {
+    await page.setViewportSize({width,height:900});await openModels(page);
+    for(const id of ['testConnectionBtn','testConnectionBtn-topics','testConnectionBtn-reports']) await page.locator('#'+id).click();
+    const terminals=[page.locator('#connTestTerminal'),page.locator('#connTestTerminal-topics'),page.locator('#connTestTerminal-reports')];
+    for(const [index,status] of ['running','failed','success'].entries()) await expect(terminals[index]).toHaveAttribute('data-status',status);
+    for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
+      await page.emulateMedia({colorScheme});await chooseTheme(page,theme);
+      const colors=[];
+      for(const terminal of terminals) {
+        await expect.poll(()=>contrast(terminal)).toBeGreaterThanOrEqual(4.5);
+        expect(await terminal.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+        colors.push(await terminal.evaluate(node=>getComputedStyle(node).borderInlineStartColor));
+        if(width===1440 && ['light','dark'].includes(theme)) await terminal.screenshot({path:`.ui-artifacts/connection-${await terminal.getAttribute('data-status')}-${theme}.png`});
+      }
+      expect(new Set(colors).size).toBe(theme==='eink'?1:3);
+      await page.screenshot({path:`.ui-artifacts/connection-status-${width}-${theme}-${colorScheme}.png`});
+    }
+    if(width===390) await page.locator('#settingsCategoryBackBtn').click();
+    await page.locator('[data-settings-tab="system"]').click();
+    if(width===390) await page.locator('#settingsCategoryBackBtn').click();
+    await page.locator('[data-settings-tab="models"]').click();
+    for(const [index,status] of ['running','failed','success'].entries()) await expect(terminals[index]).toHaveAttribute('data-status',status);
+    release();
+    await expect(terminals[0]).toHaveAttribute('data-status','success');
+    await page.unroute('**/api/settings/connection-test');
+    await page.route('**/api/settings/connection-test',route=>route.abort('failed'));
+    await page.locator('#testConnectionBtn-reports').click();
+    await expect(terminals[2]).toHaveAttribute('data-status','failed');
+    await expect(terminals[2]).toContainText('[FAILED]');
+  } finally {release();await request.put('/api/settings',{data:original});}
+});
 
 test('四个功能同时展开、独立编辑保存和连接测试',async({page,request})=>{
   const original=await (await request.get('/api/settings')).json();
@@ -45,8 +89,10 @@ test('四个功能同时展开、独立编辑保存和连接测试',async({page,
     });
     await page.locator('#testConnectionBtn-reports').click();
     await expect(page.locator('#connTestTerminal-reports')).toContainText('[SUCCESS]');
+    await expect(page.locator('#connTestTerminal-reports')).toHaveAttribute('data-status','success');
     expect(tested.codex).toMatchObject({model:'report-only',profile:'report-profile'});
     await expect(page.locator('#connTestTerminal')).toBeHidden();
+    await expect(page.locator('#connTestTerminal')).toHaveAttribute('data-status','ready');
     await expect(box(page,'chat','模型')).toHaveText('ui-catalog-b');
     await page.locator('[data-settings-tab="system"]').click();
     await page.locator('[data-settings-tab="models"]').click();
@@ -94,6 +140,7 @@ test('并行连接测试和迟到目录只更新对应功能，编辑后的旧�
     await expect(page.locator('#testConnectionBtn')).toBeEnabled();
     await expect(page.locator('#refreshModelsBtn')).toBeEnabled();
     await expect(page.locator('#connTestTerminal')).toBeHidden();
+    await expect(page.locator('#connTestTerminal')).toHaveAttribute('data-status','ready');
     await expect(section(page,'chat')).not.toContainText('旧功能结果');
     await expect(section(page,'chat')).not.toContainText('旧目录失败');
     await expect(page.locator('#connTestTerminal-reports')).toContainText('日报连接成功');

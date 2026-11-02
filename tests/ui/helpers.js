@@ -40,3 +40,20 @@ export async function openModelAdvanced(page, feature = "chat") {
   const advanced = page.locator(feature === "chat" ? "#modelAdvanced" : `#modelAdvanced-${feature}`);
   if (!await advanced.evaluate(node=>node.open)) await advanced.locator('summary').click();
 }
+
+export async function contrast(button) {
+  return button.evaluate(node => {
+    const style = getComputedStyle(node);
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    function luminance(color) {
+      ctx.clearRect(0, 0, 1, 1); ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+      const values = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map(x => {
+        const value = x / 255;
+        return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+      });
+      return values[0] * .2126 + values[1] * .7152 + values[2] * .0722;
+    }
+    const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => a - b);
+    return (values[1] + .05) / (values[0] + .05);
+  });
+}
