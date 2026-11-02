@@ -9633,6 +9633,9 @@ def api_update_item_state(item_id: str):
         if not isinstance(body[k], bool):
             return jsonify({"ok": False, "error": f"invalid_{k}_flag"}), 400
 
+    if body.get("read") is False:
+        return jsonify({"ok": False, "error": "read_state_irreversible"}), 400
+
     if "read_later_done" in body:
         if not isinstance(body["read_later_done"], bool) or body.get("read_later") is not False:
             return jsonify({"ok": False, "error": "invalid_read_later_done_flag"}), 400
@@ -9655,14 +9658,12 @@ def api_update_item_state(item_id: str):
         read_later_done_at = old_state["read_later_done_at"] if old_state else None
         favorite_at = old_state["favorite_at"] if old_state else None
         if "read" in body:
-            read_at = ts if body["read"] else None
+            read_at = read_at or ts
+        if any(body.get(flag) is True for flag in ("important", "read_later", "favorite")):
+            read_at = read_at or ts
         if "important" in body:
             important_at = ts if body["important"] else None
         if "read_later" in body:
-            # Adding to the queue acknowledges the headline, not completion of
-            # the saved article. A newer explicit unread choice still wins.
-            if body["read_later"] and "read" not in body:
-                read_at = read_at or ts
             read_later_at = ts if body["read_later"] else None
             read_later_done_at = ts if not body["read_later"] and body.get("read_later_done") else None
             job = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (row["url"],)).fetchone()
@@ -9678,7 +9679,7 @@ def api_update_item_state(item_id: str):
                 INSERT INTO item_state(item_id, read_at, important_at, read_later_at, read_later_done_at, favorite_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(item_id) DO UPDATE SET
-                  read_at=excluded.read_at,
+                  read_at=COALESCE(item_state.read_at,excluded.read_at),
                   important_at=excluded.important_at,
                   read_later_at=excluded.read_later_at,
                   read_later_done_at=excluded.read_later_done_at,
@@ -11222,12 +11223,13 @@ def api_news_market_tag_upsert(item_id: str):
             favorite_at = row["favorite_at"] if row else None
             if not important_at:
                 important_at = ts
+                read_at = read_at or ts
                 conn.execute(
                     """
                     INSERT INTO item_state(item_id, read_at, important_at, read_later_at, read_later_done_at, favorite_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(item_id) DO UPDATE SET
-                      read_at=excluded.read_at,
+                      read_at=COALESCE(item_state.read_at,excluded.read_at),
                       important_at=excluded.important_at,
                       read_later_at=excluded.read_later_at,
                       read_later_done_at=excluded.read_later_done_at,
@@ -11247,6 +11249,7 @@ def api_news_market_tag_upsert(item_id: str):
             "market_tags": market_tags,
             "has_market_tags": 1 if market_tags else 0,
             "important_at": important_at,
+            "read_at": read_at,
             "favorite_at": favorite_at,
         }
     )
@@ -11387,7 +11390,7 @@ def api_mark_all_read():
                 INSERT INTO item_state(item_id, read_at, updated_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(item_id) DO UPDATE SET
-                  read_at=excluded.read_at,
+                  read_at=COALESCE(item_state.read_at,excluded.read_at),
                   updated_at=excluded.updated_at
                 """,
                 [(item_id, ts, ts) for item_id in item_ids],
@@ -11442,7 +11445,7 @@ def api_mark_read_by_ids():
                 INSERT INTO item_state(item_id, read_at, updated_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(item_id) DO UPDATE SET
-                  read_at=excluded.read_at,
+                  read_at=COALESCE(item_state.read_at,excluded.read_at),
                   updated_at=excluded.updated_at
                 """,
                 [(item_id, ts, ts) for item_id in existing_ids],

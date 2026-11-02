@@ -64,7 +64,7 @@ test('all three buttons respond before a slow save, keep their DOM and save ever
     await expect(button(page, flag)).toHaveAttribute('aria-busy', 'true');
     await expect(button(page, flag)).toBeEnabled();
   }
-  expect(bodies).toEqual([{ important: true }]);
+  expect(bodies).toEqual([{ read: true, important: true }]);
   expect(await row(page).evaluate(node => node === window.originalCard)).toBe(true);
   expect((await detail(request)).important_at).toBeNull();
   gate.resolve();
@@ -73,7 +73,7 @@ test('all three buttons respond before a slow save, keep their DOM and save ever
   const saved = await detail(request);
   expect(saved.important_at && saved.favorite_at && saved.read_later_at && saved.read_at).toBeTruthy();
   expect(saved.read_later_done_at).toBeNull();
-  expect(bodies).toEqual([{ important: true }, { read: true, read_later: true, favorite: true }]);
+  expect(bodies).toEqual([{ read: true, important: true }, { read: true, read_later: true, favorite: true }]);
   expect(await row(page).evaluate(node => node === window.originalCard)).toBe(true);
 });
 
@@ -90,7 +90,7 @@ test('double click retains the final intent while the first response is delayed'
   await expect(button(page, 'favorite')).toHaveAttribute('aria-pressed', 'false');
   gate.resolve();
   await expect(button(page, 'favorite')).toHaveAttribute('aria-busy', 'false');
-  expect(bodies).toEqual([{ favorite: true }, { favorite: false }]);
+  expect(bodies).toEqual([{ read: true, favorite: true }, { favorite: false }]);
   expect((await detail(request)).favorite_at).toBeNull();
 });
 
@@ -179,7 +179,8 @@ test('saving read-later refreshes an unopened failed card using only its lightwe
 
 test('late status polling preserves a newer read-later save without rebuilding cards', async ({ page, request }) => {
   // Keep the queued fixture in the unread feed with an explicit unread choice.
-  await request.patch('/api/news/ui-063/state', { data: { read_later: true, read: false } });
+  await request.patch('/api/news/ui-063/state', { data: { read_later: true } });
+  await request.post('/__test/reset-reading', { data: { item_ids: ['ui-063'] } });
   await page.clock.install();
   await page.route('**/api/news?*', async route => {
     const data = await (await route.fetch()).json();

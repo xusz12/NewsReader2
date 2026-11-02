@@ -1260,12 +1260,12 @@ def test_news_new_marker_shares_global_read_state_and_captures_all_unread_ids(en
     assert all(topic['new_count'] == 0 for topic in service.listing())
     with closing(connect()) as conn, conn:
         assert conn.execute("SELECT read_at FROM item_state WHERE item_id='old-report'").fetchone()[0] == 'already-read'
-        conn.execute("UPDATE item_state SET read_at=NULL WHERE item_id='unread-report'")
+    assert client.patch('/api/news/unread-report/state', json={'read': False}).status_code == 400
     for ident in (first, second):
         data = service.detail(ident)
-        assert data['unread_ids'] == ['unread-report']
-        assert data['topic']['new_count'] == 1
-        assert next(item for item in data['items'] if item['id']=='unread-report')['is_new']
+        assert data['unread_ids'] == []
+        assert data['topic']['new_count'] == 0
+        assert not next(item for item in data['items'] if item['id']=='unread-report')['is_new']
     # Removed source records retain the archive snapshot without a phantom unread state.
     with closing(connect()) as conn, conn:
         conn.execute("DELETE FROM items WHERE id='unread-report'")

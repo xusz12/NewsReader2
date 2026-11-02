@@ -1,7 +1,7 @@
 const fieldsFor = flag => flag === "read_later" ? ["read_later_at", "read_later_done_at"] : [`${flag}_at`];
 
 // Batch read writes across articles without delaying their optimistic UI state.
-// ItemStateQueue still serializes a later unread toggle behind that item's save.
+// ItemStateQueue serializes other flag changes behind that item's save.
 export class ReadBatchWriter {
   constructor(save) {
     this.save = save;
@@ -62,7 +62,7 @@ export class ItemStateQueue {
   // not replace the user's newer state. Later reads can still sync other devices.
   reconcile(id, data, version) {
     for (const [field, change] of this.changes.get(id) || []) {
-      if (change.version > version || (field.endsWith("_at") && this.has(id, change.flag))) data[field] = change.value;
+      if ((field === "read_at" && change.value) || change.version > version || (field.endsWith("_at") && this.has(id, change.flag))) data[field] = change.value;
     }
     return data;
   }
@@ -76,8 +76,16 @@ export class ItemStateQueue {
   }
 
   set(item, flag, value, silent = false, complete = false) {
+    // Browsing is one-way. Failed optimistic writes can still roll back in flush.
+    if (flag === "read" && value !== true) return Promise.resolve(false);
     const id = item.id;
     let queue = this.pending.get(id);
+    if (flag === "read" && item.read_at) {
+      const intent = queue?.desired.get("read");
+      return intent
+        ? new Promise(resolve => queue.waiters.push({ resolve, flag, patch: intent.patch }))
+        : Promise.resolve(true);
+    }
     if (!queue) {
       queue = { desired: new Map(), confirmed: {}, running: false, waiters: [] };
       this.pending.set(id, queue);
@@ -86,9 +94,9 @@ export class ItemStateQueue {
       for (const field of fieldsFor(flag)) queue.confirmed[field] = item[field] ?? null;
     }
     const timestamp = new Date().toISOString();
-    if (flag === "read_later" && value && !item.read_at) {
-      // Keep this a separate intent so a subsequent manual unread action can
-      // supersede it, including while another flag is being saved.
+    if (["important", "read_later", "favorite"].includes(flag) && value && (!item.read_at || queue.desired.has("read"))) {
+      // Each activation carries an unconfirmed acknowledgement. If an earlier
+      // request fails, a later flag can still save both changes atomically.
       if (!queue.desired.has("read")) queue.confirmed.read_at = item.read_at ?? null;
       const readPatch = { read_at: item.read_at || timestamp };
       queue.desired.set("read", { value: true, silent: true, patch: readPatch });

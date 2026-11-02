@@ -16,8 +16,8 @@ test('mobile badges follow real read and read-later changes and disappear at zer
   await request.post('/__test/reset-reading');
   await request.post('/api/news/clear-read-later', { data: {} });
   await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
-  // Deliberately restore unread so the queue action is available in the unread feed.
-  await request.patch('/api/news/ui-064/state', { data: { read: false } });
+  // Seed an independent full-text state in the isolated fixture.
+  await request.post('/__test/reset-reading', { data: { item_ids: ['ui-064'] } });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   const feed = page.locator('#mobUnreadBadge'), later = page.locator('#mobReadLaterBadge');
@@ -37,11 +37,10 @@ test('mobile badges follow real read and read-later changes and disappear at zer
   await expect(feed).toBeHidden();
   await expect(later).toHaveText('1'); // Feed reads and full-text completion are separate states.
   await expect(page.locator('#mobNavFeed')).toHaveAccessibleName('新闻流');
-  await request.patch('/api/news/ui-064/state', { data: { read: false } });
+  expect((await request.patch('/api/news/ui-064/state', { data: { read: false } })).status()).toBe(400);
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(feed).toBeVisible();
-  await expect(feed).toHaveText('1');
-  await expect(page.locator('#mobNavFeed')).toHaveAccessibleName('新闻流，1 条未读');
+  await expect(feed).toBeHidden();
+  await expect(page.locator('#mobNavFeed')).toHaveAccessibleName('新闻流');
 });
 
 test('badges start hidden while loading and keep the full count accessible above 99', async ({ page }) => {

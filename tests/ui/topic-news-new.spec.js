@@ -180,11 +180,11 @@ test('分页沿用主题查看状态，已确认的后续页面不重复显示 n
   expect(unread.total).toBe(0);
 });
 
-test('新闻流的标读和改为未读同步到所有主题', async ({page,request}) => {
+test('新闻浏览状态单向同步到所有主题，已移除的快捷键不恢复 new', async ({page,request}) => {
   await page.goto('/');
   await page.locator('#feedColFeed [data-filter="all"]').click();
   await page.locator('#feedCardList [data-id="ui-000"] .news-card-title').click();
-  await page.keyboard.press('m');
+  await request.patch('/api/news/ui-000/state', {data:{read:true}});
   await expect.poll(async()=> (await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBeTruthy();
   await openNavigation(page);await page.locator('#navTopicsBtn').click();
   await page.locator('[data-topic-id="'+id+'"]').click();
@@ -194,11 +194,11 @@ test('新闻流的标读和改为未读同步到所有主题', async ({page,requ
   await expect(markers(page)).toHaveCount(1);
   await page.locator('[data-topic-item="ui-000"]').click();
   await page.keyboard.press('m');
-  await expect.poll(async()=> (await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBeNull();
+  await expect.poll(async()=> (await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBeTruthy();
   await page.locator('#topicReaderBackBtn').click();
-  await expect(markers(page)).toHaveCount(2);
+  await expect(markers(page)).toHaveCount(1);
   await page.locator('[data-topic-id="'+id+'"]').click();
-  await expect(markers(page)).toHaveCount(2);
+  await expect(markers(page)).toHaveCount(1);
   await page.clock.runFor(6000);
   await expect(markers(page)).toHaveCount(0);
   await expect.poll(async()=> (await (await request.get('/api/topics/test-industry')).json()).unread_ids).toEqual([]);

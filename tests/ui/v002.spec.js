@@ -66,7 +66,8 @@ test('all-read respects source and read-later completion is independent', async 
   expect(confirmation).toContain(`${ids.length} 条未读新闻`);
   await expect.poll(async () => (await (await request.get(`/api/news/${ids.at(-1)}/detail`)).json()).read_at).toBeTruthy();
   await request.post('/__test/reset-reading');
-  await request.patch('/api/news/ui-000/state', { data: { read_later: true, read: false } });
+  await request.patch('/api/news/ui-000/state', { data: { read_later: true } });
+  await request.post('/__test/reset-reading', { data: { item_ids: ['ui-000'] } });
   await page.locator('#navReadLaterBtn').click();
   await page.locator('[data-source="all"]').click();
   await expect(page.locator('#markAllReadBtn')).toHaveAttribute('aria-label', '全部看完');

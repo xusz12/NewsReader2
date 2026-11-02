@@ -24,9 +24,12 @@ def test_adding_read_later_acknowledges_feed_without_completing_article(setup):
     removed = client.patch(path, json={'read_later': False}).json
     assert removed['read_at'] == added['read_at']
     assert removed['read_later_done_at'] is None
-    # A later explicit user choice can override the implicit acknowledgement.
-    unread = client.patch(path, json={'read_later': True, 'read': False}).json
-    assert unread['read_at'] is None and unread['read_later_at']
+    # A rejected reverse request cannot requeue the article as a partial write.
+    unread = client.patch(path, json={'read_later': True, 'read': False})
+    assert unread.status_code == 400
+    with app.db_conn() as conn:
+        saved = conn.execute('SELECT * FROM item_state WHERE item_id=?', (item['id'],)).fetchone()
+    assert saved['read_at'] == added['read_at'] and saved['read_later_at'] is None
 
 
 def test_adding_read_later_preserves_existing_read_timestamp(setup):

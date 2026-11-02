@@ -15,6 +15,52 @@ function fixture() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+for (const flag of ['important', 'favorite', 'read_later']) {
+  test(`${flag} acknowledges browsing, preserves completion and never reverses on removal`, async () => {
+    const { item, queue, requests } = fixture();
+    const done = queue.set(item, flag, true);
+    assert.ok(item.read_at);
+    assert.deepEqual(requests[0].body, { read: true, [flag]: true });
+    if (flag !== 'read_later') assert.equal(item.read_later_done_at, 'previous');
+    requests[0].resolve({ read_at: 'first-read', [`${flag}_at`]: 'flagged' });
+    await done;
+    const removed = queue.set(item, flag, false);
+    assert.deepEqual(requests[1].body, { [flag]: false });
+    requests[1].resolve({ [`${flag}_at`]: null });
+    await removed;
+    assert.equal(item.read_at, 'first-read');
+  });
+
+  test(`failed ${flag} activation restores unacknowledged browsing`, async () => {
+    const { item, queue, requests } = fixture();
+    const done = queue.set(item, flag, true);
+    requests[0].reject(new Error('offline'));
+    await done;
+    assert.equal(item.read_at, null);
+    assert.equal(item[`${flag}_at`], null);
+    assert.equal(item.read_later_done_at, 'previous');
+  });
+}
+
+for (const firstFails of [false, true]) {
+  test(`later flag keeps acknowledgement through another flag's failure (first fails: ${firstFails})`, async () => {
+    const { item, queue, requests } = fixture();
+    const first = queue.set(item, 'important', true);
+    const second = queue.set(item, 'favorite', true);
+    if (firstFails) requests[0].reject(new Error('offline'));
+    else requests[0].resolve({ read_at: 'saved', important_at: 'saved' });
+    await tick();
+    assert.ok(item.read_at);
+    assert.deepEqual(requests[1].body, { read: true, favorite: true });
+    if (firstFails) requests[1].resolve({ read_at: 'saved', favorite_at: 'saved' });
+    else requests[1].reject(new Error('offline'));
+    await Promise.all([first, second]);
+    assert.equal(item.read_at, 'saved');
+    assert.equal(!!item.important_at, !firstFails);
+    assert.equal(!!item.favorite_at, firstFails);
+  });
+}
+
 test('adding read later marks feed read immediately without completing the article; cancel keeps it read', async () => {
   const { item, queue, requests } = fixture();
   const done = queue.set(item, 'read_later', true);
@@ -40,23 +86,37 @@ test('adding an already read article keeps its read timestamp', async () => {
   assert.equal(item.read_at, 'previous-read');
 });
 
-for (const blocked of [false, true]) {
-  test(`newer manual unread wins over adding read later (another save in flight: ${blocked})`, async () => {
+for (const fail of [false, true]) {
+  test(`reverse and duplicate reads cannot supersede a pending acknowledgement (failure: ${fail})`, async () => {
     const { item, queue, requests } = fixture();
-    if (blocked) queue.set(item, 'favorite', true);
-    const done = queue.set(item, 'read_later', true);
-    queue.set(item, 'read', false);
-    requests[0].resolve(blocked ? { favorite_at: 'saved' } : { read_at: 'read', read_later_at: 'queued', read_later_done_at: null });
-    await tick();
-    assert.equal(item.read_at, null);
-    assert.equal(requests[1].body.read, false);
-    if (blocked) assert.equal(requests[1].body.read_later, true);
-    requests[1].resolve({ read_at: null, read_later_at: 'queued', read_later_done_at: null });
-    await done;
-    assert.equal(item.read_at, null);
-    assert.equal(item.read_later_at, 'queued');
+    const done = queue.set(item, 'read', true);
+    const stamp = item.read_at;
+    assert.equal(await queue.set(item, 'read', false), false);
+    assert.equal(item.read_at, stamp);
+    const duplicate = queue.set(item, 'read', true);
+    assert.equal(requests.length, 1);
+    if (fail) requests[0].reject(new Error('offline'));
+    else requests[0].resolve({ read_at: 'saved' });
+    assert.equal(await done, !fail);
+    assert.equal(await duplicate, !fail);
+    assert.equal(item.read_at, fail ? null : 'saved');
+    assert.equal(queue.reconcile(item.id, { read_at: null }, queue.version).read_at, fail ? null : 'saved');
+    assert.equal(await queue.set(item, 'read', false), false);
+    if (!fail) {
+      assert.equal(await queue.set(item, 'read', true), true);
+      assert.equal(item.read_at, 'saved');
+    }
+    assert.equal(requests.length, 1);
   });
 }
+
+test('reverse reads do not create state for a new article', async () => {
+  const { item, queue, requests } = fixture();
+  assert.equal(await queue.set(item, 'read', false), false);
+  assert.equal(item.read_at, null);
+  assert.equal(requests.length, 0);
+  assert.equal(queue.pending.size, 0);
+});
 
 test('read batches deduplicate IDs and combine new reads during an in-flight save', async () => {
   const requests = [];
@@ -91,6 +151,7 @@ test('a failed read batch rejects its own callers and still saves later reads', 
 
 test('optimistic flags save serially and ignore unrelated fields in responses', async () => {
   const { item, queue, requests } = fixture();
+  item.read_at = 'already-browsed';
   const done = queue.set(item, 'important', true);
   queue.set(item, 'favorite', true);
   assert.ok(item.important_at && item.favorite_at);
@@ -108,6 +169,7 @@ test('optimistic flags save serially and ignore unrelated fields in responses', 
 
 test('rapid toggles retain the latest intent and coalesce unsent clicks', async () => {
   const { item, queue, requests, saved } = fixture();
+  item.read_at = 'already-browsed';
   const done = queue.set(item, 'favorite', true);
   queue.set(item, 'favorite', false);
   queue.set(item, 'favorite', true);
@@ -141,6 +203,7 @@ test('failure rolls back implicit read and both read-later timestamps', async ()
 
 test('failed older request does not roll back a newer click or another flag', async () => {
   const { item, queue, requests } = fixture();
+  item.read_at = 'already-browsed';
   const done = queue.set(item, 'favorite', true);
   queue.set(item, 'favorite', false);
   queue.set(item, 'favorite', true);
@@ -159,6 +222,7 @@ test('failed older request does not roll back a newer click or another flag', as
 
 test('failed later click rolls back to the previous successful save', async () => {
   const { item, queue, requests } = fixture();
+  item.read_at = 'already-browsed';
   const done = queue.set(item, 'favorite', true);
   queue.set(item, 'favorite', false);
   requests[0].resolve({ favorite_at: 'saved' });
@@ -170,6 +234,7 @@ test('failed later click rolls back to the previous successful save', async () =
 
 test('stale reads cannot overwrite pending, saved or rolled-back flags; fresh reads still sync', async () => {
   const { item, queue, requests } = fixture();
+  item.read_at = 'already-browsed';
   const before = queue.version;
   const done = queue.set(item, 'important', true);
   const during = queue.version;
@@ -188,8 +253,9 @@ test('stale reads cannot overwrite pending, saved or rolled-back flags; fresh re
 
 test('different articles save concurrently', async () => {
   const { item, queue, requests } = fixture();
+  item.read_at = 'already-browsed';
   const one = queue.set(item, 'important', true);
-  const two = queue.set({ id: 'other', favorite_at: null }, 'favorite', true);
+  const two = queue.set({ id: 'other', read_at: 'already-browsed', favorite_at: null }, 'favorite', true);
   assert.equal(requests.length, 2);
   requests[0].resolve({ important_at: 'saved' });
   requests[1].resolve({ favorite_at: 'saved' });

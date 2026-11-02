@@ -1276,7 +1276,7 @@ function renderReader() {
     });
 }
 function toggleState(item, flag, force, silent = false, complete = false) {
-  if (!item || (flag === "favorite" && state.removingFavorites)) return;
+  if (!item || !["important", "read_later", "favorite"].includes(flag) || (flag === "favorite" && state.removingFavorites)) return;
   let value = force ?? !item[`${flag}_at`];
   if (flag === "read_later" && force === undefined) {
     const { phase } = readLaterState(item, stateWrites.has(item.id, flag));
@@ -1287,8 +1287,7 @@ function toggleState(item, flag, force, silent = false, complete = false) {
     complete = phase === "ready";
     value = !["ready", "pending"].includes(phase);
   }
-  if (flag === "read") return setReadState(item, value, silent);
-  if (flag === "read_later" && value) trackReadChange(item);
+  if (value) trackReadChange(item);
   return stateWrites.set(item, flag, value, silent, complete).then(saved => {
     if (!stateWrites.has(item.id, "read")) readOperations.delete(item.id);
     return saved;
@@ -1891,10 +1890,9 @@ document.addEventListener("keydown", (event) => {
   } else if (action === "agent" && readingArticle()) {
     event.preventDefault();
     agent.toggle();
-  } else if (["read", "important", "read_later", "favorite"].includes(action) && readingArticle()) {
+  } else if (["important", "read_later", "favorite"].includes(action) && readingArticle()) {
     event.preventDefault();
-    if (action === "read" && state.collection === "read_later") toggleState(state.selected, "read_later", false, false, true);
-    else toggleState(state.selected, action);
+    toggleState(state.selected, action);
   } else if (["previous", "next"].includes(action) && state.collection === "notes") {
     event.preventDefault();
     const ideas = visibleIdeas(), index = ideas.findIndex(idea => idea.idea_id === state.idea?.idea_id);

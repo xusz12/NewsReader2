@@ -19,9 +19,9 @@ test.beforeEach(async ({ request }) => {
   await request.post('/__test/topics');
   await request.post('/__test/reset-reading');
   // The fixture has cached bodies; begin with a finished saved article that
-  // the user has independently marked unread, then add it again.
+  // has not been browsed in this isolated fixture, then add it again.
   await request.patch('/api/news/ui-001/state', {
-    data: { read: false, read_later: false, read_later_done: true },
+    data: { read_later: false, read_later_done: true },
   });
 });
 

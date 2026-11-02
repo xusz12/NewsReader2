@@ -46,9 +46,9 @@ def test_unread_scope_uses_current_read_state_and_keeps_completed_results(conn):
     assert nc.status(conn, unread_only=True)['pending'] == 0
     assert nc.status(conn)['pending'] == 1
     assert conn.execute("SELECT attempts FROM item_classifications WHERE item_id='read'").fetchone()[0] == 0
-    # Marking an existing item unread makes it eligible without an index refresh.
-    mark_read(conn, 'read', False)
-    job = nc.claim(conn, unread_only=True)
+    # Browsed items stay excluded; disabling the scope can still classify them.
+    assert nc.claim(conn, unread_only=True) is None
+    job = nc.claim(conn)
     assert job['item_id'] == 'read'
     nc.finish(conn, job, nc.parse_response(response()))
     mark_read(conn, 'read')

@@ -267,8 +267,8 @@ def test_category_counts_follow_full_filter_scope_and_read_changes(api, endpoint
     client.post("/api/news/mark-all-read", json={"category": "economy", "read_filter": "unread"})
     assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 0})
     assert client.get(endpoint, query_string=params | {"read_filter": "all"}).json["category_counts"] == expected
-    client.patch("/api/news/n35/state", json={"read": False})
-    assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 1})
+    assert client.patch("/api/news/n35/state", json={"read": False}).status_code == 400
+    assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 0})
 
 
 @pytest.mark.parametrize("endpoint", ["/api/news", "/api/search"])

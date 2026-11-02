@@ -70,21 +70,29 @@ for(const width of [390,1440]) test('日报保留高亮与引用 Agent、独立�
 
 test('日报来源状态同步、失败恢复、连续点击及返回位置',async({page,request})=>{
   await request.patch('/api/news/ui-000/state',{data:{important:false,read_later:false,read_later_done:true}});
+  const before=(await (await request.get('/api/news/ui-000/detail')).json());
   await page.goto('/'); await openReports(page);
   const details=page.locator('.report-sources').first(); await details.locator('summary').click();
   const important=details.locator('[data-source-state="important"]').first();
   await page.route('**/api/news/ui-000/state', route=>route.fulfill({status:500,json:{ok:false,error:'test_failure'}}));
   await important.click(); await expect(important).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('#toast')).toBeVisible(); await page.unroute('**/api/news/ui-000/state');
+  expect((await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBe(before.read_at);
   await important.click(); await expect(important).toHaveAttribute('aria-busy','false');
   await expect(important).toHaveAttribute('aria-pressed','true');
+  const acknowledged=(await (await request.get('/api/news/ui-000/detail')).json());
+  expect(acknowledged.read_at).toBeTruthy();
+  expect(acknowledged.read_later_done_at).toBe(before.read_later_done_at);
   const scroll=await page.locator('#reportScrollArea').evaluate(node=>node.scrollTop);
   await details.locator('[data-source-item="ui-000"]').click();
   await expect(page.locator('#detailPanelFeed [data-state="important"]')).toHaveAttribute('aria-pressed','true');
+  await page.keyboard.press('m');
+  expect((await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBe(acknowledged.read_at);
   await page.locator('#detailPanelFeed [data-state="important"]').click();
   await page.locator('#topicReaderBackBtn').click();
   await expect(important).toHaveAttribute('aria-pressed','false');
   expect(await page.locator('#reportScrollArea').evaluate(node=>node.scrollTop)).toBe(scroll);
+  expect((await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBe(acknowledged.read_at);
   await important.click({clickCount:3}); await expect(important).toHaveAttribute('aria-busy','false');
   const state=(await (await request.get('/api/news/ui-000/detail')).json());
   await expect(important).toHaveAttribute('aria-pressed',String(!!state.important_at));

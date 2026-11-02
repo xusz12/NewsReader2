@@ -82,6 +82,7 @@
   register('session', 'session_config_changed session_expired session_not_found session_invalid codex_session_invalid oar_legacy_session_missing', '当前会话已失效或配置已改变。');
   register('session', 'oar_resources_changed oar_trust_changed oar_project_untrusted oar_extension_failed', '本机会话资源不可用或未获信任。');
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
+  register('context', 'read_state_irreversible', '新闻已浏览状态不可撤销，请刷新页面后重试。');
   register('context', 'empty_archive_source', '没有可归档的内容。');
   register('context', 'empty_archive_summary', '没有可归档的实质内容。');
   register('limit', 'unsupported_source SKIPPED_SOURCE', '暂不支持此新闻来源。');

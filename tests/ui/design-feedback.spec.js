@@ -66,7 +66,7 @@ for (const width of [1440, 390, 320]) {
 test('selected cards, read-later and Agent archive match the reviewed appearance', async ({ page, request }) => {
   await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
   // Keep this queued fixture in the unread feed so it is the selected card.
-  await request.patch('/api/news/ui-064/state', { data: { read: false } });
+  await request.post('/__test/reset-reading', { data: { item_ids: ['ui-064'] } });
   await page.goto('/');
   const selected = page.locator('.news-card.is-active');
   await expect(selected).toBeVisible();

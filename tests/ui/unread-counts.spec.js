@@ -87,7 +87,7 @@ test('failed reads restore counts and unread dots while subsequent batches still
   expect((await (await request.get(`/api/news/${ids[0]}/detail`)).json()).read_at).toBeNull();
 });
 
-test('manual unread during a slow auto-read wins and does not double-adjust counts', async ({ page, request }) => {
+test('retired read shortcut cannot reverse an in-flight auto-read or inflate counts', async ({ page, request }) => {
   await start(page);
   const id = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
   const held = gate();
@@ -99,13 +99,11 @@ test('manual unread during a slow auto-read wins and does not double-adjust coun
     await scrollPast(page, id);
     await expectCounts(page, 64);
     await page.keyboard.press('m');
-    await expectCounts(page, 65);
-    await expect(card(page, id).locator('.unread-dot')).toHaveCount(1);
+    await expectCounts(page, 64);
+    await expect(card(page, id).locator('.unread-dot')).toHaveCount(0);
   } finally { held.release(); }
-  const response = await page.waitForResponse(res => res.url().endsWith(`/api/news/${id}/state`) && res.request().method() === 'PATCH');
-  expect(response.ok()).toBe(true);
-  await expectCounts(page, 65);
-  expect((await (await request.get(`/api/news/${id}/detail`)).json()).read_at).toBeNull();
+  await expect.poll(async () => (await (await request.get(`/api/news/${id}/detail`)).json()).read_at).toBeTruthy();
+  await expectCounts(page, 64);
 });
 
 test('old nav, list-total and source responses cannot undo a newer read', async ({ page }) => {

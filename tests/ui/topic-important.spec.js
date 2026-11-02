@@ -26,7 +26,7 @@ test.beforeEach(async ({ request }) => {
   await request.patch('/api/news/ui-001/state', {data:{important:false, read_later:false, read_later_done:true}});
 });
 
-test('时间线重要与新闻流、其他主题和阅读器共享，点击保持位置与阅读状态', async ({page,request}) => {
+test('时间线重要与新闻流、其他主题和阅读器共享，联动已浏览且保留全文状态', async ({page,request}) => {
   await openTopic(page);
   const button=buttonFor(page), card=button.locator('xpath=ancestor::article');
   await card.hover();
@@ -42,7 +42,8 @@ test('时间线重要与新闻流、其他主题和阅读器共享，点击保�
   await expect(page.locator('#topicContent')).toBeVisible();
   const after=await detail(request);
   expect(after.important_at).toBeTruthy();
-  for(const key of ['read_at','read_later_at','read_later_done_at','detail_status']) expect(after[key]).toBe(before[key]);
+  expect(before.read_at).toBeNull();expect(after.read_at).toBeTruthy();
+  for(const key of ['read_later_at','read_later_done_at','detail_status']) expect(after[key]).toBe(before[key]);
   await page.locator('[data-topic-id="test-industry"]').click();
   await expect(button).toHaveAttribute('aria-pressed','true');
   await page.locator('[data-topic-item="ui-001"]').click();
@@ -88,7 +89,7 @@ test('重要快速连点保留最后意图且不阻塞稍后再看', async ({pag
   gate.resolve();
   await expect(button).toHaveAttribute('aria-busy','false');
   await expect(page.locator('[data-topic-read-later="ui-001"]')).toHaveAttribute('aria-busy','false');
-  expect(bodies).toEqual([{important:true},{important:false,read:true,read_later:true}]);
+  expect(bodies).toEqual([{read:true,important:true},{read:true,important:false,read_later:true}]);
   const saved=await detail(request);
   expect(saved.important_at).toBeNull();expect(saved.read_later_at).toBeTruthy();
 });
@@ -114,6 +115,8 @@ for (const mobile of [false,true]) test.describe(mobile?'手机':'桌面',()=>{
   test.use({viewport:mobile?{width:390,height:844}:{width:1440,height:900},isMobile:mobile,hasTouch:mobile});
   test('重要与稍后再看共用纯图标样式，所有主题和字号下保持可操作',async({page,request})=>{
     await request.patch('/api/news/ui-064/state',{data:{important:true}});
+    // Historical important items can still be unbrowsed; seed that comparison card.
+    await request.post('/__test/reset-reading',{data:{item_ids:['ui-064']}});
     await page.route('**/api/topics/test-acquisition?*',async route=>{
       const response=await route.fetch(), data=await response.json();
       data.items.forEach(item=>item.source_name='特别长的国际新闻来源 International News');

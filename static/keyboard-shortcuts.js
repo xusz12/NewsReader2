@@ -6,7 +6,6 @@ export const shortcutActions = [
   { id: "important", label: "标记重要", keys: ["a", "ArrowLeft"] },
   { id: "read_later", label: "稍后再看", keys: ["d", "ArrowRight"] },
   { id: "favorite", label: "收藏", keys: ["f"] },
-  { id: "read", label: "标为已读／未读", keys: ["m"] },
   { id: "agent", label: "展开／收起 Agent", keys: ["q"] },
   { id: "search", label: "搜索", keys: ["/"] },
   { id: "settings", label: "打开／关闭设置", keys: [","] },
@@ -82,9 +81,16 @@ export class KeyboardShortcuts {
   read() {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey));
+      const removedReadBinding = !!saved?.bindings && Object.hasOwn(saved.bindings, "read");
+      if (removedReadBinding) delete saved.bindings.read;
       // Older versions allowed four alternatives; retain the first two per action.
       for (const keys of Object.values(saved?.bindings || {})) if (Array.isArray(keys)) keys.splice(2);
-      return normalizeShortcuts(saved);
+      const normalized = normalizeShortcuts(saved);
+      if (removedReadBinding) {
+        // A retired binding stays inactive even if browser storage is read-only.
+        try { localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch {}
+      }
+      return normalized;
     }
     catch { return defaultShortcuts(); }
   }

@@ -170,14 +170,12 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     assert r4.get_json()["total"] == 1
 
     r5 = client.patch(f"/api/news/{item_id}/state", json={"read": False})
-    assert r5.status_code == 200
-    assert r5.get_json()["read_at"] is None
-    assert r5.get_json()["favorite_at"] is None
-    assert r5.get_json()["important_at"] is None
+    assert r5.status_code == 400
+    assert r5.get_json()["error"] == "read_state_irreversible"
 
     r6 = client.get("/api/news?read_filter=unread")
     assert r6.status_code == 200
-    assert r6.get_json()["total"] == 1
+    assert r6.get_json()["total"] == 0
 
     # Flags remain combinable; queuing acknowledges the headline without
     # completing the saved article.
@@ -1978,7 +1976,7 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     assert [item["title"] for item in tags_reverse] == ["Alpha Early", "Beta Early"]
 
     for collection, unread_titles in [
-        ("feed", ["Alpha Late", "Beta Early"]),
+        ("feed", ["Alpha Late"]),
         ("read_later", ["Alpha Early", "Beta Late"]),
     ]:
         for order, expected in [("default", unread_titles), ("reverse", unread_titles[::-1])]:
@@ -1993,7 +1991,8 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
             "read_later": False, "read_later_done": True,
         }).status_code == 200
     for collection in ["feed", "read_later"]:
-        for order, expected in [("default", ["Beta Late", "Alpha Early"]), ("reverse", ["Alpha Early", "Beta Late"])]:
+        read_titles = ["Beta Late", "Beta Early", "Alpha Early"] if collection == "feed" else ["Beta Late", "Alpha Early"]
+        for order, expected in [("default", read_titles), ("reverse", read_titles[::-1])]:
             read = client.get("/api/news", query_string={
                 "collection": collection, "read_filter": "read", "sort_order": order,
             }).get_json()["items"]
@@ -2383,7 +2382,7 @@ def test_news_date_counts_follow_filter_and_collection(tmp_path: Path, monkeypat
     assert client.patch(f"/api/news/{items_by_title['D2 Morning']['id']}/state", json={"important": True}).status_code == 200
 
     feed_unread = client.get("/api/news?per=20&read_filter=unread").get_json()
-    assert feed_unread["date_counts"] == {"2026-05-26": 1, "2026-05-25": 1}
+    assert feed_unread["date_counts"] == {"2026-05-25": 1}
 
     important_all = client.get("/api/news?per=20&collection=important&read_filter=all").get_json()
     assert important_all["date_counts"] == {"2026-05-26": 2}
@@ -5000,9 +4999,9 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
 
     initial = client.get("/api/settings").get_json()
     assert set(initial["llm"]) == {"translation", "pi_chat"}
-    assert set(initial["api_status"]) == {"deepseek", "jev", "opencode", "pi", "codex"}
+    assert set(initial["api_status"]) == {"deepseek", "jev", "opencode-go", "pi", "codex"}
     assert initial["agent"]["runtime"] == "pi"
-    assert set(initial["model_catalogs"]) == {"translation", "jev", "opencode", "pi_chat", "codex"}
+    assert set(initial["model_catalogs"]) == {"translation", "jev", "opencode-go", "pi_chat", "codex"}
     assert initial["llm"]["translation"]["model"] == "deepseek-saved"
 
     saved = client.put(

@@ -48,8 +48,8 @@ test('fixed snapshot, exclusions, new unread protection, report citations and ex
   await expect(page.locator('#summaryModalBody')).toContainText('成功后标读共 64 条');
   await expect(page.locator('#summaryModalBody')).toContainText('Codex Agent · ui-summary-model');
   expect(await unread(request)).toBe(64);
-  // Becomes unread after the snapshot; it must survive this batch.
-  await request.patch('/api/news/ui-000/state', { data: { read: false } });
+  // A genuinely new arrival after the snapshot must survive this batch.
+  expect((await request.post('/__test/new-news')).ok()).toBe(true);
   await page.locator('#confirmSummaryBtn').click();
   await expect(page.locator('#summaryCardList .news-card')).toHaveCount(1);
   await expect(page.locator('#summaryProgress')).toBeEmpty();

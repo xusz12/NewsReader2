@@ -323,10 +323,11 @@ test('bulk completion waits for a previous re-add to save', async ({ page, reque
   expect((await detail(request, 'ui-064')).read_later_done_at).toBeTruthy();
 });
 
-test('read-later preserves feed read flags, card appearance, keyboard completion and source scope', async ({ page, request }) => {
+test('read-later preserves feed read flags, card appearance, button completion and source scope', async ({ page, request }) => {
   await page.clock.install();
   await request.patch('/api/news/ui-064/state', { data: { read_later: true, read: true } });
-  await request.patch('/api/news/ui-063/state', { data: { read_later: true, read: false } });
+  await request.patch('/api/news/ui-063/state', { data: { read_later: true } });
+  await request.post('/__test/reset-reading', { data: { item_ids: ['ui-063'] } });
   const seenAt = (await detail(request, 'ui-064')).read_at;
   await page.goto('/');
   await expect(card(page, 'ui-063')).toBeVisible();
@@ -345,6 +346,8 @@ test('read-later preserves feed read flags, card appearance, keyboard completion
   await expect(later(page)).toHaveText('全文待看');
   await expect(later(page)).toHaveAttribute('aria-busy', 'false');
   await page.keyboard.press('m');
+  await expect(later(page)).toHaveText('全文待看');
+  await later(page).click();
   await expect(later(page)).toHaveText('已看完');
   await expect(later(page)).toHaveAttribute('aria-busy', 'false');
   expect((await detail(request, 'ui-064')).read_at).toBe(seenAt);

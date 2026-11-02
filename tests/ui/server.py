@@ -109,14 +109,26 @@ with module.db_conn() as conn:
 
 @module.app.post('/__test/reset-reading')
 def reset_reading():
+    ids = (module.request.get_json(silent=True) or {}).get('item_ids')
     with module.db_conn() as conn:
-        conn.execute("UPDATE item_state SET read_at=NULL")
+        if ids is None:
+            conn.execute("UPDATE item_state SET read_at=NULL")
+        else:
+            conn.executemany("UPDATE item_state SET read_at=NULL WHERE item_id=?", [(item_id,) for item_id in ids])
     return {"ok": True}
 
 @module.app.post('/__test/summary-mode')
 def set_summary_mode():
     summary_mode["value"] = module.request.get_json()["mode"]
     return {"ok": True}
+
+@module.app.post('/__test/new-news')
+def new_news():
+    with module.db_conn() as conn:
+        row = dict(conn.execute("SELECT * FROM items WHERE id='ui-000'").fetchone())
+        row.update(id='ui-late-arrival', url='https://example.com/ui-late-arrival', title='快照创建后的新新闻')
+        conn.execute(f"INSERT INTO items ({','.join(row)}) VALUES ({','.join('?' for _ in row)})", tuple(row.values()))
+    return {"ok": True, "item_id": row['id']}
 
 @module.app.post('/__test/reset-summaries')
 def reset_summaries():
@@ -129,6 +141,8 @@ def reset_summaries():
         conn.execute('DELETE FROM news_summaries')
         conn.execute('DELETE FROM news_summary_jobs')
         conn.execute('DELETE FROM news_summary_previews')
+        conn.execute("DELETE FROM items WHERE id='ui-late-arrival'")
+        conn.execute("DELETE FROM item_state WHERE item_id='ui-late-arrival'")
         conn.execute('UPDATE item_state SET read_at=NULL')
     summary_mode["value"] = "success"
     return {"ok": True}

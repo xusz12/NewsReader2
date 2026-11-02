@@ -88,7 +88,7 @@ test('missing key and failed classification remain explicit, retry uses the queu
   progress.configured = false;
   await page.clock.runFor(31000);
   await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
-  await expect(page.locator('#classificationProgressPanel')).toContainText('等待在 API 管理中配置 Jev');
+  await expect(page.locator('#classificationProgressPanel')).toContainText('等待在新闻分类设置中配置 Jev');
   await page.locator('#classificationProgressSettings').click();
   await expect(page.locator('#settingsCategory-classification')).toHaveAttribute('aria-current', 'true');
 });
@@ -176,7 +176,7 @@ for (const [theme, scheme] of [['light', 'light'], ['dark', 'dark'], ['eink', 'l
 }
 
 
-test('category border follows optimistic read, rollback, undo and the current search', async ({ page }) => {
+test('category border follows optimistic read, failure recovery, retired shortcuts and the current search', async ({ page }) => {
   const row = page.locator('#newsCategoryFilters');
   const economy = row.locator('[data-category="economy"]');
   const search = page.locator('#feedSearchInput');
@@ -194,18 +194,20 @@ test('category border follows optimistic read, rollback, undo and the current se
     await route.fulfill({ status: 503, json: { error: '保存失败' } });
   });
   try {
-    await page.keyboard.press('m');
+    await page.locator('#feedCardList').evaluate(n => n.dispatchEvent(new Event('scroll')));
+    await page.clock.runFor(5200);
     await expect(economy).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await expect(row.locator('.has-news')).toHaveCount(0);
   } finally { release(); }
   await expect(economy).toHaveClass(/has-news/);
   await page.unroute('**/api/news/mark-read-by-ids');
   const saved = page.waitForResponse(res => res.url().endsWith('/api/news/mark-read-by-ids') && res.ok());
-  await page.keyboard.press('m');
+  await page.locator('#feedCardList').evaluate(n => n.dispatchEvent(new Event('scroll')));
+    await page.clock.runFor(5200);
   await expect(economy).not.toHaveClass(/has-news/);
   await saved;
   await page.keyboard.press('m');
-  await expect(economy).toHaveClass(/has-news/);
+  await expect(economy).not.toHaveClass(/has-news/);
   expect(await page.evaluate(() => window.categoryButton === document.querySelector('[data-category="economy"]'))).toBe(true);
   await search.fill('历史 41');
   await page.clock.runFor(300);

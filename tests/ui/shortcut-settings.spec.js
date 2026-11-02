@@ -96,7 +96,7 @@ test('recording rejects conflicts and invalid input without overwriting bindings
 
 test('two independent slots persist and activate both keys, including an empty first slot', async ({ page }) => {
   await start(page);
-  await expect(page.locator('.shortcut-setting-row')).toHaveCount(10);
+  await expect(page.locator('.shortcut-setting-row')).toHaveCount(9);
   for (const row of await page.locator('.shortcut-setting-row').all()) await expect(row.locator('input')).toHaveCount(2);
   await record(page, 'favorite', 'g');
   await record(page, 'favorite', 'h', 1);
@@ -123,6 +123,9 @@ test('two independent slots persist and activate both keys, including an empty f
   await expect(page.locator('#shortcut-favorite-1')).toHaveValue('h');
   await expect(page.locator('[data-shortcut-hint="favorite"]')).toHaveText('h');
   await page.keyboard.press('Escape');
+  await page.locator('#feedColFeed [data-filter="all"]').click();
+  await page.locator('#sortNewsBtn').click();
+  await page.locator('#feedCardList [data-id="ui-064"] .news-card-title').click();
   await page.keyboard.press('g');
   await expect(favorite).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('h');
@@ -249,7 +252,7 @@ for (const width of [320, 390, 921, 1440]) {
       expect(Math.max(...heights)).toBeLessThanOrEqual(40);
       await page.screenshot({ path: `.ui-artifacts/settings-compact-${width}-${theme}.png` });
       await section(page);
-      await expect(page.locator('#shortcutSettings input[readonly]')).toHaveCount(20);
+      await expect(page.locator('#shortcutSettings input[readonly]')).toHaveCount(18);
       const toggle = page.getByRole('switch', { name: '显示底部快捷键栏' });
       expect(await toggle.evaluate(node => getComputedStyle(node).appearance)).toBe('none');
       await page.screenshot({ path: `.ui-artifacts/shortcuts-top-${width}-${theme}.png` });

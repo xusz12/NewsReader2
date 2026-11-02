@@ -82,7 +82,7 @@ test("read flags persist and card/reader stay synchronized", async ({
   request,
 }) => {
   await request.patch("/api/news/ui-000/state", {
-    data: { favorite: false, read: false },
+    data: { favorite: false },
   });
   await ready(page);
   await select(page);
@@ -90,7 +90,7 @@ test("read flags persist and card/reader stay synchronized", async ({
   await expect(
     page.locator('[data-id="ui-000"] [data-state="favorite"]'),
   ).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("m");
+  await page.keyboard.press("m"); // Retired key leaves the favourite acknowledgement intact.
   await expect(page.locator('[data-id="ui-000"]')).toHaveClass(/read/);
   // The card updates optimistically; persistence completes asynchronously.
   await expect.poll(async () => (await (await request.get("/api/news/ui-000/detail")).json()).read_at).toBeTruthy();
