@@ -30,6 +30,9 @@
   register('model', 'pi_model_not_selected', '尚未选择模型。');
   register('input', 'invalid_pi_reasoning_effort', '所选 Pi 模型不支持此推理强度，请刷新目录后重新选择。');
   register('model', 'pi_model_catalog_unavailable', '无法确认 Pi 模型支持的推理强度，请刷新目录后重试。');
+  register('model', 'report_model_catalog_failed', '模型目录读取失败，请检查本机配置后重试。');
+  register('input', 'report_model_selection_invalid', '请选择有效的 Runtime 和模型。');
+  register('input', 'report_reasoning_unsupported', '所选模型不支持该推理程度，请重新选择。');
   register('input', 'invalid_pi_settings', 'Pi 模型配置格式无效。');
   register('timeout', 'timeout codex_timeout agent_timeout provider_timeout summary_timeout TIMEOUT ETIMEDOUT', '请求超时。');
   register('capacity', 'capacity overloaded_error service_overloaded', '服务繁忙。');

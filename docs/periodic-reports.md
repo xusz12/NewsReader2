@@ -157,3 +157,13 @@ Pi 直接调用模型时传入由报告 ID 派生的 `sessionId`，同一报告�
 `tests/test_report_pause.py` 验证五类暂停跨期、重启持久化、普通停机补期、重复请求、并发入队边界、暂停期间编辑排期与独立清理；`tests/test_report_maintenance.py` 验证清理持久排期、过期与活跃材料保护、事务失败重试、多实例去重和生成计时迁移；`tests/test_report_windows.py` 验证五类窗口独立配置、跨日／闰月、历史补报、保存与旧客户端兼容、手动所见范围绑定、快照共享与取材边界；`tests/test_report_schedule.py` 验证启动时间与新闻窗口独立、过早时间校验、旧配置等候完整窗口、延后取材不扩展、既有报告重试不改窗口、旧表单保护、生效历史、改时去重、立即唤醒和最近排期排序；`tests/test_periodic_reports.py` 使用隔离库验证启用边界、交易日、窗口、刷新与并发取材、调度独立于模型、唤醒补期、租约与重试；`tests/test_report_observation.py` 验证观察只读、排期与健康状态、错误、元数据隔离和历史上限；`tests/ui/schedule-settings.spec.js` 验证状态刷新、草稿保护、停止轮询及主题／手机布局；`tests/test_report_manual.py` 验证自定义时间、进度、提交幂等、删除隔离与防止重建；`tests/test_report_previews.py` 验证旧试生成兼容入口、完整窗口、提交幂等、排期隔离、删除范围及新闻状态保护；`tests/test_report_generation.py` 验证一次成文、容量分批、取消旧压缩门槛、引用覆盖及局部修复；`tests/test_report_model.py` 验证容量解析、模型协议完成、超时清理、工具限制，并通过本地模拟模型服务检查真实Pi SDK调用与截断拒绝；`tests/ui/reports.spec.js` 使用合成报告验证真实API与页面交互、手动生成与删除、运行进度、研究导航、简讯与旧报告兼容。合成样稿只出现在测试服务器，不写入实际新闻库。
 
 `tests/test_report_overrides.py` 与 `tests/ui/report-model-picker.spec.js` 验证临时设置不改全局、能力校验、重复提交与重试绑定、同窗快照、目录迟到／失败、恢复默认和键盘／各主题窄屏布局；Pi 传输测试使用本地模拟服务核实推理参数。
+
+## 报告研读与来源（v0.4.6）
+
+报告正文提供高亮和引用提问，不提供添加想法或将 Agent 回复存为想法的入口；进入来源新闻后仍可使用新闻的想法功能。来源标题无下划线，重要／稍后再看与新闻流共用状态。
+
+已完成报告的详情响应增加 `reader` 和 `source_items`。`reader` 包含正文、研读主体、高亮与 Agent 快照，保留旧版想法字段兼容历史数据；`source_items` 按来源 URL 映射当前新闻及其状态，不写回生成时的存档内容，失效来源保留原始信息。
+
+研读主体为 `report:<报告ID>`，在现有 `/api/news/<item_id>/highlights`、`notes`、`agent/*` 和 `chat/archive` 接口中复用同一实现，不向 `items` 插入虚拟新闻。高亮和想法使用 `newsreader-report:<报告ID>` 存储键，Agent 继续按新闻库隔离。报告正文由主题标题、段落和简讯按双换行串联，沿用 Unicode 偏移与正文哈希校验；研读 Agent 取得报告正文和存档来源清单，默认使用 Chat 配置，独立于报告生成模型。删除报告同时清理其高亮、想法和临时会话，来源新闻及其状态保留。
+
+共享 Agent 面板用发送按钮旁的纯图标按钮打开共享模型选择浮层，通过 `GET /api/news/<item_id>/agent/model-options` 读取目录，通过 `PATCH /api/news/<item_id>/agent/session/model` 选择当前会话的 Runtime、模型和推理程度。请求携带 `session_id` 与 `selection`；服务端在目录校验后重新检查会话与运行任务，运行中拒绝切换。显式选择持久保存在会话中，不受后续默认设置变化覆盖；切换保留消息和任务历史，清理旧原生会话映射，下一轮携带已有对话重新建立上下文。`agent_sessions.model_override` 为兼容新增字段，旧会话默认0。

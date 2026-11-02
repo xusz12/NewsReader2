@@ -184,9 +184,9 @@ def codex_restrictions(config: dict, bridge=None) -> list[str]:
     return restrictions
 
 
-def selection(settings: dict) -> dict:
+def selection(settings: dict, feature="reports") -> dict:
     """Only public choices needed by the creation form, never credentials."""
-    agent = feature_model_config(settings, "reports")
+    agent = feature_model_config(settings, feature)
     return {"runtime": agent.get("runtime", "pi"),
             "codex": codex_client.normalize_config(agent.get("codex", {})),
             "pi": pi_models.normalize_config(agent.get("pi", {}))}
@@ -200,18 +200,18 @@ def pi_metadata(request):
     return pi_models.metadata(request, argv=pi_command())
 
 
-def catalog(settings: dict, runtime: str) -> dict:
+def catalog(settings: dict, runtime: str, feature="reports") -> dict:
     if runtime == "pi":
         return pi_models.filter_catalog(pi_metadata({"action": "catalog"}))
     if runtime != "codex":
         raise ValueError("report_model_selection_invalid")
-    config = selection(settings)["codex"]
+    config = selection(settings, feature)["codex"]
     saved = model_catalogs.cached_catalog(config)
     return saved if saved.get("options") else model_catalogs.safe_catalog(config)
 
 
-def configuration(settings: dict, *, resolve=True, override=None) -> dict:
-    agent = feature_model_config(settings, "reports")
+def configuration(settings: dict, *, resolve=True, override=None, feature="reports") -> dict:
+    agent = feature_model_config(settings, feature)
     if override is not None:
         if not isinstance(override, dict) or set(override) - {"runtime", "model", "provider", "reasoning_effort"}:
             raise ValueError("report_model_selection_invalid")
@@ -233,7 +233,7 @@ def configuration(settings: dict, *, resolve=True, override=None) -> dict:
             except ValueError:
                 raise ValueError("report_model_selection_invalid") from None
             if effort:
-                available = catalog(settings, runtime)
+                available = catalog(settings, runtime) if feature == "reports" else catalog(settings, runtime, feature)
                 if available.get("error") and not available.get("options"):
                     raise RuntimeError("report_model_catalog_failed")
                 entry = next((m for m in available["options"] if m["value"] == agent["codex"]["model"]), {})

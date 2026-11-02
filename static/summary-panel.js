@@ -1,15 +1,10 @@
-import { $, api, escapeHTML as e, errorText, toast, markdown, safeURL, singlePane, formatBytes as bytes } from "./ui.js";
+import { readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.4.6";
+import { $, api, escapeHTML as e, errorText, toast, markdown, singlePane, formatBytes as bytes } from "./ui.js";
 
 const running = job => !!job && ["pending", "generating", "checking"].includes(job.status);
 const runtimeLabel = data => `${data?.runtime === "pi" ? "Pi Agent" : "Codex Agent"} · ${data?.model || "沿用本机默认"}`;
 const range = data => `${data.start_date || data.window_start} → ${data.end_date || data.window_end}`;
 const count = value => Number(value || 0).toLocaleString("zh-CN");
-function sourceURL(value) {
-  try {
-    const url = new URL(value);
-    return !url.username && !url.password ? safeURL(url.href) : "";
-  } catch { return ""; }
-}
 function requestUUID() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
   const data = crypto.getRandomValues(new Uint8Array(16));
@@ -26,8 +21,9 @@ export function scopeText(scope) {
 }
 
 export class SummaryPanel {
-  constructor({ isVisible, enterReader, openSettings, onCompleted }) {
-    Object.assign(this, { isVisible, enterReader, openSettings, onCompleted });
+  constructor({ isVisible, enterReader, openSettings, onCompleted, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem }) {
+    Object.assign(this, { isVisible, enterReader, openSettings, onCompleted, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem });
+    this.reading = false;
     this.entries = []; this.total = 0; this.query = "";
     this.token = ""; this.selected = ""; this.revision = 0; this.listSequence = 0; this.detailSequence = 0; this.scopeSequence = 0;
     this.watched = new Set(); this.completed = new Set();
@@ -57,38 +53,22 @@ export class SummaryPanel {
       if (event.target.closest("#retrySummariesBtn")) this.load();
     };
     $("#summaryContent").onclick = event => {
-      const citation = event.target.closest("[data-citation]");
-      const ref = citation?.dataset.citation;
-      if (ref) {
-        const node = $("#summaryContent").querySelector(`[data-summary-ref="${CSS.escape(ref)}"]`);
-        if (node) {
-          const sources = node.closest("details");
-          this.citationReturn = { citation, scrollTop: $("#summaryScrollArea").scrollTop, sourcesOpen: sources.open };
-          $("#summaryReturnBtn").hidden = false;
-          sources.open = true;
-          node.scrollIntoView({ block: "center" });
-          node.focus({ preventScroll: true });
-        }
-      }
       if (event.target.closest("#retrySummaryDetailBtn")) this.select(this.selected);
+      const action = event.target.closest("[data-source-state]");
+      if (action) {
+        const item = this.findSourceItem(action.dataset.sourceId);
+        if (item) void this.toggleState(item, action.dataset.sourceState);
+        return;
+      }
+      const link = event.target.closest("[data-source-item]");
+      const item = link && this.findSourceItem(link.dataset.sourceItem);
+      if (item) {
+        this.sourceReturn = link; this.reading = true;
+        this.onViewChange(); this.openArticle(item);
+      }
     };
-    $("#summaryReturnBtn").onclick = () => this.returnToCitation();
     $("#exportSummaryBtn").onclick = () => this.export();
     this.controls();
-  }
-  clearCitationReturn() {
-    this.citationReturn = null;
-    $("#summaryReturnBtn").hidden = true;
-  }
-  returnToCitation() {
-    const origin = this.citationReturn;
-    if (!origin) return;
-    if (origin.citation.isConnected) {
-      $("#summaryContent .summary-sources").open = origin.sourcesOpen;
-      $("#summaryScrollArea").scrollTop = origin.scrollTop;
-      origin.citation.focus({ preventScroll: true });
-    }
-    this.clearCitationReturn();
   }
   remember(value) {
     this.requestId = value;
@@ -105,11 +85,11 @@ export class SummaryPanel {
   }
   bindToken(token) {
     if (this.token && this.token !== token) {
+      this.reading = false; this.closeArticle(); this.onViewChange();
       this.revision++; this.detailSequence++; this.scopeSequence++;
       clearTimeout(this.timer); this.modal.close(); clearInterval(this.expiryTimer);
       this.entries = []; this.selected = ""; this.detail = null; this.job = null; this.scope = null; this.preview = null; this.requestId = null;
       this.watched.clear(); this.completed.clear();
-      this.clearCitationReturn();
       $("#summaryContent").innerHTML = '<div class="summary-empty"><h1>已切换新闻库</h1><p>请选择当前新闻库中的总结。</p></div>';
       $("#summaryToolbarTitle").textContent = "新闻总结";
     }
@@ -179,8 +159,8 @@ export class SummaryPanel {
     if (this.entries.length < this.total) $("#summaryCardList").insertAdjacentHTML("beforeend", '<li class="load-more-row"><button class="btn-secondary" id="moreSummariesBtn" type="button">加载更多总结</button></li>');
   }
   async select(id, mobile = false) {
-    const sequence = ++this.detailSequence, token = this.token;
-    this.clearCitationReturn();
+    const sequence = ++this.detailSequence, token = this.token, stateVersion = this.stateVersion();
+    this.reading = false; this.closeArticle(); this.onViewChange();
     this.selected = id; this.detail = null; this.renderList(); this.controls();
     if (mobile) this.enterReader();
     $("#summaryContent").innerHTML = '<div class="list-message" role="status">正在读取报告…</div>';
@@ -189,6 +169,7 @@ export class SummaryPanel {
       const data = await api(`/api/news-summaries/${encodeURIComponent(id)}`);
       if (sequence !== this.detailSequence || token !== this.token) return;
       if (data.summary.database_token !== token) { await this.load(); return; }
+      for (const item of Object.values(data.summary.source_items || {})) this.reconcileItem(item, stateVersion);
       this.detail = data.summary; this.renderDetail(); this.controls();
       $("#summaryScrollArea").scrollTop = 0;
     } catch (error) {
@@ -205,14 +186,17 @@ export class SummaryPanel {
     $("#summaryToolbarTitle").textContent = s.title;
     $("#summaryContent").innerHTML = `<header class="summary-report-header"><div class="summary-report-kicker"><span>NEWSREADER · CATCH UP</span></div><h1>${e(s.title)}</h1><p>${e(runtimeLabel(config))} · ${e(s.created_at.replace("T", " "))}</p><div class="summary-report-stats"><div><strong>${count(s.item_count)}</strong><span>纳入总结</span></div><div><strong>${count(scope?.locked_count ?? s.item_count)}</strong><span>本批标读</span></div><div><strong>${days}</strong><span>覆盖自然日</span></div>${scope?.input_budget ? `<div><strong>${bytes(scope.input_budget.generation_bytes)}</strong><span>生成输入大小</span></div>` : ""}</div></header>
       <div class="summary-prose" id="summaryProse">${markdown(s.body)}</div>
-      <details class="summary-audit"><summary>本次范围与材料说明</summary>${scope ? `<p>${e(scopeText(scope)).replaceAll("\n", "<br>")}</p>` : ""}<p>全文 ${sources.filter(i => i.material === "全文").length} 条 · 摘要 ${sources.filter(i => i.material === "摘要").length} 条 · 仅标题 ${sources.filter(i => i.material === "仅标题").length} 条。日期为报道日期。</p><p>${e(s.validation?.limitation || "")}</p></details>
-      <details class="summary-sources"><summary>引用来源 · ${sources.length} 条</summary>${sources.map(i => `<section data-summary-ref="${e(i.ref)}" tabindex="-1"><span class="settings-eyebrow">${e(i.ref)} · ${e(i.date || "报道日期不明")} · ${e(i.source_name || i.source)}</span><h3>${e(i.title)}</h3>${i.summary ? `<p>${e(i.summary)}</p>` : ""}${sourceURL(i.url) ? `<a href="${e(sourceURL(i.url))}" target="_blank" rel="noopener noreferrer">查看原新闻 ↗</a>` : ""}</section>`).join("")}</details>`;
-    // Replace references only in text nodes; model HTML is escaped by markdown().
+      <details class="summary-audit"><summary>本次范围与材料说明</summary>${scope ? `<p>${e(scopeText(scope)).replaceAll("\n", "<br>")}</p>` : ""}<p>全文 ${sources.filter(i => i.material === "全文").length} 条 · 摘要 ${sources.filter(i => i.material === "摘要").length} 条 · 仅标题 ${sources.filter(i => i.material === "仅标题").length} 条。日期为报道日期。</p><p>${e(s.validation?.limitation || "")}</p></details>`;
+    // Resolve each paragraph's citations in place. Keep code and links intact;
+    // model HTML has already been escaped by markdown().
     const refs = new Map(sources.map(i => [i.ref, i]));
+    const passages = new Map();
     const walker = document.createTreeWalker($("#summaryProse"), NodeFilter.SHOW_TEXT), nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const node of nodes) {
       if (node.parentElement.closest("a,code")) continue;
+      const passage = node.parentElement.closest("p,li,blockquote,h3");
+      if (!passage) continue;
       const matches = [...node.textContent.matchAll(/\[\[(N\d{4,})\]\]/g)];
       if (!matches.length) continue;
       const fragment = document.createDocumentFragment(); let offset = 0;
@@ -220,13 +204,28 @@ export class SummaryPanel {
         fragment.append(node.textContent.slice(offset, match.index));
         const source = refs.get(match[1]);
         if (source) {
-          const button = document.createElement("button"); button.type = "button"; button.className = "summary-citation"; button.dataset.citation = match[1];
-          button.textContent = `[${match[1]}]`; button.title = `${source.date || "报道日期不明"} · ${source.title}`; fragment.append(button);
+          if (!passages.has(passage)) passages.set(passage, new Set());
+          passages.get(passage).add(source);
         } else fragment.append(match[0]);
         offset = match.index + match[0].length;
       }
       fragment.append(node.textContent.slice(offset)); node.replaceWith(fragment);
     }
+    for (const [passage, cited] of passages) {
+      const html = readerSources([...cited], {className:"summary-sources", items:s.source_items, cardAction:this.cardAction});
+      // A disclosure belongs inside a list item, and after a prose paragraph.
+      passage.insertAdjacentHTML(passage.matches("li") ? "beforeend" : "afterend", html);
+    }
+  }
+  findSourceItem(id) { return Object.values(this.detail?.source_items || {}).find(item=>item.id === id); }
+  updateItemState(id, patch) {
+    updateSourceState($("#summaryContent"), this.detail?.source_items, id, patch, this.cardAction);
+  }
+  returnFromArticle() {
+    if (!this.reading) return false;
+    this.reading = false; this.closeArticle(); this.onViewChange(); this.enterReader();
+    if (this.sourceReturn?.isConnected) this.sourceReturn.focus({preventScroll:true});
+    return true;
   }
   async receiveJob(job, attach = false) {
     if (job && job.database_token !== this.token) return;

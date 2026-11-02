@@ -2,18 +2,18 @@ import { $, $$, api, busy, escapeHTML as e, singlePane } from "./ui.js";
 
 // Source offsets stay in the original Markdown. This avoids ambiguous text searches
 // when a paragraph repeats, a link hides its URL, or inline formatting splits a quote.
-const textSpan = (text, start) => text ? `<span data-reader-start="${start}">${e(text).replace(/\r/g, "&#13;")}</span>` : "";
+export const readerText = (text, start) => text ? `<span data-reader-start="${start}">${e(text).replace(/\r/g, "&#13;")}</span>` : "";
 export function readerInline(text, offset = 0) {
   let result = "", cursor = 0;
   const tokens = /`([^`\n]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
   for (const match of text.matchAll(tokens)) {
-    result += textSpan(text.slice(cursor, match.index), offset + cursor);
-    if (match[1] !== undefined) result += `<code>${textSpan(match[1], offset + match.index + 1)}</code>`;
+    result += readerText(text.slice(cursor, match.index), offset + cursor);
+    if (match[1] !== undefined) result += `<code>${readerText(match[1], offset + match.index + 1)}</code>`;
     else if (match[2] !== undefined) result += `<strong>${readerInline(match[2], offset + match.index + 2)}</strong>`;
     else result += `<a href="${e(match[4])}" target="_blank" rel="noopener noreferrer">${readerInline(match[3], offset + match.index + 1)}</a>`;
     cursor = match.index + match[0].length;
   }
-  return result + textSpan(text.slice(cursor), offset + cursor);
+  return result + readerText(text.slice(cursor), offset + cursor);
 }
 export function readerMarkdown(raw) {
   return readerMarkdownBlocks(raw).join("");
@@ -29,7 +29,7 @@ function readerMarkdownBlocks(raw) {
     if (block.startsWith("```")) {
       const prefix = block.match(/^```[^\n]*\n?/)?.[0] || "";
       const text = block.slice(prefix.length).replace(/```$/, "");
-      return `<pre ${attr}><code>${textSpan(text, offset + prefix.length)}</code></pre>`;
+      return `<pre ${attr}><code>${readerText(text, offset + prefix.length)}</code></pre>`;
     }
     const lines = [...block.matchAll(/[^\r\n]+/g)];
     if (/^#{1,6} /.test(block)) return lines.map(line => {
@@ -80,16 +80,19 @@ export class ReaderHighlights {
     $("#highlightSelectionBtn").onclick = event => busy(event.currentTarget, () => this.save());
     $("#quoteNoteBtn").onclick = () => this.quote("note");
     $("#quoteAgentBtn").onclick = () => this.quote("agent");
-    $("#detailScrollArea").addEventListener("mouseup", () => this.select());
-    $("#detailScrollArea").addEventListener("click", event => {
-      const mark = event.target.closest("[data-highlight-id]");
-      if (mark && !getSelection()?.toString().trim()) this.selectMark(mark);
-    });
-    $("#detailScrollArea").addEventListener("keydown", event => {
-      if (["Enter", " "].includes(event.key) && event.target.matches("[data-highlight-id]")) {
-        event.preventDefault(); this.selectMark(event.target);
-      }
-    });
+    this.root = $("#detailScrollArea");
+    for (const area of [$("#detailScrollArea"), $("#reportScrollArea")]) {
+      area.addEventListener("mouseup", () => this.select());
+      area.addEventListener("click", event => {
+        const mark = event.target.closest("[data-highlight-id]");
+        if (mark && !getSelection()?.toString().trim()) this.selectMark(mark);
+      });
+      area.addEventListener("keydown", event => {
+        if (["Enter", " "].includes(event.key) && event.target.matches("[data-highlight-id]")) {
+          event.preventDefault(); this.selectMark(event.target);
+        }
+      });
+    }
     document.addEventListener("selectionchange", () => {
       clearTimeout(this.timer);
       this.timer = setTimeout(() => this.select(), 120);
@@ -99,13 +102,14 @@ export class ReaderHighlights {
       if (!event.target.closest("#selectionPopover")) this.hide();
     });
     document.addEventListener("keydown", event => { if (event.key === "Escape") this.hide(); });
-    $("#detailScrollArea").addEventListener("scroll", () => {
+    document.addEventListener("scroll", event => {
+      if (event.target !== this.root) return;
       if (!this.popover.classList.contains("show")) return;
       const rect = this.anchor?.getBoundingClientRect();
-      const viewport = $("#detailScrollArea").getBoundingClientRect();
+      const viewport = this.root.getBoundingClientRect();
       if (rect && rect.bottom >= viewport.top && rect.top <= viewport.bottom) this.position(rect);
       else this.hide();
-    }, { passive: true });
+    }, { passive: true, capture: true });
     const reposition = () => {
       if (this.popover.classList.contains("show") && this.anchor) this.position(this.anchor.getBoundingClientRect());
     };
@@ -114,7 +118,10 @@ export class ReaderHighlights {
     window.visualViewport?.addEventListener("scroll", reposition);
   }
   hide() { this.popover.classList.remove("show"); }
-  mount(id, bodies, surfaces = {}) {
+  mount(id, bodies, surfaces = {}, root = $("#detailScrollArea"), { allowNotes = true } = {}) {
+    this.root = root;
+    this.allowNotes = allowNotes;
+    $("#quoteNoteBtn").hidden = !allowNotes;
     this.hide();
     clearTimeout(this.timer);
     this.selection = null;
@@ -125,7 +132,7 @@ export class ReaderHighlights {
   }
   paint() {
     const entriesByKind = new Map();
-    for (const root of $$("[data-highlight-kind]", $("#detailScrollArea"))) {
+    for (const root of $$("[data-highlight-kind]", this.root)) {
       const kind = root.dataset.highlightKind, raw = this.bodies[kind] || "";
       // Bilingual paragraphs share a source; build its Unicode offset map only once.
       if (!entriesByKind.has(kind)) {
@@ -162,7 +169,7 @@ export class ReaderHighlights {
     const range = selection.getRangeAt(0);
     const element = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
     const root = element.closest("[data-highlight-kind]");
-    if (!root || !root.contains(range.endContainer)) { this.hide(); return; }
+    if (!root || !this.root.contains(root) || !this.root.getClientRects().length || !root.contains(range.endContainer)) { this.hide(); return; }
     const kind = root.dataset.highlightKind, raw = this.bodies[kind];
     if (!raw) return;
     const portions = [];
@@ -194,7 +201,7 @@ export class ReaderHighlights {
     const root = mark.closest("[data-highlight-kind]"), kind = root.dataset.highlightKind;
     const entry = (this.surfaces[kind]?.highlights || []).find(row => String(row.id) === mark.dataset.highlightId);
     if (!entry) return;
-    const text = $$(`[data-highlight-kind="${kind}"] [data-highlight-id="${entry.id}"]`, $("#detailScrollArea"))
+    const text = $$(`[data-highlight-kind="${kind}"] [data-highlight-id="${entry.id}"]`, this.root)
       .map(node => node.textContent).join("");
     this.selection = { itemId: this.itemId, kind, existing: entry.id,
       quote: { text: text.slice(0, 6000), source: sourceName(kind), paragraph: Number(mark.closest("[data-quote-paragraph]")?.dataset.quoteParagraph) || null } };
@@ -223,6 +230,7 @@ export class ReaderHighlights {
     this.popover.style.top = `${Math.max(top + 8, Math.min(bottom - this.popover.offsetHeight - 8, y))}px`;
   }
   quote(target) {
+    if (target === "note" && !this.allowNotes) return;
     if (this.selection?.itemId === this.itemId) this.onQuote(target, this.selection.quote);
     getSelection()?.removeAllRanges();
     this.hide();

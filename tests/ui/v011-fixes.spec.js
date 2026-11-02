@@ -84,13 +84,17 @@ test('error dropdown is nonmodal, mutually exclusive, keyboard reachable and ign
 test('desktop multiline input grows, preserves line breaks and drafts, and protects IME and failed sends', async ({ page }) => {
   await agent(page);
   const input = page.locator('#agentPromptInput');
-  await expect(input).toHaveAttribute('rows', '2');
+  await expect(input).toHaveAttribute('rows', '1');
   const initial = (await input.boundingBox()).height;
+  const oneLine=await input.evaluate(node=>{const s=getComputedStyle(node);return ['lineHeight','paddingTop','paddingBottom','borderTopWidth','borderBottomWidth'].reduce((sum,key)=>sum+parseFloat(s[key]),0);});
+  expect(initial).toBeCloseTo(oneLine,0);
+  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBeCloseTo(initial,0);
   const text = Array.from({ length: 40 }, (_, n) => `第${n}行研究材料与问题`).join('\n');
   await input.fill(text);
   await expect.poll(async () => (await input.boundingBox()).height).toBeGreaterThan(initial);
   expect((await input.boundingBox()).height).toBeLessThan(190);
   await expect(input).toHaveCSS('overflow-y', 'auto');
+  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBeCloseTo((await input.boundingBox()).height,0);
   await page.screenshot({ path: '.ui-artifacts/task425-desktop-input-long.png' });
   await input.evaluate(node => { node.scrollTop = node.scrollHeight; });
   expect(await input.evaluate(node => node.scrollTop)).toBeGreaterThan(0);

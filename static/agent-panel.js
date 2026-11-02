@@ -1,3 +1,4 @@
+import { AgentModelPicker } from "./agent-model-picker.js?v=0.4.6";
 import { confirmAction } from "./confirm-dialog.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 import {
@@ -14,7 +15,7 @@ import {
 } from "./ui.js";
 const activeStatuses = ["queued", "pending", "running", "streaming", "stopping"];
 export class AgentPanel {
-  constructor({ onArchive }) {
+  constructor({ onArchive, selects }) {
     this.onArchive = onArchive;
     this.open = storage("newsreader_workbench_agent_collapsed", "true") === "false";
     this.payload = {};
@@ -56,6 +57,7 @@ export class AgentPanel {
       isOpen: () => this.open && !dock.hidden && !dock.closest('[inert]') &&
         dock.getClientRects().length > 0 && getComputedStyle(dock).visibility === 'visible',
       dismiss: () => this.collapse(),
+      contains: target => this.modelPicker?.contains(target) || dock.contains(selects.button) && selects.menu.contains(target),
     });
     this.dockHome = dock.parentElement;
     this.dockAnchor = document.createComment("Agent dock home");
@@ -87,7 +89,17 @@ export class AgentPanel {
       const button = event.target.closest("[data-retry-job]");
       if (button) busy(button, () => this.retry(button.dataset.retryJob));
     });
+    this.modelPicker = new AgentModelPicker({host:$("#agentModelControls"), selects,
+      context:() => ({item:this.item, session:this.payload.session, open:this.open, busy:!!this.active() || this.sending || this.archiving || this.initializing.has(this.item?.id) || this.preparing === this.sequence}),
+      onUpdate:data => {this.payload = data; this.message = "当前会话模型已切换，下一轮生效"; this.render();},
+      onBusy:() => this.render(),
+    });
     this.render();
+  }
+  setHome(panel) {
+    if (this.dockHome === panel) return;
+    this.dockHome = panel; panel.append(this.dockAnchor);
+    this.syncPlacement();
   }
   active() {
     return (this.payload.jobs || []).find((job) =>
@@ -122,8 +134,7 @@ export class AgentPanel {
     const mobile = matchMedia("(max-width: 920px)").matches;
     const viewport = window.visualViewport;
     const height = viewport?.height || innerHeight, offset = viewport?.offsetTop || 0;
-    const rows = mobile ? 1 : 2;
-    if (input.rows !== rows) input.rows = rows;
+    if (input.rows !== 1) input.rows = 1;
     if (mobile && dock.classList.contains("mobile-agent-overlay")) {
       const nav = $(".mobile-bottom-nav")?.getBoundingClientRect();
       let bottom = offset + height;
@@ -146,7 +157,12 @@ export class AgentPanel {
         return ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth", "marginTop", "marginBottom"]
           .reduce((sum, property) => sum + (parseFloat(css[property]) || 0), 0);
       };
-      const reserved = Array.from(body.children).reduce((sum, node) => sum + spacing(node), spacing(body));
+      const reserved = Array.from(body.children).reduce((sum, node) => {
+        const css = getComputedStyle(node);
+        const content = node.matches(".agent-chat-stream,.agent-input-row") ? 0
+          : Math.max(0, node.clientHeight - (parseFloat(css.paddingTop) || 0) - (parseFloat(css.paddingBottom) || 0));
+        return sum + spacing(node) + content;
+      }, spacing(body));
       // Short landscape/keyboard viewports must also leave room for the
       // surrounding chrome, including the chat/context padding.
       limit = Math.max(line + extra, Math.min(limit, body.clientHeight - reserved));
@@ -176,6 +192,7 @@ export class AgentPanel {
   }
   suspend() {
     this.clearStream();
+    this.modelPicker?.close();
   }
   select(item, payload, { pin = false, navigating = false } = {}) {
     const previousPin = this.pinnedSessionId;
@@ -287,6 +304,7 @@ export class AgentPanel {
   render() {
     this.syncPlacement();
     const dock = $("#agentDock");
+    this.modelPicker?.sync();
     dock.classList.toggle("minimized", !this.open);
     dock.classList.toggle("mobile-sheet-open", this.open);
     $(".agent-body").inert = !this.open;
@@ -308,15 +326,17 @@ export class AgentPanel {
     $("#agentContextTitle").textContent = titleOnly ? `引用新闻标题：${context.context_title || this.item?.title || ""}` : "";
     $("#agentContextTitle").title = $("#agentContextTitle").textContent;
     const initializing = this.initializing.has(this.item?.id) || this.preparing === this.sequence;
+    const choosingModel = this.modelPicker?.saving || this.modelPicker?.blocked;
     const stopping = active?.status === "stopping" || this.stopping;
-    $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || initializing));
+    $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || initializing || choosingModel));
     $("#agentSendBtn").innerHTML = icon(active ? "stop" : "send");
     $("#agentSendBtn").setAttribute("aria-label", active ? "停止研究" : "发送");
     $("#agentSendBtn").title = active ? "停止研究" : "发送";
     $("#agentPromptInput").placeholder = available
       ? titleOnly ? "围绕新闻标题提问…" : "围绕本文研究与追问…"
       : "请先选择新闻，或稍后重试";
-    $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing;
+    $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing || choosingModel;
+    $("#archiveAgentBtn").hidden = !!this.item?.report_id;
     $("#archiveAgentBtn").disabled =
       !!active ||
       this.sending ||
@@ -424,7 +444,7 @@ export class AgentPanel {
     };
   }
   async send() {
-    if (!this.item || this.sending || this.active() || this.initializing.has(this.item.id) || this.preparing === this.sequence) return;
+    if (!this.item || this.modelPicker?.saving || this.modelPicker?.blocked || this.sending || this.active() || this.initializing.has(this.item.id) || this.preparing === this.sequence) return;
     if (this.payload.context_available !== true && !this.payload.session) return;
     const prompt = $("#agentPromptInput").value;
     const question = prompt.trim();
@@ -490,7 +510,7 @@ export class AgentPanel {
     if (!this.item || this.active()) return;
     const id = this.item.id, sequence = this.sequence, sessionId = this.payload.session?.id;
     const stamp = JSON.stringify([this.payload.messages, this.payload.jobs]);
-    if (this.payload.messages?.length && !await confirmAction({ title: "新建 Agent 会话", trigger: "#agentNewBtn", message: "新建会话会删除本篇新闻的旧临时对话与任务。新闻和已保存的想法不受影响。", action: "删除旧对话并新建" })) return;
+    if (this.payload.messages?.length && !await confirmAction({ title: "新建 Agent 会话", trigger: "#agentNewBtn", message: "新建会话会删除当前内容的旧临时对话与任务。正文和已保存的想法不受影响。", action: "删除旧对话并新建" })) return;
     if (this.item?.id !== id || sequence !== this.sequence || this.payload.session?.id !== sessionId || stamp !== JSON.stringify([this.payload.messages, this.payload.jobs]) || this.active() || this.sending)
       return toast("新闻或会话已变化，请重新操作");
     const data = await api(
@@ -501,7 +521,7 @@ export class AgentPanel {
     this.pinnedSessionId = "";
     this.payload = data.agent || data;
     this.quoteText = "";
-    this.message = "新会话已准备好";
+    this.message = "新会话已准备好，使用设置中的默认模型";
     this.render();
   }
   async stop() {
@@ -536,6 +556,7 @@ export class AgentPanel {
     if (this.active()) this.startStream(this.active().id);
   }
   async archive() {
+    if (this.item?.report_id) return;
     const id = this.item?.id;
     if (!id || this.active() || this.archiving) return;
     const messages = (this.payload.messages || [])

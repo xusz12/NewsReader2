@@ -47,6 +47,7 @@ test('mobile starts at one line without opening the keyboard, grows and returns 
   await expect(input).not.toBeFocused();
   const line = (await input.boundingBox()).height;
   expect(line).toBeCloseTo(40, 0);
+  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBeCloseTo(line,0);
   await expect.poll(async () => (await page.locator('#agentDock').boundingBox()).height).toBeCloseTo(844 * .70, 0);
   await page.screenshot({ path: `.ui-artifacts/ios-agent-one-line-${browserName}.png` });
   await input.tap();
@@ -54,6 +55,7 @@ test('mobile starts at one line without opening the keyboard, grows and returns 
   await input.fill('第一行'); await input.press('Enter'); await input.pressSequentially('第二行');
   await expect(input).toHaveValue('第一行\n第二行');
   await expect.poll(async () => (await input.boundingBox()).height).toBeGreaterThan(line);
+  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBeCloseTo((await input.boundingBox()).height,0);
   await expectUsable(page, 50, 788);
   await input.fill('');
   await expect.poll(async () => (await input.boundingBox()).height).toBeCloseTo(line, 0);
@@ -142,7 +144,7 @@ test('the mobile overlay follows reader/settings navigation and desktop resizing
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
-  await expect(input).toHaveAttribute('rows', '2');
+  await expect(input).toHaveAttribute('rows', '1');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await expect(input).toHaveValue('切换页面不丢草稿');

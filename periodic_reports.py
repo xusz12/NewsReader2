@@ -1063,6 +1063,10 @@ class Service:
             conn.execute("INSERT OR IGNORE INTO periodic_report_deletions VALUES (?,?)", (row["edition_key"], stamp(now())))
             conn.execute("DELETE FROM periodic_report_steps WHERE report_id=?", (report_id,))
             conn.execute("DELETE FROM periodic_reports WHERE id=?", (report_id,))
+            # Reading annotations belong to the edition, never to its source news.
+            reader_url = "newsreader-report:" + report_id
+            for table in ("article_highlights", "article_note_entries", "article_notes"):
+                conn.execute(f"DELETE FROM {table} WHERE url=?", (reader_url,))
             conn.execute("""DELETE FROM periodic_report_snapshots WHERE period_start=? AND period_end=?
                 AND NOT EXISTS (SELECT 1 FROM periodic_reports r WHERE
                     r.period_start=periodic_report_snapshots.period_start AND r.period_end=periodic_report_snapshots.period_end)""",

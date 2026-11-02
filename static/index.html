@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.4.5</title>
+    <title>News Reader v0.4.6</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.4.5" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.4.5" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.4.6" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.4.6" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.4.5"
+      href="/static/style.css?v=0.4.6"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.4.5</span>
+            <span class="brand-version">v0.4.6</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -629,13 +629,14 @@
                 <div class="agent-chat-stream" id="agentChatStream"></div>
                 <div class="agent-input-row">
                   <textarea
-                    aria-label="向新闻研究 Agent 提问" aria-describedby="agentInputHint" rows="2" enterkeyhint="enter"
+                    aria-label="向新闻研究 Agent 提问" aria-describedby="agentInputHint" rows="1" enterkeyhint="enter"
                     autocomplete="off"
                     class="agent-input"
                     id="agentPromptInput"
                     placeholder="基于本文原文提问…"
                   ></textarea>
                   <span id="agentInputHint" class="sr-only"></span>
+                  <div class="agent-model-controls" id="agentModelControls"></div>
                   <button
                     class="agent-send-btn"
                     id="agentSendBtn"
@@ -754,7 +755,7 @@
             </div>
           </section>
           <section class="detail-panel" id="detailPanelSummaries" aria-label="新闻总结阅读区">
-            <div class="detail-toolbar"><div class="detail-toolbar-left"><div class="reader-cache-status"><span class="cache-pulse-dot"></span><span class="cache-label" id="summaryToolbarTitle">新闻总结</span></div></div><div class="detail-toolbar-right"><button class="reader-action-btn" id="summaryReturnBtn" type="button" hidden>↑ 回到原位</button><button class="reader-action-btn" id="exportSummaryBtn" type="button" disabled>导出 Markdown</button></div></div>
+            <div class="detail-toolbar"><div class="detail-toolbar-left"><div class="reader-cache-status"><span class="cache-pulse-dot"></span><span class="cache-label" id="summaryToolbarTitle">新闻总结</span></div></div><div class="detail-toolbar-right"><button class="reader-action-btn" id="exportSummaryBtn" type="button" disabled>导出 Markdown</button></div></div>
             <div class="reader-scroll" id="summaryScrollArea"><article class="summary-report" id="summaryContent"><div class="summary-empty"><span class="settings-eyebrow">CATCH UP · 新闻总结</span><h1>把积压读成脉络</h1><p>生成一份未读新闻总结，或从左侧选择历史报告。</p><p>报告保存后可随时回看，并追溯引用来源。</p></div></article></div>
           </section>
           <section
@@ -1020,9 +1021,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.4.5"></script>
+    <script src="/static/error_ui.js?v=0.4.6"></script>
     <script
-      src="/static/app.js?v=0.4.5"
+      src="/static/app.js?v=0.4.6"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

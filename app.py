@@ -58,6 +58,9 @@ import agent_notifications
 import news_classification
 import topic_tracking
 import periodic_reports
+import report_reader
+import reader_sources
+import report_model
 import task_progress
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
 
@@ -915,6 +918,8 @@ def ensure_agent_db() -> None:
             conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_provider TEXT NOT NULL DEFAULT ''")
         if "executor_config" not in session_columns:
             conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_config TEXT NOT NULL DEFAULT '{}'")
+        if "model_override" not in session_columns:
+            conn.execute("ALTER TABLE agent_sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0")
         job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_jobs)")}
         if "progress" not in job_columns:
             conn.execute("ALTER TABLE agent_jobs ADD COLUMN progress TEXT NOT NULL DEFAULT ''")
@@ -1179,6 +1184,12 @@ def build_note_preview(note_text: str | None, limit: int = 120) -> str:
     return compact[: max(0, limit - 1)].rstrip() + "…"
 
 
+def reader_subject(conn, item_id):
+    if item_id.startswith(report_reader.ID_PREFIX):
+        return report_reader.subject(conn, item_id)
+    return conn.execute("SELECT id, title, url, source, published_at FROM items WHERE id=?", (item_id,)).fetchone()
+
+
 def article_highlight_content_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
@@ -1208,6 +1219,11 @@ def load_article_highlight_body(
 ) -> tuple[str | None, str | None]:
     if not isinstance(body_kind, str) or body_kind not in ARTICLE_HIGHLIGHT_BODY_KINDS:
         return None, "invalid_body_kind"
+    if url.startswith(report_reader.URL_PREFIX):
+        item = report_reader.subject(conn, report_reader.ID_PREFIX + url[len(report_reader.URL_PREFIX):])
+        if body_kind != ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND or not item or not item["content"]:
+            return None, "body_not_ready"
+        return item["content"], None
     if body_kind in {ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND, ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND}:
         item_row = conn.execute(
             "SELECT source_type FROM items WHERE url=? ORDER BY id LIMIT 1",
@@ -2973,6 +2989,7 @@ def build_agent_context(item: sqlite3.Row | dict, detail: sqlite3.Row | dict | N
     title = str(detail_payload.get("title") or item_payload.get("title") or "").strip()
     if not url or (not content and not title):
         return None
+    is_report = bool(item_payload.get("report_id"))
     snapshot = {
         "title": title,
         "source": str(
@@ -2990,8 +3007,8 @@ def build_agent_context(item: sqlite3.Row | dict, detail: sqlite3.Row | dict | N
     return {
         **snapshot,
         "context_hash": hashlib.sha256(encoded).hexdigest(),
-        "context_level": "full_detail" if content else "title_only",
-        "context_label": "完整英文原文" if content else "仅新闻标题 · 尚未提供全文",
+        "context_level": "report" if is_report else "full_detail" if content else "title_only",
+        "context_label": "报告正文与来源" if is_report else "完整英文原文" if content else "仅新闻标题 · 尚未提供全文",
     }
 
 
@@ -3018,7 +3035,9 @@ def build_agent_prompt(context: dict, question: str, quote_text: str = "", *, hi
             history_lines.append(f"{role}：{quote}\n{content}")
     quote_block = agent_quote_block(quote_text)
     history_block = f"\n此前会话记录：\n{chr(10).join(history_lines)}\n" if history_lines else ""
-    if context.get("context_level") == "title_only":
+    if context.get("context_level") == "report":
+        body_block = f"报告正文与来源（报告中的归纳不等于已独立核实的原始报道）：\n{context.get('content', '')}\n"
+    elif context.get("context_level") == "title_only":
         body_block = "新闻正文：尚未提供全文。\n"
     elif context.get("context_level") == "summary_context":
         body_block = f"新闻资料（摘要与元数据，尚未提供全文）：\n{context.get('content', '')}\n"
@@ -3088,6 +3107,10 @@ def _serialize_agent_session(row: sqlite3.Row | dict | None) -> dict | None:
     payload.update(agent_context_metadata(json.loads(context_json or "{}")))
     executor_id = payload.pop("executor_session_id", "")
     config_json = payload.pop("executor_config", "{}")
+    try:
+        payload["reasoning_effort"] = json.loads(config_json or "{}").get("reasoning_effort", "")
+    except (ValueError, TypeError, AttributeError):
+        payload["reasoning_effort"] = ""
     if payload.get("provider") == "codex":
         try:
             config = codex_client.normalize_config(json.loads(config_json))
@@ -3589,6 +3612,12 @@ def start_agent_worker() -> None:
 def _load_visible_agent_article(item_id: str) -> tuple[dict | None, dict | None]:
     conn = db_conn()
     try:
+        if item_id.startswith(report_reader.ID_PREFIX):
+            item = report_reader.subject(conn, item_id)
+            if not item:
+                return None, None
+            detail = {"content": report_reader.context_text(item)}
+            return {key: value for key, value in item.items() if key not in {"content", "sources"}}, detail
         item = conn.execute(
             f"""
             SELECT id, title, url, source, source_name, source_type, summary, published_at
@@ -3679,8 +3708,9 @@ def _agent_create_session(
     conn: sqlite3.Connection,
     item: dict,
     detail: dict,
+    config: dict | None = None,
 ) -> sqlite3.Row:
-    config = _agent_executor_settings()
+    config = config or _agent_executor_settings()
     context = build_agent_context(item, detail)
     if not context:
         raise ValueError("detail_not_ready")
@@ -3725,7 +3755,10 @@ def _agent_refresh_unused_session(conn: sqlite3.Connection, session: sqlite3.Row
         (session["id"], session["id"]),
     ).fetchone():
         return session
-    config = _agent_executor_settings()
+    config = ({"provider": session["provider"], "model": session["model"],
+               "executor_provider": session["executor_provider"],
+               "executor_config": json.loads(session["executor_config"] or "{}")}
+              if session["model_override"] else _agent_executor_settings())
     encoded = json.dumps(config["executor_config"])
     if (all(session[key] == config[key] for key in ("provider", "model", "executor_provider"))
             and session["executor_config"] == encoded and session["context_hash"] == context["context_hash"]):
@@ -4040,6 +4073,89 @@ def api_agent_session_create(item_id: str):
         return jsonify(ok=False, error=str(exc)), 400
     finally:
         conn.close()
+
+
+def _agent_model_choices(session=None):
+    choices = report_model.selection(current_runtime_settings(), "chat")
+    if session:
+        runtime = session["provider"]
+        config = json.loads(session["executor_config"] or "{}")
+        choices["runtime"] = runtime
+        choices[runtime] = (codex_client.normalize_config(config) if runtime == "codex" else
+                            {"provider": session["executor_provider"], "model": session["model"],
+                             "reasoning_effort": config.get("reasoning_effort", "")})
+    return choices
+
+
+def _agent_choice_settings(choices):
+    return {"agent": {"runtime": choices["runtime"], "codex": choices["codex"]},
+            "llm": {"pi_chat": choices["pi"]}}
+
+
+@app.get("/api/news/<item_id>/agent/model-options")
+def api_agent_model_options(item_id):
+    item, _ = _load_visible_agent_article(item_id)
+    if not item:
+        return jsonify(ok=False, error="item_not_found"), 404
+    ensure_agent_db()
+    with closing(agent_db_conn()) as conn:
+        session = _agent_active_session(conn, item_id, request.args.get("session_id", ""))
+        choices = _agent_model_choices(session)
+    runtime = request.args.get("runtime", choices["runtime"])
+    try:
+        catalog = report_model.catalog(_agent_choice_settings(choices), runtime, "chat")
+        return jsonify(ok=True, choices=choices, runtime=runtime, catalog=catalog)
+    except (ValueError, RuntimeError):
+        return jsonify(ok=False, error="report_model_catalog_failed"), 503
+
+
+@app.patch("/api/news/<item_id>/agent/session/model")
+def api_agent_model_update(item_id):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("selection"), dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    item, detail = _load_visible_agent_article(item_id)
+    if not item:
+        return jsonify(ok=False, error="item_not_found"), 404
+    ensure_agent_db()
+    with closing(agent_db_conn()) as conn:
+        session = _agent_active_session(conn, item_id)
+        expected = body.get("session_id") or ""
+        if expected != (session["id"] if session else ""):
+            return jsonify(ok=False, error="session_config_changed"), 409
+        choices = _agent_model_choices(session)
+        try:
+            selected = report_model.configuration(_agent_choice_settings(choices), resolve=False,
+                                                  override=body["selection"], feature="chat")
+        except (ValueError, RuntimeError) as exc:
+            return jsonify(ok=False, error=str(exc)), 400
+        config = (dict(provider="codex", model=selected["codex"]["model"], executor_provider="codex",
+                       executor_config=selected["codex"]) if selected["runtime"] == "codex" else
+                  dict(provider="pi", model=selected["model"], executor_provider=selected["provider"],
+                       executor_config={"reasoning_effort": selected.get("reasoning_effort", "")}))
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # Catalog validation can take time. Recheck the target and running jobs under the write lock.
+            current = _agent_active_session(conn, item_id)
+            if expected != (current["id"] if current else ""):
+                return jsonify(ok=False, error="session_config_changed"), 409
+            if conn.execute("SELECT 1 FROM agent_jobs WHERE item_id=? AND db_scope=? AND status IN "
+                            "('queued','pending','running','streaming','stopping') LIMIT 1",
+                            (item_id, agent_library_scope())).fetchone():
+                return jsonify(ok=False, error="job_in_progress"), 409
+            if not current:
+                current = _agent_create_session(conn, item, detail or {}, config)
+            else:
+                # A fresh native turn receives the saved transcript. Never resume a turn with changed settings.
+                for runtime_id in {current["executor_session_id"], _full_pi_executor_session_id(current["id"]),
+                                   f"newsreader-codex-agent-{current['id']}"} - {""}:
+                    _remove_agent_runtime_dir(runtime_id)
+            conn.execute("UPDATE agent_sessions SET provider=?, model=?, executor_provider=?, executor_config=?, "
+                         "executor_session_id='', model_override=1, updated_at=? WHERE id=?",
+                         (config["provider"], config["model"], config["executor_provider"],
+                          json.dumps(config["executor_config"]), now_ts(), current["id"]))
+            current = conn.execute("SELECT * FROM agent_sessions WHERE id=?", (current["id"],)).fetchone()
+        return jsonify(ok=True, context_available=True, **_agent_session_response(conn, current))
 
 
 @app.delete("/api/news/<item_id>/agent/session")
@@ -9824,7 +9940,7 @@ def api_news_highlights_list(item_id: str):
         return jsonify({"ok": False, "error": "invalid_body_kind"}), 400
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -9864,7 +9980,7 @@ def api_news_highlight_create(item_id: str):
 
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -9949,7 +10065,7 @@ def api_news_highlight_update(item_id: str, highlight_id: int):
 
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -9987,7 +10103,7 @@ def api_news_highlight_update(item_id: str, highlight_id: int):
 def api_news_highlight_annotation_get(item_id: str, highlight_id: int):
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -10030,7 +10146,7 @@ def api_news_highlight_annotation_save(item_id: str, highlight_id: int):
 
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -10072,7 +10188,7 @@ def api_news_highlight_annotation_save(item_id: str, highlight_id: int):
 def api_news_highlight_annotation_clear(item_id: str, highlight_id: int):
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -10114,7 +10230,7 @@ def api_news_highlight_annotation_clear(item_id: str, highlight_id: int):
 def api_news_highlight_delete(item_id: str, highlight_id: int):
     conn = db_conn()
     try:
-        item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -10454,10 +10570,7 @@ def api_news_chat_archive(item_id: str):
 
     conn = db_conn()
     try:
-        item = conn.execute(
-            "SELECT id, title, url, source, published_at FROM items WHERE id=?",
-            (item_id,),
-        ).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = (item["url"] or "").strip()
@@ -10967,7 +11080,7 @@ def api_article_note_entries(item_id, note_id=None):
             return jsonify(ok=False, error="invalid_quote"), 400
     conn = db_conn()
     try:
-        item = conn.execute("SELECT url FROM items WHERE id=?", (item_id,)).fetchone()
+        item = reader_subject(conn, item_id)
         if not item:
             return jsonify(ok=False, error="item_not_found"), 404
         url = item["url"]
@@ -12377,7 +12490,8 @@ def api_news_summary_cancel(job_id):
 @app.get("/api/news-summaries/<summary_id>")
 def api_news_summary_detail(summary_id):
     try:
-        detail = NEWS_SUMMARY_SERVICE.detail(summary_id)
+        detail = NEWS_SUMMARY_SERVICE.detail(summary_id, lambda conn, sources: reader_sources.source_items(
+            conn, [source for source in sources if not is_bloomberg_video_url(source.get("url"))]))
         return (jsonify({"ok": True, "summary": detail}) if detail else (jsonify({"ok": False, "error": "summary_not_found"}), 404))
     except (ValueError, OSError, sqlite3.Error) as exc:
         return _summary_error(exc)
@@ -12466,7 +12580,16 @@ def api_report_delete(report_id):
         REPORT_SERVICE.delete(report_id, body.get("database_token"))
     except (ValueError, LookupError) as exc:
         return report_request_error(exc)
+    clear_report_agent(report_id)
     return jsonify(ok=True)
+
+
+def clear_report_agent(report_id):
+    ensure_agent_db()
+    with closing(agent_db_conn()) as conn, conn:
+        jobs = _delete_agent_sessions_for_item(conn, report_reader.ID_PREFIX + report_id)
+    for job_id in jobs:
+        _terminate_agent_process(job_id)
 
 
 @app.get("/api/reports/schedule-status")
@@ -12551,6 +12674,7 @@ def api_report_delete_preview(report_id):
         REPORT_SERVICE.delete_preview(report_id, body.get("database_token"))
     except (ValueError, LookupError) as exc:
         return report_request_error(exc)
+    clear_report_agent(report_id)
     return jsonify(ok=True)
 
 
@@ -12561,7 +12685,18 @@ def api_report_detail(report_id):
         if not row:
             return jsonify(ok=False, error="report_not_found"), 404
         token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
-        return jsonify(ok=True, database_token=token, report=periodic_reports.serialize(row, detail=True))
+        report = periodic_reports.serialize(row, detail=True)
+        if report["status"] == "done":
+            item = report_reader.subject(conn, report_reader.ID_PREFIX + report_id)
+            context = build_agent_context(item, {"content": report_reader.context_text(item)})
+            report["reader"] = {"item": {k: v for k, v in item.items() if k not in {"content", "sources"}},
+                                "body": item["content"],
+                                **load_article_highlights_response(conn, item["url"], "original"),
+                                **article_notes_response(conn, item["id"], item["url"]),
+                                "agent": {**load_agent_payload(item["id"]), "context_available": True,
+                                          **agent_context_metadata(context)}}
+            report["source_items"] = reader_sources.source_items(conn, report["content"]["sources"], visible_news_sql())
+        return jsonify(ok=True, database_token=token, report=report)
 
 
 @app.post("/api/reports/<report_id>/retry")

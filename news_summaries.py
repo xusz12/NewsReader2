@@ -1120,7 +1120,7 @@ class Service:
         finally:
             c.close()
 
-    def detail(self, job_id):
+    def detail(self, job_id, source_resolver=None):
         path, _, token = self.context()
         c = self.connection(path)
         try:
@@ -1134,6 +1134,8 @@ class Service:
             d["config"] = json.loads(d.pop("config_json"))
             d["validation"] = json.loads(d.pop("validation_json"))
             d["database_token"] = token
+            if source_resolver:
+                d["source_items"] = source_resolver(c, d["sources"])
             return d
         finally:
             c.close()

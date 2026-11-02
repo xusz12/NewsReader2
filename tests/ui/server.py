@@ -349,6 +349,9 @@ def fixture_reports():
         for index, kind in enumerate(('morning', 'noon', 'evening', 'weekly', 'monthly')):
             sources = [{'ref': 'N1', 'id': 'ui-000', 'title': '合成资料：存储新工艺进入试产', 'source_name': '示例媒体', 'published_at': '2026-10-22T07:00:00+08:00', 'url': 'https://example.com/source'},
                        {'ref': 'N2', 'id': 'ui-001', 'title': '合成资料：技术验证与规模交付的差距', 'source_name': '示例媒体', 'published_at': '2026-10-22T07:10:00+08:00', 'url': ''}]
+            if body.get('linked_sources'):
+                for source in sources:
+                    source['url'] = conn.execute('SELECT url FROM items WHERE id=?', (source['id'],)).fetchone()[0]
             content = {'overview': [{'text': '产线取得技术进展，规模交付仍待验证。', 'refs': ['N1']}],
                 'sections': [{'title': '试产取得进展，交付能力仍待验证', 'paragraphs': [{'text': '示例公司公布试产计划，规模交付仍待验证。<script>window.reportInjected=true</script>', 'emphasis': '规模交付仍待验证', 'refs': ['N1', 'N2']}]},
                              {'title': '需求扩张与成本压力同时存在', 'paragraphs': [{'text': '示例行业需求增长，同时面临生产成本压力。' * 15, 'emphasis': '生产成本压力', 'refs': ['N1']}]}],

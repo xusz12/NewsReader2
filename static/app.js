@@ -22,17 +22,17 @@ import {
   ListSearch,
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js?v=0.4.5";
-import { SummaryPanel } from "./summary-panel.js?v=0.3.0";
+import { SummaryPanel } from "./summary-panel.js?v=0.4.6";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
-import { ReportPanel } from "./report-panel.js?v=0.4.5";
+import { ReportPanel } from "./report-panel.js?v=0.4.6";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
-import { AgentPanel } from "./agent-panel.js?v=report-layout-1";
+import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
 import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
 import { TaskProgress } from "./task-progress.js?v=translation-routing-1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
-import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.3.2";
+import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
 import { UpstreamErrors } from "./upstream-errors.js?v=feature-pickers-1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
@@ -98,6 +98,8 @@ const stateWrites = new ItemStateQueue({
     const item = state.items.find(row => row.id === id);
     if (item) { Object.assign(item, patch); updateCard(item); }
     topics.updateItemState(id, patch);
+    reports.updateItemState(id, patch);
+    summaries.updateItemState(id, patch);
     if (state.selected?.id === id) {
       Object.assign(state.selected, patch);
       if (state.detail) Object.assign(state.detail, patch);
@@ -107,7 +109,7 @@ const stateWrites = new ItemStateQueue({
   },
   onSaved: (id, saved) => {
     for (const [flag, { value, silent, complete }] of Object.entries(saved)) {
-      const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null) || topics.data?.items.find(row => row.id === id);
+      const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null) || topics.data?.items.find(row => row.id === id) || reports.findSourceItem(id) || summaries.findSourceItem(id);
       const removed = item?.detail_ready ? "正文已就绪，已进入全文待看" : item?.detail_status === "running" ? "抓取已开始，完成后会进入全文待看" : "已取消排队";
       if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : complete ? "已看完" : removed) : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
     }
@@ -194,6 +196,11 @@ const standaloneIdeas = new StandaloneIdeas({
   },
 });
 function updateResearchNotes(id, result) {
+  if (id.startsWith("report:")) {
+    if (reports.details?.reader?.item.id === id) Object.assign(reports.details.reader,result);
+    researchNotes.update(id,result);
+    return;
+  }
   const item = state.items.find(x => x.id === id);
   const notes = result.notes || (result.note ? [{ ...result.note, id: "legacy", author: "user" }] : []);
   const patch = { has_note: result.has_note, note_preview: result.note_preview, note_count: notes.length };
@@ -216,6 +223,7 @@ function updateResearchNotes(id, result) {
   refreshBadges();
 }
 const agent = new AgentPanel({
+  selects,
   onArchive: (id, result) => {
     updateResearchNotes(id, result);
   },
@@ -223,10 +231,24 @@ const agent = new AgentPanel({
 const notifications = new AgentNotifications({
   agent,
   contextVersion: () => `${state.detailSequence}:${settings.open}`,
-  readerVisible: () => !settings.open && !!state.detail && state.detail.item_id === state.selected?.id && readingArticle() &&
-    (!singlePane.matches || mobileReaderOpen()) && !!$("#detailPanelFeed").getClientRects().length,
+  readerVisible: () => {
+    if (settings.open || singlePane.matches && !mobileReaderOpen()) return false;
+    if (state.collection === "reports" && !reports.reading)
+      return !!reports.details?.reader && !!$("#detailPanelReports").getClientRects().length;
+    return !!state.detail && state.detail.item_id === state.selected?.id && readingArticle() &&
+      !!$("#detailPanelFeed").getClientRects().length;
+  },
   onOpen: async (target, current) => {
     if (!current()) return false;
+    if (target.item.report_id) {
+      switchCollection("reports", {restoreReader:false});
+      await reports.openRecord(target.item.report_id,target.item.report_kind);
+      if (!current() || reports.details?.reader?.item.id !== target.item.id) return false;
+      agent.select(target.item,target.agent,{pin:true});
+      const reply = $(`#agentChatStream [data-message-id="${CSS.escape(String(target.notification.message_id))}"]`);
+      reply?.scrollIntoView({block:"center",behavior:"instant"});
+      return !!reply;
+    }
     if (["notes", "summaries", "topics", "reports"].includes(state.collection)) switchCollection("feed", { restoreReader: false });
     settings.close({ restoreFocus: false });
     const loaded = await selectNews(target.item, true, false, { notificationAgent: target.agent, navigationCurrent: current, retryNotification: () => notifications.openNotice(target.notification.id) });
@@ -241,11 +263,23 @@ const notifications = new AgentNotifications({
 });
 const readerHighlights = new ReaderHighlights({
   onQuote: (target, quote) => target === "note" ? researchNotes.open(quote) : agent.quote(quote.text),
-  onUpdate: (id, result) => { if (state.selected?.id === id) state.detail = { ...state.detail, ...result }; },
+  onUpdate: (id, result) => {
+    if (reports.details?.reader?.item.id === id) Object.assign(reports.details.reader,result);
+    else if (state.selected?.id === id) state.detail = { ...state.detail, ...result };
+  },
 });
 const summaries = new SummaryPanel({
   isVisible: () => state.collection === "summaries" && !settings.open,
   enterReader,
+  onViewChange: syncDetailPanels,
+  openArticle: item => selectNews(item,true,true),
+  closeArticle: () => {
+    rememberReader(); clearTimeout(detailTimer); state.detailSequence++; state.detailRequestSequence++;
+    readerHighlights.hide(); agent.suspend();
+  },
+  cardAction, toggleState,
+  stateVersion: () => stateWrites.version,
+  reconcileItem: (item, version) => stateWrites.reconcile(item.id,item,version),
   openSettings: async () => {
     if (!settings.open) await settings.toggle();
     settings.selectSection("catchup");
@@ -287,7 +321,33 @@ const reports = new ReportPanel({
   enterReader,
   exitReader,
   selects,
+  onRead: mountReportReader,
+  onViewChange: syncDetailPanels,
+  openArticle: item => selectNews(item,true,true),
+  closeArticle: () => {
+    rememberReader(); clearTimeout(detailTimer); state.detailSequence++; state.detailRequestSequence++;
+    readerHighlights.hide(); agent.suspend();
+  },
+  cardAction, toggleState,
+  stateVersion: () => stateWrites.version,
+  reconcileItem: (item, version) => stateWrites.reconcile(item.id,item,version),
 });
+$("#topicReaderBackBtn").onclick = () => state.collection === "reports" ? reports.returnFromArticle() : state.collection === "summaries" ? summaries.returnFromArticle() : topics.returnFromArticle();
+function mountReportReader(report, rendered = false) {
+  if (state.collection !== "reports" || settings.open || reports.reading) return;
+  const reader = report?.reader;
+  agent.setHome($("#detailPanelReports"));
+  $("#agentDock").hidden = !reader;
+  if (!reader) {agent.select(null,null); readerHighlights.mount(null,{}); return;}
+  const changed = agent.item?.id !== reader.item.id;
+  if (rendered || changed) {
+    researchNotes.mount(null,null,[]);
+    readerHighlights.mount(reader.item.id,{original:reader.body},reader.highlight_surfaces,$("#reportScrollArea"),{allowNotes:false});
+    agent.select(reader.item,reader.agent);
+    if (agent.open) void agent.refresh();
+  }
+  syncDetailPanels();
+}
 
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
 const classification = new ClassificationProgress({
@@ -919,6 +979,8 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   topics.deactivate();
   reports.deactivate();
   topics.reading = false;
+  reports.reading = false;
+  summaries.reading = false;
   state.collectionSequence++;
   state.ideaSequence++;
   settings.close({ restoreFocus: false });
@@ -985,16 +1047,21 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   renderFilters();
 }
 function readingArticle() {
-  return !["summaries", "reports"].includes(state.collection) && (state.collection !== "topics" || topics.reading) &&
+  return (state.collection !== "summaries" || summaries.reading) && (state.collection !== "reports" || reports.reading) && (state.collection !== "topics" || topics.reading) &&
     (state.collection !== "notes" || state.idea?.idea_type === "article_note");
 }
 function syncDetailPanels() {
   $("#detailPanelFeed").classList.toggle("active", readingArticle());
   $("#detailPanelIdeas").classList.toggle("active", state.collection === "notes" && !readingArticle());
-  $("#detailPanelSummaries").classList.toggle("active", state.collection === "summaries");
+  $("#detailPanelSummaries").classList.toggle("active", state.collection === "summaries" && !summaries.reading);
   $("#detailPanelTopics").classList.toggle("active", state.collection === "topics" && !topics.reading);
-  $("#detailPanelReports").classList.toggle("active", state.collection === "reports");
-  $("#topicReaderBackBtn").hidden = state.collection !== "topics" || !topics.reading;
+  $("#detailPanelReports").classList.toggle("active", state.collection === "reports" && !reports.reading);
+  const reportArticle = state.collection === "reports" && reports.reading;
+  const summaryArticle = state.collection === "summaries" && summaries.reading;
+  $("#topicReaderBackBtn").hidden = !reportArticle && !summaryArticle && (state.collection !== "topics" || !topics.reading);
+  $("#topicReaderBackBtn").textContent = reportArticle ? "返回日报" : summaryArticle ? "返回总结" : "返回主题";
+  agent.setHome($(state.collection === "reports" && !reports.reading ? "#detailPanelReports" : "#detailPanelFeed"));
+  $("#agentDock").hidden = state.collection === "reports" && !reports.reading ? !reports.details?.reader : !readingArticle() || !state.selected;
   syncMobileLayers();
 }
 function rememberReader() {
@@ -1117,6 +1184,7 @@ function readerActions() {
   $("#articleSourceLink").hidden = !item?.url || !url;
 }
 function renderReader() {
+  agent.setHome($("#detailPanelFeed"));
   const notesFocus = researchNotes.captureFocus();
   $("#selectionPopover").classList.remove("show");
   readerActions();
@@ -1244,6 +1312,8 @@ async function refreshStateDetail(id) {
         stateWrites.reconcile(id, status, stateVersion);
         if (item) { Object.assign(item, status); updateCard(item); }
         topics.updateItemState(id, status);
+        reports.updateItemState(id, status);
+        summaries.updateItemState(id, status);
       }
       return;
     }
@@ -1275,13 +1345,17 @@ function updateDetailItem(item, payload) {
   }
   updateCard(loaded || item);
   topics.updateItemState(item.id, patch);
+  reports.updateItemState(item.id, patch);
+  summaries.updateItemState(item.id, patch);
   if (state.selected?.id === item.id) readerActions();
   if (changed) refreshBadges();
 }
 let statusRefreshing = false;
 setInterval(async () => {
   if (statusRefreshing || document.hidden || settings.open) return;
-  const ids = state.items.filter(item => ["pending", "running"].includes(item.detail_status) || ["pending", "running"].includes(item.ai_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
+  const sourceItems = Object.values(state.collection === "reports" ? reports.details?.source_items || {} : state.collection === "summaries" ? summaries.detail?.source_items || {} : {});
+  const candidates = [...new Map([...state.items,...sourceItems].map(item=>[item.id,item])).values()];
+  const ids = candidates.filter(item => ["pending", "running"].includes(item.detail_status) || ["pending", "running"].includes(item.ai_status) || (item.read_later_at && !item.detail_ready && !["failed", "skipped", "canceled"].includes(item.detail_status))).slice(0, 50).map(item => item.id);
   if (!ids.length) return;
   statusRefreshing = true;
   const stateVersion = stateWrites.version;
@@ -1292,6 +1366,8 @@ setInterval(async () => {
     let changed = false;
     for (const row of data.items) {
       stateWrites.reconcile(row.id, row, stateVersion);
+      reports.updateItemState(row.id,row);
+      summaries.updateItemState(row.id,row);
       const item = state.items.find(item => item.id === row.id);
       if (item) {
         const wasPending = readLaterPending(item);
@@ -1475,13 +1551,15 @@ function selectIdea(idea, mobile = true) {
   renderIdeas();
 }
 function enterReader() {
-  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "topics" ? (topics.reading ? "返回主题" : "返回主题列表") : state.collection === "reports" ? "返回报告列表" : state.collection === "summaries" ? "返回总结列表" : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
+  $("#mobileReaderBackBtn").setAttribute("aria-label", state.collection === "topics" ? (topics.reading ? "返回主题" : "返回主题列表") : state.collection === "reports" ? (reports.reading ? "返回日报" : "返回报告列表") : state.collection === "summaries" ? (summaries.reading ? "返回总结" : "返回总结列表") : state.collection === "notes" ? "返回想法列表" : "返回新闻列表");
   if (singlePane.matches)
     $("#feedView").classList.add("mobile-reader-active");
   syncMobileLayers();
   trackFeedReading();
 }
 function exitReader() {
+  if (state.collection === "reports" && reports.returnFromArticle()) return;
+  if (state.collection === "summaries" && summaries.returnFromArticle()) return;
   if (state.collection === "topics") {
     if (topics.returnFromArticle()) return;
     topics.leaveDetail();
@@ -1518,7 +1596,7 @@ function canSwipeDetail(panel) {
     return settings.open && $("#feedView").classList.contains("settings-detail-active");
   return !settings.open &&
     $("#feedView").classList.contains("mobile-reader-active") &&
-    !(panel.id === "detailPanelFeed" && agent.open);
+    !(["detailPanelFeed", "detailPanelReports"].includes(panel.id) && agent.open);
 }
 for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports, #detailPanelSettings")) {
   panel.addEventListener("touchstart", event => {
@@ -1788,13 +1866,19 @@ document.addEventListener("keydown", (event) => {
   if (action === "settings") {
     event.preventDefault();
     settings.toggle();
-  } else if (state.collection === "reports") {
+  } else if (action === "agent" && state.collection === "reports" && reports.details?.reader) {
+    event.preventDefault(); agent.toggle();
+  } else if (state.collection === "reports" && !reports.reading) {
     reports.handleKey(event, action);
-  } else if (state.collection === "summaries") {
+  } else if (state.collection === "summaries" && !summaries.reading) {
     summaries.handleKey(event, action);
   } else if (action === "search") {
     event.preventDefault();
-    if (state.collection === "topics") {
+    if (state.collection === "summaries") {
+      summaries.returnFromArticle();
+      if (singlePane.matches) exitReader();
+      summaries.handleKey(event, action);
+    } else if (state.collection === "topics") {
       if (singlePane.matches) { topics.returnFromArticle(); exitReader(); }
       topics.search.setOpen(true, true);
     } else if (state.collection === "notes") $("#ideasSearchInput").focus();
@@ -1819,7 +1903,7 @@ document.addEventListener("keydown", (event) => {
       selectIdea(next, false);
       $(`[data-idea-id="${CSS.escape(next.idea_id)}"]`)?.scrollIntoView({ block: "nearest" });
     }
-  } else if (["previous", "next"].includes(action) && !["notes", "topics"].includes(state.collection)) {
+  } else if (["previous", "next"].includes(action) && !["notes", "topics", "summaries"].includes(state.collection)) {
     event.preventDefault();
     const index = state.items.findIndex(
       (item) => item.id === state.selected?.id,

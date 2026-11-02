@@ -40,6 +40,14 @@
 | 滚动容器 | 新闻列表、阅读区、设置、Agent、菜单等 | 全局隐藏滚动条外观，保留原有 overflow 和滚轮／触屏／键盘滚动 |
 | 同页设置 | `#feedColSettings`、`#detailPanelSettings` | 九类配置（系统与版本、模型与 Agent、API 管理、新闻分类、日报任务、信源与采集、数据库与存储、积压新闻总结范围、快捷键）沿用主布局；窄屏分类／详情流转 |
 
+## 2026-11-02 日报研读与 Agent 模型（v0.4.6）
+
+- 新闻总结与日报共用 `reader-sources.js` 和 `.reader-sources / .reader-source-list`。来源原生 `details > summary.reader-tool-btn` 默认收起；列表内距12px、行间距8px、展开外距8px，分别引用 `--space-3 / --space-2`。标题使用共享 `.news-card-open`，无下划线，悬停使用 accent 色，字号为共享 `--fs-small × --reading-scale`；媒体与时间复用 `.news-card-meta / --fs-meta`。不再重复来源摘要与「查看原新闻」链接。新闻总结按段落／列表项收集并去重引用，各段后就地展开对应来源；移除编号跳转、返回原位按钮和底部集中来源表。Markdown 导出仍保留完整引用关系。
+- 日报和新闻总结来源右侧重要／稍后再看使用 `.card-action-btn--icon.card-action-btn--plain`，与主题时间线一致，紧凑列表两端均常显；状态与保存队列、失败回滚、正文完成后的状态刷新共用；同一新闻出现在多个段落时同步更新全部按钮。点击标题进入新闻正文，返回保留具体来源的焦点、展开状态和滚动位置。已删除或不可解析的来源保留标题和原站安全链接，不提供无效标记按钮。
+- `ReaderHighlights` 在新闻或报告的实际阅读容器挂载，复用唯一的 `#selectionPopover`；报告按正文的 Unicode 偏移保存高亮，标题、段落、简讯与强调文字均可定位。报告仅挂载 `#agentDock`，保留独立对话草稿；不挂载 `ResearchNotes`，选区工具条不显示「引用写想法」，Agent 不显示存为想法入口。新闻正文仍保留原有想法功能；来源返回保留 DOM、来源展开状态及滚动位置。
+- `#agentModelControls` 位于共享 `.agent-input-row` 内、发送按钮左侧，仅放一个28px `.agent-btn` 纯图标按钮；tooltip 与可访问说明显示当前模型与推理程度，不额外占用一行；选择项收入共享 `AnchoredPopover`，沿用 `.popover-form / .form-group-grid` 和 `selectField / SelectControls`。浮层按当前视口定位，支持 Esc、外部点击、键盘焦点与嵌套模型菜单；收起 Agent 或切换阅读目标时关闭。模型目录按当前 Runtime 读取，推理仅列出模型支持的选项；读取失败提供重试，迟到响应不覆盖新目标。浮层标题为「当前会话模型」，tooltip 与成功反馈同样标明作用范围；切换不删除历史，下一轮重新建立原生上下文并携带历史，生成中禁用。临时 Runtime、模型与推理程度只绑定当前会话；新建会话恢复设置中的当前默认配置，切换新闻／报告时读取各自会话的配置，不继承上一条的选择，返回原会话仍保留其选择。控件不跟随阅读字号放大。桌面与手机的 textarea 均默认一行，沿用隐藏副本测量与增长上限；`.agent-send-btn` 随输入框伸展并保持等高，模型图标垂直居中。手机布局沿用现有面板和可见视口测量。
+- 报告使用 `report:<id>` 阅读主体，正文不进入新闻流；高亮使用独立报告 URL 命名空间，旧版报告想法数据仍兼容保留，Agent 沿用新闻库隔离与通知。报告生成模型和研读 Chat 模型分别管理。
+
 ## 2026-10-29 二级分类数量边框
 
 - `.news-category-filters .filter-chip.has-news:not(.active)` 在当前主筛选、来源和搜索范围的完整分类数量大于0且未选中时显示 `1px var(--favorite-border)` 浅黄色边框，数量包含未加载的分页；选中、「全部」、零条和数量尚未取得的分类保持透明边框。浅色／深色／系统主题复用现有收藏边框的40%暖黄色，保持轻量提示，墨水屏使用黑色。
@@ -58,7 +66,7 @@
 - `#navReportsBtn` 为研究导航中的「日报」，研究下三个入口激活时隐藏来源筛选，手机仅在抽屉出现；`#reportFilters` 使用 `.feed-filter-row / .feed-filter-chips / .filter-chip`，提供日报、周报、月报，键盘方向键移动焦点，Enter／空格选中。日报列表合并早午晚三种期别及自定义报告，不再加第二排分类。
 - `#feedColReports / #reportListScroll / #reportCardList` 直接使用 `.feed-column / .news-list / .feed-date-cards`；列表项使用原生 `button.news-card` 与共享标题、摘要、元信息、选中态。`#detailPanelReports` 使用共享 `.detail-toolbar / .detail-scroll-area / .detail-content`，不另设栏宽、阅读宽度或手机流转方式。
 - 报告页眉使用 `.article-header / .article-meta-top / .article-title / .article-meta-bottom`，正文直接使用 `.article-body`。新增共享 `.reader-section-heading` 使用 `--font-display / --fs-h3`、600／1.4，`--lead` 变体使用 `--fs-h2`、600／1.35；均消费 `--reading-scale`。报告特有样式只安排主题分隔、编号与来源展开结构，间距消费 `--space-*`。
-- 来源默认收起，原生 `details > summary.reader-tool-btn` 保留键盘语义，一次只展开一个主题。来源标题和时间从存档映射，不执行模型返回的HTML，不显示内联引用堆栈；没有URL的来源显示纯文本。报告内容轮询仅在状态变化时更新，不重置已完成正文的滚动或展开状态。
+- 来源默认收起，原生 `details > summary.reader-tool-btn` 保留键盘语义，一次只展开一个主题。来源标题和时间从存档映射，不执行模型返回的HTML，不显示内联引用堆栈；没有URL的来源显示纯文本；有可用新闻映射时标题进入应用内正文，直接提供重要与稍后再看操作。报告内容轮询仅在状态变化时更新，不重置已完成正文的滚动或展开状态。
 - 次重点放在正文末尾「简讯」，复用 `.report-section / .reader-section-heading / .article-body` 和共享列表样式；来源在简讯区集中折叠。页眉按实际数量显示主题、简讯与阅读时长。允许只有简讯，旧报告缺少简讯字段时保持原有呈现；不另设字号、颜色或响应式断点。
 - 中栏右上角加号「新增日报」复用 `.feed-list-tools / .filter-chip.icon-chip`，保留可访问名称与 tooltip。共享 `AnchoredPopover` 在按钮旁打开非模态浮层，复用 surface-raised、border-strong、radius-lg、shadow-float；宽360px并受可见视口限制，短屏内部滚动。Escape、外部首次点击、焦点离开及导航切换关闭；外部首次点击不穿透，子下拉菜单独立处理 Escape，Escape或外部点击关闭回到加号，Tab离开时保留新焦点，阅读位置和展开来源不变。共享下拉在滚动确实移动锚点时关闭，忽略打开前已完成滚动的迟到事件，避免短屏点选时立即收起。浮层不设右上角关闭按钮，加载与报错状态也保留底部取消。临时关闭保留草稿，取消清空；提交后才打开对应报告。
 - 浮层表单复用 `.field-item / .field-input / .field-select / .button-row` 与 `SelectControls`。报告类型上方以 `.muted / .catchup-runtime` 显示已保存的日报 Runtime、模型及推理强度（如适用），长名称自然换行；重新打开或从后台返回时刷新默认模型，不重置日期或已选临时模型。读取失败时提供重试。共享 `Calendar` 与既有 `DatePicker` 共用日历网格和主题，增加内嵌、连续7天高亮和12个月份选择；保留纯文本日期／月份输入以快速跳转年份，避免原生日期控件再打开第二个日历，方向键移动、Enter选中。早午晚报默认选中北京时间当日，当日可选；时段未结束时显示提示并阻止提交，不自动退回前一天；未来日期禁用。周报、月报仍默认最近完整周期，未完成周期禁用。自定义由共享 `DateTimePicker` 提供两个纯文本起止输入及一个内嵌日历，聚焦端点切换当前编辑项，输入边框使用 `--accent` 标示；`.calendar-time` 沿用字段组件与间距 Token，小时／分钟同样使用 `SelectControls`，禁用当前时间之后的选项。保留 YYYY-MM-DD HH:mm 手输校验。窗口按北京时间计算并由服务端重新校验，单栏与桌面使用同一浮层结构。
@@ -256,12 +264,12 @@
 
 ## v0.1.1 界面修订
 
-更新结果使用surface-subtle、border-strong和fg，主要结论为fs-body／600，说明与时间为muted／fs-meta，状态同时通过文本表达。刷新索引与铃铛共用topbar-ghost-btn，只影响这两个按钮。上游报错采用通知同类surface、border-strong、radius-lg、shadow-float非模态面板，视口两侧至少12px，内部记录滚动；与通知互斥。Agent textarea桌面默认两行、手机默认一行，桌面约八行／手机约五行和可见视口三分之一双重上限，手机16px，发送按钮固定可操作，软键盘视口变化重新布局。
+更新结果使用surface-subtle、border-strong和fg，主要结论为fs-body／600，说明与时间为muted／fs-meta，状态同时通过文本表达。刷新索引与铃铛共用topbar-ghost-btn，只影响这两个按钮。上游报错采用通知同类surface、border-strong、radius-lg、shadow-float非模态面板，视口两侧至少12px，内部记录滚动；与通知互斥。Agent textarea桌面和手机均默认一行（v0.4.6），桌面约八行／手机约五行和可见视口三分之一双重上限，手机16px，发送按钮与输入框等高并保持可操作，软键盘视口变化重新布局。
 
 ### 手机 Agent 面板（2026-10-22）
 
 - 展开高度约为当前窗口的 70%，限制在 `visualViewport` 可见区域内，避开顶栏和可见底栏。手机展开时将面板挂载到 `body`，脱离阅读器的 `transform` 和 `overflow` 祖先；收起、退出阅读器、进入设置或切回桌面时归还原位置。键盘事件只更新顶层面板的可视边界，不移动 DOM、不切换展开状态。
-- 展开时不自动聚焦手机输入框；点击后输入，空内容默认一行，多行输入仍自适应增长，清空后恢复一行。桌面默认两行和发送快捷键不变。
+- 展开时不自动聚焦手机输入框；点击后输入，空内容默认一行，多行输入仍自适应增长，清空后恢复一行。v0.4.6起桌面也默认一行，发送快捷键不变。
 - 手机不显示顶部把手及扩大／还原窗口按钮，不提供把手拖动；桌面保留扩大／还原窗口按钮。沿用标题栏与收起按钮，保留草稿。手机面板不对键盘引起的位置和高度变化做过渡动画。
 - 自适应输入框使用不可聚焦、辅助阅读隐藏的副本测量；不在每次 focus／视口滚动时把真实 textarea 高度设为 `auto` 再读 `scrollHeight`。仅尺寸确实变化时写入真实输入框，避免干扰 iOS 的光标可见性滚动。
 

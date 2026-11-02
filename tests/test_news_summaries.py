@@ -477,6 +477,40 @@ def test_full_input_limit_before_model_call(setup):
     assert not calls and "1" not in reads(p)
 
 
+def test_summary_sources_use_live_flags_from_the_archive_database(setup, monkeypatch, tmp_path):
+    p, _, service, *_ = setup
+    job = create(service)
+    assert wait(service, job["id"])["status"] == "completed"
+    monkeypatch.setenv("NEWS_READER_DB_PATH", str(p))
+    monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "absent.json"))
+    import app as module
+    monkeypatch.setattr(module, "NEWS_SUMMARY_SERVICE", service)
+    # The detail resolver must use the service's captured connection, not a new app DB.
+    monkeypatch.setattr(module, "DB_PATH", tmp_path / "other.sqlite3")
+    with sqlite3.connect(p) as conn:
+        sources = json.loads(conn.execute("SELECT sources_json FROM news_summaries WHERE id=?", (job["id"],)).fetchone()[0])
+        source = next(s for s in sources if s["id"] == "1")
+        source["id"] = "2"  # An old ID must not send state writes to unrelated news.
+        archived = json.dumps(sources)
+        conn.execute("UPDATE news_summaries SET sources_json=? WHERE id=?", (archived, job["id"]))
+        conn.execute("UPDATE item_state SET important_at='flag',read_later_at='queued' WHERE item_id='1'")
+    client = module.app.test_client()
+    path = '/api/news-summaries/' + job["id"]
+    response = client.get(path)
+    assert response.status_code == 200
+    resolved = response.json["summary"]["source_items"][source["ref"]]
+    assert resolved["id"] == "1"
+    assert resolved["important_at"] == "flag" and resolved["read_later_at"] == "queued"
+    with sqlite3.connect(p) as conn:
+        conn.execute("UPDATE item_state SET important_at=NULL,read_later_at=NULL WHERE item_id='1'")
+    updated = client.get(path).json["summary"]["source_items"][source["ref"]]
+    assert updated["important_at"] is None and updated["read_later_at"] is None
+    with sqlite3.connect(p) as conn:
+        conn.execute("UPDATE items SET url='https://example.test/replaced' WHERE id='1'")
+        assert conn.execute("SELECT sources_json FROM news_summaries WHERE id=?", (job["id"],)).fetchone()[0] == archived
+    assert source["ref"] not in client.get(path).json["summary"]["source_items"]
+
+
 def test_api_surface(setup, monkeypatch, tmp_path):
     p, _, s, gate, entered, _, _, _ = setup
     monkeypatch.setenv("NEWS_READER_DB_PATH", str(p))

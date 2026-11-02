@@ -40,7 +40,7 @@ test.afterEach(async ({ page, request }) => {
 
 test('fixed snapshot, exclusions, new unread protection, report citations and export', async ({ page, request }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await request.patch('/api/news/ui-000/state', { data: { read: true } });
+  await request.patch('/api/news/ui-000/state', { data: { read: true, important: true } });
   await open(page);
   const feedHeader = await page.locator('#feedColFeed .feed-header').innerHTML();
   await preview(page);
@@ -59,8 +59,8 @@ test('fixed snapshot, exclusions, new unread protection, report citations and ex
   await expect(page.locator('.catchup-copy')).toHaveText('锁定点击时的全部未读，不受新闻流筛选影响。成功归档后才标读，Bloomberg 视频除外。');
   expect(await unread(request)).toBe(1);
   expect((await (await request.get('/api/news/ui-000/detail')).json()).important_at).toBeTruthy();
-  await page.locator('.summary-citation').first().click();
-  await expect(page.locator('.summary-sources')).toHaveAttribute('open', '');
+  await page.locator('.summary-sources summary').first().click();
+  await expect(page.locator('.summary-sources').first()).toHaveAttribute('open', '');
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#exportSummaryBtn').click()]);
   expect(download.suggestedFilename()).toMatch(/^新闻总结-.*\.md$/);
   await page.locator('#summariesSearchInput').fill('不存在的主题');
@@ -307,13 +307,16 @@ test('draft scope recalculates dates and counts, ignores old requests and clears
   expect(await unread(request)).toBe(65);
 });
 
-test('citation return restores the originating paragraph and focus on desktop and mobile', async ({ page }) => {
+test('每段和列表项就地展开所引新闻，去重且不集中跳转，桌面手机均保留阅读位置', async ({ page }) => {
+  let expectedSources, expectedItems;
   await page.route('**/api/news-summaries/*', async route => {
     const response = await route.fetch();
     const data = await response.json();
     if (data.summary) {
-      const ref = data.summary.sources[0].ref;
-      data.summary.body = Array.from({ length: 12 }, (_, i) => `## 第 ${i + 1} 段\n\n${'供应链与市场需求的变化仍需结合报道日期观察。'.repeat(8)} [[${ref}]]`).join('\n\n');
+      expectedSources = data.summary.sources;
+      expectedItems = data.summary.source_items;
+      const [a,b] = expectedSources.map(source=>source.ref);
+      data.summary.body = `## 主要变化\n\n第一段结合两条报道。[[${a}]] **补充判断[[${a}]]** [[${b}]]\n\n第二段只引另一条。[[${b}]]\n\n- 第一条简讯。[[${a}]]\n- 第二条简讯。[[${b}]]\n\n> 引述报道。[[${a}]]\n\n无需引用的说明。\n\n示例代码：\`[[${a}]]\``;
     }
     await route.fulfill({ response, json: data });
   });
@@ -321,32 +324,89 @@ test('citation return restores the originating paragraph and focus on desktop an
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     if (width <= 920) await page.locator('#summaryCardList .news-card').first().click();
-    const back = page.locator('#summaryReturnBtn');
-    const sources = page.locator('.summary-sources');
-    await expect(back).toBeHidden();
-    for (const index of [1, 9]) {
-      // Keep an already-open references list open after returning, too.
-      await sources.evaluate((el, open) => { el.open = open; }, index === 9);
-      const citation = page.locator('.summary-citation').nth(index);
-      await citation.scrollIntoViewIfNeeded();
-      const before = await page.locator('#summaryScrollArea').evaluate(el => el.scrollTop);
-      await citation.click();
-      await expect(page.locator('[data-summary-ref]').first()).toBeFocused();
-      await expect(back).toBeInViewport();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: `.ui-artifacts/summary-citation-return-${width}.png` });
-      await back.click();
-      await expect(citation).toBeFocused();
-      expect(Math.abs(await page.locator('#summaryScrollArea').evaluate(el => el.scrollTop) - before)).toBeLessThan(1);
-      expect(await sources.evaluate(el => el.open)).toBe(index === 9);
-      await expect(back).toBeHidden();
-    }
-    await page.locator('.summary-citation').last().click();
-    if (width <= 920) await page.locator('#mobileReaderBackBtn').click();
-    await page.locator('#summaryCardList .news-card').first().click();
-    await expect(page.locator('#summaryContent h1')).toBeVisible();
-    await expect(back).toBeHidden();
+    await expect(page.locator('#summaryReturnBtn, .summary-citation, [data-citation], #summaryContent > .summary-sources')).toHaveCount(0);
+    const blocks = page.locator('#summaryProse .summary-sources');
+    await expect(blocks).toHaveCount(5);
+    await expect(page.locator('#summaryProse .summary-sources[open]')).toHaveCount(0);
+    expect(await page.locator('#summaryProse > p').first().textContent()).toBe('第一段结合两条报道。 补充判断 ');
+    await expect(page.locator('#summaryProse code')).toHaveText(`[[${expectedSources[0].ref}]]`);
+    const first=blocks.first(), trigger=first.locator('summary');
+    await expect(trigger).toHaveText('来源 · 2篇');
+    await trigger.scrollIntoViewIfNeeded();
+    const before=await page.locator('#summaryScrollArea').evaluate(el=>el.scrollTop);
+    await trigger.click();
+    await expect(first).toHaveJSProperty('open',true);
+    expect(await first.locator('[data-source-item]').evaluateAll(nodes=>nodes.map(n=>n.dataset.sourceItem))).toEqual(expectedSources.map(source=>expectedItems[source.ref].id));
+    await expect(first.locator('[data-source-item]').first()).toHaveCSS('text-decoration-line','none');
+    expect(Math.abs(await page.locator('#summaryScrollArea').evaluate(el=>el.scrollTop)-before)).toBeLessThan(2);
+    await trigger.click();
+    await expect(trigger).toBeFocused();
+    await expect(first).toHaveJSProperty('open',false);
+    const second=blocks.nth(1);
+    await second.locator('summary').click();
+    await expect(second.locator('[data-source-item]')).toHaveAttribute('data-source-item',expectedItems[expectedSources[1].ref].id);
+    const briefs=page.locator('#summaryProse > ul > li > .summary-sources');
+    await expect(briefs).toHaveCount(2);
+    await briefs.first().locator('summary').click();
+    await expect(briefs.first().locator('[data-source-item]')).toHaveAttribute('data-source-item',expectedItems[expectedSources[0].ref].id);
+    await expect(briefs.nth(1)).toHaveJSProperty('open',false);
+    expect(await page.locator('#summaryContent').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    await page.screenshot({path:`.ui-artifacts/summary-inline-sources-${width}.png`});
   }
+});
+
+for (const width of [1440,390]) test('总结来源与新闻流共享标记、失败恢复和正文往返 '+width, async ({page,request})=>{
+  await open(page); await complete(page);
+  const summaryId=await page.locator('#summaryCardList [data-summary-id]').first().getAttribute('data-summary-id');
+  const summary=(await (await request.get('/api/news-summaries/'+summaryId)).json()).summary;
+  const ref=summary.body.match(/\[\[(N\d+)\]\]/)[1], item=summary.source_items[ref];
+  await request.patch(`/api/news/${item.id}/state`,{data:{important:false,read_later:false,read_later_done:true}});
+  await page.setViewportSize({width,height:900});
+  await page.locator('#summaryCardList [data-summary-id]').first().click();
+  const sources=page.locator('.summary-sources').first();
+  await sources.locator('summary').click();
+  const important=sources.locator('[data-source-state="important"]'), later=sources.locator('[data-source-state="read_later"]');
+  await expect(important).toHaveCSS('border-top-width','0px');
+  await expect(important).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+  await page.route(`**/api/news/${item.id}/state`,route=>route.fulfill({status:500,json:{ok:false,error:'test_failure'}}));
+  await important.click(); await expect(important).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('#toast')).toBeVisible(); await page.unroute(`**/api/news/${item.id}/state`);
+  await important.click(); await expect(important).toHaveAttribute('aria-busy','false');
+  await later.click(); await expect(later).toHaveAttribute('aria-busy','false');
+  for (const flag of ['important','read_later']) {
+    const copies=page.locator(`#summaryContent [data-source-id="${item.id}"][data-source-state="${flag}"]`);
+    expect(await copies.count()).toBeGreaterThan(1);
+    for (const button of await copies.all()) await expect(button).toHaveAttribute('aria-pressed','true');
+  }
+  const link=sources.locator('[data-source-item]');
+  await link.scrollIntoViewIfNeeded();
+  const scroll=await page.locator('#summaryScrollArea').evaluate(node=>node.scrollTop);
+  await link.click();
+  await expect(page.locator('#detailPanelFeed')).toHaveClass(/active/);
+  await expect(page.locator('#articleMainTitle')).toHaveText(item.title);
+  await expect(page.locator('#btnToggleImportant')).toHaveAttribute('aria-pressed','true');
+  if(width===390) await expect(page.locator('#mobileReaderBackBtn')).toHaveAttribute('aria-label','返回总结');
+  await page.locator('#btnToggleImportant').click();
+  await page.locator(width===390?'#mobileReaderBackBtn':'#topicReaderBackBtn').click();
+  await expect(sources).toHaveJSProperty('open',true);
+  await expect(link).toBeFocused();
+  expect(await page.locator('#summaryScrollArea').evaluate(node=>node.scrollTop)).toBe(scroll);
+  await expect(important).toHaveAttribute('aria-pressed','false');
+  await expect(later).toHaveAttribute('aria-pressed','true');
+  await openNavigation(page); await page.locator('#navFeedBtn').click();
+  await page.locator('#feedColFeed [data-filter="all"]').click();
+  if(width===390) await page.locator('#feedSearchToggleBtn').click();
+  await page.locator('#feedSearchInput').fill(item.title);
+  const card=page.locator(`#feedCardList [data-id="${item.id}"]`);
+  await expect(card.locator('[data-state="important"]')).toHaveAttribute('aria-pressed','false');
+  await expect(card.locator('[data-state="read_later"]')).toHaveAttribute('aria-pressed','true');
+  await card.locator('[data-state="important"]').click();
+  await card.locator('[data-state="read_later"]').click();
+  await expect(card.locator('[aria-busy="true"]')).toHaveCount(0);
+  await page.reload(); await openNavigation(page); await page.locator('#navSummariesBtn').click();
+  await page.locator('#summaryCardList [data-summary-id]').first().click(); await sources.locator('summary').click();
+  await expect(important).toHaveAttribute('aria-pressed','true');
+  await expect(later).toHaveAttribute('aria-pressed','false');
 });
 
 test('mobile summary supports edge-swipe back and settings return', async ({ page }) => {

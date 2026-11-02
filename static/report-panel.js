@@ -1,3 +1,5 @@
+import { readerSources, updateSourceState } from "./reader-sources.js?v=0.4.6";
+import { readerText } from "./reader-highlights.js?v=0.4.6";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
@@ -33,19 +35,10 @@ const dateText = (value, full = false) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "时间无效" : new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", ...(full ? {year:"numeric"} : {}), month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
 };
-const emphasis = p => {
-  const at = p.emphasis ? p.text.indexOf(p.emphasis) : -1;
-  return at < 0 ? e(p.text) : e(p.text.slice(0,at)) + "<strong>" + e(p.emphasis) + "</strong>" + e(p.text.slice(at+p.emphasis.length));
-};
-const sourceMarkup = (refs, sources) => `<details class="report-sources" name="report-sources"><summary class="reader-tool-btn">来源 · ${refs.length}篇<span class="report-source-chevron" aria-hidden="true">⌄</span></summary><div class="report-source-list"><ul>${refs.map(ref => {
-  const source = sources.get(ref); if (!source) return "";
-  const url = source.url ? safeURL(source.url) : "";
-  return `<li>${url ? `<a href="${e(url)}" target="_blank" rel="noopener noreferrer">${e(source.title)}</a>` : `<span>${e(source.title)}</span>`}<span class="report-source-meta">${e(source.source_name)} · ${e(dateText(source.published_at))}</span></li>`;
-}).join("")}</ul></div></details>`;
-
 export class ReportPanel {
-  constructor({isVisible, enterReader, exitReader, selects}) {
-    Object.assign(this, {isVisible, enterReader, exitReader, selects});
+  constructor({isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem}) {
+    Object.assign(this, {isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem});
+    this.reading = false;
     this.kind = "daily"; this.entries = []; this.selected = ""; this.token = "";
     this.listSequence = 0; this.detailSequence = 0; this.details = null;
     this.errorNotifications = new Map();
@@ -86,6 +79,18 @@ export class ReportPanel {
     });
     this.content.addEventListener("click", event => {
       if (event.target.closest("[data-report-reload]")) this.select(this.selected);
+      const action = event.target.closest("[data-source-state]");
+      if (action) {
+        const item = this.findSourceItem(action.dataset.sourceId);
+        if (item) void this.toggleState(item, action.dataset.sourceState);
+        return;
+      }
+      const link = event.target.closest("[data-source-item]");
+      const item = link && this.findSourceItem(link.dataset.sourceItem);
+      if (item) {
+        this.lastArticle = item.id; this.reading = true;
+        this.onViewChange(); this.openArticle(item);
+      }
     });
     this.creationHost.addEventListener("click", event => {
       if (event.target.closest("[data-creation-cancel]")) {this.popover.close(true); if (!this.creation?.submitting) this.creation = null;}
@@ -122,6 +127,7 @@ export class ReportPanel {
   deactivate() { this.popover.close(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
   async openRecord(id, kind) {
     this.deactivate();
+    this.reading = false; this.closeArticle(); this.onViewChange();
     this.kind = collectionFor(kind);
     this.selected = id; this.details = null; this.entries = []; this.meta = null;
     this.renderFilters(); this.renderDetail(true);
@@ -139,6 +145,7 @@ export class ReportPanel {
   async setKind(kind) {
     if (!kindLabels[kind] || kind === this.kind) return;
     this.deactivate(); this.kind = kind; this.entries = []; this.meta = null; this.selected = ""; this.details = null;
+    this.reading = false; this.closeArticle(); this.onViewChange();
     this.renderDetail(); this.renderFilters();
     $("#reportListScroll").scrollTop = 0;
     $("#reportScrollArea").scrollTop = 0;
@@ -211,6 +218,7 @@ export class ReportPanel {
         if (row && (this.details?.updated_at !== row.updated_at || this.details?.status !== row.status || JSON.stringify(this.details?.progress) !== JSON.stringify(row.progress))) await this.select(this.selected,false,true);
         this.renderElapsed();
       } else this.renderDetail();
+      if (this.isVisible() && !this.reading) this.onRead(this.details);
     } catch (error) {
       if (sequence !== this.listSequence) return;
       this.listError = "报告读取失败";
@@ -247,6 +255,8 @@ export class ReportPanel {
   }
   async select(id, mobile=false, quiet=false) {
     const sequence = ++this.detailSequence, token = this.token;
+    const version = this.stateVersion();
+    if (!quiet) {this.reading = false; this.closeArticle(); this.onViewChange();}
     const changed = this.selected !== id;
     this.selected = id;
     this.renderList();
@@ -257,6 +267,7 @@ export class ReportPanel {
       const data = await api(`/api/reports/${encodeURIComponent(id)}`);
       if (sequence !== this.detailSequence || this.selected !== id || token !== this.token) return;
       if (data.database_token !== token) {this.selected = ""; this.details = null; return this.load();}
+      for (const item of Object.values(data.report.source_items || {})) this.reconcileItem(item, version);
       this.details = data.report;
       if (mobile) {
         const key = this.groupKey(data.report); this.expandedGroups.set(this.kind+":"+key,true);
@@ -277,6 +288,7 @@ export class ReportPanel {
     $("#deleteReportBtn").hidden = !report;
     $("#deleteReportBtn").disabled = report?.status === "running";
     $("#deleteReportBtn").title = report?.status === "running" ? "正在生成，完成后可删除" : "删除报告";
+    if (this.isVisible() && !this.reading && report?.status !== "done") this.onRead(null);
     if (!report) {
       this.content.innerHTML = `<div class="reader-empty"><h2>${loading ? "正在读取报告…" : this.meta?.groups.length ? "选择一份报告" : `尚无${kindLabels[this.kind]}`}</h2>${!loading && !this.meta?.groups.length ? "<p>从本次更新后开始生成。</p>" : ""}</div>`;
       return;
@@ -288,15 +300,39 @@ export class ReportPanel {
     }
     const content = report.content;
     const sources = new Map(content.sources.map(source => [source.ref, source]));
+    const sourceMarkup = refs => readerSources(refs.map(ref => sources.get(ref)).filter(Boolean), {
+      className:"report-sources", name:"report-sources", items:report.source_items, cardAction:this.cardAction,
+      dateLabel:source => dateText(source.published_at),
+    });
+    let cursor = 0, paragraph = 0;
+    const textMarkup = (text, emphasis = "") => {
+      const start = report.reader.body.indexOf(text, cursor);
+      cursor = start + text.length;
+      const at = emphasis ? text.indexOf(emphasis) : -1;
+      return at < 0 ? readerText(text,start) : readerText(text.slice(0,at),start) +
+        "<strong>" + readerText(emphasis,start+at) + "</strong>" + readerText(text.slice(at+emphasis.length),start+at+emphasis.length);
+    };
     const briefs = content.briefs || [];
     const hasContent = content.sections.length || briefs.length;
     const metadata = [content.sections.length ? `${content.sections.length}个主题` : "", briefs.length ? `${briefs.length}条简讯` : "", hasContent ? `约${content.reading_minutes}分钟` : ""].filter(Boolean).join(" · ");
     this.content.innerHTML = `<header class="article-header report-masthead"><div class="article-meta-top"><span class="report-edition">${e(report.kind_label)}${originText(report)}</span><span>${e(metadata)}</span></div><h1 class="article-title">${e(report.title)}</h1><div class="article-meta-bottom"><span>${e(dateText(report.period_start))} — ${e(dateText(report.period_end))}</span><span>北京时间</span></div>${this.modelMarkup(report)}</header>` +
-      content.sections.map((section,index) => {
+      '<div id="reportProse" data-highlight-kind="original">' + content.sections.map((section,index) => {
         const refs = [...new Set(section.paragraphs.flatMap(p => p.refs))];
-        return `<section class="report-section" aria-labelledby="report-section-${index}"><div class="report-heading"><span class="report-number" aria-hidden="true">${String(index+1).padStart(2,"0")}</span><h2 class="reader-section-heading ${index === 0 ? "reader-section-heading--lead" : ""}" id="report-section-${index}">${e(section.title)}</h2></div><div class="article-body">${section.paragraphs.map(p => `<p>${emphasis(p)}</p>`).join("")}</div>${sourceMarkup(refs,sources)}</section>`;
-      }).join("") + (briefs.length ? `<section class="report-section" aria-labelledby="report-briefs"><div class="report-heading"><h2 class="reader-section-heading" id="report-briefs">简讯</h2></div><div class="article-body"><ul>${briefs.map(brief=>`<li>${e(brief.text)}</li>`).join("")}</ul></div>${sourceMarkup([...new Set(briefs.flatMap(brief=>brief.refs))],sources)}</section>` : "") +
-      (!hasContent ? '<div class="reader-empty"><p>本期暂无符合条件的新闻。</p></div>' : "") + '<footer class="report-end">本期完</footer>';
+        return `<section class="report-section" aria-labelledby="report-section-${index}"><div class="report-heading"><span class="report-number" aria-hidden="true">${String(index+1).padStart(2,"0")}</span><h2 class="reader-section-heading ${index === 0 ? "reader-section-heading--lead" : ""}" id="report-section-${index}">${textMarkup(section.title)}</h2></div><div class="article-body">${section.paragraphs.map(p => `<p data-quote-paragraph="${++paragraph}">${textMarkup(p.text,p.emphasis)}</p>`).join("")}</div>${sourceMarkup(refs)}</section>`;
+      }).join("") + (briefs.length ? `<section class="report-section" aria-labelledby="report-briefs"><div class="report-heading"><h2 class="reader-section-heading" id="report-briefs">${textMarkup("简讯")}</h2></div><div class="article-body"><ul>${briefs.map(brief=>`<li data-quote-paragraph="${++paragraph}">${textMarkup(brief.text)}</li>`).join("")}</ul></div>${sourceMarkup([...new Set(briefs.flatMap(brief=>brief.refs))])}</section>` : "") +
+      (!hasContent ? '<div class="reader-empty"><p>本期暂无符合条件的新闻。</p></div>' : "") + '</div><footer class="report-end">本期完</footer>';
+    if (this.isVisible() && !this.reading) this.onRead(report, true);
+  }
+  findSourceItem(id) { return Object.values(this.details?.source_items || {}).find(item=>item.id === id); }
+  updateItemState(id, patch) {
+    updateSourceState(this.content, this.details?.source_items, id, patch, this.cardAction);
+  }
+  returnFromArticle() {
+    if (!this.reading) return false;
+    this.reading = false; this.closeArticle(); this.onViewChange(); this.enterReader();
+    this.onRead(this.details, true);
+    this.content.querySelector(`[data-source-item="${CSS.escape(this.lastArticle)}"]`)?.focus({preventScroll:true});
+    return true;
   }
   async copyReport() {
     const report = this.details;
