@@ -5,7 +5,7 @@ import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
 import { selectField } from "./form-controls.js";
 import { defaultReportWindows } from "./report-windows.js";
-import { Calendar, DateTimePicker, localDate, localDateTime } from "./date-picker.js?v=feature-pickers-1";
+import { Calendar, localDate, localDateTime } from "./date-picker.js?v=feature-pickers-1";
 
 const kindLabels = {daily: "日报", weekly: "周报", monthly: "月报"};
 const collectionFor = kind => ["weekly", "monthly"].includes(kind) ? kind : "daily";
@@ -392,13 +392,15 @@ export class ReportPanel {
     try {
       const data = await api("/api/reports/manual-options");
       if (this.creation !== draft) return;
-      draft.periods = data.periods; draft.token = data.database_token; draft.max = data.now.slice(0,16);
+      draft.periods = data.periods.filter(p => Object.hasOwn(defaultReportWindows, p.kind));
+      draft.token = data.database_token; draft.max = data.now.slice(0,16);
       draft.windows = data.windows || structuredClone(defaultReportWindows);
-      draft.modelLabel = data.model_label;
-      draft.modelSettings = data.model_settings; draft.modelChoices = structuredClone(data.model_settings); draft.catalogs = {};
+      draft.modelDefaults = data.model_defaults || Object.fromEntries(data.periods.map(p => [p.kind, data]));
+      draft.catalogs = {};
       draft.clockOffset = new Date(data.now).getTime()-Date.now();
-      const candidates = data.periods.filter(p => this.kind === "daily" ? ["morning","noon","evening"].includes(p.kind) : p.kind === this.kind);
-      draft.kind = candidates.sort((a,b) => b.period_end.localeCompare(a.period_end))[0]?.kind || data.periods[0]?.kind || "";
+      const candidates = draft.periods.filter(p => this.kind === "daily" ? ["morning","noon","evening"].includes(p.kind) : p.kind === this.kind);
+      draft.kind = candidates.sort((a,b) => b.period_end.localeCompare(a.period_end))[0]?.kind || draft.periods[0]?.kind || "";
+      this.syncCreationModel();
       this.setCreationPeriod(); this.renderCreation();
       if (this.popover.open) $("#reportCreationKind")?.focus({preventScroll:true});
     } catch (error) {
@@ -418,14 +420,15 @@ export class ReportPanel {
     if (draft && !draft.submitting && ["reportRuntime","reportModel","reportEffort"].includes(input.name)) {
       this.changeModelChoice(input); return;
     }
-    if (!draft || draft.submitting || !["reportCreationKind","reportSelection","reportStart","reportEnd"].includes(input.name)) return;
-    const key = {reportCreationKind:"kind",reportSelection:"selection",reportStart:"start",reportEnd:"end"}[input.name];
-    const value = ["start","end"].includes(key) ? localDateTime(input.value) || input.value : input.value;
-    if (["start","end"].includes(key) && event.type === "change" && localDateTime(value)) input.value = value.replace("T"," ");
+    if (!draft || draft.submitting || !["reportCreationKind","reportSelection"].includes(input.name)) return;
+    const key = {reportCreationKind:"kind",reportSelection:"selection"}[input.name];
+    const value = input.value;
     if (draft[key] === value) return;
     draft[key] = value; draft.requestId = requestId(); draft.error = "";
     if (key === "kind") {
       this.setCreationPeriod();
+      this.syncCreationModel(); this.renderModelChoices(); this.renderCreationModel();
+      if (draft.modelExpanded) void this.loadCreationCatalog();
       $("#reportPeriodFields").innerHTML = this.creationFields();
     }
     this.renderCreationPeriod();
@@ -434,7 +437,6 @@ export class ReportPanel {
   }
   creationFields() {
     const draft = this.creation;
-    if (draft.kind === "custom") return `<div class="form-group-grid">${[["Start","开始时间",draft.start],["End","结束时间",draft.end]].map(([key,label,value])=>`<label class="field-item"><span class="field-label">${label}</span><input class="field-input" id="report${key}" name="report${key}" type="text" placeholder="YYYY-MM-DD HH:mm" autocomplete="off" spellcheck="false" value="${e(value.replace("T"," "))}" aria-describedby="reportCreationPeriod" required></label>`).join("")}</div><div class="date-calendar date-calendar--inline" id="reportCalendar"></div>`;
     const monthly = draft.kind === "monthly", label = monthly ? "月份" : draft.kind === "weekly" ? "起始日期" : "日期";
     return `<label class="field-item"><span class="field-label">${label}</span><input class="field-input" id="reportSelection" name="reportSelection" type="text" placeholder="${monthly?'YYYY-MM':'YYYY-MM-DD'}" autocomplete="off" spellcheck="false" value="${e(draft.selection)}" aria-describedby="reportCreationPeriod" required></label><div class="date-calendar date-calendar--inline" id="reportCalendar"></div>`;
   }
@@ -459,11 +461,8 @@ export class ReportPanel {
     try {
       const data = await api("/api/reports/manual-options");
       if (this.creation !== draft || sequence !== draft.modelSequence) return;
-      draft.modelLabel = data.model_label;
-      draft.modelSettings = data.model_settings;
-      if (!draft.modelOverride && JSON.stringify(draft.modelChoices) !== JSON.stringify(data.model_settings)) {
-        draft.modelChoices = structuredClone(data.model_settings); this.renderModelChoices();
-      }
+      draft.modelDefaults = data.model_defaults || Object.fromEntries(data.periods.map(p => [p.kind, data]));
+      this.syncCreationModel(); this.renderModelChoices();
     } catch {
       if (this.creation !== draft || sequence !== draft.modelSequence) return;
       draft.modelFailed = true;
@@ -472,6 +471,21 @@ export class ReportPanel {
         draft.modelLoading = false; this.renderCreationModel();
         if (draft.modelExpanded) void this.loadCreationCatalog();
       }
+    }
+  }
+  syncCreationModel() {
+    const d = this.creation, defaults = d.modelDefaults[d.kind];
+    d.modelLabel = defaults.model_label; d.modelSettings = defaults.model_settings;
+    if (d.modelOverride && d.modelKind === d.kind) {
+      // Refresh advanced settings without discarding either Runtime's draft.
+      const {model, reasoning_effort} = d.modelChoices.codex;
+      d.modelChoices.codex = {...structuredClone(d.modelSettings.codex), model, reasoning_effort};
+    } else d.modelChoices = structuredClone(d.modelSettings);
+    d.modelKind = d.kind;
+    if (d.modelOverride) {
+      const {runtime, ...selected} = d.modelOverride;
+      d.modelChoices.runtime = runtime;
+      Object.assign(d.modelChoices[runtime], selected);
     }
   }
   renderCreationModel() {
@@ -487,7 +501,7 @@ export class ReportPanel {
   }
   creationCatalogKey() {
     const c = this.creation.modelChoices;
-    return JSON.stringify([c.runtime, ...(c.runtime === "codex" ? [c.codex.provider || "", c.codex.profile || ""] : [])]);
+    return JSON.stringify([this.creation.kind, c.runtime, ...(c.runtime === "codex" ? [c.codex.provider || "", c.codex.profile || ""] : [])]);
   }
   invalidModelChoice() {
     const d = this.creation, c = d.modelChoices;
@@ -504,7 +518,7 @@ export class ReportPanel {
     if (modelValue && !options.some(m=>m.value === modelValue)) options.push({value:modelValue,label:selected.model});
     const model = models.find(m=>m.value === selected.model && (codex || m.provider === selected.provider));
     const next = document.createElement("div");
-    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,[{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}],null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复日报设置</button></div>`;
+    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,[{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}],null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复默认模型</button></div>`;
     next.querySelector('[name="reportModel"]').disabled = !catalog.options || !!catalog.loading || d.submitting;
     next.querySelector('[name="reportEffort"]').disabled = !!catalog.loading || d.submitting || !model?.reasoning_efforts?.length;
     next.querySelector('[name="reportRuntime"]').disabled = d.submitting;
@@ -532,7 +546,7 @@ export class ReportPanel {
     const state = d.catalogs[key] = {loading:true,options:d.catalogs[key]?.options || []};
     this.renderModelChoices(); this.renderCreationModel();
     try {
-      const data = await api("/api/reports/model-options",{method:"POST",body:{runtime:d.modelChoices.runtime}});
+      const data = await api("/api/reports/model-options",{method:"POST",body:{runtime:d.modelChoices.runtime,kind:d.kind}});
       Object.assign(state,data.catalog);
     } catch(error) {state.error = reportError(error);}
     finally {
@@ -564,11 +578,6 @@ export class ReportPanel {
   mountCalendar() {
     this.calendar = null;
     const draft = this.creation;
-    if (draft.kind === "custom") {
-      this.calendar = new DateTimePicker({panel:$("#reportCalendar"), inputs:[$("#reportStart"),$("#reportEnd")],
-        selects:this.selects, getMax:() => draft.max, onSelect:input=>this.changeCreation({target:input})});
-      return;
-    }
     this.calendar = new Calendar({panel:$("#reportCalendar"), input:$("#reportSelection"),
       mode:draft.kind === "monthly" ? "month" : "date", rangeDays:draft.kind === "weekly" ? 7 : 1,
       getToday:() => draft.max.slice(0,10), getMax:() => $("#reportSelection").max,
@@ -582,21 +591,13 @@ export class ReportPanel {
   renderCreationPeriod() {
     const draft = this.creation;
     draft.max = new Date(Date.now()+draft.clockOffset+8*60*60*1000).toISOString().slice(0,16);
-    if (draft.kind === "custom") {
-      for (const [id,value] of [["reportStart",draft.start],["reportEnd",draft.end]]) {
-        $("#"+id).setCustomValidity(value && !localDateTime(value) ? "请输入有效时间（YYYY-MM-DD HH:mm）"
-          : value > draft.max ? "时间不能晚于当前时间"
-          : id === "reportEnd" && value && localDateTime(draft.start) && value <= draft.start ? "结束时间须晚于开始时间" : "");
-      }
-    } else {
-      [draft.start, draft.end] = selectedRange(draft.kind, draft.selection, draft.windows);
-      const today = draft.max.slice(0,10), input = $("#reportSelection");
-      input.max = draft.kind === "monthly" ? shiftDay(today.slice(0,7)+"-01",-1).slice(0,7)
-        : draft.kind === "weekly" ? shiftDay(today,-7)
-        : today;
-      input.setCustomValidity(draft.end > draft.max ? "所选报告的时间范围尚未结束" : draft.selection && !draft.start
-        ? draft.kind === "monthly" ? "请输入有效月份（YYYY-MM）" : "请输入有效日期（YYYY-MM-DD）" : "");
-    }
+    [draft.start, draft.end] = selectedRange(draft.kind, draft.selection, draft.windows);
+    const today = draft.max.slice(0,10), input = $("#reportSelection");
+    input.max = draft.kind === "monthly" ? shiftDay(today.slice(0,7)+"-01",-1).slice(0,7)
+      : draft.kind === "weekly" ? shiftDay(today,-7)
+      : today;
+    input.setCustomValidity(draft.end > draft.max ? "所选报告的时间范围尚未结束" : draft.selection && !draft.start
+      ? draft.kind === "monthly" ? "请输入有效月份（YYYY-MM）" : "请输入有效日期（YYYY-MM-DD）" : "");
     const calendarWindow = draft.windows?.[draft.kind]?.start === "00:00" && draft.windows?.[draft.kind]?.end === "00:00";
     const range = draft.kind === "weekly" && calendarWindow ? `${draft.selection} — ${shiftDay(draft.selection,6)} · 共 7 天`
       : draft.kind === "monthly" && calendarWindow ? `${draft.selection} · 整月`
@@ -612,7 +613,7 @@ export class ReportPanel {
     if (!form.reportValidity()) return;
     draft.submitting = true; this.setCreationBusy();
     try {
-      const range = draft.kind === "custom" ? {period_start:draft.start+"+08:00",period_end:draft.end+"+08:00"} : {selection:draft.selection,window:draft.windows[draft.kind]};
+      const range = {selection:draft.selection,window:draft.windows[draft.kind]};
       const data = await api("/api/reports/manual", {method:"POST",body:{kind:draft.kind,...range,request_id:draft.requestId,database_token:draft.token,...(draft.modelOverride ? {model_override:draft.modelOverride} : {})}});
       if (this.creation !== draft) return;
       const show = this.popover.open && this.isVisible();

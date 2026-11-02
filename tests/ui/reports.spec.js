@@ -103,33 +103,18 @@ test('错误重试期间累计用时冻结，恢复后继续计时，完成后�
   await expect(page.locator('#reportElapsed')).toHaveCount(0);
 });
 
-for(const width of [320,390,1440]) test('自定义窗口共享日历与时分 Picker，开始结束独立选择 '+width,async({page})=>{
+for(const width of [320,390,1440]) test('新增报告仅保留五种日期类型，不提供自定义窗口 '+width,async({page})=>{
   await page.setViewportSize({width,height:width===320?568:900});
   await page.goto('/');await openReports(page);await page.locator('#createReportBtn').click();
-  await choosePicker(page,'报告类型','自定义');
+  await page.getByRole('combobox',{name:'报告类型',exact:true}).click();
+  await expect(page.getByRole('option')).toHaveText(['早报','午报','晚报','周报','月报']);
+  await expect(page.getByRole('option',{name:'自定义',exact:true})).toHaveCount(0);
+  await page.getByRole('option',{name:'周报',exact:true}).click();
+  await expect(page.locator('#reportStart, #reportEnd')).toHaveCount(0);
   await expect(page.locator('#reportCreationPopover input[type="date"],#reportCreationPopover input[type="datetime-local"],#reportCreationPopover input[type="time"]')).toHaveCount(0);
-  await page.locator('#reportStart').fill('2026-10-28 10:15');
-  await page.locator('#reportEnd').fill('2026-10-29 18:30');
-  await page.locator('#reportStart').focus();
-  await page.locator('[data-calendar-day="2026-10-27"]').click();
-  await choosePicker(page,'小时','09');await choosePicker(page,'分钟','05');
-  await expect(page.locator('#reportStart')).toHaveValue('2026-10-27 09:05');
-  await expect(page.locator('#reportEnd')).toHaveValue('2026-10-29 18:30');
-  await page.locator('#reportEnd').focus();
-  await page.locator('[data-calendar-day="2026-10-28"]').click();
-  await choosePicker(page,'小时','20');await choosePicker(page,'分钟','45');
-  await expect(page.locator('#reportEnd')).toHaveValue('2026-10-28 20:45');
-  await expect(page.locator('#reportStart')).toHaveValue('2026-10-27 09:05');
-  await expect(page.locator('#reportEnd')).toHaveAttribute('data-calendar-active','true');
-  await expect(page.locator('[data-calendar-day="2026-10-28"]')).toHaveCSS('background-color',await page.locator('#reportCalendar').evaluate(node=>getComputedStyle(node).color));
+  await expect(page.locator('#reportSelection')).toBeVisible();
   expect(await page.locator('#reportCreationPopover').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
-  await page.screenshot({path:`output/feature-picker-check/custom-time-${width}.png`});
-  const submitted=page.waitForRequest(request=>request.url().endsWith('/api/reports/manual')&&request.method()==='POST');
-  await page.getByRole('button',{name:'开始生成',exact:true}).click();
-  expect((await submitted).postDataJSON()).toMatchObject({kind:'custom',period_start:'2026-10-27T09:05+08:00',period_end:'2026-10-28T20:45+08:00'});
-  await expect(page.locator('#reportCreationPopover')).toBeHidden();
-  await page.locator('#classificationProgressIndicator').focus();
-  await expect(page.locator('#taskProgressReportList')).toContainText('等待生成');
+  await page.screenshot({path:`.ui-artifacts/report-types-${width}.png`});
 });
 
 test('日报归集三个期别，周月切换、来源按需展开且无阅读写入', async({page}) => {
@@ -322,7 +307,7 @@ for (const width of [320,390,1280]) test('手动生成可立即排队、阅读�
   await page.goto('/'); await openReports(page);
   await page.locator('#createReportBtn').click();
   await expect(page.getByRole('combobox',{name:'报告类型',exact:true})).toBeVisible();
-  await expect(page.locator('#reportCreationKind-native option')).toHaveCount(6);
+  await expect(page.locator('#reportCreationKind-native option')).toHaveCount(5);
   await page.getByRole('combobox',{name:'报告类型',exact:true}).click();
   await page.getByRole('option',{name:/周报$/}).click();
   await expect(page.locator('#reportCreationPeriod')).toContainText('2026-10-19');
@@ -448,23 +433,22 @@ test('删除普通报告经确认，只删除选中报告',async({page,request})
   expect((await request.get('/api/reports/report-noon')).status()).toBe(200);
 });
 
-test('非法时间窗口阻止提交且保留草稿',async({page})=>{
+test('非法日期与未来日期阻止提交且保留草稿',async({page})=>{
   const writes=[];page.on('request',request=>{if(request.url().endsWith('/api/reports/manual'))writes.push(request);});
   await page.goto('/');await openReports(page);await page.locator('#createReportBtn').click();
-  await page.getByRole('combobox',{name:'报告类型',exact:true}).click();
-  await page.getByRole('option',{name:'自定义',exact:true}).click();
-  await page.locator('#reportStart').fill('2026-10-29T10:00');
-  await page.locator('#reportEnd').fill('2026-10-29T09:00');
+  await choosePicker(page,'报告类型','早报');
+  await page.locator('#reportSelection').fill('2026-02-30');
   await page.getByRole('button',{name:'开始生成',exact:true}).click();
-  expect(await page.locator('#reportEnd').evaluate(input=>input.validationMessage)).toContain('结束时间须晚于开始时间');
-  await page.locator('#reportEnd').fill('2030-10-30T09:00');
+  expect(await page.locator('#reportSelection').evaluate(input=>input.validationMessage)).toContain('请输入有效日期');
+  await page.locator('#reportSelection').fill('2030-10-30');
   await page.getByRole('button',{name:'开始生成',exact:true}).click();
-  expect(await page.locator('#reportEnd').evaluate(input=>input.validationMessage)).toContain('时间不能晚于当前时间');
+  expect(await page.locator('#reportSelection').evaluate(input=>input.validationMessage)).toContain('时间范围尚未结束');
   expect(writes).toHaveLength(0);
-  await expect(page.locator('#reportStart')).toHaveValue('2026-10-29 10:00');
+  await page.keyboard.press('Escape');await page.locator('#createReportBtn').click();
+  await expect(page.locator('#reportSelection')).toHaveValue('2030-10-30');
 });
 
-for(const width of [390,1440]) test('日期、连续七天、整月和自定义按北京时间生成 '+width,async({page})=>{
+for(const width of [390,1440]) test('日期、连续七天和整月按北京时间生成 '+width,async({page})=>{
   await page.setViewportSize({width,height:900});
   await page.goto('/');await openReports(page);
   for(const [kind,label,selection,start,end,tab] of [
@@ -473,21 +457,15 @@ for(const width of [390,1440]) test('日期、连续七天、整月和自定义�
     ['evening','晚报','2026-10-29','2026-10-28T21:30:00+08:00','2026-10-29T21:30:00+08:00','daily'],
     ['weekly','周报','2026-10-21','2026-10-21T00:00:00+08:00','2026-10-28T00:00:00+08:00','weekly'],
     ['monthly','月报','2024-02','2024-02-01T00:00:00+08:00','2024-03-01T00:00:00+08:00','monthly'],
-    ['custom','自定义','', '2026-10-29T10:15:00+08:00','2026-10-29T11:45:00+08:00','daily'],
   ]) {
     if(width<=920 && await page.locator('#feedView').evaluate(node=>node.classList.contains('mobile-reader-active')))
       await page.locator('#mobileReaderBackBtn').click();
     await page.locator('#createReportBtn').click();
     await page.getByRole('combobox',{name:'报告类型',exact:true}).click();
     await page.getByRole('option',{name:label,exact:true}).click();
-    if(kind==='custom') {
-      await expect(page.locator('#reportSelection')).toHaveCount(0);
-      await page.locator('#reportStart').fill(start.slice(0,16));await page.locator('#reportEnd').fill(end.slice(0,16));
-    } else {
-      await expect(page.locator('#reportStart, #reportEnd')).toHaveCount(0);
-      await expect(page.locator('#reportSelection')).toHaveAttribute('type','text');
-      await page.locator('#reportSelection').fill(selection);
-    }
+    await expect(page.locator('#reportStart, #reportEnd')).toHaveCount(0);
+    await expect(page.locator('#reportSelection')).toHaveAttribute('type','text');
+    await page.locator('#reportSelection').fill(selection);
     if(kind==='weekly') await expect(page.locator('#reportCreationPeriod')).toContainText('2026-10-21 — 2026-10-27 · 共 7 天');
     if(kind==='monthly') await expect(page.locator('#reportCreationPeriod')).toContainText('2024-02 · 整月');
     for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
@@ -509,7 +487,6 @@ for(const width of [390,1440]) test('日期、连续七天、整月和自定义�
     expect(report.period_start).toBe(start);expect(report.period_end).toBe(end);
     await expect(page.locator(`[data-report-kind="${tab}"]`)).toHaveAttribute('aria-pressed','true');
     await expect(page.locator('#reportContent')).toContainText('等待生成');
-    if(kind==='custom') await expect(page.locator('#reportToolbarTitle')).toContainText('自定义');
   }
 });
 
@@ -623,8 +600,8 @@ for(const width of [320,390,1440]) test('新增浮层不占阅读栏且短屏所
   await page.getByRole('button',{name:'开始生成',exact:true}).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button',{name:'开始生成',exact:true})).toBeInViewport();
   await page.getByRole('combobox',{name:'报告类型',exact:true}).click();
-  await page.getByRole('option',{name:'自定义',exact:true}).click();
-  await expect(page.locator('#reportStart')).toBeVisible();
+  await page.getByRole('option',{name:'月报',exact:true}).click();
+  await expect(page.locator('#reportSelection')).toBeVisible();
   expect(await page.locator('#reportCreationPopover').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   await page.getByRole('button',{name:'取消',exact:true}).click();
   await expect(page.locator('#reportCreationPopover')).toBeHidden();

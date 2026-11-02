@@ -227,7 +227,7 @@ test('usage describes saved feature selections and fallback limits', async ({ pa
   await expect(page.getByRole('radio',{name:'OpenCode',exact:true})).toHaveCount(0);
   await expect(page.locator('[data-api-usage="chat"]')).toContainText('Codex CLI · chat-model');
   await expect(page.locator('[data-api-usage="reports"]')).toContainText('Pi · opencode-go / report-model');
-  await expect(page.locator('[data-api-usage="reports"]')).toContainText('最多尝试 3 次');
+  await expect(page.locator('#apiUsageTitle').locator('..').locator('..')).toContainText('最多尝试 3 次');
   await page.locator('#apiFeatureSettingsBtn').click();
   await expect(page.locator('#settingsDetailTitle')).toHaveText('模型与 Agent');
   await openModelAdvanced(page);

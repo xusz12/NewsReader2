@@ -1,11 +1,12 @@
 import {test,expect} from '@playwright/test';
 import {choosePicker,chooseTheme,openNavigation} from './helpers.js';
 
-const config = {runtime:'codex',codex:{model:'ui-catalog-a',profile:'',provider:'',sandbox:'read-only',reasoning_effort:''},pi:{provider:'test',model:'test-model'}};
+const config = {runtime:'codex',codex:{model:'ui-catalog-a',profile:'',provider:'',sandbox:'read-only',reasoning_effort:''},pi:{provider:'test',model:'test-model',reasoning_effort:''}};
 let saved;
 test.beforeEach(async({request})=>{
   saved = await (await request.get('/api/settings')).json();
-  await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{...saved.feature_models,reports:config}}});
+  await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{...saved.feature_models,
+    ...Object.fromEntries(['reports','reports_periodic'].map(key=>[key,config]))}}});
   await request.post('/__test/reports',{data:{empty:true}});
 });
 test.afterEach(async({request})=>{
@@ -45,7 +46,7 @@ test('临时 Codex 模型和推理程度绑定本次，关闭重开保留，后�
   await open(page);await expand(page);
   await choosePicker(page,'推理程度','high');
   await expect(page.locator('#reportCreationModel')).toHaveText('Codex · ui-catalog-a · high · 临时');
-  await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{...saved.feature_models,reports:{...config,runtime:'pi'}}}});
+  await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{reports:{...config,runtime:'pi'}}}});
   await page.keyboard.press('Escape');await page.locator('#createReportBtn').click();
   await expect(page.getByRole('combobox',{name:'推理程度',exact:true})).toHaveText('high');
   await choosePicker(page,'模型','ui-catalog-b');
@@ -78,13 +79,13 @@ test('临时 Pi 使用独立模型和推理程度，窗口不变并共用取材'
   expect((await (await request.get('/api/settings')).json()).feature_models.reports.runtime).toBe('codex');
 });
 
-test('恢复日报设置移除临时选择；目录读取失败可以重试',async({page})=>{
+test('恢复默认模型移除临时选择；目录读取失败可以重试',async({page})=>{
   await page.route('**/api/reports/model-options',route=>route.fulfill({status:409,json:{ok:false,error:'report_model_catalog_failed'}}),{times:1});
   await open(page);await expand(page);
   await expect(page.locator('#reportModelChoices')).toContainText('模型目录读取失败');
   await page.getByRole('button',{name:'重试',exact:true}).click();
   await expect(page.getByRole('combobox',{name:'推理程度',exact:true})).toBeEnabled();
-  await choosePicker(page,'推理程度','high');await page.getByRole('button',{name:'恢复日报设置',exact:true}).click();
+  await choosePicker(page,'推理程度','high');await page.getByRole('button',{name:'恢复默认模型',exact:true}).click();
   await expect(page.locator('#reportCreationModel')).toHaveText('Codex · ui-catalog-a');
   expect((await submit(page)).body.model_override).toBeUndefined();
 });

@@ -113,9 +113,9 @@ def test_history_is_bounded_and_endpoint_cannot_start_work(service, db, monkeypa
     service.settings = lambda: SETTINGS
     for _ in range(25): create(service)
     token = service.manual_options()["database_token"]
-    custom = service.create_manual("custom", "2026-10-29T10:00:00+08:00", "2026-10-29T11:00:00+08:00", "a"*32, token)
+    custom = service.create_manual("evening", "2026-10-29T10:00:00+08:00", "2026-10-29T11:00:00+08:00", "a"*32, token)
     with closing(db()) as conn:
-        conn.execute("UPDATE periodic_reports SET updated_at='2026-10-30T16:01:00+08:00' WHERE id=?", (custom["id"],))
+        conn.execute("UPDATE periodic_reports SET kind='custom',updated_at='2026-10-30T16:01:00+08:00' WHERE id=?", (custom["id"],))
         conn.commit()
         assert conn.execute("SELECT COUNT(*) FROM periodic_reports").fetchone()[0] == 26
     recent = service.observation()["recent"]

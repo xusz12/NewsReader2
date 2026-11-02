@@ -22,7 +22,9 @@ def create(service, kind="evening", start="2026-10-19T00:00:00+08:00", end="2026
 def test_archive_uses_covered_period_not_creation_date_and_returns_all_groups(service):
     current = create(service, "morning", "2026-09-30T21:30:00+08:00", "2026-10-01T08:30:00+08:00")
     old = create(service, "evening", "2026-08-30T21:30:00+08:00", "2026-08-31T21:30:00+08:00")
-    custom = create(service, "custom", "2026-09-30T10:00:00+08:00", "2026-10-02T10:00:00+08:00")
+    custom = create(service, "evening", "2026-09-30T10:00:00+08:00", "2026-10-02T10:00:00+08:00")
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET kind='custom' WHERE id=?", (custom["id"],))
     listing = service.listing("daily", group="current")
     assert listing["group"] == "2026-10"
     assert [row["id"] for row in listing["items"]] == [current["id"]]
@@ -52,15 +54,15 @@ def test_archive_rejects_invalid_groups(service, kind, group):
         service.listing(kind, group=group)
 
 
-def test_defaults_cover_six_types_without_changing_schedule(service, db, monkeypatch):
+def test_defaults_cover_five_types_without_changing_schedule(service, db, monkeypatch):
     monkeypatch.setattr(pr.report_model, "capacity", lambda *args: pytest.fail("Opening the form must not probe a model"))
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     data = service.manual_options()
-    assert [p["kind"] for p in data["periods"]] == list(pr.REPORT_KINDS)
+    assert [p["kind"] for p in data["periods"]] == list(pr.KINDS)
     assert data["model_label"] == "Pi · test"
     assert all(pr.local(p["period_start"]) < pr.local(p["period_end"]) <= pr.now() for p in data["periods"])
     monkeypatch.setattr(pr, "calendar_data", lambda: {})
-    assert len(service.manual_options()["periods"]) == 6
+    assert len(service.manual_options()["periods"]) == 5
     service.settings = lambda: {**SETTINGS, "feature_models": {"reports": {
         "runtime": "codex", "codex": {"model": "report-model", "reasoning_effort": "high", "provider": "private-provider"},
         "pi": {"model": "unused-model"}}}}
@@ -205,13 +207,15 @@ def test_invalid_or_unfinished_selected_windows_rejected(service, kind, selectio
         service.create_selected(kind, selection, uuid.uuid4().hex, service.manual_options()["database_token"])
 
 
-def test_custom_report_runs_and_appears_in_daily_without_adding_an_automatic_schedule(service, db):
-    row = create(service, "custom", "2026-10-29T10:15:00+08:00", "2026-10-29T11:45:00+08:00")
-    assert row["kind_label"] == "自定义" and "自定义报告" in row["title"]
+def test_existing_custom_report_still_runs_and_appears_in_daily(service, db):
+    row = create(service, "evening", "2026-10-29T10:15:00+08:00", "2026-10-29T11:45:00+08:00")
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET kind='custom',title='历史自定义报告',config_json=NULL WHERE id=?", (row['id'],))
     with closing(db()) as conn: news(conn, "custom-window", "2026-10-29T10:30:00+08:00")
     assert service.run_one()
     result = service.listing("daily")["items"][0]
     assert result["id"] == row["id"] and result["status"] == "done"
+    assert result["kind_label"] == "自定义" and result["title"] == "历史自定义报告"
     assert {item["kind"] for item in service.observation()["schedules"]} == set(pr.KINDS) | {"snapshot_cleanup"}
 
 

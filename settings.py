@@ -32,24 +32,47 @@ DEFAULT_PI_CHAT_MODEL = ""
 DEFAULT_CLASSIFICATION_CONCURRENCY = 8
 MAX_CLASSIFICATION_CONCURRENCY = 32
 
-MODEL_FEATURES = ("topics", "summaries", "reports")
+REPORT_MODEL_FEATURES = {kind: "reports_periodic" if kind in {"weekly", "monthly"} else "reports"
+                         for kind in report_schedule.DEFAULT_TIMES}
+MODEL_FEATURES = ("topics", "summaries", "reports", "reports_periodic")
+LEGACY_REPORT_MODEL_FEATURES = tuple(f"reports_{kind}" for kind in report_schedule.DEFAULT_TIMES)
+
+
+def report_model_feature(kind: str = "morning") -> str:
+    if not isinstance(kind, str) or kind not in (*REPORT_MODEL_FEATURES, "custom"):
+        raise ValueError("report_model_selection_invalid")
+    return REPORT_MODEL_FEATURES.get(kind, "reports")  # Historical custom reports use the daily fallback.
 
 
 def feature_model_config(settings: dict, feature: str = "chat") -> dict:
-    """Old installations inherit the Chat selection once, on their next save."""
+    """The weekly/monthly group initially inherits the former shared report choice."""
     agent = settings.get("agent", {})
     legacy = {"runtime": agent.get("runtime", "pi"), "codex": agent.get("codex", {}),
               "pi": settings.get("llm", {}).get("pi_chat", {})}
-    return deepcopy(settings.get("feature_models", {}).get(feature, legacy) if feature != "chat" else legacy)
+    features = settings.get("feature_models", {})
+    fallback = features.get("reports", legacy) if feature in REPORT_MODEL_FEATURES.values() else legacy
+    return deepcopy(features.get(feature, fallback) if feature != "chat" else legacy)
 
 
 def normalize_feature_models(value: object, settings: dict) -> dict:
     from codex_client import normalize_config
-    if not isinstance(value, dict) or any(key not in MODEL_FEATURES for key in value):
+    if not isinstance(value, dict) or any(key not in (*MODEL_FEATURES, *LEGACY_REPORT_MODEL_FEATURES) for key in value):
         raise ValueError("invalid_feature_models")
+    # Consolidate any settings saved during the unreleased per-kind iteration.
+    # The old custom-report entry is superseded by the morning choice.
+    value = dict(value)
+    if "reports_morning" in value:
+        value["reports"] = value["reports_morning"]
+    if "reports_periodic" not in value:
+        for key in ("reports_weekly", "reports_monthly"):
+            if key in value:
+                value["reports_periodic"] = value[key]
+                break
     result = {}
     for feature in MODEL_FEATURES:
         previous = feature_model_config(settings, feature)
+        if feature == "reports_periodic" and feature not in settings.get("feature_models", {}):
+            previous = deepcopy(result["reports"])
         selected = value.get(feature, previous)
         if not isinstance(selected, dict) or selected.get("runtime", previous["runtime"]) not in ("pi", "codex"):
             raise ValueError("invalid_feature_models")
@@ -57,7 +80,12 @@ def normalize_feature_models(value: object, settings: dict) -> dict:
         if not isinstance(pi, dict):
             raise ValueError("invalid_feature_models")
         try:
-            normalized_pi = pi_models.normalize_config(pi, previous["pi"])
+            pi_defaults = previous["pi"]
+            if feature not in settings.get("feature_models", {}) and "pi" in selected:
+                # A persisted choice without an optional effort means default,
+                # even when Chat happens to use the same provider and model.
+                pi_defaults = {key: value for key, value in pi_defaults.items() if key != "reasoning_effort"}
+            normalized_pi = pi_models.normalize_config(pi, pi_defaults)
         except ValueError as exc:
             raise ValueError("invalid_feature_models") from exc
         result[feature] = {"runtime": selected.get("runtime", previous["runtime"]),

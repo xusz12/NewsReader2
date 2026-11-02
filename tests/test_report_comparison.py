@@ -112,13 +112,13 @@ def test_comparison_keeps_sources_when_news_changes_and_reuses_across_report_kin
         news(conn, 'late', '2026-10-29T18:00:00+08:00')
         conn.execute("UPDATE items SET title='后来修改的标题' WHERE id='original'"); conn.commit()
     service.refresh_index = lambda: pytest.fail('Comparison unnecessarily refreshed its frozen material')
-    second = create(service, 'custom')
+    second = create(service, 'weekly')
     assert service.run_one()
     saved = {row['id']: row for row in rows(db)}
     assert saved[first['id']]['snapshot_id'] == saved[second['id']]['snapshot_id']
     with closing(db()) as conn:
         compared = pr.stored_snapshot(conn, saved[second['id']])
-    assert compared['kind'] == 'custom' and original['kind'] == 'evening'
+    assert compared['kind'] == 'weekly' and original['kind'] == 'evening'
     assert {k:v for k,v in original.items() if k!='kind'} == {k:v for k,v in compared.items() if k!='kind'}
     token = service.manual_options()['database_token']
     service.delete(first['id'], token)

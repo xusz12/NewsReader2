@@ -10,7 +10,8 @@ import { defaultReportWindows, windowError } from "./report-windows.js";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
 const clone = (value) => structuredClone(value);
-const modelFeatures = {chat:"Chat", topics:"主题追踪", summaries:"新闻总结", reports:"日报"};
+const reportModelFeatures = {reports:"日报（早／午／晚）", reports_periodic:"周报／月报"};
+const modelFeatures = {chat:"Chat", topics:"主题追踪", summaries:"新闻总结", ...reportModelFeatures};
 const testResultStatus = (text) => ({SUCCESS:"success", PASS:"success", FAILED:"failed", FAIL:"failed", RUNNING:"running"})[/^\[(\w+)\]/.exec(text)?.[1]] || "ready";
 function updateTestResult(terminal, text, hideEmpty = false) {
   if (!terminal) return;
@@ -322,7 +323,8 @@ export class SettingsPanel {
   modelConfig(feature = "chat") {
     if (feature === "chat") return {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat};
     this.draft.feature_models ||= {};
-    return this.draft.feature_models[feature] ||= clone({runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat});
+    return this.draft.feature_models[feature] ||= clone(feature.startsWith("reports_") ? this.modelConfig("reports")
+      : {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat});
   }
   modelState(feature) {
     if (!this.modelStates.has(feature)) this.modelStates.set(feature, {connectionSequence:0, catalogSequence:0, connectionResult:"", catalogNotice:"", testing:false});
@@ -646,7 +648,7 @@ export class SettingsPanel {
       ["chat", "Chat 与对话归档", "失败保留对话，可重试；不会自动切换服务。"],
       ["topics", "主题研究与整理", "失败保留已有内容，可重试；新闻归属与重要进展筛选另由 Jev 执行。"],
       ["summaries", "积压新闻总结", "失败不保存成功结果、不标记新闻已读，可重新生成。"],
-      ["reports", "日报、周报与月报", "失败自动重试，最多尝试 3 次，之后可手动重试；重试沿用该报告创建时的模型。"],
+      ...Object.entries(reportModelFeatures).map(([key, label]) => [key, label, ""]),
     ];
     return `<div class="section-card-title"><span id="apiUsageTitle">功能与后备措施</span></div>
       <p class="muted">正文翻译按上方设置调用；Jev 在「新闻分类」管理。以下为其他功能已保存的模型配置，修改并保存后更新。</p>
@@ -654,8 +656,9 @@ export class SettingsPanel {
         const config = key === "chat" ? legacy : saved.feature_models?.[key] || legacy;
         const model = config.runtime === "codex" ? `Codex CLI · ${config.codex?.model || "本机默认模型"}${config.codex?.provider ? `（${config.codex.provider}）` : ""}`
           : `Pi · ${config.pi?.provider && config.pi?.model ? `${config.pi.provider} / ${config.pi.model}` : "尚未选择服务商与模型"}`;
-        return `<div class="field-item" data-api-usage="${key}"><span class="field-label">${label}</span><span>${e(model)}</span><p class="muted">${fallback}</p></div>`;
+        return `<div class="field-item" data-api-usage="${key}"><span class="field-label">${label}</span><span>${e(model)}</span>${fallback ? `<p class="muted">${fallback}</p>` : ""}</div>`;
       }).join("")}</div>
+      <p class="muted">报告失败自动重试，最多尝试 3 次，之后可手动重试；重试沿用该报告创建时的模型。</p>
       <p class="muted">正文翻译的 Pi 后备仅在启用时使用，即使 Chat 当前选择 Codex，也读取其中保存的 Pi 配置。上述其他功能不会自动切换服务商；已有资料仍可阅读。</p>
       <div class="button-row"><button class="btn-secondary" id="apiFeatureSettingsBtn" type="button">管理功能模型</button></div>`;
   }

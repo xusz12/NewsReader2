@@ -14,6 +14,8 @@ async function saveModels(request,data) {
 const section = (page, feature) => page.locator(`[data-model-feature="${feature}"]`);
 const box = (page, feature, name) => section(page, feature).getByRole('combobox',{name,exact:true});
 const pick = (page, feature, name, label) => choosePicker(page, name, label, feature);
+const reportFeatures = ['reports','reports_periodic'];
+const allFeatures = ['chat','topics','summaries',...reportFeatures];
 
 for (const width of [390,1440]) test('连接测试状态区分成功失败与运行中，主题切换与重绘保持状态 '+width,async({page,request})=>{
   const original=await (await request.get('/api/settings')).json();
@@ -59,17 +61,17 @@ for (const width of [390,1440]) test('连接测试状态区分成功失败与运
   } finally {release();await request.put('/api/settings',{data:original});}
 });
 
-test('四个功能同时展开、独立编辑保存和连接测试',async({page,request})=>{
+test('各功能及报告类型同时展开、独立编辑保存和连接测试',async({page,request})=>{
   const original=await (await request.get('/api/settings')).json();
   const codex={model:'ui-catalog-a',provider:'',profile:'',sandbox:'read-only'};
   const config={runtime:'codex',codex,pi:{provider:'',model:''}};
   await request.put('/api/settings',{data:{llm:original.llm,agent:{...original.agent,runtime:'codex',codex},
-    feature_models:Object.fromEntries(['topics','summaries','reports'].map(key=>[key,config]))}});
+    feature_models:Object.fromEntries(allFeatures.filter(key=>key!=='chat').map(key=>[key,config]))}});
   try {
     await openModels(page);
     await expect(page.getByRole('combobox',{name:'功能',exact:true})).toHaveCount(0);
-    await expect(page.locator('[data-model-feature]')).toHaveCount(4);
-    for (const feature of ['chat','topics','summaries','reports']) await expect(box(page,feature,'模型')).toHaveText('ui-catalog-a');
+    await expect(page.locator('[data-model-feature]')).toHaveCount(allFeatures.length);
+    for (const feature of allFeatures) await expect(box(page,feature,'模型')).toHaveText('ui-catalog-a');
     await page.locator('#refreshModelsBtn').click();
     await expect(page.locator('#modelsNotice')).toContainText('刷新');
     await pick(page,'chat','模型','ui-catalog-b');
@@ -152,9 +154,17 @@ for (const width of [390,1440]) test('各功能分区复用设置样式，适配
   await pick(page,'reports','Runtime','Codex CLI');
   for(const [theme,scheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
     await page.emulateMedia({colorScheme:scheme});await chooseTheme(page,theme);
-    for(const feature of ['chat','topics','summaries','reports']) {
+    for(const feature of allFeatures) {
       await expect(section(page,feature)).toBeVisible();
       expect(await section(page,feature).evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+    }
+    for(const feature of reportFeatures) {
+      await section(page,feature).scrollIntoViewIfNeeded();
+      const styles=await section(page,feature).evaluate(node=>{
+        const style=getComputedStyle(node), chat=getComputedStyle(document.querySelector('[data-model-feature="chat"]'));
+        return ['backgroundColor','borderRadius','padding','fontSize'].every(key=>style[key]===chat[key]);
+      });
+      expect(styles).toBe(true);
     }
     await box(page,'reports','模型').click();
     const menu=page.getByRole('listbox');await expect(menu).toBeVisible();

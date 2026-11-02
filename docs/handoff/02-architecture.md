@@ -6,9 +6,9 @@
 
 ### 按功能配置模型
 
-- 设置页在「模型与 Agent」中通过功能 Picker 分别编辑 Chat、主题追踪、新闻总结、日报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；另三项保存在 `feature_models.topics / summaries / reports`，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。
-- `settings.feature_model_config()` 返回独立副本。旧文件缺少功能配置时从原 Chat 配置填充；首次保存固化这些初值，以后改变 Chat 或旧客户端省略 `feature_models` 均不覆盖其他功能。`normalize_feature_models()` 校验 Runtime、模型字段和 Codex 配置，设置接口对变化的 Codex 配置核验推理强度；模型目录按 Runtime、服务商和 Profile 缓存。
-- 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
+- 设置页在「模型与 Agent」中以始终展开的共享分区分别编辑 Chat、主题追踪、新闻总结、日报（早／午／晚）及周报／月报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；主题、总结保存在 `feature_models.topics / summaries`；早午晚报共用 `feature_models.reports`，周报与月报共用 `feature_models.reports_periodic`，没有自定义报告模型配置，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。
+- `settings.feature_model_config()` 返回独立副本。旧文件缺少主题、总结或报告总配置时从原 Chat 配置填充；缺少周月报组配置时从原 `reports` 独立复制，明确设置优先；首次保存固化这些初值，以后改变 Chat 或旧客户端省略 `feature_models` 均不覆盖其他功能。`normalize_feature_models()` 校验 Runtime、模型字段和 Codex 配置，设置接口对变化的 Codex 配置核验推理强度；模型目录按 Runtime、服务商和 Profile 缓存。
+- 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 和 `settings.report_model_feature(kind)` 将五种报告类型映射到日报与周月报两组配置；历史自定义任务的未绑定配置兼容读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
 - Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。OAR 通过 `SessionOptions.effort`、Pi CLI 通过 `--thinking`、报告 SDK 通过 reasoning 参数执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
 - `connection_tests.py` 使用当前功能草稿。Pi 显式传入 provider、model、thinking，禁用工具／MCP／扩展／持久会话，要求返回 `NEWSREADER_CONNECTION_OK`；Codex 创建临时只读请求，发送 `hi` 并检查非空完成结果。45秒超时、全局单次执行锁；不写入应用会话。测试结果说明一次模型请求成功，不证明 Agent 搜索或其他工具可用。
 - 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode Go 订阅，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
@@ -72,7 +72,7 @@ flowchart LR
 
 2026-10-31临时报告模型：新增日报默认收起临时 Runtime／模型／推理程度 Picker；`GET /api/reports/manual-options` 增加公开默认选择，`POST /api/reports/model-options` 按需读取目录，创建的 `model_override` 经白名单与能力校验后绑定单份报告。Pi SDK 传入实际推理程度，Codex 保留已保存 Profile／服务商与只读限制；不保存到全局设置。重复提交保持原配置，目录读取在数据库写事务外。
 
-2026-10-31报告模型对比：所有创建入口将日报功能配置写入每份任务的 `config_json`；自动／手动重试均保留绑定，旧未绑定任务在首次执行或重试时补齐。生成池最多3线程，领取在SQLite写事务内检查运行数量与租约，运行期间60秒心跳续租。`periodic_report_snapshots` 按标准化起止时间唯一保存材料及规则，`snapshot_id` 引用共享输入，报告类型保持独立。索引刷新、取材和发布共享现有索引锁，模型调用在锁外并行；步骤缓存仍按报告ID隔离，删除最后一份同窗口报告时清理对应快照；另外每7天自动清理保存满7天且没有未完成报告占用的材料，排期与失败重试保存在 `periodic_report_snapshot_cleanup`，索引锁不可用时稍后再检查。清理移除材料引用，保留最终内容与来源，过期后新建对比报告会重新取材。完成内容不被改写。报告 `generation_seconds` 独立保存最后一次成功执行耗时，页面显示在模型旁。观察接口增加 `concurrency`、`current_reports` 及预先保存的模型名称，保留 `current` 的兼容字段，不解析模型配置或材料正文。
+2026-10-31报告模型对比：所有创建入口将对应报告类型的功能配置写入每份任务的 `config_json`；自动／手动重试均保留绑定，旧未绑定任务在首次执行或重试时补齐。生成池最多3线程，领取在SQLite写事务内检查运行数量与租约，运行期间60秒心跳续租。`periodic_report_snapshots` 按标准化起止时间唯一保存材料及规则，`snapshot_id` 引用共享输入，报告类型保持独立。索引刷新、取材和发布共享现有索引锁，模型调用在锁外并行；步骤缓存仍按报告ID隔离，删除最后一份同窗口报告时清理对应快照；另外每7天自动清理保存满7天且没有未完成报告占用的材料，排期与失败重试保存在 `periodic_report_snapshot_cleanup`，索引锁不可用时稍后再检查。清理移除材料引用，保留最终内容与来源，过期后新建对比报告会重新取材。完成内容不被改写。报告 `generation_seconds` 独立保存最后一次成功执行耗时，页面显示在模型旁。观察接口增加 `concurrency`、`current_reports` 及预先保存的模型名称，保留 `current` 的兼容字段，不解析模型配置或材料正文。
 
 2026-10-31材料快照管理：观察接口通过 SQLite 字节长度聚合返回 `snapshot_storage`，共享材料不按报告引用数重复计数。`POST /api/reports/snapshots/clear` 验证库令牌，沿用自动清理的共享保护条件和索引／事务锁；手动不限制材料年龄，不改变周期间隔。页面移除最近执行区块，底部提供大小与清理，定时控制改为语义色图标。
 

@@ -16,13 +16,14 @@ import uuid
 from zoneinfo import ZoneInfo
 
 import report_model
+from settings import report_model_feature
 import report_schedule
 from report_generation import generate, parse_json, partition, reading_minutes, validate_events, validate_report
 
 ROOT = Path(__file__).resolve().parent
 TZ = ZoneInfo("Asia/Shanghai")
 KINDS = {"morning": "早报", "noon": "午报", "evening": "晚报", "weekly": "周报", "monthly": "月报"}
-REPORT_KINDS = {**KINDS, "custom": "自定义"}
+REPORT_KINDS = {**KINDS, "custom": "自定义"}  # Read existing custom reports; creation only accepts KINDS.
 LEASE_SECONDS = 1200
 MAX_CONCURRENT_REPORTS = 3
 LEASE_RENEW_SECONDS = 60
@@ -235,7 +236,7 @@ def prune_snapshots(conn, cutoff=None):
     return removed
 
 
-def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=None, schedule=None):
+def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=None, configs=None, schedule=None):
     at = local(at or now())
     # Morning/noon editions are useful when their slot arrives while this
     # service is running. A restart only catches up durable evening/week/month editions.
@@ -279,11 +280,12 @@ def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=Non
                     continue
                 start = max(start, active)
                 ts = stamp(at)
+                selected_config = configs[kind] if configs is not None else config
                 count += conn.execute("""INSERT OR IGNORE INTO periodic_reports
                     (id,edition_key,kind,title,period_start,period_end,scheduled_at,created_at,updated_at,config_json,model_label)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (uuid.uuid4().hex, f"{kind}:{scheduled.date()}", kind,
                     edition_title(kind, scheduled, start, end), stamp(start), stamp(end), stamp(scheduled), ts, ts,
-                    encoded(config) if config is not None else None, model_label(config))).rowcount
+                    encoded(selected_config) if selected_config is not None else None, model_label(selected_config))).rowcount
             day += timedelta(days=1)
         conn.execute("UPDATE periodic_report_meta SET scheduled_through=? WHERE singleton=1", (stamp(until),))
         conn.commit()
@@ -492,11 +494,20 @@ class Service:
             except (OSError, ValueError, TypeError):
                 raise RuntimeError("report_calendar_failed") from None
             settings = self.settings()
-            config = report_model.configuration(settings, resolve=False)
+            configs = {}
+            for kind in KINDS:
+                try:
+                    configs[kind] = report_model.configuration(settings, resolve=False, feature=report_model_feature(kind))
+                except RuntimeError as exc:
+                    if str(exc) != "report_model_unconfigured":
+                        raise
+                    # An unconfigured kind must not prevent the others from
+                    # being scheduled. Its worker reports the missing choice.
+                    configs[kind] = None
             schedule = report_schedule.Schedule(settings)
         with closing(self.connect()) as conn:
             if not paused:
-                enqueue_due(conn, at, calendar, intraday_since=self.started_at, config=config, schedule=schedule)
+                enqueue_due(conn, at, calendar, intraday_since=self.started_at, configs=configs, schedule=schedule)
             meta = conn.execute("SELECT scheduled_through,database_token FROM periodic_report_meta WHERE singleton=1").fetchone()
             cursor = local(meta["scheduled_through"])
             paused = paused or schedule_control(conn)["paused"]
@@ -739,7 +750,8 @@ class Service:
         keeper = threading.Thread(target=self.renew_lease, args=(job, finished, generation_started), name="report-lease", daemon=True)
         keeper.start()
         try:
-            config = json.loads(job["config_json"]) if job["config_json"] else report_model.configuration(self.settings(), resolve=False)
+            config = json.loads(job["config_json"]) if job["config_json"] else report_model.configuration(
+                self.settings(), resolve=False, feature=report_model_feature(job["kind"]))
             if not job["config_json"]:  # Upgrade jobs queued before model binding existed.
                 with closing(self.connect()) as conn, conn:
                     changed = conn.execute("UPDATE periodic_reports SET config_json=?,model_label=? WHERE id=? AND lease=? AND status='running'",
@@ -897,9 +909,11 @@ class Service:
         settings = self.settings()
         times = report_schedule.normalize(settings.get("report_schedule", {}))
         windows = report_schedule.normalize_windows(settings.get("report_windows", {}))
-        selected_model = report_model.feature_model_config(settings, "reports")
-        label = model_label({"runtime": selected_model.get("runtime"), "codex": selected_model.get("codex", {}),
-                             "model": selected_model.get("pi", {}).get("model")})
+        model_defaults = {}
+        for kind in KINDS:
+            selected = report_model.selection(settings, report_model_feature(kind))
+            model_defaults[kind] = {"model_settings": selected,
+                "model_label": model_label({**selected["pi"], "runtime": selected["runtime"], "codex": selected["codex"]})}
         try:
             periods = {row["kind"]: row for row in preview_periods(at, report_schedule.Schedule({"report_schedule": times, "report_windows": windows}))}
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -927,11 +941,9 @@ class Service:
             token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
         for kind, period in periods.items():
             period["selection"] = period["period_start"][:7] if kind == "monthly" else period["period_start"][:10] if kind == "weekly" else period["period_end"][:10]
-        periods["custom"] = {"kind": "custom", "kind_label": REPORT_KINDS["custom"],
-                             "period_start": stamp(at-timedelta(days=1)), "period_end": stamp(at)}
-        return {"database_token": token, "periods": [periods[kind] for kind in REPORT_KINDS], "now": stamp(at),
+        return {"database_token": token, "periods": [periods[kind] for kind in KINDS], "now": stamp(at),
                 "schedule_times": times, "window_times": dict(report_schedule.WINDOW_TIMES), "windows": windows,
-                "model_label": label, "model_settings": report_model.selection(settings)}
+                "model_defaults": model_defaults, **model_defaults["morning"]}
 
     def create_selected(self, kind, selection, request_id, token, schedule_times=None, model_override=None, window=None):
         if not isinstance(kind, str) or kind not in KINDS:
@@ -960,7 +972,7 @@ class Service:
 
     def create_manual(self, kind, period_start, period_end, request_id, token, model_override=None):
         try:
-            if not isinstance(kind, str) or kind not in REPORT_KINDS or not all(isinstance(value, str) for value in (period_start, period_end, request_id)):
+            if not isinstance(kind, str) or kind not in KINDS or not all(isinstance(value, str) for value in (period_start, period_end, request_id)):
                 raise ValueError()
             request_id = uuid.UUID(request_id).hex
             start, end, at = local(period_start), local(period_end), now()
@@ -973,7 +985,7 @@ class Service:
         else:
             last = end-timedelta(seconds=1)
             title = (f"{last:%m月%d日}" if start.date() == last.date() or kind in {"morning", "noon", "evening"} and end-start <= timedelta(days=1)
-                     else f"{start:%m月%d日}—{last:%m月%d日}") + ("自定义报告" if kind == "custom" else KINDS[kind])
+                     else f"{start:%m月%d日}—{last:%m月%d日}") + KINDS[kind]
         key = MANUAL_PREFIX + request_id
         with closing(self.connect()) as conn:
             if token != conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]:
@@ -983,7 +995,8 @@ class Service:
             existing = conn.execute("SELECT 1 FROM periodic_reports WHERE edition_key=?", (key,)).fetchone()
         # Metadata validation may start a local CLI. Keep it outside the write
         # transaction, and never re-resolve configuration for a replayed request.
-        config = None if existing else report_model.configuration(self.settings(), resolve=False, override=model_override)
+        config = None if existing else report_model.configuration(
+            self.settings(), resolve=False, override=model_override, feature=report_model_feature(kind))
         with closing(self.connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
             if token != conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]:
@@ -1034,7 +1047,7 @@ class Service:
                     raise ValueError("report_preview_conflict")
             else:
                 ts = stamp(at)
-                config = report_model.configuration(self.settings(), resolve=False)
+                config = report_model.configuration(self.settings(), resolve=False, feature=report_model_feature(kind))
                 conn.execute("""INSERT INTO periodic_reports
                     (id,edition_key,kind,title,period_start,period_end,scheduled_at,created_at,updated_at,config_json,model_label)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (uuid.uuid4().hex, key, kind,
@@ -1077,14 +1090,15 @@ class Service:
         with closing(self.connect()) as conn:
             if token != conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]:
                 raise ValueError("report_database_changed")
-            row = conn.execute("SELECT status,config_json FROM periodic_reports WHERE id=?", (report_id,)).fetchone()
+            row = conn.execute("SELECT status,config_json,kind FROM periodic_reports WHERE id=?", (report_id,)).fetchone()
             if not row:
                 raise LookupError("report_not_found")
             if row["status"] != "failed":
                 return
         # A retry keeps the report's identity, even after global settings change.
         # Only legacy unbound jobs acquire their first configuration here.
-        config = json.loads(row["config_json"]) if row["config_json"] else report_model.configuration(self.settings(), resolve=False)
+        config = json.loads(row["config_json"]) if row["config_json"] else report_model.configuration(
+            self.settings(), resolve=False, feature=report_model_feature(row["kind"]))
         if "limits" not in config:
             config["limits"] = report_model.capacity(config)
         with closing(self.connect()) as conn:

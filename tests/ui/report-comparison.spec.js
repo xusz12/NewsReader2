@@ -16,7 +16,7 @@ async function create(request, config) {
   expect((await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{...saved.feature_models,reports:config}}})).ok()).toBe(true);
   const {database_token}=await (await request.get('/api/reports/manual-options')).json();
   const response=await request.post('/api/reports/manual',{data:{database_token,request_id:crypto.randomUUID(),
-    kind:'custom',period_start:'2026-10-10T00:00:00+08:00',period_end:'2026-10-23T00:00:00+08:00'}});
+    kind:'evening',period_start:'2026-10-10T00:00:00+08:00',period_end:'2026-10-23T00:00:00+08:00'}});
   expect(response.status()).toBe(202);
   return (await response.json()).report;
 }

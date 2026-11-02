@@ -98,7 +98,7 @@ def test_manual_and_existing_jobs_continue_while_paused(service, db, monkeypatch
     service.schedule_once()
     change(service, db, monkeypatch, True, "2026-10-30T14:31:00+08:00")
     token = service.manual_options()["database_token"]
-    manual = service.create_manual("custom", "2026-10-29T10:00:00+08:00", "2026-10-29T11:00:00+08:00", "a"*32, token)
+    manual = service.create_manual("evening", "2026-10-29T10:00:00+08:00", "2026-10-29T11:00:00+08:00", "a"*32, token)
     assert service.run_one() and service.run_one()
     with closing(db()) as conn:
         assert {row[0] for row in conn.execute("SELECT status FROM periodic_reports")} == {"done"}

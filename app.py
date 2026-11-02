@@ -12549,7 +12549,11 @@ def api_report_model_options():
     if not isinstance(body, dict):
         return jsonify(ok=False, error="invalid_payload"), 400
     try:
-        catalog = periodic_reports.report_model.catalog(REPORT_SERVICE.settings(), body.get("runtime"))
+        kind = body.get("kind", "morning")
+        if not isinstance(kind, str) or kind not in periodic_reports.KINDS:
+            raise ValueError("report_model_selection_invalid")
+        catalog = periodic_reports.report_model.catalog(REPORT_SERVICE.settings(), body.get("runtime"),
+            periodic_reports.report_model_feature(kind))
         return jsonify(ok=True, catalog=catalog)
     except (ValueError, RuntimeError) as exc:
         return report_request_error(exc)
