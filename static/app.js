@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.4.7";
+import { SettingsPanel } from "./settings-panel.js?v=settings-help-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.4.6";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
 import { ReportPanel } from "./report-panel.js?v=0.4.7";
@@ -168,6 +168,28 @@ const settings = new SettingsPanel({
     if (agent.open) agent.refresh();
   },
   onSources: renderSources,
+  onSourceDeleted: ({deleted_item_ids: ids}) => {
+    const deleted = new Set(ids);
+    stateWrites.version++;
+    sourcesSequence++;
+    sourceCountsByCollection.clear();
+    for (const id of deleted) {
+      state.readerViews.delete(id);
+      stateWrites.changes.delete(id);
+      researchNotes.drafts.delete(id);
+    }
+    if (deleted.has(state.selected?.id)) {
+      clearTimeout(detailTimer);
+      state.detailSequence++;
+      state.selected = null;
+      state.detail = null;
+      agent.select(null, {});
+      researchNotes.mount(null, null, []);
+      renderReader();
+    }
+    for (const id of deleted) agent.drafts.delete(id);
+    void notifications.refresh();
+  },
 });
 const researchNotes = new ResearchNotes({ onUpdate: updateResearchNotes });
 const standaloneIdeas = new StandaloneIdeas({

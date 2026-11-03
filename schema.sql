@@ -1,5 +1,11 @@
 PRAGMA foreign_keys = ON;
 
+-- Preserve only the identities actually deleted, not a source-wide exclusion.
+-- A single compact B-tree avoids storing the primary key in a second index.
+CREATE TABLE IF NOT EXISTS deleted_news_items (
+  fingerprint BLOB PRIMARY KEY CHECK(typeof(fingerprint)='blob' AND length(fingerprint)=32)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS source_files (
   path TEXT PRIMARY KEY,
   mtime REAL NOT NULL,

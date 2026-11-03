@@ -60,6 +60,10 @@ import topic_tracking
 import periodic_reports
 import report_reader
 import reader_sources
+import source_deletion
+from feed_sources import (SOURCE_LABELS, derive_source_key, derive_source_subkey,
+    feed_source_subkey_sql, normalize_hidden_source_subkeys, normalize_source_subkey_key,
+    source_label_for_key, is_bloomberg_video_url, visible_news_sql)
 import report_model
 import task_progress
 from oar_client import bridge_command, bridge_request, parse_event as parse_oar_event, run_once as run_oar_once, cleanup_config as cleanup_oar_config, terminate_group, ERROR_MESSAGES as OAR_ERROR_MESSAGES
@@ -152,15 +156,6 @@ TWITTER_THREAD_TIMEOUT = 90
 TWITTER_ARTICLE_TIMEOUT = 60
 DETAIL_MAX_ATTEMPTS = 3
 DETAIL_RETRY_DELAYS = (5, 15)
-
-SOURCE_LABELS = {
-    "all": "全部来源",
-    "reuters": "Reuters",
-    "bloomberg": "Bloomberg",
-    "techcrunch": "TechCrunch",
-    "ars": "Ars Technica",
-    "x": "X",
-}
 
 DEFAULT_MARKET_TAG_CHOICES = [
     "存储",
@@ -384,243 +379,6 @@ def build_feed_unread_cursor_clause(cursor: dict | None, ascending: bool) -> tup
         cursor["published_at"],
         cursor["id"],
     ]
-
-
-def _source_prefix(source: str | None) -> str:
-    if not source:
-        return ""
-    return source.split("·", 1)[0].strip()
-
-
-def derive_source_key(url: str | None, source_type: str | None, source: str | None) -> str:
-    st = (source_type or "").strip().lower()
-    if st == "twitter":
-        return "x"
-
-    host = (urlparse(url or "").hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    if host in ("x.com", "twitter.com"):
-        return "x"
-    if host.endswith("reuters.com"):
-        return "reuters"
-    if host.endswith("bloomberg.com"):
-        return "bloomberg"
-    if host.endswith("techcrunch.com"):
-        return "techcrunch"
-    if host.endswith("arstechnica.com"):
-        return "ars"
-    if host:
-        return f"host:{host}"
-
-    prefix = _source_prefix(source).lower()
-    if prefix == "reuters":
-        return "reuters"
-    if prefix == "bloomberg":
-        return "bloomberg"
-    if prefix == "techcrunch":
-        return "techcrunch"
-    if prefix in ("ars technica", "ars"):
-        return "ars"
-    if prefix in ("x", "twitter"):
-        return "x"
-    if prefix:
-        return f"name:{prefix}"
-    return "unknown"
-
-
-def is_bloomberg_video_url(url: str | None) -> bool:
-    """Identify Bloomberg's dedicated video pages without title/slug guessing."""
-    if not url:
-        return False
-    try:
-        parsed = urlparse(str(url).strip())
-    except (TypeError, ValueError):
-        return False
-    host = (parsed.hostname or "").rstrip(".").lower()
-    path = (parsed.path or "").lower()
-    return (host == "bloomberg.com" or host.endswith(".bloomberg.com")) and path.startswith("/news/videos/")
-
-
-def visible_news_sql(alias: str = "items") -> str:
-    return f"is_bloomberg_video_url({alias}.url) = 0"
-
-
-def source_label_for_key(key: str, source: str | None = None) -> str:
-    if key in SOURCE_LABELS:
-        return SOURCE_LABELS[key]
-    if key.startswith("host:"):
-        return key[5:]
-    if key.startswith("name:"):
-        return source or key[5:]
-    return source or key
-
-
-def _slug_source_part(value: str | None) -> str:
-    text = (value or "").strip().lower()
-    text = re.sub(r"[\s/]+", "-", text)
-    text = re.sub(r"[^a-z0-9_-]+", "-", text)
-    text = re.sub(r"-+", "-", text).strip("-_")
-    return text[:80]
-
-
-def _x_account_from_url(url: str | None) -> str:
-    parsed = urlparse(url or "")
-    host = (parsed.hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    if host not in {"x.com", "twitter.com"}:
-        return ""
-    parts = [part for part in parsed.path.split("/") if part]
-    if not parts:
-        return ""
-    account = parts[0].strip()
-    if account.lower() in {"i", "home", "search", "intent", "share", "explore", "notifications", "messages"}:
-        return ""
-    return account[:80]
-
-
-X_COLLECTION_SOURCE_ALIASES = {
-    "ilya sutskever": ("ilyasut", "Ilya Sutskever"),
-    "郭明錤": ("mingchikuo", "郭明錤"),
-    "外汇交易员": ("fxtrader", "外汇交易员"),
-    "time horizon": ("Time_HorizonX", "Time Horizon"),
-    "卡比卡比": ("jakevin7", "卡比卡比"),
-    "seekinganythingbutalpha": ("ivanalog_com", "seekinganythingbutalpha"),
-}
-X_GENERIC_SOURCE_NAMES = {"", "x", "twitter", "twitter/x"}
-SOURCE_SUBKEY_COMPAT_ALIASES = {
-    "bloomberg/bloomberg_tech": "bloomberg/tech",
-    "bloomberg/technology": "bloomberg/tech",
-}
-
-
-def _candidate_account_label(*values: str | None) -> str:
-    for value in values:
-        text = (value or "").strip().lstrip("@")
-        if not text or text.lower() in X_GENERIC_SOURCE_NAMES:
-            continue
-        if " · " in text:
-            text = text.split(" · ")[-1].strip().lstrip("@")
-        return text[:80]
-    return ""
-
-
-def _looks_like_x_handle(value: str | None) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_]{1,15}", (value or "").strip().lstrip("@")))
-
-
-def _x_collection_source_from_meta(source_type: str | None, source: str | None, source_name: str | None, url: str | None = None) -> tuple[str, str]:
-    parsed = urlparse(url or "")
-    host = (parsed.hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    is_x_url = host in {"x.com", "twitter.com"}
-    st = (source_type or "").strip().lower()
-
-    for raw in (source, source_name):
-        text = (raw or "").strip().lstrip("@")
-        if not text:
-            continue
-        alias = X_COLLECTION_SOURCE_ALIASES.get(text.lower())
-        if alias:
-            handle, label = alias
-            return handle, f"{label} (@{handle})"
-
-    for raw in (source, source_name):
-        text = (raw or "").strip().lstrip("@")
-        if not text or text.lower() in X_GENERIC_SOURCE_NAMES:
-            continue
-        if _looks_like_x_handle(text) and (st == "twitter" or is_x_url):
-            return text[:80], f"@{text[:80]}"
-
-    return "", ""
-
-
-def _media_subsource_label(source_key: str, source: str | None, source_name: str | None = None) -> str:
-    generic = {
-        "reuters": {"reuters"},
-        "bloomberg": {"bloomberg"},
-        "techcrunch": {"techcrunch", "tech crunch"},
-        "ars": {"ars", "ars technica", "arstechnica"},
-    }
-    for raw in (source, source_name):
-        text = (raw or "").strip()
-        if not text:
-            continue
-        if "·" in text:
-            prefix, suffix = [part.strip() for part in text.split("·", 1)]
-            if derive_source_key(None, None, prefix) == source_key and suffix:
-                if source_key == "bloomberg" and _slug_source_part(suffix) in {"bloomberg_tech", "technology"}:
-                    return "Tech"
-                return suffix[:80]
-        lowered = text.lower()
-        if lowered in generic.get(source_key, set()):
-            continue
-        if source_key == "bloomberg" and _slug_source_part(text) in {"bloomberg_tech", "technology"}:
-            return "Tech"
-        return text[:80]
-    return ""
-
-
-def normalize_source_subkey_key(value: object) -> str:
-    if not isinstance(value, str):
-        return ""
-    raw = value.strip().lower()
-    if "/" not in raw:
-        return ""
-    source_key, subkey = raw.split("/", 1)
-    source_key = _slug_source_part(source_key)
-    subkey = _slug_source_part(subkey)
-    if not source_key or not subkey:
-        return ""
-    key = f"{source_key}/{subkey}"
-    return SOURCE_SUBKEY_COMPAT_ALIASES.get(key, key)
-
-
-def normalize_hidden_source_subkeys(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        key = normalize_source_subkey_key(item)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        normalized.append(key)
-    return normalized[:500]
-
-
-def derive_source_subkey(url: str | None, source_type: str | None, source: str | None, source_name: str | None = None) -> dict | None:
-    source_key = derive_source_key(url, source_type, source)
-    source_label = SOURCE_LABELS.get(source_key) or source_label_for_key(source_key, source)
-    if source_key == "x":
-        account, label = _x_collection_source_from_meta(source_type, source, source_name, url)
-        if not account:
-            account = _x_account_from_url(url) or _candidate_account_label(source, source_name)
-            label = f"@{account.lstrip('@')}" if account else ""
-        slug = _slug_source_part(account)
-        if not slug:
-            return None
-        return {"key": f"x/{slug}", "source_key": "x", "source_label": SOURCE_LABELS["x"], "label": label or f"@{account.lstrip('@')}"}
-
-    if source_key in {"reuters", "bloomberg", "techcrunch", "ars"}:
-        sub_label = _media_subsource_label(source_key, source, source_name)
-        sub_slug = _slug_source_part(sub_label)
-        if not sub_slug:
-            return None
-        key = SOURCE_SUBKEY_COMPAT_ALIASES.get(f"{source_key}/{sub_slug}", f"{source_key}/{sub_slug}")
-        if key == "bloomberg/tech":
-            sub_label = "Tech"
-        return {"key": key, "source_key": source_key, "source_label": source_label, "label": sub_label}
-
-    return None
-
-
-def feed_source_subkey_sql(url: str | None, source_type: str | None, source: str | None, source_name: str | None = None) -> str:
-    item = derive_source_subkey(url, source_type, source, source_name)
-    return item["key"] if item else ""
 
 
 def build_feed_source_hidden_clause(collection: str) -> tuple[str, list[str]]:
@@ -2293,10 +2051,11 @@ def pi_chat_settings_snapshot(saved_model: str, saved_provider: str = "") -> dic
                         "model_options_by_provider": options}}
 
 
-def build_feed_source_settings_snapshot(hidden_keys: list[str]) -> dict:
+def build_feed_source_settings_snapshot(hidden_keys: list[str], conn=None) -> dict:
     hidden = set(normalize_hidden_source_subkeys(hidden_keys or []))
     groups: dict[str, dict] = {}
-    conn = db_conn()
+    owns_connection = conn is None
+    conn = conn or db_conn()
     try:
         rows = conn.execute(
             f"""
@@ -2307,7 +2066,8 @@ def build_feed_source_settings_snapshot(hidden_keys: list[str]) -> dict:
             """
         ).fetchall()
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
 
     for row in rows:
         item = derive_source_subkey(row["url"], row["source_type"], row["source"], row["source_name"])
@@ -2343,6 +2103,59 @@ def build_feed_source_settings_snapshot(hidden_keys: list[str]) -> dict:
         ordered_groups.append({"source_key": source_key, "label": group["label"], "items": items})
     visible_hidden_keys = [key for key in normalize_hidden_source_subkeys(hidden_keys or []) if key in known_item_keys]
     return {"hidden_source_subkeys": visible_hidden_keys, "groups": ordered_groups}
+
+
+@app.route("/api/settings/sources/<path:source_key>", methods=["GET", "DELETE"])
+def api_settings_source(source_key):
+    key = normalize_source_subkey_key(source_key)
+    if not key or key != source_key:
+        return jsonify(ok=False, error="invalid_source_key"), 400
+    deleting = request.method == "DELETE"
+    body = request.get_json(silent=True) if deleting else None
+    if deleting and (not isinstance(body, dict) or not isinstance(body.get("confirmation_token"), str)
+                     or not re.fullmatch(r"[0-9a-f]{64}", body["confirmation_token"])):
+        return jsonify(ok=False, error="source_confirmation_required"), 400
+    staged, committed = None, False
+    try:
+        ensure_agent_db()
+        with INDEX_REFRESH_LOCK, closing(db_conn()) as conn:
+            agent_schema = source_deletion.attach_agent(conn, AGENT_DB_PATH, DB_PATH)
+            conn.execute("BEGIN IMMEDIATE" if deleting else "BEGIN")
+            try:
+                plan = source_deletion.Plan(conn, key, database_path=DB_PATH, agent_schema=agent_schema,
+                    scope=agent_library_scope(), media_root=MEDIA_CACHE_DIR, runtime_root=AGENT_RUNTIME_DIR)
+                if not deleting:
+                    return jsonify(ok=True, source=plan.preview)
+                if body["confirmation_token"] != plan.preview["confirmation_token"]:
+                    raise source_deletion.SourceDeletionError("source_data_changed")
+                staged = source_deletion.StagedFiles(plan)
+                staged.stage()
+                plan.delete_rows()
+                remaining_sources = build_feed_source_settings_snapshot(
+                    current_runtime_settings()["feed"].get("hidden_source_subkeys") or [], conn=conn)
+                conn.commit()
+                committed = True
+            except Exception:
+                conn.rollback()
+                raise
+        for job_id in plan.process_ids:
+            _terminate_agent_process(job_id)
+        warning = ""
+        try:
+            staged.cleanup()
+        except OSError:
+            app.logger.exception("Source data deleted but staged cache cleanup failed")
+            warning = "新闻数据已删除，部分隔离缓存未能清理，请检查缓存目录的写入权限。"
+        return jsonify(ok=True, deleted=plan.preview, deleted_item_ids=plan.item_ids, warning=warning,
+                       feed_source_subkeys=remaining_sources)
+    except source_deletion.SourceDeletionError as exc:
+        return jsonify(ok=False, error=exc.code), exc.status
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Source deletion failed")
+        return jsonify(ok=False, error="source_delete_failed"), 500
+    finally:
+        if staged and not committed:
+            staged.restore()
 
 
 def _database_path_from_payload(payload: object, current_settings: dict) -> str:
@@ -3263,7 +3076,7 @@ def _agent_cancel_requested(job_id: str) -> bool:
     conn = agent_db_conn()
     try:
         row = conn.execute("SELECT cancel_requested FROM agent_jobs WHERE id=?", (job_id,)).fetchone()
-        return bool(row and row["cancel_requested"])
+        return not row or bool(row["cancel_requested"])
     finally:
         conn.close()
 
@@ -3469,6 +3282,12 @@ def run_agent_job(job: dict, session: dict, context: dict, history: list[dict]) 
             "SELECT cancel_requested, answer_text FROM agent_jobs WHERE id=?",
             (job["id"],),
         ).fetchone()
+        if not row:
+            # Deletion can race process preparation; reap any directory recreated
+            # after it was staged, and do not persist a new Codex thread mapping.
+            if _runtime_dir:
+                _remove_agent_runtime_dir(_runtime_dir.name)
+            return
         output = output or (row["answer_text"] if row else "") or ""
         finished = now_ts()
         canceled = bool(row and row["cancel_requested"])
@@ -6592,8 +6411,10 @@ def _cleanup_media_cache(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM media_cache WHERE created_at < ?", (cutoff,))
 
 
-def _cache_twitter_image(conn: sqlite3.Connection, url: str) -> dict | None:
+def _cache_twitter_image(conn: sqlite3.Connection, url: str, *, article_url: str = "") -> dict | None:
     if not _is_cacheable_twitter_media_url(url):
+        return None
+    if article_url and not conn.execute("SELECT 1 FROM items WHERE url=? LIMIT 1", (article_url,)).fetchone():
         return None
     cache_key = _media_cache_key_for_url(url)
     relative_path = _media_cache_relative_path(cache_key)
@@ -6607,6 +6428,13 @@ def _cache_twitter_image(conn: sqlite3.Connection, url: str) -> dict | None:
         if existing_path.exists():
             return {"cache_key": cache_key, "cached_url": f"/api/media-cache/{cache_key}", "status": "success"}
     ok, mime_type, size = _download_media_file(url, dest_path)
+    if article_url:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("SELECT 1 FROM items WHERE url=? LIMIT 1", (article_url,)).fetchone():
+            if not conn.execute("SELECT 1 FROM media_cache WHERE url=?", (url,)).fetchone():
+                dest_path.unlink(missing_ok=True)
+            return None
     ts = now_ts()
     if not ok:
         conn.execute(
@@ -6799,7 +6627,7 @@ def run_opencli_twitter_detail(url: str) -> tuple[bool, dict, str]:
         conn = db_conn()
         try:
             for image in media_images:
-                cached = _cache_twitter_image(conn, image["url"])
+                cached = _cache_twitter_image(conn, image["url"], article_url=url)
                 if cached:
                     cached_images.append({**image, **cached})
                 else:
@@ -7199,6 +7027,11 @@ def process_pending_ai_once() -> bool:
 
         finished = now_ts()
         with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # A source deletion or retry can revoke an in-flight translation.
+            if not conn.execute("SELECT 1 FROM ai_jobs WHERE url=? AND status='running' AND started_at=?",
+                                (job["url"], started)).fetchone():
+                return True
             if ok:
                 conn.execute(
                     """

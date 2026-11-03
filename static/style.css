@@ -2193,6 +2193,35 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 .article-body--compact p { text-align: start; overflow-wrap: anywhere; }
 .section-stack { display: flex; flex-direction: column; gap: var(--space-4); }
 details > summary.reader-tool-btn + .section-stack { margin-top: var(--space-3); }
+
+/* Shared question/answer accordion, using the settings typography and tokens. */
+.accordion { min-width: 0; }
+.accordion-item { border-bottom: 1px solid var(--border); }
+.accordion-item:last-child { border-bottom: 0; }
+.accordion-heading { font: inherit; }
+.accordion-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4) 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
+  scroll-margin-block: var(--space-2);
+}
+.accordion-trigger > span { min-width: 0; overflow-wrap: anywhere; }
+.accordion-trigger:hover > span { text-decoration: underline; text-underline-offset: var(--space-1); }
+.accordion-chevron { width: var(--space-4); height: var(--space-4); flex-shrink: 0; color: var(--muted); transition: transform var(--motion-fast) var(--ease-standard); }
+.accordion-trigger[aria-expanded="true"] .accordion-chevron { transform: rotate(180deg); }
+.accordion-content { display: flex; flex-direction: column; gap: var(--space-3); padding-bottom: var(--space-4); color: var(--fg); font-size: var(--fs-body); line-height: 1.7; overflow-wrap: anywhere; }
+
 .section-title-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
 .section-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--accent); }
 .status-pill { display: inline-flex; align-items: center; padding: var(--space-1) var(--space-3); border-radius: var(--radius-lg); background: var(--surface-subtle); color: var(--muted); font-size: var(--fs-meta); font-weight: 600; }
@@ -3573,6 +3602,16 @@ button:disabled {
   justify-content: flex-start;
   padding: 5px 0;
 }
+.settings-source-group .sub-source-item > label {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: inherit;
+  cursor: pointer;
+}
+.settings-source-group .sub-source-item > label > span:first-of-type { flex: 1; }
+.settings-source-group .sub-source-item > button { flex-shrink: 0; }
 #updateResult { white-space: pre-line; overflow-wrap: anywhere; margin-block: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-subtle); color: var(--fg); }
 #updateConclusion { display: block; font-size: var(--fs-body); font-weight: 600; line-height: 1.6; }
 #updateExplanation, #updateCheckedAt { display: block; font-size: var(--fs-meta); color: var(--muted); line-height: 1.7; margin: var(--space-2) 0 0; }

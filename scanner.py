@@ -9,6 +9,7 @@ from pathlib import Path
 from parser import DAILY_FILE_RE, parse_daily_file, parse_daily_json_file, sidecar_path_for_daily
 import news_classification
 import topic_tracking
+from source_deletion import item_fingerprint
 
 INGEST_MODE_SIDECAR_JSON = "sidecar_json"
 INGEST_MODE_MARKDOWN_FALLBACK = "markdown_fallback"
@@ -220,8 +221,13 @@ def reindex(
         stats.record_ingest_mode(parsed_source.ingest_mode)
 
         with conn:
+            # Check deletion fingerprints under the write lock. New items from
+            # the same source remain eligible, including late-arriving history.
+            conn.execute("BEGIN IMMEDIATE")
             for it in parsed:
                 item_id = make_item_id(it.date, it.source, it.title, it.url)
+                if conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(item_id),)).fetchone():
+                    continue
                 new_ids.append(item_id)
                 conn.execute(
                     """
@@ -291,7 +297,7 @@ def reindex(
                     current[0],
                     current[1],
                     ts,
-                    len(parsed),
+                    len(new_ids),
                     parsed_source.ingest_mode,
                     parsed_source.ingest_warning,
                 ),

@@ -411,4 +411,24 @@ def fixture_reports():
     return {'ok': True}
 
 
+@module.app.post('/__test/source-deletion')
+def source_deletion_fixture():
+    with module.db_conn() as conn:
+        for index in range(3):
+            ident, url = f'source-delete-{index}', f'https://reuters.com/test/source-delete-{index}'
+            conn.execute('DELETE FROM items WHERE id=?', (ident,))
+            for table in ('article_details', 'article_ai', 'article_notes', 'detail_jobs', 'ai_jobs'):
+                conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
+            conn.execute('DELETE FROM item_state WHERE item_id=?', (ident,))
+            conn.execute('DELETE FROM deleted_news_items WHERE fingerprint=?', (module.source_deletion.item_fingerprint(ident),))
+            if (module.request.get_json(silent=True) or {}).get('clear'):
+                continue
+            stamp = '2026-10-12 09:00:00'
+            conn.execute('''INSERT INTO items(id,source_file,item_order,published_at,date,source,source_type,source_name,title,summary,url,created_at,updated_at)
+                VALUES (?,?,?,?,'2026-10-12','Reuters · Deletion Test','news','Deletion Test',?,'删除测试合成摘要',?,?,?)''',
+                (ident,'test-source.md',index,stamp,f'删除测试合成新闻 {index}',url,stamp,stamp))
+            conn.execute('INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,?,?,?)', (url,'Source deletion fixture. '*120,stamp,stamp))
+    return {'ok': True}
+
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

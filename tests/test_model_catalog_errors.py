@@ -41,7 +41,7 @@ def test_opencode_catalog_accepts_response_slower_than_five_seconds(api_fixture,
     thread.start()
     try:
         address = f'http://127.0.0.1:{server.server_port}/models'
-        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode'], 'models_url', address)
+        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address)
         monkeypatch.setattr(app, 'urlopen', build_opener(ProxyHandler({})).open)
         started = time.monotonic()
         result = client.post('/api/settings/apis/opencode/models', json={})
@@ -90,7 +90,7 @@ def test_opencode_stalled_tls_handshake_is_reported_as_timeout(api_fixture, monk
 
     try:
         address = f'https://127.0.0.1:{server.server_address[1]}/models'
-        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode'], 'models_url', address)
+        monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address)
         monkeypatch.setattr(app, 'urlopen', open_request)
         result = client.post('/api/settings/apis/opencode/models', json={})
         assert len(failures) == 1 and isinstance(failures[0], TimeoutError)

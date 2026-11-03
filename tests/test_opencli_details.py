@@ -136,7 +136,7 @@ def test_v2_x_thread_and_optional_article(reader, monkeypatch, has_article):
         return cli_response({"ok": False, "error": {"code": "COMMAND_EXEC", "message": "Tweet has no article content"}}, 1)
     run = Mock(side_effect=respond)
     monkeypatch.setattr(reader.subprocess, "run", run)
-    monkeypatch.setattr(reader, "_cache_twitter_image", lambda *args: None)
+    monkeypatch.setattr(reader, "_cache_twitter_image", lambda *args, **kwargs: None)
     queue(reader, url)
     assert reader.process_pending_jobs_once()
     assert job(reader, url)["status"] == "success"

@@ -83,6 +83,10 @@
   register('session', 'oar_resources_changed oar_trust_changed oar_project_untrusted oar_extension_failed', '本机会话资源不可用或未获信任。');
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
   register('context', 'read_state_irreversible', '新闻已浏览状态不可撤销，请刷新页面后重试。');
+  register('input', 'invalid_source_key source_not_found', '该信源不存在或已删除，请刷新设置。');
+  register('preview', 'source_data_changed', '信源数据或新闻库已变化，请再次点击删除，查看最新统计并重新确认。');
+  register('preview', 'source_confirmation_required', '请先查看信源数据统计并确认删除。');
+  register('save', 'source_delete_failed', '信源删除失败，数据未清除。请检查存储权限或稍后重试。');
   register('context', 'empty_archive_source', '没有可归档的内容。');
   register('context', 'empty_archive_summary', '没有可归档的实质内容。');
   register('limit', 'unsupported_source SKIPPED_SOURCE', '暂不支持此新闻来源。');

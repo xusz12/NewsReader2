@@ -104,6 +104,7 @@ flowchart LR
 | `static/vendor/idea-markdown-editor.js` | 已提交的编辑器构建产物 | 用 `npm run build:idea-editor` 生成，不手工改压缩代码 |
 | `static/keyboard-shortcuts.js` | 快捷键默认表、组合键规范化、冲突校验、本地持久化与提示同步 | 与设置草稿、新闻／想法／总结按键处理一起回归；不写服务器配置 |
 | `static/settings-panel.js` / `static/update-panel.js` / `static/schedule-observer.js` | 设置草稿、保存、模型、更新状态及报告排期编辑／观察 | 防止旧响应覆盖新草稿，排期按下次执行时间升序 |
+| `static/settings-help.js` / `static/accordion.js` | 设置中的分类帮助内容与共享多项展开问答 | 帮助只读，无独立 API；文件扫描、信源删除或状态语义改变时同步维护文案 |
 | `report_schedule.py` | 北京时间排期校验与生效历史，独立计算启动时刻与可编辑新闻窗口 | 不追溯更改已创建的报告，旧漏期按原时刻补齐 |
 | `static/upstream-errors.js` / `static/error_ui.js` | 上游报错浏览及错误反馈 | 区分采集异常、API 错误、模型错误 |
 | `static/tokens.css` / `static/style.css` / `static/design-tokens.json` | 主题与布局 | CSS Token 和 JSON 映射保持一致 |
@@ -162,6 +163,18 @@ flowchart LR
 12. ready主题可通过definition接口编辑名称、定义、范围及horizontal_rule；不修改历史起点或已有模式。rules_revision用于乐观并发校验，与初始化／归档用的revision分开。保存前将已入库但未排队的新闻按旧规则排队，并补齐旧记录快照；topic_checks.rules_json保存首次排队时的定义／规则版本，之后标题或摘要变更也保留此快照。编辑不改归属、节点、cutoff或生命周期版本，在途结果可按旧规则完成。保存后首次入库的新新闻使用新规则；归档期间编辑在恢复后的新新闻生效。迁移补齐默认横向规则，并将旧events尚未完成的update任务转换为Jev milestone任务，既有节点与新闻保留。
 
 自动化验证用隔离数据库和确定性模型替身，见 `tests/test_topic_tracking.py`；真实外部模型结果质量与搜索能力仍需在用户实际配置下验证。Jev协议依据：[官方SDK类型](https://github.com/typesafe-ai/typesafe-sdk-js/blob/main/src/types.ts)。
+
+## 信源删除（2026-11-03）
+
+`feed_sources.py` 统一设置、来源筛选与删除操作的媒体栏目／X 采集账号识别，保留 Bloomberg Tech 别名与 X 转帖按采集账号归属的规则。`GET /api/settings/sources/<source_key>` 返回只读删除预览，`DELETE` 同路径必须提交预览的 `confirmation_token`。`source_deletion.Plan` 共用统计和删除条件，令牌绑定新闻库文件身份、信源、全部待删记录及缓存文件的大小／修改时间；变化返回409 `source_data_changed`，缺少确认返回400，不存在返回404。
+
+删除与重新索引共用 `INDEX_REFRESH_LOCK`，用 `BEGIN IMMEDIATE` 和附加 Agent 库统一提交新闻、状态、分类及主题匹配关联、正文、译文、想法、高亮、队列、旧提醒／复盘关联、当前库临时会话及通知。URL 级记录只有在其他信源不再引用时删除；仍使用的抓取任务重新绑定到保留新闻。媒体引用按正文／译文单次扫描，专属媒体文件与当前库会话目录先在各自缓存目录内改名暂存，事务失败恢复，成功后清理；其他新闻库会话、无明确库归属的旧会话保留。缓存清理失败明确返回 warning，不宣称完全释放磁盘。大小按记录内容 UTF-8 字节及专属文件实际大小统计，不包含 SQLite 页、索引和空闲空间；不在交互请求中执行 VACUUM。
+
+`deleted_news_items` 只保存实际删除的新闻 ID 的 SHA-256 二进制指纹，每条有效内容32字节，使用 `WITHOUT ROWID` 的单一主键 B-tree，重复写入不增加记录。不保留网址、标题、摘要或正文，不建立信源级黑名单。扫描器为每条输入计算原有稳定 ID（通常由报道日期和 URL 生成），在写事务内通过索引查找对应删除指纹，命中才跳过。Markdown、JSON sidecar、增量、全量重建和重启均遵循此规则；同一信源的新 ID 正常入库，包括晚到的历史报道。修改旧新闻标题但日期／URL 不变时仍视为原新闻。删除指纹不会在全量重建中清空，也不按时间过期，否则原始文件中的旧记录可能恢复。合成库实测额外页占用：1千条40 KiB、1万条412 KiB、10万条约3.97 MiB（SQLite 3.45.3、4 KiB页，实际随页填充情况变化）。
+
+媒体下载前与落盘事务内检查新闻 URL 是否仍有索引记录，删除后的在途下载不会遗留缓存，无需额外保存已删除 URL 列表。正文任务沿用所有权校验，翻译增加完成前的任务有效性校验；删除的 Agent 任务视为取消，退出时再次清理可能重建的运行目录。外部原始采集文件、已生成日报／新闻总结、主题研究成果及其不可变引用快照属于独立成果，不按单个来源整体删除。前端成功后刷新信源、导航和列表，清空已删除新闻的当前阅读内容，保留其他设置草稿。
+
+扫描进度由 `source_files` 按 DailyNews 根目录下的相对路径保存，记录修改时间、组合签名（历史字段名 `size`）、解析方式、条目数与最后成功扫描时间。组合签名覆盖 Markdown 及同名 JSON 的纳秒修改时间、字节大小和 JSON 是否存在。无记录、记录缺少解析方式或签名变化时整文件重读，记录完整且签名未变则跳过正文解析；每个文件成功入库后与扫描记录一起提交。普通刷新递归检查全部日期文件，不设回溯天数；全量重建清空文件扫描记录，但保留新闻删除指纹。
 
 ## 常用接口契约
 

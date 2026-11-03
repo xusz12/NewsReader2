@@ -83,6 +83,23 @@ def create(service):
     return service.create(str(uuid.uuid4()), service.listing()["database_token"])[0]
 
 
+def test_finishing_summary_does_not_recreate_state_for_deleted_news(setup):
+    path, state, service, gate, entered, *_ = setup
+    gate.clear()
+    job = create(service)
+    assert entered.wait(2)
+    with sqlite3.connect(path) as conn:
+        conn.execute("DELETE FROM items WHERE id='1'")
+        conn.execute("DELETE FROM item_state WHERE item_id='1'")
+    gate.set()
+    result = wait(service, job['id'])
+    assert result['status'] == 'failed'
+    assert result['error'] == 'summary_source_changed'
+    with sqlite3.connect(path) as conn:
+        assert not conn.execute("SELECT 1 FROM item_state WHERE item_id='1'").fetchone()
+        assert not conn.execute("SELECT 1 FROM item_state WHERE item_id='2'").fetchone()
+
+
 def wait(service, id):
     end = time.time() + 4
     while time.time() < end:

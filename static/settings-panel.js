@@ -1,6 +1,8 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
-import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation } from "./ui.js";
+import { Accordion } from "./accordion.js";
+import { settingsHelpHTML } from "./settings-help.js";
+import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
@@ -32,16 +34,18 @@ const field = (label, path, value, extra = "") =>
   `<label class="field-item"><span class="field-label">${label}</span><input class="field-input" name="${path}" value="${e(value)}" ${extra}></label>`;
 
 export class SettingsPanel {
-  constructor({ onSaved, onSources, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry }) {
+  constructor({ onSaved, onSources, onSourceDeleted, onOpen, onViewChange, selects, onClassificationRefresh, onClassificationRetry }) {
     this.onOpen = onOpen;
     this.onViewChange = onViewChange;
     this.onSaved = onSaved;
     this.onSources = onSources;
+    this.onSourceDeleted = onSourceDeleted;
     this.onClassificationRefresh = onClassificationRefresh;
     this.onClassificationRetry = onClassificationRetry;
     this.open = false;
     this.dirty = false;
     this.section = "system";
+    this.helpAccordion = new Accordion($("#settingsContent"));
     this.schedules = new ScheduleObserver({
       isVisible: () => this.open && this.section === "schedules" && (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active")),
       selects,
@@ -120,9 +124,7 @@ export class SettingsPanel {
         return data;
       } catch (error) {
         this.status(errorText(error), true);
-        if (this.open && !this.saved)
-          $("#settingsContent").innerHTML =
-            '<div class="list-message">设置读取失败<button class="btn-secondary" id="retrySettingsBtn" type="button">重试</button></div>';
+        if (this.open && !this.saved) this.renderLoadState(true);
       } finally {
         this.loading = null;
       }
@@ -157,8 +159,7 @@ export class SettingsPanel {
     $("#settingsListTitle").focus();
     if (this.saved) this.render();
     else {
-      $("#settingsContent").innerHTML =
-        '<div class="list-message" role="status">正在读取配置…</div>';
+      this.renderLoadState();
       this.status("正在读取配置…");
       await this.load();
       this.render();
@@ -255,6 +256,12 @@ export class SettingsPanel {
     const changed = this.section !== section;
     if (changed) this.selects.close(false);
     this.section = section;
+    // Help remains available even when reading configuration fails.
+    if (section === "help" && !$("#settingsHelp")) {
+      $("#settingsContent").insertAdjacentHTML("beforeend", this.helpHTML());
+    }
+    const loadMessage = $("#settingsContent > .list-message");
+    if (loadMessage) loadMessage.hidden = section === "help";
     $$("[data-settings-tab]").forEach((button) => {
       const active = button === selected;
       button.classList.toggle("active", active);
@@ -496,6 +503,7 @@ export class SettingsPanel {
     $("#settingsContent").innerHTML =
       `<div class="settings-sheet" data-section="models" id="modelSettings"></div>
       <div class="settings-sheet" data-section="schedules" id="scheduleSettings"></div>
+      ${this.helpHTML()}
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
       <div class="settings-sheet" data-section="deepseek" id="translationSettings"></div>
       <section class="settings-section-card" data-section="classification" id="classificationSettingsProgress" aria-labelledby="classificationSettingsProgressTitle">
@@ -544,6 +552,22 @@ export class SettingsPanel {
       if (event.target.open) this.loadReleaseNotes();
     };
     this.status(this.dirty ? "有未保存的更改" : "配置已加载");
+  }
+  helpHTML() {
+    return `<div class="settings-sheet" data-section="help" id="settingsHelp">${settingsHelpHTML(this.helpAccordion)}</div>`;
+  }
+  renderLoadState(failed = false) {
+    let message = $("#settingsContent > .list-message");
+    if (!message) {
+      message = document.createElement("div");
+      message.className = "list-message";
+      message.setAttribute("role", "status");
+      $("#settingsContent").prepend(message);
+    }
+    message.innerHTML = failed
+      ? '设置读取失败<button class="btn-secondary" id="retrySettingsBtn" type="button">重试</button>'
+      : '正在读取配置…';
+    message.hidden = this.section === "help";
   }
   renderShortcuts() {
     const panel = $("#shortcutSettings");
@@ -781,10 +805,61 @@ export class SettingsPanel {
       (this.draft.feed_source_subkeys?.groups || [])
         .map(
           (group) =>
-            `<fieldset class="settings-source-group"><legend>${e(group.label)}</legend>${group.items.map((item) => `<label class="sub-source-item"><input type="checkbox" data-setting-source="${e(item.key)}" ${hidden.has(item.key) ? "" : "checked"}><span>${e(item.label)}</span><span class="muted">${item.count}</span></label>`).join("")}</fieldset>`,
+            `<fieldset class="settings-source-group"><legend>${e(group.label)}</legend>${group.items.map((item) => `<div class="sub-source-item"><label><input type="checkbox" data-setting-source="${e(item.key)}" ${hidden.has(item.key) ? "" : "checked"}><span>${e(item.label)}</span><span class="muted">${item.count}</span></label><button type="button" class="reader-action-btn danger" data-delete-source="${e(item.key)}" aria-label="删除信源 ${e(group.label)} · ${e(item.label)}">删除</button></div>`).join("")}</fieldset>`,
         )
         .join("") || '<p class="muted">索引新闻后，这里会显示可配置的信源。</p>'
     );
+  }
+  async deleteSource(button) {
+    if (this.sourceDeletionPending) return;
+    this.sourceDeletionPending = true;
+    const key = button.dataset.deleteSource;
+    const path = `/api/settings/sources/${encodeURIComponent(key)}`;
+    const library = this.saved.database.path;
+    const index = $$("[data-delete-source]").indexOf(button);
+    button.textContent = "统计中…";
+    try {
+      const { source } = await api(path);
+      if (!this.open || this.section !== "pipeline" || !button.isConnected || this.saved.database.path !== library) return;
+      button.textContent = "删除";
+      const counts = source.counts;
+      const message = [
+        `信源：${source.source_label} · ${source.label}`,
+        `标识：${source.key}`,
+        `新闻数目：${source.news_count.toLocaleString()} 条`,
+        `新闻日期：${source.first_date} 至 ${source.last_date}`,
+        `数据大小：约 ${formatBytes(source.data_bytes)}（数据内容 ${formatBytes(source.database_bytes)}，缓存文件 ${formatBytes(source.file_bytes)}）`,
+        `相关数据：${counts.article_details} 篇正文、${counts.article_ai} 篇译文、${source.note_count} 条想法、${counts.article_highlights} 处高亮、${counts.agent_sessions} 个临时会话。`,
+        "",
+        "将永久清除该信源在当前新闻库中的上述数据、阅读标记及关联任务。已删除的新闻不会重新导入，该信源后续的新新闻仍会正常收录。此操作无法撤销。",
+        "外部 DailyNews 原文件、已生成的报告和主题研究成果保留。其他信源共用的正文与缓存保留。",
+        "数据大小按内容估算，数据库文件不一定立即缩小。",
+      ].join("\n");
+      if (!await confirmAction({title:"删除信源及全部新闻数据", message, action:"永久删除", trigger:button})) return;
+      if (this.saved.database.path !== library) throw new Error("新闻库已变化，请重新确认");
+      button.textContent = "删除中…";
+      const data = await api(path, {method:"DELETE", body:{confirmation_token:source.confirmation_token}});
+      // Update only source metadata. Model, path and source visibility drafts survive.
+      this.saved.feed_source_subkeys = clone(data.feed_source_subkeys);
+      this.draft.feed_source_subkeys = clone(data.feed_source_subkeys);
+      if ($("#settingsSources")) {
+        $("#settingsSources").innerHTML = this.sourceHTML();
+        const buttons = $$("[data-delete-source]");
+        (buttons[Math.min(index, buttons.length - 1)] || $("#settingsReindexBtn"))?.focus({preventScroll:true});
+      }
+      this.onSourceDeleted?.(data);
+      this.onSources?.();
+      this.onSaved?.();
+      document.dispatchEvent(new Event("tasks:changed"));
+      this.status(this.dirty ? "有未保存的更改" : "信源已删除");
+      toast(data.warning || `已删除 ${source.label}，共 ${data.deleted.news_count.toLocaleString()} 条新闻`);
+    } catch (error) {
+      this.status(errorText(error), true);
+      throw error;
+    } finally {
+      this.sourceDeletionPending = false;
+      button.textContent = "删除";
+    }
   }
   updateClassificationProgress(snapshot) {
     this.classificationSnapshot = snapshot;
@@ -837,6 +912,10 @@ export class SettingsPanel {
       this.status("有未保存的更改");
     }
     if (!button) return;
+    if (button.dataset.deleteSource) {
+      void busy(button, () => this.deleteSource(button));
+      return;
+    }
     const feature = button.closest("[data-model-feature]")?.dataset.modelFeature;
     if (feature && button.dataset.modelAction) {
       const actions = {refreshModelsBtn: () => this.refreshModels({feature}), testConnectionBtn: () => this.testConnection(feature)};

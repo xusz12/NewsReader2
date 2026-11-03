@@ -6181,6 +6181,12 @@ def test_run_opencli_twitter_detail_caches_images(monkeypatch, tmp_path):
 
     importlib.reload(app_module)
     app_module.ensure_db()
+    # Media belongs to an indexed article; a deleted/unowned article must not
+    # create orphan cache files when an in-flight download completes.
+    with app_module.db_conn() as conn:
+        conn.execute("""INSERT INTO items(id,source_file,item_order,published_at,date,title,url,created_at,updated_at)
+            VALUES ('media-item','fixture.md',1,'2026-06-11 09:00:00','2026-06-11','Media fixture',
+                    'https://x.com/example/status/123','2026-06-11','2026-06-11')""")
 
     thread_payload = [
         {
