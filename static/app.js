@@ -22,9 +22,9 @@ import {
   ListSearch,
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js?v=settings-help-1";
-import { SummaryPanel } from "./summary-panel.js?v=0.4.6";
+import { SummaryPanel } from "./summary-panel.js?v=0.4.11";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
-import { ReportPanel } from "./report-panel.js?v=0.4.10";
+import { ReportPanel } from "./report-panel.js?v=0.4.11";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";

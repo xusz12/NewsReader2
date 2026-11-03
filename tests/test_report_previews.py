@@ -62,7 +62,7 @@ def test_trial_refreshes_and_runs_full_window_even_before_activation(service, db
         assert [s["id"] for s in snapshot["sources"]] == ["newly-indexed"]
         assert tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone()) == before
         assert conn.execute("SELECT COUNT(*) FROM item_state").fetchone()[0] == 0
-    assert calls == ["refresh", "model"]
+    assert calls == ["refresh", "model", "model"]
 
 
 def test_request_replay_and_concurrent_clicks_create_one_trial(service, db):

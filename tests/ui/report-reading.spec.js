@@ -73,7 +73,7 @@ test('日报来源状态同步、失败恢复、连续点击及返回位置',asy
   const before=(await (await request.get('/api/news/ui-000/detail')).json());
   await page.goto('/'); await openReports(page);
   const details=page.locator('.report-sources').first(); await details.locator('summary').click();
-  const important=details.locator('[data-source-state="important"]').first();
+  const important=details.locator('[data-source-state="important"][data-source-id="ui-000"]');
   await page.route('**/api/news/ui-000/state', route=>route.fulfill({status:500,json:{ok:false,error:'test_failure'}}));
   await important.click(); await expect(important).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('#toast')).toBeVisible(); await page.unroute('**/api/news/ui-000/state');
@@ -96,7 +96,7 @@ test('日报来源状态同步、失败恢复、连续点击及返回位置',asy
   await important.click({clickCount:3}); await expect(important).toHaveAttribute('aria-busy','false');
   const state=(await (await request.get('/api/news/ui-000/detail')).json());
   await expect(important).toHaveAttribute('aria-pressed',String(!!state.important_at));
-  const later=details.locator('[data-source-state="read_later"]').first();
+  const later=details.locator('[data-source-state="read_later"][data-source-id="ui-000"]');
   await later.click(); await expect(later).toHaveAttribute('aria-busy','false');
   const changed=(await (await request.get('/api/news/ui-000/detail')).json());
   expect(changed.read_at).toBeTruthy(); expect(changed.read_later_at).toBeTruthy();

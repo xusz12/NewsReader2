@@ -93,9 +93,9 @@ def test_pool_generates_three_in_parallel_with_one_snapshot_and_no_duplicate_cla
         until(lambda: all(row['status']=='done' for row in rows(db)))
     finally:
         release.set(); service.stop()
-    assert peak == 3 and len(calls) == 5
+    assert peak == 3 and len(calls) == 10  # Title selection and selected-only writing.
     assert {(runtime, model) for runtime, model, _ in calls} == set(expected.values())
-    assert len({prompt for _, _, prompt in calls}) == 1
+    assert len({prompt for _, _, prompt in calls}) == 2
     saved = rows(db)
     assert len({row['snapshot_id'] for row in saved}) == 1 and saved[0]['snapshot_id']
     assert all(row['snapshot_json'] is None and row['attempts']==1 for row in saved)
@@ -179,7 +179,8 @@ def test_pi_report_session_survives_retry_and_restart_but_isolates_reports(servi
     assert restarted.run_one()
     second = create(restarted)
     assert restarted.run_one()
-    assert seen[0] == seen[1] and seen[1] != seen[2]
+    assert len(seen) == 5
+    assert seen[0] == seen[1] == seen[2] and seen[2] != seen[3] == seen[4]
     assert all(row['status'] == 'done' for row in rows(db))
     assert {first['id'], second['id']} == {row['id'] for row in rows(db)}
     assert all('session_id' not in json.loads(row['config_json']) for row in rows(db))

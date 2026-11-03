@@ -30,7 +30,7 @@ def workspace(monkeypatch):
 
 def review_all(w):
     for batch, refs in w.batches.items():
-        assert "error" not in w.invoke("report_review", {"batch_id": batch, "events": [{"text": "关键进展", "refs": [refs[0]]}], "omitted": refs})
+        assert "error" not in w.invoke("report_review", {"batch_id": batch, "events": [{"text": "关键进展", "refs": refs}], "omitted": refs})
 
 
 def plan_all(w):
@@ -52,16 +52,18 @@ def test_paging_exposes_every_source_and_large_fields_are_explicitly_continued(w
         page = workspace.invoke("report_source", {"ref": "N00001", "offset": offset})
         text += page["json_text"]
         offset = page["next_offset"]
-    assert json.loads(text) == workspace.sources["N00001"]
+    assert json.loads(text) == gen.headline_material(workspace.sources["N00001"])
     assert "error" in workspace.invoke("report_sources", {"offset": -1})
 
 
-def test_review_does_not_imply_selection_and_omitted_sources_remain_accessible(workspace):
-    review_all(workspace)
+def test_preliminary_omissions_can_be_reconsidered_using_titles_before_plan(workspace):
+    for batch, refs in workspace.batches.items():
+        workspace.invoke("report_review", {"batch_id": batch, "events": [], "omitted": refs})
     assert workspace.status()["reviewed_count"] == 5
     assert workspace.invoke("report_sources", {"query": "2事实"})["total"] == 1
+    review_all(workspace)
     plan = plan_all(workspace)
-    # Any source, including a preliminary omission, may support the final story.
+    # A preliminary omission can be selected again before any body is exposed.
     refs = list(workspace.sources)
     result = workspace.invoke("report_draft", {"part_id": "main", "revision": plan["revision"], "sections": [
         {"title": "月内变化", "paragraphs": [{"text": "起点、转折和结果。", "refs": refs}]}]})
@@ -167,15 +169,16 @@ def test_planned_chapters_are_written_from_original_sources_in_parallel(workspac
     assert len(calls) == len(parts) and len(result["briefs"]) == len(parts)
 
 
-def test_changed_review_invalidates_plan_and_rejects_late_delegate_draft(workspace):
+def test_confirmed_title_selection_rejects_reselection_and_late_draft(workspace):
     review_all(workspace)
     old = plan_all(workspace)
     batch = next(iter(workspace.batches))
     refs = workspace.batches[batch]
-    workspace.invoke("report_review", {"batch_id": batch, "events": [{"text": "新增反证", "refs": refs}], "omitted": []})
+    assert "error" in workspace.invoke("report_review", {"batch_id": batch, "events": [{"text": "新增反证", "refs": refs}], "omitted": []})
     new = plan_all(workspace)
-    assert old["revision"] != new["revision"]
-    assert "error" in workspace.invoke("report_draft", {"part_id": "main", "revision": old["revision"], "briefs": [{"text": "迟到的旧稿", "refs": list(workspace.sources)}]})
+    assert old == new
+    assert "error" in workspace.invoke("report_plan", {"parts": [], "omitted_events": [e["id"] for e in workspace.events()]})
+    assert "error" in workspace.invoke("report_draft", {"part_id": "main", "revision": "stale", "briefs": [{"text": "迟到的旧稿", "refs": list(workspace.sources)}]})
 
 
 def test_candidate_directory_survives_preliminary_stateless_tool_reads(workspace):

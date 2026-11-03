@@ -138,7 +138,7 @@ def test_index_refresh_precedes_snapshot_and_keeps_newly_indexed_news(db):
         return runner(config,prompt)
     service = pr.Service(db,lambda:SETTINGS,refresh,model)
     assert service.run_one()
-    assert calls == ["refresh","model"]
+    assert calls == ["refresh","model","model"]
     with closing(db()) as conn:
         saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?",(job["id"],)).fetchone()
         assert saved["status"] == "done", saved["error"]
@@ -175,7 +175,7 @@ def test_report_capture_excludes_legacy_videos_and_keeps_article_about_video(db,
         assert [source["id"] for source in json.loads(saved["result_json"])["sources"]] == expected
         assert conn.execute("SELECT 1 FROM items WHERE id='video'").fetchone()
         assert conn.execute("SELECT important_at FROM item_state WHERE item_id='video'").fetchone()[0] == "before"
-    assert len(calls) == (0 if only_videos else 1)
+    assert len(calls) == (0 if only_videos else 2)
 
 
 @pytest.mark.parametrize("storage", ["inline", "shared_bound", "shared_window", "legacy_peer"])
@@ -231,7 +231,7 @@ def test_reused_video_material_ignores_old_generation_cache_and_resumes_filtered
         assert saved["status"] == "pending" and saved["error"] == "report_interrupted"
         conn.execute("UPDATE periodic_reports SET next_attempt=0 WHERE id=?", (job["id"],))
     assert service.run_one()
-    assert len(calls) == 1  # Retry reuses only the new, video-free generation cache.
+    assert len(calls) == 2  # Retry reuses both title selection and selected-only writing.
     with closing(db()) as conn:
         saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
         assert saved["status"] == "done", saved["error"]
@@ -393,7 +393,7 @@ def test_invalid_final_citations_and_emphasis_not_saved(db):
         row=conn.execute("SELECT * FROM periodic_reports").fetchone()
         assert row["result_json"] is None and row["error"] == "report_invalid_result"
         steps = {step[0] for step in conn.execute("SELECT step_key FROM periodic_report_steps")}
-        assert {"v2:direct:answer", "v2:direct:raw"} <= steps
+        assert {"title-first-v1:v2:direct:answer", "title-first-v1:v2:direct:raw"} <= steps
         assert not any(key.endswith(":checked") for key in steps)
 
 

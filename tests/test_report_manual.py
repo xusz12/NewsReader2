@@ -86,7 +86,7 @@ def test_custom_window_refresh_capture_and_actual_progress(service, db):
         calls.append("model")
         with closing(db()) as conn:
             current = pr.serialize(conn.execute("SELECT * FROM periodic_reports WHERE id=?", (row["id"],)).fetchone())
-            assert current["progress"] == {"stage": "writing", "source_count": 1}
+            assert current["progress"] == {"stage": "selecting" if calls.count("model") == 1 else "writing", "source_count": 1}
             assert current["started_at"] and current["status"] == "running"
         with pytest.raises(ValueError, match="report_delete_running"):
             service.delete(row["id"], service.manual_options()["database_token"])
@@ -97,8 +97,8 @@ def test_custom_window_refresh_capture_and_actual_progress(service, db):
     service.refresh_index, service.runner, service.update_progress = refresh, model, progress
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     assert service.run_one()
-    assert calls == ["refresh", "model"]
-    assert stages == ["waiting_material", "indexing", "capturing", "preparing", "writing", "validating", "saving"]
+    assert calls == ["refresh", "model", "model"]
+    assert stages == ["waiting_material", "indexing", "capturing", "preparing", "selecting", "validating", "writing", "validating", "saving"]
     with closing(db()) as conn:
         result = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (row["id"],)).fetchone()
         assert result["status"] == "done"

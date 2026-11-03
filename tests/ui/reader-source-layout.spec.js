@@ -6,8 +6,10 @@ async function openSources(page,request) {
   await page.route('**/api/reports/report-evening',async route=>{
     const response=await route.fetch(), data=await response.json(), report=data.report;
     report.content.sources.forEach(source=>source.title='合成短标题');
+    report.content.sources[0].published_at='2026-11-03T10:00:00+08:00';
+    report.content.sources[1].published_at='2026-11-03T03:00:00Z';
     delete report.source_items.N2;
-    report.content.sources.push({...report.content.sources[0],ref:'N3',title:'合成测试：长标题与 English words 混排，验证在较大阅读字号下能够正确换行且不发生居中或超出来源列表。'});
+    report.content.sources.push({...report.content.sources[0],ref:'N3',published_at:'2026-11-02T23:00:00+08:00',title:'合成测试：长标题与 English words 混排，验证在较大阅读字号下能够正确换行且不发生居中或超出来源列表。'});
     report.source_items.N3={...report.source_items.N1};
     report.content.sections[0].paragraphs[0].refs.push('N3');
     await route.fulfill({response,json:data});
@@ -45,15 +47,16 @@ for (const touch of [true,false]) test.describe(touch?'触屏来源':'桌面来�
       }
       const geometry=await sourceGeometry(sources);
       await testInfo.attach('source-geometry-'+large,{body:JSON.stringify(geometry),contentType:'application/json'});
-      expect(geometry.map(row=>row.type)).toEqual(['BUTTON','A','BUTTON']);
+      expect(geometry.map(row=>row.type)).toEqual(['A','BUTTON','BUTTON']);
+      await expect(sources.locator('.reader-source-meta')).toHaveText([/11[-/]03 11:00/,/11[-/]03 10:00/,/11[-/]02 23:00/]);
       for (const row of geometry) {
         expect(Math.abs(row.leftOffset)).toBeLessThan(1);
         expect(row.overflow).toBeLessThanOrEqual(1);
         if (touch) {expect(row.height).toBeGreaterThanOrEqual(44);expect(Math.abs(row.gap)).toBeLessThan(1);}
       }
       if (touch) expect(geometry[0].insetTop).toBeCloseTo(geometry[1].insetTop,1);
-      await expect(sources.locator('li').nth(0).locator('[data-source-state]')).toHaveCount(2);
-      await expect(sources.locator('li').nth(1).locator('[data-source-state]')).toHaveCount(0);
+      await expect(sources.locator('li').nth(0).locator('[data-source-state]')).toHaveCount(0);
+      await expect(sources.locator('li').nth(1).locator('[data-source-state]')).toHaveCount(2);
       await expect(sources.locator('[data-source-state="important"]').first()).toBeVisible();
     }
     await page.screenshot({path:`.ui-artifacts/source-layout-${touch?'touch':'desktop'}-${theme}.png`});

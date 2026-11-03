@@ -32,7 +32,7 @@ def budget(monkeypatch):
     return {"limits": {"input_tokens": 100000}}
 
 
-def test_large_whole_edition_needs_one_call_and_duplicates_keep_references(budget):
+def test_title_only_edition_needs_one_call_and_duplicates_keep_references(budget):
     sources = [source(1, "消息" * 20000), source(2, "消息" * 20000), source(3)]
     calls = []
     def model(config, prompt):
@@ -100,11 +100,11 @@ def test_overlap_normalizes_without_inference_or_losing_retained_facts(budget):
     value = edition(["N00001"])
     value["omitted"] = ["N00001-N00003"]
     cache = Checkpoints()
-    cache.saved["v2:direct:raw"] = value
+    cache.saved["title-first-v1:v2:direct:raw"] = value
     result = gen.generate({"kind": "evening", "sources": [source(i) for i in range(1, 4)]}, budget,
                           lambda *_: pytest.fail("Overlap requires no inference"), cache)
     assert result["sources"][0]["ref"] == "N00001"
-    assert cache.saved["v2:direct:checked"]["omitted"] == ["N00002", "N00003"]
+    assert cache.saved["title-first-v1:v2:direct:checked"]["omitted"] == ["N00002", "N00003"]
     event = {"text": "完整事实", "refs": ["N03373"]}
     assert gen.validate_events({"events": [event], "omitted": ["N03373", "N03374"]}, {"N03373", "N03374"}) == {"events": [event], "omitted": ["N03374"]}
 
@@ -126,7 +126,7 @@ def test_explicit_omission_with_reason_is_not_mistaken_for_missing_coverage():
 
 def test_coverage_repair_reads_only_missing_material_and_can_retain_it(budget):
     cache = Checkpoints()
-    cache.saved["v2:direct:raw"] = edition(["N00001"])
+    cache.saved["title-first-v1:v2:direct:raw"] = edition(["N00001"])
     sources = [source(1, "已有充分资料" * 10000), source(2, "遗漏的重要反证")]
     seen = []
     def call(config, prompt):
@@ -155,7 +155,7 @@ def test_bad_block_repaired_without_rewriting_good_block_or_repeating_draft(budg
     stages = []
     result = gen.generate(snapshot, budget, model, cache, progress=lambda stage, **_: stages.append(stage))
     assert len(calls) == 3 and result["sections"][0] == good
-    assert stages == ["writing", "validating", "repairing", "validating"]
+    assert stages == ["selecting", "validating", "repairing", "validating"]
     gen.generate(snapshot, budget, model, cache)
     assert len(calls) == 3
 
@@ -222,7 +222,7 @@ def test_invalid_json_repairs_only_saved_response_and_can_resume(budget):
     snapshot = {"kind": "evening", "sources": [source(1, "完整原始新闻")]}
     with pytest.raises(RuntimeError, match="report_model_timeout"):
         gen.generate(snapshot, budget, model, cache)
-    assert cache.saved["v2:direct:answer"] == raw
+    assert cache.saved["title-first-v1:v2:direct:answer"] == raw
     result = gen.generate(snapshot, budget, model, cache)
     assert result["briefs"][0]["text"] == "待保留事实" and len(calls) == 3
     gen.generate(snapshot, budget, model, cache)
@@ -252,3 +252,115 @@ def test_reports_do_not_require_or_preserve_an_overview(budget):
     old["overview"] = [{"text": "旧导读", "refs": ["N00002"]}]
     with pytest.raises(gen.InvalidReport):
         gen.validate_edition(old, [source(1), source(2)], "evening")
+
+
+@pytest.mark.parametrize("kind", ["morning", "noon", "evening", "weekly", "monthly", "custom"])
+def test_selection_never_sees_details_and_writing_only_sees_selected_news(budget, kind):
+    sources = [source(1, "标题入选，只有标题"),
+               source(2, "标题入选，已有正文", summary="入选摘要", body="入选正文细节", body_excerpt=True),
+               source(3, "标题价值不足", summary="不应泄漏的摘要", body="不应泄漏的正文" * 20000)]
+    prompts, cache = [], Checkpoints()
+    def model(config, prompt):
+        material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            assert all(set(s) == {"title", "source_name", "published_at", "refs"} for s in material)
+            assert all(s["summary"] not in prompt and s["body"] not in prompt for s in sources if s["body"])
+            return gen.encoded({**edition(["N00001", "N00002"]), "omitted": ["N00003"]})
+        assert {s["ref"] for s in material} == {"N00001", "N00002"}
+        assert "入选正文细节" in prompt and "入选摘要" in prompt
+        assert "不应泄漏" not in prompt and "标题价值不足" not in prompt
+        assert material[1]["body_excerpt"] is True
+        value = edition(["N00001", "N00002"])
+        value["sections"][0]["paragraphs"][0]["text"] = "标题事实及入选正文细节。"
+        return gen.encoded(value)
+    snapshot = {"kind": kind, "sources": sources}
+    result = gen.generate(snapshot, budget, model, cache)
+    assert len(prompts) == 2
+    assert {s["ref"] for s in result["sources"]} == {"N00001", "N00002"}
+    assert "入选正文细节" in result["sections"][0]["paragraphs"][0]["text"]
+    assert all("body" not in s and "summary" not in s for s in result["sources"])
+    assert gen.generate(snapshot, budget, model, cache) == result
+    assert len(prompts) == 2
+
+
+def test_body_changes_do_not_change_title_deduplication_or_selection_prompt(budget):
+    prompts = []
+    for variant in (0, 1):
+        sources = [source(1, "相同标题", body="不同正文" * 50000 if variant else ""),
+                   source(2, "相同标题", summary="不同摘要" if variant else "")]
+        def model(config, prompt):
+            prompts.append(prompt)
+            return gen.encoded({"sections": [], "briefs": [], "omitted": ["N00001-N00002"]})
+        result = gen.generate({"kind": "evening", "sources": sources}, budget, model, Checkpoints())
+        assert result["sources"] == []
+    assert prompts[0] == prompts[1]
+    assert json.loads(prompts[0].rsplit("\n新闻资料：", 1)[1])[0]["refs"] == ["N00001", "N00002"]
+
+
+def test_writing_cannot_drop_title_only_news_and_repairs_only_missing_citation(budget):
+    sources = [source(1, "仅标题的重要进展"), source(2, "有正文的进展", body="完整正文")]
+    cache, calls = Checkpoints(), []
+    cache.saved["title-first-v1:v2:direct:raw"] = edition(["N00001", "N00002"])
+    def model(config, prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return gen.encoded(edition(["N00002"]))
+        assert "本次仅修复" in prompt and '"path":"/briefs"' in prompt
+        material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
+        assert [s["ref"] for s in material] == ["N00001"]
+        return gen.encoded({"repairs": [{"path": "/briefs", "value": [{"text": "仅标题的重要进展", "refs": ["N00001"]}]}]})
+    result = gen.generate({"kind": "evening", "sources": sources}, budget, model, cache)
+    assert result["briefs"][0]["refs"] == ["N00001"] and len(calls) == 2
+    with pytest.raises(gen.InvalidReport):
+        gen.validate_selected_report(edition(["N00001", "N00002", "N00003"]), sources, "evening")
+
+
+def test_writing_retry_reuses_title_choices_and_ignores_legacy_selection(budget):
+    cache, calls = Checkpoints(), []
+    cache.saved["v2:direct:checked"] = {"report": gen.validate_report(edition(["N00002"]), [source(2)], "evening"), "omitted": ["N00001"]}
+    snapshot = {"kind": "evening", "sources": [source(1, "标题决定入选", body="入选细节"), source(2, "未入选", body="诱人的完整正文")]}
+    def model(config, prompt):
+        calls.append(prompt)
+        if len(calls) == 1:
+            assert "诱人的完整正文" not in prompt
+            return gen.encoded({**edition(["N00001"]), "omitted": ["N00002"]})
+        assert "未入选\"" not in prompt and "诱人的完整正文" not in prompt
+        if len(calls) == 2:
+            raise RuntimeError("report_model_timeout")
+        return gen.encoded(edition(["N00001"]))
+    with pytest.raises(RuntimeError, match="report_model_timeout"):
+        gen.generate(snapshot, budget, model, cache)
+    result = gen.generate(snapshot, budget, model, cache)
+    assert [s["ref"] for s in result["sources"]] == ["N00001"] and len(calls) == 3
+
+
+def test_selected_bodies_over_capacity_keep_title_choices_in_paged_workspace(budget):
+    snapshot = {"kind": "evening", "sources": [source(1, "仅标题新闻"), source(2, "入选正文新闻", body="完整细节" * 28000),
+                                               source(3, "未选正文新闻", body="不可见细节")]}
+    config = {**budget, "runtime": "codex", "codex": {"reasoning_effort": "high"}}
+    calls = []
+    def model(config, prompt):
+        calls.append(prompt)
+        workspace = config.get("_workspace")
+        if workspace is None:
+            assert "完整细节" not in prompt and "不可见细节" not in prompt
+            return gen.encoded({**edition(["N00001", "N00002"]), "omitted": ["N00003"]})
+        assert workspace.selected_refs() == {"N00001", "N00002"}
+        assert workspace.status()["selection_locked"]
+        hidden = workspace.invoke("report_source", {"ref": "N00003"})
+        assert "不可见细节" not in hidden["json_text"]
+        text, offset = "", 0
+        while offset is not None:
+            page = workspace.invoke("report_source", {"ref": "N00002", "offset": offset})
+            text += page["json_text"]
+            offset = page["next_offset"]
+        assert json.loads(text)["body"] == snapshot["sources"][1]["body"]
+        plan = workspace.state["plan"]
+        assert "error" not in workspace.invoke("report_draft", {"part_id": "part1", "revision": plan["revision"],
+                                                               "briefs": [{"text": "两条已入选新闻的事实", "refs": ["N00001", "N00002"]}]})
+        workspace.invoke("report_draft", {"part_id": "part1"})
+        assert workspace.invoke("report_finish", {"revision": plan["revision"], "audit": "已回读全部正文及草稿"})["finished"]
+        return "完成"
+    result = gen.generate(snapshot, config, model, Checkpoints())
+    assert len(calls) == 2 and {s["ref"] for s in result["sources"]} == {"N00001", "N00002"}

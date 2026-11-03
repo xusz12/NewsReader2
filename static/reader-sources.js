@@ -23,9 +23,27 @@ export function updateSourceState(container, items, id, patch, cardAction) {
       button.setAttribute(key, value);
 }
 
+function publishedTime(source, item) {
+  const date = source.date ? `${source.date}T${source.time || "00:00:00"}` : "";
+  for (const value of [source.published_at, item?.published_at, date]) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const iso = value.trim().replace(" ", "T");
+    // Legacy timestamps without an offset use the application's Beijing time.
+    const stamp = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso
+      : /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso+"T00:00:00+08:00" : iso+"+08:00");
+    if (Number.isFinite(stamp)) return stamp;
+  }
+  return -Infinity;
+}
+
+export function chronologicalSources(sources, items = {}) {
+  return sources.map(source => ({source, time:publishedTime(source, items[source.ref])}))
+    .sort((a,b) => a.time === b.time ? 0 : b.time-a.time).map(row => row.source);
+}
+
 export function readerSources(sources, {className = "", name = "", label = "来源", dateLabel,
   items = {}, cardAction} = {}) {
-  return `<details class="reader-sources ${className}" ${name ? `name="${e(name)}"` : ""}><summary class="reader-tool-btn">${e(label)} · ${sources.length}篇<svg class="reader-source-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="reader-source-list"><ul>${sources.map(source => {
+  return `<details class="reader-sources ${className}" ${name ? `name="${e(name)}"` : ""}><summary class="reader-tool-btn">${e(label)} · ${sources.length}篇<svg class="reader-source-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="reader-source-list"><ul>${chronologicalSources(sources, items).map(source => {
     const item = items[source.ref], url = sourceURL(source.url);
     const title = e(source.title), date = dateLabel ? dateLabel(source) : source.date || "日期未知";
     const link = item ? `<button class="news-card-open reader-source-open" type="button" data-source-item="${e(item.id)}">${title}</button>`
