@@ -148,6 +148,102 @@ def test_index_refresh_precedes_snapshot_and_keeps_newly_indexed_news(db):
     assert service.run_one() is False
 
 
+@pytest.mark.parametrize("only_videos", [False, True])
+def test_report_capture_excludes_legacy_videos_and_keeps_article_about_video(db, only_videos):
+    job = due(db)
+    with closing(db()) as conn:
+        news(conn, "video", title="只在视频中的合成事实")
+        conn.execute("UPDATE items SET url='https://markets.bloomberg.com/news/videos/2026-10-30/test' WHERE id='video'")
+        conn.commit()
+        if not only_videos:
+            news(conn, "article", title="视频行业的普通文字报道")
+            conn.execute("UPDATE items SET url='https://www.bloomberg.com/news/articles/2026-10-30/video-industry' WHERE id='article'")
+        conn.execute("INSERT INTO item_state(item_id,important_at,updated_at) VALUES ('video','before','before')")
+        conn.commit()
+    calls = []
+    def model(config, prompt):
+        assert "只在视频中的合成事实" not in prompt
+        calls.append(prompt)
+        return runner(config, prompt)
+    service = pr.Service(db, lambda: SETTINGS, lambda: None, model)
+    assert service.run_one()
+    expected = [] if only_videos else ["article"]
+    with closing(db()) as conn:
+        saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
+        assert saved["status"] == "done", saved["error"]
+        assert [source["id"] for source in pr.stored_snapshot(conn, saved)["sources"]] == expected
+        assert [source["id"] for source in json.loads(saved["result_json"])["sources"]] == expected
+        assert conn.execute("SELECT 1 FROM items WHERE id='video'").fetchone()
+        assert conn.execute("SELECT important_at FROM item_state WHERE item_id='video'").fetchone()[0] == "before"
+    assert len(calls) == (0 if only_videos else 1)
+
+
+@pytest.mark.parametrize("storage", ["inline", "shared_bound", "shared_window", "legacy_peer"])
+def test_reused_video_material_ignores_old_generation_cache_and_resumes_filtered_work(db, storage):
+    job = due(db)
+    with closing(db()) as conn:
+        news(conn, "article", title="合成普通报道")
+        snapshot = pr.capture(conn, job)
+        article = {**snapshot["sources"][0], "ref": "N00002"}
+        video = {**article, "ref": "N00001", "id": "legacy-video", "title": "旧视频专属事实",
+                 "url": "https://www.bloomberg.com/news/videos/2026-10-30/legacy"}
+        snapshot["sources"] = [video, article]
+        original = pr.encoded(snapshot)
+        old_draft = {"sections": [{"title": "旧生成结果", "paragraphs": [
+            {"text": "旧视频专属事实", "refs": ["N00001", "N00002"]}]}], "briefs": [], "omitted": []}
+        old_result = pr.validate_report(old_draft, snapshot["sources"], job["kind"])
+        if storage == "inline":
+            conn.execute("UPDATE periodic_reports SET snapshot_json=? WHERE id=?", (original, job["id"]))
+        elif storage.startswith("shared"):
+            conn.execute("INSERT INTO periodic_report_snapshots VALUES ('old-material',?,?,?,?)",
+                         (job["period_start"], job["period_end"], snapshot["captured_at"], original))
+            if storage == "shared_bound":
+                conn.execute("UPDATE periodic_reports SET snapshot_id='old-material' WHERE id=?", (job["id"],))
+        else:
+            conn.execute("""INSERT INTO periodic_reports
+                (id,edition_key,kind,title,period_start,period_end,scheduled_at,status,snapshot_json,result_json,created_at,updated_at)
+                VALUES ('archived','archived',?,?,?,?,?,'done',?,?,?,?)""",
+                (job["kind"], job["title"], job["period_start"], job["period_end"], job["scheduled_at"],
+                 original, pr.encoded(old_result), job["created_at"], job["updated_at"]))
+        conn.executemany("INSERT INTO periodic_report_steps VALUES (?,?,?)", [
+            (job["id"], "v2:direct:raw", pr.encoded(old_draft)),
+            (job["id"], "v2:direct:checked", pr.encoded({"report": old_result, "omitted": []})),
+        ])
+        conn.commit()
+    calls = []
+    def model(config, prompt):
+        assert "旧视频专属事实" not in prompt and "N00001" not in prompt.rsplit("\n新闻资料：", 1)[1]
+        calls.append(prompt)
+        return runner(config, prompt)
+    service = pr.Service(db, lambda: SETTINGS, lambda: pytest.fail("旧材料应直接复用"), model)
+    update_progress = service.update_progress
+    interrupted = False
+    def progress(job, stage, **details):
+        nonlocal interrupted
+        if stage == "saving" and not interrupted:
+            interrupted = True
+            raise RuntimeError("report_interrupted")
+        update_progress(job, stage, **details)
+    service.update_progress = progress
+    assert service.run_one()
+    with closing(db()) as conn, conn:
+        saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
+        assert saved["status"] == "pending" and saved["error"] == "report_interrupted"
+        conn.execute("UPDATE periodic_reports SET next_attempt=0 WHERE id=?", (job["id"],))
+    assert service.run_one()
+    assert len(calls) == 1  # Retry reuses only the new, video-free generation cache.
+    with closing(db()) as conn:
+        saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
+        assert saved["status"] == "done", saved["error"]
+        result = json.loads(saved["result_json"])
+        assert [(source["id"], source["ref"]) for source in result["sources"]] == [("article", "N00002")]
+        assert "旧视频专属事实" not in saved["result_json"]
+        assert pr.stored_snapshot(conn, saved) == snapshot
+        if storage == "legacy_peer":
+            archived = conn.execute("SELECT snapshot_json,result_json FROM periodic_reports WHERE id='archived'").fetchone()
+            assert tuple(archived) == (original, pr.encoded(old_result))
+
+
 def test_index_failure_never_calls_model_or_saves_partial_report(db):
     due(db)
     def fail(): raise OSError("private directory details")

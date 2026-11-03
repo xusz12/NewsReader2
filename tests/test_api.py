@@ -2718,11 +2718,22 @@ def test_bloomberg_video_pages_are_hidden_server_side_without_deleting_history(t
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    indexed = client.post("/api/reindex", json={})
+    assert indexed.status_code == 200
+    assert indexed.json["upserted"] == 12 and indexed.json["skipped_videos"] == 3
 
     with app_module.db_conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 12
+        # Simulate video records imported by older versions. Query filters must
+        # still protect every surface without requiring a destructive migration.
+        conn.executemany("""INSERT INTO items
+            (id,source_file,item_order,published_at,date,title,url,source,created_at,updated_at)
+            VALUES (?,'2026年8月/dailyFreshNews_2026-08-20.md',0,'2026-08-20 11:00:00',
+                    '2026-08-20','Bloomberg Filter Hidden',?,'Bloomberg','before','before')""",
+            [(f"legacy-video-{index}", url) for index, url in enumerate(video_urls)])
+        conn.commit()
         rows = conn.execute("SELECT id, url FROM items ORDER BY url").fetchall()
-        assert len(rows) == 15  # Filtering is non-destructive.
+        assert len(rows) == 15
         ids_by_url = {row["url"]: row["id"] for row in rows}
         normal_url = "https://www.bloomberg.com/news/articles/2026-08-20/meta-removes-a-video"
         now = "2026-08-20 12:00:00"

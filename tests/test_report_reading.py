@@ -83,3 +83,90 @@ def test_deleting_report_cleans_its_reading_state_only(fixture):
         assert conn.execute("SELECT COUNT(*) FROM article_notes WHERE url='newsreader-report:one'").fetchone()[0] == 0
     with app.agent_db_conn() as conn:
         assert not conn.execute('SELECT 1 FROM agent_sessions WHERE id=?',(session['id'],)).fetchone()
+
+
+def test_reading_completion_is_explicit_persistent_and_report_scoped(fixture):
+    app, client, item = fixture
+    original = client.get('/api/reports/one').json
+    token = original['database_token']
+    assert original['report']['read_completed_at'] is None
+    rejected = client.post('/api/reports/one/read', json={'database_token': token})
+    assert rejected.status_code == 409 and rejected.json['error'] == 'report_sources_unread'
+    client.patch('/api/news/' + item['id'] + '/state', json={'read': True})
+    before = client.get('/api/news/' + item['id'] + '/detail').json
+    saved = client.post('/api/reports/one/read', json={'database_token': token})
+    assert saved.status_code == 200
+    completed_at = saved.json['report']['read_completed_at']
+    assert completed_at
+    assert client.post('/api/reports/one/read', json={'database_token': token}).json == saved.json
+    with app.db_conn() as conn:
+        app.periodic_reports.initialize(conn)
+    restored = client.get('/api/reports/one').json['report']
+    assert restored['read_completed_at'] == completed_at
+    assert restored['content'] == original['report']['content']
+    assert restored['updated_at'] == original['report']['updated_at']
+    assert client.get('/api/reports/two').json['report']['read_completed_at'] is None
+    rows = {row['id']: row for row in client.get('/api/reports?kind=daily').json['items']}
+    assert rows['one']['read_completed_at'] == completed_at
+    assert rows['two']['read_completed_at'] is None
+    after = client.get('/api/news/' + item['id'] + '/detail').json
+    for key in ('read_at', 'read_later_at', 'read_later_done_at', 'important_at', 'favorite_at'):
+        assert after[key] == before[key]
+
+
+@pytest.mark.parametrize('target,token_kind,status,error', [
+    ('one', 'wrong', 409, 'report_database_changed'),
+    ('one', 'missing', 409, 'report_database_changed'),
+    ('missing', 'valid', 404, 'report_not_found'),
+    ('two', 'valid', 409, 'report_read_unavailable'),
+])
+def test_reading_completion_rejects_invalid_requests_without_mutation(fixture, target, token_kind, status, error):
+    app, client, item = fixture
+    token = client.get('/api/reports/one').json['database_token']
+    with app.db_conn() as conn:
+        conn.execute("UPDATE periodic_reports SET status='failed' WHERE id='two'")
+    body = {} if token_kind == 'missing' else {'database_token': token if token_kind == 'valid' else 'wrong'}
+    response = client.post('/api/reports/' + target + '/read', json=body)
+    assert response.status_code == status and response.json['error'] == error
+    assert client.post('/api/reports/one/read', json=['invalid']).status_code == 400
+    with app.db_conn() as conn:
+        assert not conn.execute('SELECT 1 FROM periodic_reports WHERE read_completed_at IS NOT NULL').fetchone()
+    assert client.get('/api/news/' + item['id'] + '/detail').json['read_at'] is None
+
+
+def test_reading_completion_checks_briefs_but_not_unused_material(fixture):
+    app, client, item = fixture
+    token = client.get('/api/reports/one').json['database_token']
+    with app.db_conn() as conn:
+        base = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
+        content = json.loads(conn.execute("SELECT result_json FROM periodic_reports WHERE id='one'").fetchone()[0])
+        for ref, ident in [('N2', 'brief'), ('N3', 'unused')]:
+            news = {**base, 'id': ident, 'url': 'https://example.com/' + ident}
+            conn.execute(f"INSERT INTO items ({','.join(news)}) VALUES ({','.join('?' for _ in news)})", tuple(news.values()))
+            content['sources'].append({'ref': ref, 'id': ident, 'url': news['url'], 'title': ident})
+        content['briefs'][0]['refs'] = ['N2']
+        conn.execute("UPDATE periodic_reports SET result_json=? WHERE id='one'", (json.dumps(content),))
+    client.post('/api/news/mark-read-by-ids', json={'item_ids': [item['id']]})
+    assert client.post('/api/reports/one/read', json={'database_token': token}).json['error'] == 'report_sources_unread'
+    client.post('/api/news/mark-read-by-ids', json={'item_ids': ['brief']})
+    assert client.post('/api/reports/one/read', json={'database_token': token}).status_code == 200
+    assert client.get('/api/news/unused/detail').json['read_at'] is None
+
+
+def test_reading_completion_with_unavailable_sources_does_not_target_stale_ids(fixture):
+    app, client, item = fixture
+    token = client.get('/api/reports/one').json['database_token']
+    with app.db_conn() as conn:
+        conn.execute("UPDATE items SET url='https://example.com/replaced' WHERE id=?", (item['id'],))
+    assert client.post('/api/reports/one/read', json={'database_token': token}).status_code == 200
+    assert client.get('/api/news/' + item['id'] + '/detail').json['read_at'] is None
+
+
+def test_existing_reports_migrate_without_inventing_reading_completion(fixture):
+    app, client, item = fixture
+    client.patch('/api/news/' + item['id'] + '/state', json={'read': True})
+    with app.db_conn() as conn:
+        conn.execute('ALTER TABLE periodic_reports DROP COLUMN read_completed_at')
+        app.periodic_reports.initialize(conn)
+        rows = conn.execute('SELECT read_completed_at FROM periodic_reports').fetchall()
+    assert len(rows) == 2 and all(row[0] is None for row in rows)

@@ -4,6 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from scanner import apply_schema, list_daily_files, reindex
 
 
@@ -66,6 +68,71 @@ def test_reindex_is_idempotent_and_updates(tmp_path: Path):
     row = conn.execute("SELECT title, published_at FROM items").fetchone()
     assert row[0] == "A-UPDATED"
     assert row[1].endswith("09:00")
+
+
+@pytest.mark.parametrize("ingest_mode", ["markdown_only", "sidecar_json", "markdown_fallback"])
+@pytest.mark.parametrize("full", [False, True])
+def test_reindex_excludes_video_pages_before_inserting_or_queuing(tmp_path, ingest_mode, full):
+    md_path = tmp_path / "dailyFreshNews_2026-05-25.md"
+    sidecar_path = md_path.with_suffix(".newsreader.json")
+    articles = [
+        "https://www.bloomberg.com/news/articles/2026-05-25/a-video-company",
+        "https://example.com/news/videos/ordinary-article",
+        "https://notbloomberg.com/news/videos/ordinary-article",
+        "https://bloomberg.com.example.com/news/videos/ordinary-article",
+    ]
+    videos = [
+        "https://www.bloomberg.com/news/videos/2026-05-25/one",
+        "https://bloomberg.com/news/videos/2026-05-25/two?source=test",
+        "https://MARKETS.BLOOMBERG.COM./NEWS/VIDEOS/2026-05-25/three",
+    ]
+
+    def write_input(urls):
+        # A misleading section/source label must not bypass URL-based exclusion.
+        md_path.write_text("## Reuters · World\n" + "\n".join(
+            f"### [合成视频行业新闻 {index}]({url})\n- 发布时间：2026-05-25 08:00:00"
+            for index, url in enumerate(urls)), encoding="utf-8")
+        if ingest_mode == "sidecar_json":
+            sidecar_path.write_text(json.dumps({"schema_version": "newsreader.daily.v1", "items": [
+                {"title": f"合成视频行业新闻 {index}", "url": url, "published_at": "2026-05-25 08:00:00", "section": "Reuters"}
+                for index, url in enumerate(urls)]}), encoding="utf-8")
+        elif ingest_mode == "markdown_fallback":
+            sidecar_path.write_text("invalid JSON", encoding="utf-8")
+
+    conn = sqlite3.connect(":memory:")
+    apply_schema(conn, Path(__file__).resolve().parents[1] / "schema.sql")
+    write_input([articles[0], *videos])
+    first = reindex(conn, tmp_path)
+    assert first.upserted == 1 and first.skipped_videos == len(videos)
+    retained_id = conn.execute("SELECT id FROM items").fetchone()[0]
+    with conn:
+        conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES (?,'read','before')", (retained_id,))
+
+    write_input([*articles, *videos])
+    original_input = md_path.read_bytes()
+    stats = reindex(conn, tmp_path, full=full)
+    assert stats.upserted == len(articles) and stats.skipped_videos == len(videos)
+    assert {row[0] for row in conn.execute("SELECT url FROM items")} == set(articles)
+    assert conn.execute("SELECT item_count,ingest_mode FROM source_files").fetchone() == (len(articles), ingest_mode)
+    assert conn.execute("SELECT COUNT(*) FROM item_classifications").fetchone()[0] == len(articles)
+    assert conn.execute("SELECT COUNT(*) FROM topic_ingestions").fetchone()[0] == len(articles)
+    assert conn.execute("SELECT read_at,updated_at FROM item_state WHERE item_id=?", (retained_id,)).fetchone() == ("read", "before")
+    assert md_path.read_bytes() == original_input
+    unchanged = reindex(conn, tmp_path)
+    assert unchanged.changed_files == unchanged.upserted == unchanged.skipped_videos == 0
+
+
+def test_reindex_records_video_only_file_without_repeated_import(tmp_path):
+    path = tmp_path / "dailyFreshNews_2026-05-25.md"
+    make_daily(path, "合成视频", "https://www.bloomberg.com/news/videos/2026-05-25/only")
+    conn = sqlite3.connect(":memory:")
+    apply_schema(conn, Path(__file__).resolve().parents[1] / "schema.sql")
+    stats = reindex(conn, tmp_path)
+    assert stats.skipped_videos == 1 and stats.upserted == 0
+    assert stats.classification_queued == stats.topics_queued == 0
+    assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
+    assert conn.execute("SELECT item_count FROM source_files").fetchone()[0] == 0
+    assert reindex(conn, tmp_path).changed_files == 0
 
 
 def test_reindex_ignores_copy_filenames_and_continues_to_new_dates(tmp_path: Path):

@@ -19,6 +19,8 @@ const errors = {
   report_model_capacity_unknown: "无法确认所选模型的上下文容量，请检查模型目录或本机模型配置后重试。",
   report_database_changed: "当前新闻库已切换，请刷新报告列表后重试。",
   report_retry_unavailable: "暂时无法重试，请刷新报告列表后再试。",
+  report_read_unavailable: "报告尚未生成完成，暂时无法标记阅读完成。",
+  report_sources_unread: "部分来源新闻尚未保存为已浏览，请重新打开报告后重试。",
   report_preview_invalid: "该期尚未结束或排期无效，请重新选择一期。",
   report_preview_conflict: "本次请求已用于另一份报告，请重新打开试生成。",
   report_preview_only: "只有试生成报告可以在这里删除。",

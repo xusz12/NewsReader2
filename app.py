@@ -9447,6 +9447,7 @@ def api_reindex():
             "scanned_files": stats.scanned_files,
             "changed_files": stats.changed_files,
             "upserted": stats.upserted,
+            "skipped_videos": stats.skipped_videos,
             "classification_queued": stats.classification_queued,
             "deleted_stale": stats.deleted_stale,
             "ingest_counts": stats.ingest_counts,
@@ -12487,7 +12488,8 @@ def report_request_error(exc):
                     "report_preview_only", "report_preview_running", "report_not_found", "report_window_invalid",
                     "report_manual_conflict", "report_delete_running", "report_deleted", "report_model_unconfigured",
                     "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed",
-                    "report_model_dependencies_missing", "report_window_changed"}:
+                    "report_model_dependencies_missing", "report_window_changed", "report_read_unavailable",
+                    "report_sources_unread"}:
         code = "report_preview_invalid"
     return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
 
@@ -12537,6 +12539,19 @@ def api_report_detail(report_id):
                                           **agent_context_metadata(context)}}
             report["source_items"] = reader_sources.source_items(conn, report["content"]["sources"], visible_news_sql())
         return jsonify(ok=True, database_token=token, report=report)
+
+
+@app.post("/api/reports/<report_id>/read")
+def api_report_read(report_id):
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_payload"), 400
+    try:
+        with closing(db_conn()) as conn, conn:
+            report = report_reader.complete_reading(conn, report_id, body.get("database_token"), visible_news_sql())
+    except (ValueError, LookupError) as exc:
+        return report_request_error(exc)
+    return jsonify(ok=True, database_token=body["database_token"], report=report)
 
 
 @app.post("/api/reports/<report_id>/retry")

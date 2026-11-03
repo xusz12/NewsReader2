@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.4.9</title>
+    <title>News Reader v0.4.10</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.4.9" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.4.9" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.4.10" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.4.10" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.4.9"
+      href="/static/style.css?v=0.4.10"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.4.9</span>
+            <span class="brand-version">v0.4.10</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -694,7 +694,7 @@
           <section class="detail-panel" id="detailPanelReports" aria-label="报告阅读区">
             <div class="detail-toolbar">
               <div class="detail-toolbar-left toolbar-status"><span id="reportToolbarTitle">日报</span></div>
-              <div class="detail-toolbar-right"><button class="reader-tool-btn" id="copyReportBtn" type="button" hidden>复制全文</button><button class="reader-tool-btn" id="retryReportBtn" type="button" hidden>重新生成</button><button class="reader-tool-btn" id="deleteReportBtn" type="button" hidden>删除</button></div>
+              <div class="detail-toolbar-right"><button class="reader-tool-btn" id="markReportReadBtn" type="button" title="将本报告及来源新闻标记为已阅读" hidden>已阅读</button><button class="reader-tool-btn" id="copyReportBtn" type="button" hidden>复制全文</button><button class="reader-tool-btn" id="retryReportBtn" type="button" hidden>重新生成</button><button class="reader-tool-btn" id="deleteReportBtn" type="button" hidden>删除</button></div>
             </div>
             <div class="detail-scroll-area" id="reportScrollArea"><article class="detail-content" id="reportContent"><div class="reader-empty"><h2>选择一份报告</h2></div></article></div>
           </section>
@@ -1022,9 +1022,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.4.9"></script>
+    <script src="/static/error_ui.js?v=0.4.10"></script>
     <script
-      src="/static/app.js?v=0.4.9"
+      src="/static/app.js?v=0.4.10"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

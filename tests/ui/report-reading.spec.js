@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {openNavigation,chooseTheme,choosePicker} from './helpers.js';
+import {openNavigation,chooseTheme,choosePicker,contrast} from './helpers.js';
 
 async function openReports(page) {
   await openNavigation(page); await page.locator('#navReportsBtn').click();
@@ -172,14 +172,33 @@ for(const width of [390,1440]) test('Agent 面板直接切换模型与推理，�
 for(const width of [390,1440]) for(const theme of ['light','dark','system-light','system-dark','eink']) test('日报来源与 Agent 主题字号 '+width+' '+theme,async({page})=>{
   await page.setViewportSize({width,height:900}); await page.emulateMedia({colorScheme:theme==='system-dark'?'dark':'light'});
   await page.goto('/'); await chooseTheme(page,theme.startsWith('system')?'system':theme); await openReports(page);
+  const readButton=page.locator('#markReportReadBtn'), copyButton=page.locator('#copyReportBtn');
+  await expect(readButton).toBeEnabled();
+  const buttonSize=await readButton.boundingBox();
+  expect(buttonSize.height).toBe((await copyButton.boundingBox()).height);
+  await readButton.focus(); await expect(readButton).toBeFocused();
   await page.locator('.report-sources summary').first().click();
   await page.getByRole('combobox',{name:'阅读字号',exact:true}).click(); await page.getByRole('option',{name:/特大/}).click();
+  expect((await readButton.boundingBox()).height).toBe(buttonSize.height);
+  await expect(readButton).toBeInViewport();
+  expect(await page.locator('#detailPanelReports .detail-toolbar').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   await expect(page.locator('.report-sources[open] [data-source-state="important"]').first()).toBeVisible();
   const source=page.locator('.report-sources[open] .reader-source-open').first();
   await expect(source).toHaveCSS('text-decoration-line','none');
   await source.hover(); await expect(source).toHaveCSS('text-decoration-line','none');
   expect(await page.locator('#reportContent').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   await page.screenshot({path:'.ui-artifacts/v046-sources-'+width+'-'+theme+'.png'});
+  await readButton.click();
+  await expect(readButton).toHaveClass(/is-complete/);
+  await expect(readButton).toHaveText('已完成');
+  await expect(readButton).toHaveCSS('opacity','1');
+  await expect(readButton.locator('svg')).toBeVisible();
+  await expect(page.locator('#reportContent [data-report-read-badge]')).toBeVisible();
+  await expect(page.locator('[data-report-id="report-evening"] [data-report-read-badge]')).not.toHaveAttribute('hidden');
+  expect(await contrast(readButton)).toBeGreaterThanOrEqual(4.5);
+  expect(await contrast(page.locator('#reportContent [data-report-read-badge]'))).toBeGreaterThanOrEqual(4.5);
+  expect(await page.locator('#detailPanelReports .detail-toolbar').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  await page.screenshot({path:'.ui-artifacts/report-read-complete-'+width+'-'+theme+'.png'});
   await page.locator('#agentDockToggleBtn').click();
   await expect(page.locator('#agentModelTrigger')).toBeEnabled();
   await expect(page.locator('#agentDock [role="combobox"]')).toHaveCount(0);

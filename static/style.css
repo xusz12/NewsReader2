@@ -1321,6 +1321,17 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 .reader-tool-btn[data-tone="success"] { color: var(--status-success); }
 .reader-tool-btn[data-tone="danger"] { color: var(--status-danger); }
 
+.reader-tool-btn.is-complete,
+.card-tag.is-complete {
+  color: color-mix(in oklch, var(--status-success) 65%, var(--fg));
+  background: color-mix(in oklch, var(--status-success) 12%, var(--surface));
+  font-weight: 600;
+}
+.reader-tool-btn.is-complete {
+  border-color: color-mix(in oklch, var(--status-success) 35%, var(--border));
+  opacity: 1;
+}
+
 /* 快捷键轻量徽标 */
 .reader-btn-kbd {
   font-family: var(--font-mono);
@@ -1686,7 +1697,7 @@ button.news-card { width: 100%; text-align: left; color: var(--fg); flex-shrink:
 #reportContent .article-meta-bottom { flex-wrap: wrap; }
 @media (pointer: coarse) {
   .reader-sources summary { min-height: 44px; }
-  .reader-source-open { display: inline-flex; min-height: 44px; align-items: center; }
+  .reader-source-open { display: flex; flex-direction: row; min-height: 44px; align-items: center; }
 }
 
 .bilingual-pair {

@@ -1,6 +1,6 @@
 import { readerSources, updateSourceState } from "./reader-sources.js?v=0.4.6";
 import { readerText } from "./reader-highlights.js?v=0.4.6";
-import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText } from "./ui.js";
+import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
 import { selectField } from "./form-controls.js";
@@ -29,21 +29,23 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=report-workspace-1";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.4.10";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "时间无效" : new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", ...(full ? {year:"numeric"} : {}), month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
 };
 export class ReportPanel {
-  constructor({isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem}) {
-    Object.assign(this, {isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, stateVersion, reconcileItem});
+  constructor({isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem}) {
+    Object.assign(this, {isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem});
     this.reading = false;
     this.kind = "daily"; this.entries = []; this.selected = ""; this.token = "";
     this.listSequence = 0; this.detailSequence = 0; this.details = null;
     this.errorNotifications = new Map();
+    this.readCompletions = new Map();
     this.creation = null; this.expandedGroups = new Map(); this.groupSizes = new Map();
     this.content = $("#reportContent");
+    $("#markReportReadBtn").onclick = () => this.markSourcesRead();
     $("#copyReportBtn").onclick = event => {
       const button = event.currentTarget, focused = document.activeElement === button;
       return busy(button, () => this.copyReport()).finally(() => {
@@ -198,7 +200,7 @@ export class ReportPanel {
       const data = responses[0];
       if (responses.some(response=>response.database_token !== data.database_token)) return this.load({quiet:true});
       if (this.token && this.token !== data.database_token) {
-        this.errorNotifications.clear(); this.expandedGroups.clear(); this.groupSizes.clear();
+        this.errorNotifications.clear(); this.readCompletions.clear(); this.expandedGroups.clear(); this.groupSizes.clear();
         this.selected = ""; this.details = null; this.entries = []; this.detailSequence++;
         this.renderDetail();
       }
@@ -206,7 +208,7 @@ export class ReportPanel {
       const updated = new Set(responses.map(response=>response.group));
       const existing = new Set(data.groups.map(g=>g.key));
       const rows = [...this.entries.filter(row=>!updated.has(this.groupKey(row)) && existing.has(this.groupKey(row))), ...responses.flatMap(response=>response.items)];
-      this.entries = [...new Map(rows.map(row=>[row.id,row])).values()].sort(byPeriod);
+      this.entries = [...new Map(rows.map(row=>[row.id,this.reconcileReadCompletion(row)])).values()].sort(byPeriod);
       const changedError = this.entries.find(row => row.error && row.status !== "skipped" && this.errorNotifications.get(row.id) !== `${row.error}:${row.status}`);
       for (const row of this.entries) this.errorNotifications.set(row.id,row.error ? `${row.error}:${row.status}` : "");
       if (changedError && this.isVisible()) toast(`${changedError.title}：${failureText(changedError)}`);
@@ -215,6 +217,10 @@ export class ReportPanel {
       if (!this.selected && first && this.isVisible() && !singlePane.matches) await this.select(first.id);
       else if (this.selected) {
         const row = this.entries.find(row => row.id === this.selected);
+        if (row?.read_completed_at && this.details?.id === row.id) {
+          this.details.read_completed_at = row.read_completed_at;
+          this.renderReadAction();
+        }
         if (row && (this.details?.updated_at !== row.updated_at || this.details?.status !== row.status || JSON.stringify(this.details?.progress) !== JSON.stringify(row.progress))) await this.select(this.selected,false,true);
         this.renderElapsed();
       } else this.renderDetail();
@@ -248,7 +254,7 @@ export class ReportPanel {
   cardMarkup(row) {
     const executed = row.started_at ? dateText(row.started_at) : row.status === "pending" ? "等待执行" : "未记录执行时间";
     return `<button class="news-card ${row.id === this.selected ? "is-active active" : ""}" type="button" data-report-id="${e(row.id)}" aria-current="${row.id === this.selected}">
-      <span class="news-card-meta"><span class="meta-source-box">${e(row.kind_label)}${originText(row)}</span><span class="card-time" title="执行时间（北京时间）">${e(executed)}</span></span>
+      <span class="news-card-meta"><span class="meta-source-box">${e(row.kind_label)}${originText(row)}${this.readBadge(row)}</span><span class="card-time" title="执行时间（北京时间）">${e(executed)}</span></span>
       <span class="news-card-title">${e(row.title)}</span>
       ${row.model_label ? `<span class="news-card-meta">${e(row.model_label)}</span>` : ""}
       ${row.status !== "done" ? `<span class="news-card-snippet ${row.error && row.status !== 'skipped'?'error-state':''}">${e(row.error ? `${statusText(row)} · ${failureText(row)}` : row.status === 'running' ? progressText(row) : statusText(row))}</span>` : ""}</button>`;
@@ -268,12 +274,12 @@ export class ReportPanel {
       if (sequence !== this.detailSequence || this.selected !== id || token !== this.token) return;
       if (data.database_token !== token) {this.selected = ""; this.details = null; return this.load();}
       for (const item of Object.values(data.report.source_items || {})) this.reconcileItem(item, version);
-      this.details = data.report;
+      this.details = this.reconcileReadCompletion(data.report);
       if (mobile) {
         const key = this.groupKey(data.report); this.expandedGroups.set(this.kind+":"+key,true);
         if (!this.entries.some(row=>row.id===id)) await this.load({quiet:true,group:key});
-        this.renderList();
       }
+      this.renderList();
       this.renderDetail();
     } catch (error) {
       if (sequence !== this.detailSequence) return;
@@ -285,6 +291,7 @@ export class ReportPanel {
     $("#reportToolbarTitle").textContent = report ? report.kind_label + originText(report) : kindLabels[this.kind];
     $("#retryReportBtn").hidden = report?.status !== "failed";
     $("#copyReportBtn").hidden = report?.status !== "done";
+    this.renderReadAction();
     $("#deleteReportBtn").hidden = !report;
     $("#deleteReportBtn").disabled = report?.status === "running";
     $("#deleteReportBtn").title = report?.status === "running" ? "正在生成，完成后可删除" : "删除报告";
@@ -315,7 +322,7 @@ export class ReportPanel {
     const briefs = content.briefs || [];
     const hasContent = content.sections.length || briefs.length;
     const metadata = [content.sections.length ? `${content.sections.length}个主题` : "", briefs.length ? `${briefs.length}条简讯` : "", hasContent ? `约${content.reading_minutes}分钟` : ""].filter(Boolean).join(" · ");
-    this.content.innerHTML = `<header class="article-header report-masthead"><div class="article-meta-top"><span class="report-edition">${e(report.kind_label)}${originText(report)}</span><span>${e(metadata)}</span></div><h1 class="article-title">${e(report.title)}</h1><div class="article-meta-bottom"><span>${e(dateText(report.period_start))} — ${e(dateText(report.period_end))}</span><span>北京时间</span></div>${this.modelMarkup(report)}</header>` +
+    this.content.innerHTML = `<header class="article-header report-masthead"><div class="article-meta-top"><span class="meta-source-box"><span class="report-edition">${e(report.kind_label)}${originText(report)}</span>${this.readBadge(report)}</span><span>${e(metadata)}</span></div><h1 class="article-title">${e(report.title)}</h1><div class="article-meta-bottom"><span>${e(dateText(report.period_start))} — ${e(dateText(report.period_end))}</span><span>北京时间</span></div>${this.modelMarkup(report)}</header>` +
       '<div id="reportProse" data-highlight-kind="original">' + content.sections.map((section,index) => {
         const refs = [...new Set(section.paragraphs.flatMap(p => p.refs))];
         return `<section class="report-section" aria-labelledby="report-section-${index}"><div class="report-heading"><span class="report-number" aria-hidden="true">${String(index+1).padStart(2,"0")}</span><h2 class="reader-section-heading ${index === 0 ? "reader-section-heading--lead" : ""}" id="report-section-${index}">${textMarkup(section.title)}</h2></div><div class="article-body">${section.paragraphs.map(p => `<p data-quote-paragraph="${++paragraph}">${textMarkup(p.text,p.emphasis)}</p>`).join("")}</div>${sourceMarkup(refs)}</section>`;
@@ -324,8 +331,56 @@ export class ReportPanel {
     if (this.isVisible() && !this.reading) this.onRead(report, true);
   }
   findSourceItem(id) { return Object.values(this.details?.source_items || {}).find(item=>item.id === id); }
+  reconcileReadCompletion(report) {
+    report.read_completed_at = this.readCompletions.get(report.id) || report.read_completed_at || null;
+    if (report.read_completed_at) this.readCompletions.set(report.id,report.read_completed_at);
+    return report;
+  }
+  readBadge(report) {
+    return `<span class="card-tag is-complete" data-report-read-badge ${report.read_completed_at || this.readCompletions.has(report.id) ? "" : "hidden"}>已经阅读完</span>`;
+  }
+  sourceItems() {
+    const report = this.details;
+    if (report?.status !== "done") return [];
+    const refs = new Set([...report.content.sections.flatMap(section=>section.paragraphs.flatMap(p=>p.refs)),
+      ...(report.content.briefs || []).flatMap(brief=>brief.refs)]);
+    const items = [...refs].map(ref=>report.source_items?.[ref]).filter(Boolean);
+    return [...new Map(items.map(item=>[item.id,item])).values()];
+  }
+  renderReadAction() {
+    const button = $("#markReportReadBtn");
+    const saving = !!this.readRequest, completed = !!this.details?.read_completed_at;
+    button.hidden = this.details?.status !== "done";
+    button.disabled = saving || completed;
+    button.setAttribute("aria-busy", String(saving));
+    button.classList.toggle("is-complete",completed);
+    button.innerHTML = completed ? `${icon("read")}已完成` : "已阅读";
+    button.title = completed ? "已经阅读完" : saving ? "正在保存阅读状态" : "将本报告及来源新闻标记为已阅读";
+    for (const badge of this.content.querySelectorAll("[data-report-read-badge]")) badge.hidden = !completed;
+  }
+  async markSourcesRead() {
+    if (this.readRequest || this.details?.status !== "done" || this.details.read_completed_at) return;
+    const items = this.sourceItems();
+    const request = {id:this.details.id, token:this.token};
+    this.readRequest = request;
+    this.renderReadAction();
+    try {
+      const saved = await this.markRead(items);
+      if (!saved) return;
+      const data = await api(`/api/reports/${encodeURIComponent(request.id)}/read`, {method:"POST",body:{database_token:request.token}});
+      if (this.token !== request.token || data.database_token !== request.token) return;
+      this.reconcileReadCompletion(data.report);
+      for (const row of this.entries) this.reconcileReadCompletion(row);
+      if (this.details) this.reconcileReadCompletion(this.details);
+      this.renderList();
+      if (this.details?.id === request.id && this.isVisible() && !this.reading)
+        toast("已经阅读完");
+    } catch (error) {toast(reportError(error));}
+    finally {this.readRequest = null; this.renderReadAction();}
+  }
   updateItemState(id, patch) {
     updateSourceState(this.content, this.details?.source_items, id, patch, this.cardAction);
+    this.renderReadAction();
   }
   returnFromArticle() {
     if (!this.reading) return false;

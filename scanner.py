@@ -10,6 +10,7 @@ from parser import DAILY_FILE_RE, parse_daily_file, parse_daily_json_file, sidec
 import news_classification
 import topic_tracking
 from source_deletion import item_fingerprint
+from feed_sources import is_bloomberg_video_url
 
 INGEST_MODE_SIDECAR_JSON = "sidecar_json"
 INGEST_MODE_MARKDOWN_FALLBACK = "markdown_fallback"
@@ -21,6 +22,7 @@ class ReindexStats:
     scanned_files: int = 0
     changed_files: int = 0
     upserted: int = 0
+    skipped_videos: int = 0
     deleted_stale: int = 0
     classification_queued: int = 0
     topics_queued: int = 0
@@ -225,6 +227,11 @@ def reindex(
             # the same source remain eligible, including late-arriving history.
             conn.execute("BEGIN IMMEDIATE")
             for it in parsed:
+                # Apply the feed's video-page rule before any item or downstream
+                # work is created, regardless of Markdown/sidecar ingest mode.
+                if is_bloomberg_video_url(it.url):
+                    stats.skipped_videos += 1
+                    continue
                 item_id = make_item_id(it.date, it.source, it.title, it.url)
                 if conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(item_id),)).fetchone():
                     continue

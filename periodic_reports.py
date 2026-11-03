@@ -16,6 +16,7 @@ import uuid
 from zoneinfo import ZoneInfo
 
 import report_model
+from feed_sources import is_bloomberg_video_url
 from settings import report_model_feature
 import report_schedule
 from report_generation import generate, parse_json, partition, reading_minutes, validate_events, validate_report
@@ -99,7 +100,7 @@ def initialize(conn, at=None):
     for name, declaration in (("progress_json", "TEXT NOT NULL DEFAULT '{}'"), ("started_at", "TEXT"),
                               ("model_label", "TEXT NOT NULL DEFAULT ''"), ("snapshot_id", "TEXT"),
                               ("snapshot_captured_at", "TEXT"), ("generation_seconds", "REAL"),
-                              ("attempt_seconds", "REAL NOT NULL DEFAULT 0")):
+                              ("attempt_seconds", "REAL NOT NULL DEFAULT 0"), ("read_completed_at", "TEXT")):
         if name not in columns:
             conn.execute(f"ALTER TABLE periodic_reports ADD COLUMN {name} {declaration}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_periodic_reports_window ON periodic_reports(period_start,period_end)")
@@ -339,6 +340,9 @@ def capture(conn, report):
         ORDER BY i.published_at, i.id""", ((start-timedelta(days=1)).date().isoformat(), (end+timedelta(days=1)).date().isoformat())).fetchall()
     sources = []
     for row in rows:
+        # Old databases can still contain video pages hidden from the feed.
+        if is_bloomberg_video_url(row["url"]):
+            continue
         try:
             published = local(row["published_at"])
         except (ValueError, TypeError):
@@ -393,7 +397,7 @@ def serialize(row, detail=False):
     value["is_manual"] = row["edition_key"].startswith(MANUAL_PREFIX)
     value["progress"] = progress_record(row)
     value["started_at"] = row["started_at"]
-    value.update({key:row[key] for key in ("model_label", "snapshot_id", "snapshot_captured_at", "generation_seconds")})
+    value.update({key:row[key] for key in ("model_label", "snapshot_id", "snapshot_captured_at", "generation_seconds", "read_completed_at")})
     value["attempts"] = row["attempts"]
     value["next_retry_at"] = (stamp(datetime.fromtimestamp(row["next_attempt"], TZ))
                               if row["status"] == "pending" and row["error"] and row["next_attempt"] else None)
@@ -759,6 +763,12 @@ class Service:
                     if changed != 1:
                         raise RuntimeError("report_interrupted")
             snapshot = self.shared_snapshot(job)
+            sources = [source for source in snapshot["sources"] if not is_bloomberg_video_url(source.get("url"))]
+            # Keep archived materials immutable, but never send their video
+            # sources to a new/retried report. Old answers and workspace drafts
+            # can contain video facts, so isolate every cached generation step.
+            step_prefix = "exclude-videos-v1:" if len(sources) != len(snapshot["sources"]) else ""
+            snapshot = {**snapshot, "sources": sources}
             progress = lambda stage, **details: self.update_progress(job, stage, source_count=len(snapshot["sources"]), **details)
             progress("preparing")
             if snapshot["sources"] and ("limits" not in config or
@@ -774,8 +784,8 @@ class Service:
             if config["runtime"] == "pi":
                 config = {**config, "session_id": "newsreader-report-" + job["id"]}
             config = {**config, "_cancelled": lambda: self.stopped.is_set()}
-            result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, key, fn), progress=progress,
-                              state_store=lambda key, value=None: self.workspace_state(job, key, value))
+            result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, step_prefix+key, fn), progress=progress,
+                              state_store=lambda key, value=None: self.workspace_state(job, step_prefix+key, value))
             progress("saving")
             with closing(self.connect()) as conn, conn:
                 conn.execute("""UPDATE periodic_reports SET status='done',result_json=?,lease=NULL,lease_until=NULL,error='',progress_json='{"stage":"done"}',updated_at=?,

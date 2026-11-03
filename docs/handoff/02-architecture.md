@@ -66,6 +66,8 @@ flowchart LR
 
 ## 模块职责与修改入口
 
+2026-11-03报告阅读完成：`periodic_reports.initialize()` 为旧库增加可空 `read_completed_at`，列表与详情均返回，不改写生成时间。前端通过共享新闻状态队列保存来源浏览状态后，调用 `POST /api/reports/<report_id>/read`。`report_reader.complete_reading()` 在写事务中核验数据库令牌、生成状态和当前引用来源的已浏览状态，幂等保存报告完成时间；无有效来源可直接完成报告，不按旧来源 ID 操作其他新闻。完成按钮与中／右栏标签使用同一持久字段，前端按数据库隔离的已确认记录防止迟到响应撤回状态。
+
 2026-10-31排期与可编辑新闻窗口：启动配置与历史为 `report_schedule`／`report_schedule_history`，窗口独立使用 `report_windows`／`report_window_history`；旧配置缺省沿用08:30／14:30／21:30及整周整月边界。`report_schedule.news_window()` 统一计算五类范围，自动任务按历史启动时刻选择生效窗口，补报不追溯改写。保存校验启动不早于窗口结束、同日起点早于终点，旧过早启动等候完整窗口。已创建任务、快照、重试保持原起止时间。设置编辑复用小时／分钟及前日／当日 Picker；手动表单绑定 `windows` 中所选规则并随 `selection` 提交单份 `window`，打开期间改设置不改变所见范围。旧表单窗口不匹配时提示刷新。
 
 2026-10-31固定标准速度：共享 `codex_client.command()` 在每次执行时显式传入 `service_tier="default"` 与 `features.fast_mode=false`。覆盖 Chat、主题追踪、新闻总结、日报、归档及连接测试，以及续聊、临时会话、既有队列和报告重试；本机默认或 Profile 开启 Fast 也不会覆盖。模型、推理程度、会话映射及已绑定报告配置保持兼容，不修改本机 Codex 配置；Pi 不使用该开关。
@@ -131,7 +133,9 @@ flowchart LR
 
 ## 核心执行流程
 
-**新闻导入**：页面请求增量 `/api/reindex` → 递归找 Markdown 入口 → 有效 sidecar 优先，否则 Markdown → 按文件签名跳过未变输入 → 稳定 ID upsert → 更新索引和统计。应用不写回原采集文件。
+**新闻导入**：页面请求增量 `/api/reindex` → 递归找 Markdown 入口 → 有效 sidecar 优先，否则 Markdown → 按文件签名跳过未变输入 → 排除视频页 → 稳定 ID upsert → 更新索引和统计。应用不写回原采集文件。
+
+2026-11-03起，`scanner.reindex()` 在写入 `items` 和首次入库账本前复用 `feed_sources.is_bloomberg_video_url()`：仅排除 Bloomberg 主域／子域下路径以 `/news/videos/` 开头的页面，不按标题、来源标签或 URL 中的 `video` 单词猜测。Markdown、有效 JSON sidecar、JSON 失败后的 Markdown 回退、增量与全量重建均遵循相同规则；被跳过的新视频不产生新闻索引、分类或主题匹配任务。`source_files.item_count` 只计实际收录，刷新接口的 `skipped_videos` 统计本次实际解析文件中跳过的视频条数，未变化文件不重复计数。不会因升级强制重扫或清空旧库；旧视频在对应输入重新解析时按既有 stale 索引规则移出，历史个人状态沿用原有保留规则。原查询端的 `visible_news_sql()` 继续保护旧库，日报取材另有同规则过滤，防止未重扫的历史视频进入新材料。
 
 **正文与翻译**：加入稍后再看 → `detail_jobs` → 后台调用特定 opencli 命令 → 保存正文 → 后续精读任务写入 `article_ai`。正文临时错误每轮最多尝试 3 次，间隔 5 秒和 15 秒；登录受限、空正文和格式错误不反复自动请求。后台恢复依赖任务状态及进程信息。
 
