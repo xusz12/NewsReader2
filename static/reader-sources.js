@@ -33,12 +33,12 @@ function publishedTime(source, item) {
       : /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso+"T00:00:00+08:00" : iso+"+08:00");
     if (Number.isFinite(stamp)) return stamp;
   }
-  return -Infinity;
+  return Infinity;
 }
 
 export function chronologicalSources(sources, items = {}) {
   return sources.map(source => ({source, time:publishedTime(source, items[source.ref])}))
-    .sort((a,b) => a.time === b.time ? 0 : b.time-a.time).map(row => row.source);
+    .sort((a,b) => a.time === b.time ? 0 : a.time-b.time).map(row => row.source);
 }
 
 export function readerSources(sources, {className = "", name = "", label = "来源", dateLabel,

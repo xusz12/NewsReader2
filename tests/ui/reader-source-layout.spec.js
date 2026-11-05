@@ -47,15 +47,15 @@ for (const touch of [true,false]) test.describe(touch?'触屏来源':'桌面来�
       }
       const geometry=await sourceGeometry(sources);
       await testInfo.attach('source-geometry-'+large,{body:JSON.stringify(geometry),contentType:'application/json'});
-      expect(geometry.map(row=>row.type)).toEqual(['A','BUTTON','BUTTON']);
-      await expect(sources.locator('.reader-source-meta')).toHaveText([/11[-/]03 11:00/,/11[-/]03 10:00/,/11[-/]02 23:00/]);
+      expect(geometry.map(row=>row.type)).toEqual(['BUTTON','BUTTON','A']);
+      await expect(sources.locator('.reader-source-meta')).toHaveText([/11[-/]02 23:00/,/11[-/]03 10:00/,/11[-/]03 11:00/]);
       for (const row of geometry) {
         expect(Math.abs(row.leftOffset)).toBeLessThan(1);
         expect(row.overflow).toBeLessThanOrEqual(1);
         if (touch) {expect(row.height).toBeGreaterThanOrEqual(44);expect(Math.abs(row.gap)).toBeLessThan(1);}
       }
-      if (touch) expect(geometry[0].insetTop).toBeCloseTo(geometry[1].insetTop,1);
-      await expect(sources.locator('li').nth(0).locator('[data-source-state]')).toHaveCount(0);
+      if (touch) expect(geometry[2].insetTop).toBeCloseTo(geometry[1].insetTop,1);
+      await expect(sources.locator('li').nth(2).locator('[data-source-state]')).toHaveCount(0);
       await expect(sources.locator('li').nth(1).locator('[data-source-state]')).toHaveCount(2);
       await expect(sources.locator('[data-source-state="important"]').first()).toBeVisible();
     }

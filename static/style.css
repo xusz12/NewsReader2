@@ -3214,13 +3214,31 @@ button:disabled {
 .agent-error button {
   margin-left: 8px;
 }
+.agent-bubble blockquote,
+#agentQuote {
+  margin: var(--space-2) 0;
+  padding: 0 0 0 var(--space-3);
+  border-left: 3px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: calc(var(--fs-meta) * var(--reading-scale));
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.agent-bubble .agent-message-quote {
+  margin: 0 0 var(--space-3);
+  white-space: pre-wrap;
+}
+.agent-quote-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: inherit;
+  font-style: normal;
+  font-weight: 600;
+}
 #agentQuote {
   max-height: 90px;
   overflow: auto;
-  border-left: 2px solid var(--accent);
-  padding: 6px 10px;
-  background: var(--surface-subtle);
-  font-size: 12px;
   white-space: pre-wrap;
 }
 .reader-empty {
@@ -4549,9 +4567,6 @@ button:disabled {
 }
 .selection-toolbar .selection-pop-btn { min-height: 44px; justify-content: center; }
 
-/* v0.0.11: upstream errors and explicit Agent quotations. */
-.agent-bubble .agent-message-quote { margin: 0 0 12px; padding: 9px 12px; border-left: 3px solid currentColor; background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
-.agent-quote-label { display: block; margin-bottom: 5px; font-size: var(--fs-meta); font-weight: 600; }
 /* Shared index status and upstream diagnostics entry. */
 @media (min-width: 921px) {
   .topbar { display: grid; grid-template-columns: minmax(var(--topbar-side-width), 1fr) minmax(0, auto) minmax(var(--topbar-side-width), 1fr); gap: 16px; }

@@ -221,35 +221,57 @@ test('visible polling catches other-device changes and hidden pages pause pollin
   await expect(activeFilter(page)).toHaveText('未读 (63)');
 });
 
-test('quoted user text is posted separately and rendered distinctly in every theme', async ({ page }) => {
+for (const width of [390, 1440]) test('quoted user text is posted separately and rendered distinctly in every theme '+width, async ({ page }) => {
+  await page.setViewportSize({width, height:900});
   const session = { id: 'quote-session', runtime: 'codex', model: 'fixture' };
   let messages = [];
   await page.route('**/api/news/*/agent/session', route => route.fulfill({ json: { ok: true, session, context_available: true, messages, jobs: [] } }));
   let sent;
   await page.route('**/api/news/*/agent/jobs', route => {
     sent = route.request().postDataJSON();
-    messages = [{ role: 'user', content: sent.question, quote_text: sent.quote_text }];
+    messages = [{ role: 'user', content: sent.question, quote_text: sent.quote_text },
+      { role: 'assistant', content: '> 引用资料中的原话，保留引用层级。\n\n这是对资料的分析。' }];
     return route.fulfill({ json: { ok: true, session, context_available: true, messages, jobs: [] } });
   });
   await start(page);
+  await page.locator('#feedCardList .news-card').first().click();
   await page.locator('.digest-lead').evaluate(element => {
     const range = document.createRange(); range.selectNodeContents(element);
     getSelection().removeAllRanges(); getSelection().addRange(range);
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
   await page.locator('#quoteAgentBtn').click();
+  await expect(page.locator('#agentQuote')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(page.locator('#agentQuote')).toHaveCSS('font-style', 'italic');
   await page.locator('#agentPromptInput').fill('这段话依据是什么？');
   await page.locator('#agentSendBtn').click();
   await expect(page.locator('.agent-message-quote')).toBeVisible();
   expect(sent.question).toBe('这段话依据是什么？');
   expect(sent.quote_text).toBeTruthy(); expect(sent.question).not.toContain(sent.quote_text);
   await expect(page.locator('.agent-message-quote')).toContainText(sent.quote_text);
-  for (const theme of ['light', 'dark', 'eink']) {
-    await page.locator('#agentDockToggleBtn').click();
-    await chooseTheme(page, theme);
-    await page.locator('#agentDockToggleBtn').click();
-    await expect(page.locator('.agent-message-quote')).toBeVisible();
-    await expect(page.locator('.agent-message-quote')).toHaveCSS('border-left-width', '3px');
-    await page.screenshot({ path: `.ui-artifacts/v011-quote-${theme}.png` });
+  for (const theme of ['light', 'dark', 'system-light', 'system-dark', 'eink']) {
+    for (const size of ['小（90%）', '标准（100%）', '大（115%）', '特大（130%）']) {
+      await page.locator('#agentDockToggleBtn').click();
+      await page.emulateMedia({colorScheme:theme === 'system-dark' ? 'dark' : 'light'});
+      await chooseTheme(page, theme.startsWith('system') ? 'system' : theme);
+      await page.getByRole('combobox', {name:'阅读字号', exact:true}).click();
+      await page.getByRole('option', {name:size, exact:true}).click();
+      await page.locator('#agentDockToggleBtn').click();
+      for (const quote of [page.locator('.agent-message-quote'), page.locator('.assistant blockquote')]) {
+        await expect(quote).toBeVisible();
+        await expect(quote).toHaveCSS('border-left-width', '3px');
+        await expect(quote).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(quote).toHaveCSS('font-style', 'italic');
+        const styles = await quote.evaluate(node => {
+          const quote=getComputedStyle(node), bubble=getComputedStyle(node.closest('.agent-bubble'));
+          return {color:quote.color, parentColor:bubble.color, size:parseFloat(quote.fontSize),
+            parentSize:parseFloat(bubble.fontSize), overflow:node.scrollWidth-node.clientWidth};
+        });
+        expect(styles.color).toBe(styles.parentColor);
+        expect(styles.size).toBeLessThan(styles.parentSize);
+        expect(styles.overflow).toBeLessThanOrEqual(1);
+      }
+    }
+    await page.screenshot({ path: `.ui-artifacts/v0412-quote-${width}-${theme}.png` });
   }
 });

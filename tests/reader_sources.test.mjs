@@ -12,11 +12,11 @@ test('sources use actual publication instants, preserve ties and leave citations
     {ref:'new',title:'最新报道',published_at:'2026-11-03T09:00:00-04:00'},
   ].map(Object.freeze));
   const ordered = chronologicalSources(sources);
-  assert.deepEqual(ordered.map(s=>s.ref), ['new','first','second','old']);
+  assert.deepEqual(ordered.map(s=>s.ref), ['old','first','second','new']);
   assert.deepEqual(sources.map(s=>s.ref), ['old','first','second','new']);
   const html = readerSources(sources);
-  assert.ok(html.indexOf('最新报道') < html.indexOf('北京时间'));
-  assert.ok(html.indexOf('UTC时间') < html.indexOf('旧报道'));
+  assert.ok(html.indexOf('旧报道') < html.indexOf('北京时间'));
+  assert.ok(html.indexOf('UTC时间') < html.indexOf('最新报道'));
 });
 
 test('legacy dates fall back to live publication time or Beijing dates; unknown dates come last', () => {
@@ -30,5 +30,5 @@ test('legacy dates fall back to live publication time or Beijing dates; unknown 
     {ref:'archived',published_at:'2026-11-01T10:00:00+08:00'},
   ];
   const items = {live:{published_at:'2026-11-03T10:00:00+08:00'},archived:{published_at:'2099-01-01T00:00:00Z'}};
-  assert.deepEqual(chronologicalSources(sources,items).map(s=>s.ref), ['live','naive','time','date','archived','unknown','missing']);
+  assert.deepEqual(chronologicalSources(sources,items).map(s=>s.ref), ['archived','date','time','naive','live','unknown','missing']);
 });

@@ -315,6 +315,8 @@ test('每段和列表项就地展开所引新闻，去重且不集中跳转，�
     if (data.summary) {
       expectedSources = data.summary.sources;
       expectedItems = data.summary.source_items;
+      expectedSources[0].published_at = '2026-11-03T11:00:00+08:00';
+      expectedSources[1].published_at = '2026-11-03T02:00:00Z';
       const [a,b] = expectedSources.map(source=>source.ref);
       data.summary.body = `## 主要变化\n\n第一段结合两条报道。[[${a}]] **补充判断[[${a}]]** [[${b}]]\n\n第二段只引另一条。[[${b}]]\n\n- 第一条简讯。[[${a}]]\n- 第二条简讯。[[${b}]]\n\n> 引述报道。[[${a}]]\n\n无需引用的说明。\n\n示例代码：\`[[${a}]]\``;
     }
@@ -336,7 +338,7 @@ test('每段和列表项就地展开所引新闻，去重且不集中跳转，�
     const before=await page.locator('#summaryScrollArea').evaluate(el=>el.scrollTop);
     await trigger.click();
     await expect(first).toHaveJSProperty('open',true);
-    expect(await first.locator('[data-source-item]').evaluateAll(nodes=>nodes.map(n=>n.dataset.sourceItem))).toEqual(expectedSources.map(source=>expectedItems[source.ref].id));
+    expect(await first.locator('[data-source-item]').evaluateAll(nodes=>nodes.map(n=>n.dataset.sourceItem))).toEqual([...expectedSources].reverse().map(source=>expectedItems[source.ref].id));
     await expect(first.locator('[data-source-item]').first()).toHaveCSS('text-decoration-line','none');
     expect(Math.abs(await page.locator('#summaryScrollArea').evaluate(el=>el.scrollTop)-before)).toBeLessThan(2);
     await trigger.click();
