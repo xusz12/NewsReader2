@@ -21,16 +21,16 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
     await start(page);
     await chooseTheme(page, appearance.startsWith('system-') ? 'system' : appearance);
     await expect(page.locator('#settingsDetailTitle')).toHaveText('帮助说明');
-    await expect(page.locator('#settingsHelp h3')).toHaveText(['数据来源', '扫描与索引', '信源管理与删除', '阅读与本地数据']);
+    await expect(page.locator('#settingsHelp h3')).toHaveText(['新闻采集', '阅读中的新新闻', '新闻流显示与数据清理', '阅读与本地数据']);
     await expect(page.locator('#settingsHelp [aria-expanded="true"]')).toHaveCount(0);
-    const question = page.locator('#help-index-range'), answer = page.locator('#help-index-range-content');
+    const question = page.locator('#help-collection-source'), answer = page.locator('#help-collection-source-content');
     await question.click();
     await expect(question).toHaveAttribute('aria-expanded', 'true');
     await expect(answer).toBeVisible();
-    await expect(answer).toContainText('不限今天，也没有固定的回溯天数');
-    await page.locator('#help-index-record').click();
+    await expect(answer).toContainText('不再读取 DailyNews 文件');
+    await page.locator('#help-collection-schedule').click();
     await expect(answer).toBeVisible();
-    await expect(page.locator('#help-index-record-content')).toContainText('相对路径');
+    await expect(page.locator('#help-collection-schedule-content')).toContainText('北京时间');
     await expect(page.locator('#settingsSaveBtn')).toBeHidden();
     await expect(page.locator('#settingsResetBtn')).toBeHidden();
     expect(await page.locator('#settingsHelp').evaluate(root => [root, ...root.querySelectorAll('.accordion-trigger,.accordion-content')]
@@ -41,9 +41,9 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
     expect(box.x + box.width).toBeLessThanOrEqual(width);
     await question.focus();
     await page.keyboard.press('Tab');
-    await expect(page.locator('#help-index-record')).toBeFocused();
-    await expect(page.locator('#help-index-record')).toHaveCSS('outline-width', '2px');
-    expect(await page.locator('#help-index-record').evaluate(node => {
+    await expect(page.locator('#help-collection-schedule')).toBeFocused();
+    await expect(page.locator('#help-collection-schedule')).toHaveCSS('outline-width', '2px');
+    expect(await page.locator('#help-collection-schedule').evaluate(node => {
       const rect = node.getBoundingClientRect(), viewport = node.closest('.settings-main').getBoundingClientRect();
       return rect.top - 4 >= viewport.top && rect.bottom + 4 <= viewport.bottom;
     })).toBe(true);
@@ -56,7 +56,7 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
       return [style.padding, style.borderRadius, style.backgroundColor];
     });
     await section(page, 'pipeline');
-    expect(await page.locator('[data-section="pipeline"]').evaluate(node => {
+    expect(await page.locator('[data-section="pipeline"]').first().evaluate(node => {
       const style = getComputedStyle(node);
       return [style.padding, style.borderRadius, style.backgroundColor];
     })).toEqual(cardStyle);
@@ -66,7 +66,7 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
 test('accordion keyboard controls take priority over settings navigation and custom space shortcut', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('newsreader_workbench_shortcuts', JSON.stringify({ bindings: { next: ['Space'] } })));
   await start(page);
-  const first = page.locator('#help-index-range'), second = page.locator('#help-index-record'), last = page.locator('#help-index-timing');
+  const first = page.locator('#help-collection-source'), second = page.locator('#help-collection-schedule'), last = page.locator('#help-collection-translation');
   await first.focus();
   await page.keyboard.press('ArrowDown');
   await expect(second).toBeFocused();
@@ -92,25 +92,25 @@ for (const width of [1440, 390]) {
     await start(page);
     let writes = 0;
     page.on('request', request => { if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method())) writes++; });
-    await page.locator('#help-deletion-future').click();
-    await expect(page.locator('#help-deletion-future-content')).toContainText('同一信源后续的新新闻仍会正常收录');
+    await page.locator('#help-deletion-scope').click();
+    await expect(page.locator('#help-deletion-scope-content')).toContainText('同一来源之后的新新闻继续收录');
     await section(page, 'classification');
     const input = page.locator('[name="classification.concurrency"]'), original = await input.inputValue();
     const changed = original === '1' ? '2' : '1';
     await input.fill(changed);
     await section(page, 'help');
-    await expect(page.locator('#help-deletion-future')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#help-deletion-scope')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#settingsSaveBtn')).toBeVisible();
     await page.keyboard.press('Escape');
     await openSettings(page);
     await section(page, 'help');
-    await expect(page.locator('#help-deletion-future')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#help-deletion-scope')).toHaveAttribute('aria-expanded', 'true');
     await section(page, 'classification');
     await expect(input).toHaveValue(changed);
     await page.locator('#settingsResetBtn').click();
     await expect(input).toHaveValue(original);
     await section(page, 'help');
-    await expect(page.locator('#help-deletion-future')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#help-deletion-scope')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#settingsSaveBtn')).toBeHidden();
     expect(writes).toBe(0);
   });
@@ -139,8 +139,8 @@ test('help stays readable when configuration cannot be loaded', async ({ page })
     ? route.fulfill({ status: 500, json: { ok: false, error: 'settings_unavailable' } })
     : route.continue());
   await start(page);
-  await page.locator('#help-index-record').click();
-  await expect(page.locator('#help-index-record-content')).toBeVisible();
+  await page.locator('#help-collection-schedule').click();
+  await expect(page.locator('#help-collection-schedule-content')).toBeVisible();
   await expect(page.locator('#settingsSaveBtn')).toBeHidden();
   await section(page, 'system');
   await expect(page.locator('#retrySettingsBtn')).toBeVisible();
@@ -148,5 +148,5 @@ test('help stays readable when configuration cannot be loaded', async ({ page })
   await page.locator('#retrySettingsBtn').click();
   await expect(page.locator('#checkUpdateBtn')).toBeVisible();
   await section(page, 'help');
-  await expect(page.locator('#help-index-record')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#help-collection-schedule')).toHaveAttribute('aria-expanded', 'true');
 });

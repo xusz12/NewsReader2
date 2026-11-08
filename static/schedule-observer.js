@@ -1,15 +1,15 @@
 import { api, escapeHTML as e, singlePane, formatBytes } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
-import { statusText, progressText } from "./report-status.js?v=report-workspace-1";
+import { statusText, progressText } from "./report-status.js?v=0.5.0";
 import { defaultReportWindows, windowDays, windowLabel, windowError } from "./report-windows.js";
 
 const time = value => value ? new Intl.DateTimeFormat("zh-CN", {
   timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
 }).format(new Date(value)) : "尚无记录";
 const schedulerLabels = {running:"正常运行", starting:"正在启动", delayed:"检查已延迟", error:"排期检查失败", stopped:"已停止", not_running:"未运行"};
-const phaseLabels = {indexing:"正在刷新索引、读取新闻", editing:"正在整理材料、生成报告"};
+const phaseLabels = {indexing:"正在读取新闻快照", editing:"正在整理材料、生成报告"};
 const errors = {
-  report_calendar_failed:"交易日历读取失败，请检查 reports/trading-calendar.json 的文件权限与内容。",
+  report_calendar_failed:"交易日历读取失败，请检查自定义日历文件的权限与内容。",
   report_schedule_failed:"排期检查失败，请检查数据库是否可访问；系统会自动重试。",
 };
 const field = (label, value) => `<div class="field-item"><span class="field-label">${e(label)}</span><span>${e(value)}</span></div>`;
@@ -34,7 +34,7 @@ export class ScheduleObserver {
         <div class="section-card-title"><span id="scheduleRulesTitle">报告排期</span><div class="reader-action-toolbar"><button class="reader-tool-btn" type="button" data-schedule-pause aria-label="暂停定时" title="暂停定时"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path data-schedule-pause-icon d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button><button class="reader-tool-btn" type="button" data-schedule-edit aria-expanded="false">编辑</button></div></div>
         <p class="muted" role="status" data-schedule-paused hidden>已暂停自动生成，期间错过的期次不补生成。手动生成、已创建任务和快照清理照常。</p>
         <p class="error-state" role="alert" data-schedule-pause-error hidden></p>
-        <p class="error-state" role="alert" data-schedule-calendar hidden>交易日历未就绪，早报与午报暂缓生成，请更新交易日历。</p>
+        <p class="error-state" role="alert" data-schedule-calendar hidden>交易日历未就绪，早报与午报暂缓生成，其他定期报告照常。</p>
         <div class="section-stack" data-schedule-list></div>
         <p class="muted" data-schedule-edit-note hidden>开始生成与新闻窗口独立设置。保存后用于后续期次，已有报告不变。</p>
       </section>
@@ -128,7 +128,7 @@ export class ScheduleObserver {
       if (this.data?.database_token === token) {
         const code = error.code || error.message;
         this.storageError = code === "report_database_changed" ? "新闻库已切换，请刷新状态后重试。"
-          : code === "report_materials_busy" ? "索引正在更新，请稍后清理。" : "未能确认清理结果，请刷新状态后重试。";
+          : code === "report_materials_busy" ? "新闻快照正在使用，请稍后清理。" : "未能确认清理结果，请刷新状态后重试。";
       }
     } finally {
       this.clearingSnapshots = false; this.render();

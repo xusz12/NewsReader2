@@ -1,6 +1,7 @@
 """Isolated model comparisons: no CLI/model requests or user database writes."""
 from contextlib import closing
 import json
+import sqlite3
 import threading
 import time
 import uuid
@@ -88,7 +89,7 @@ def test_pool_generates_three_in_parallel_with_one_snapshot_and_no_duplicate_cla
         assert sum(row['status']=='pending' for row in current) == 2
         observed = service.observation()
         assert observed['concurrency'] == 3 and len(observed['current_reports']) == 3
-        assert refreshes == [1]
+        assert refreshes == []
         release.set()
         until(lambda: all(row['status']=='done' for row in rows(db)))
     finally:
@@ -129,17 +130,18 @@ def test_comparison_keeps_sources_when_news_changes_and_reuses_across_report_kin
         assert conn.execute('SELECT COUNT(*) FROM items').fetchone()[0] == 2
 
 
-def test_failure_does_not_poison_shared_material_and_retries_keep_bound_model(service, db):
+def test_failure_does_not_poison_shared_material_and_retries_keep_bound_model(service, db, monkeypatch):
     first = create(service)
-    def broken(): raise PermissionError('private source path')
-    service.refresh_index = broken
+    capture = pr.capture
+    def broken(*args): raise sqlite3.OperationalError('snapshot read failed')
+    monkeypatch.setattr(pr, 'capture', broken)
     assert service.run_one()
     with closing(db()) as conn:
         assert conn.execute('SELECT COUNT(*) FROM periodic_report_snapshots').fetchone()[0] == 0
         conn.execute("UPDATE periodic_reports SET status='failed' WHERE id=?", (first['id'],)); conn.commit()
     service.settings = lambda: settings('pi', 'gemini')
     second = create(service)
-    service.refresh_index = lambda: None
+    monkeypatch.setattr(pr, 'capture', capture)
     assert service.run_one()
     assert next(row for row in rows(db) if row['id']==second['id'])['status'] == 'done'
     service.retry(first['id'], service.manual_options()['database_token'])

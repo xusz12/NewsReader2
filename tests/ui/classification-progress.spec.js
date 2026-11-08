@@ -148,14 +148,15 @@ test('disabled classification hides pending progress and resumes after it is ena
   await expect(indicator(page)).toBeVisible();
 });
 
-test('classification recovery opens its own module with a link to Jev API management', async ({ page }) => {
+test('classification recovery opens its own module and focuses inline Jev API management', async ({ page }) => {
   await start(page, { ...base(), configured: false });
   await indicator(page).hover();
   await page.locator('#classificationProgressSettings').click();
   await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
   await page.locator('#classificationApiSettingsBtn').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
-  await expect(page.getByRole('combobox', { name: 'API 服务', exact: true })).toContainText('Jev');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+  await expect(page.locator('#classificationApiSettings')).toBeVisible();
+  await expect(page.locator('#classificationApiSettings')).toContainText('Jev');
 });
 
 test('zero percent, failures and unread scope stay explicit without pretending completion', async ({ page }) => {

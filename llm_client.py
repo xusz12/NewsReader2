@@ -786,7 +786,7 @@ def _pi_subprocess_env() -> dict[str, str]:
     return env
 
 
-def _parse_pi_stdout(stdout: str) -> tuple[str, str, bool, str]:
+def _parse_pi_stdout(stdout: str, *, require_complete: bool = False) -> tuple[str, str, bool, str]:
     session_id = ""
     answer_parts: list[str] = []
     fallback_answer = ""
@@ -861,6 +861,9 @@ def _parse_pi_stdout(stdout: str) -> tuple[str, str, bool, str]:
         has_error = True
         if not error_message:
             error_message = "pi_stop_reason_error"
+    if require_complete and stop_reason != "stop":
+        has_error = True
+        error_message = error_message or "pi_incomplete_response"
 
     return session_id, answer, has_error, error_message
 

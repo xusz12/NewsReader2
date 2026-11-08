@@ -74,7 +74,7 @@ def test_defaults_cover_five_types_without_changing_schedule(service, db, monkey
         assert conn.execute("SELECT COUNT(*) FROM periodic_reports").fetchone()[0] == 0
 
 
-def test_custom_window_refresh_capture_and_actual_progress(service, db):
+def test_custom_window_capture_and_actual_progress(service, db):
     row = create(service, "weekly")
     calls, stages = [], []
     def refresh():
@@ -94,11 +94,13 @@ def test_custom_window_refresh_capture_and_actual_progress(service, db):
     original = service.update_progress
     def progress(job, stage, **fields):
         stages.append(stage); original(job, stage, **fields)
-    service.refresh_index, service.runner, service.update_progress = refresh, model, progress
+    refresh()
+    calls.clear()
+    service.runner, service.update_progress = model, progress
     with closing(db()) as conn: before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     assert service.run_one()
-    assert calls == ["refresh", "model", "model"]
-    assert stages == ["waiting_material", "indexing", "capturing", "preparing", "selecting", "validating", "writing", "validating", "saving"]
+    assert calls == ["model", "model"]
+    assert stages == ["waiting_material", "capturing", "preparing", "selecting", "validating", "writing", "validating", "saving"]
     with closing(db()) as conn:
         result = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (row["id"],)).fetchone()
         assert result["status"] == "done"

@@ -187,7 +187,7 @@ for (const width of [390,1440]) test('各功能分区复用设置样式，适配
 
 test('Pi refresh removes logged-out providers and accepts an empty catalog without losing saved choices',async({page,request})=>{
   const original=await (await request.get('/api/settings')).json();
-  await saveModels(request,{...original,agent:{...original.agent,runtime:'pi'},llm:{...original.llm,pi_chat:{provider:'test',model:'test-model'}}});
+  await saveModels(request,{...original,agent:{...original.agent,runtime:'pi'},llm:{...original.llm,pi_chat:{provider:'test',model:'test-model',reasoning_effort:'off'}}});
   let stage=0, calls=0;
   const option={value:'test-model',label:'Test model',reasoning_efforts:['off','high']};
   await page.route('**/api/settings/models',route=>{

@@ -27,6 +27,8 @@ test.describe('news sorting', () => {
       for (const id of ['ui-012', 'ui-064']) {
         await request.patch(`/api/news/${id}/state`, { data: { read_later: true, favorite: true, important: true } });
       }
+      // The notes filter needs its own important item; other suites can unmark it.
+      await request.patch('/api/news/ui-000/state', { data: { important: true } });
       // Queuing marks news read; restore the complete unread sorting fixture.
       await request.post('/__test/reset-reading');
       await page.setViewportSize({ width, height: 844 });

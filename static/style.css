@@ -4853,3 +4853,9 @@ button:disabled {
   .topic-node { flex-basis: 152px; }
   #topicReaderBackBtn { display: none; }
 }
+
+/* Shared list notices preserve list scroll and reuse toolbar controls. */
+.list-notice { display:flex; align-items:center; justify-content:space-between; gap:var(--space-2); padding:var(--space-2) var(--space-4); border-bottom:1px solid var(--border); font-size:var(--fs-small); color:var(--muted); flex-shrink:0; }
+.list-notice > span { min-width:0; overflow-wrap:anywhere; }
+.list-notice > button { flex-shrink:0; }
+.list-notice[hidden] { display:none; }

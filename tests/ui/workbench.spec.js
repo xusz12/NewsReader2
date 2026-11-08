@@ -136,7 +136,7 @@ test("search, source filters, pagination and unread cursor", async ({
   );
   expect(await page.locator("#feedCardList .news-card").count()).toBe(13);
   await page.locator("#feedSearchInput").fill("不存在的关键词__");
-  await expect(page.locator("#feedCardList")).toContainText("没有符合条件");
+  await expect(page.locator("#feedCardList")).toContainText("当前范围没有新闻");
   await page.locator("#feedSearchInput").fill("");
   await expect(page.locator("#feedCardList .news-card").first()).toBeVisible();
   await page.locator('[data-source="reuters"]').click();
@@ -737,19 +737,20 @@ test("settings is an inline three-column workspace with compact categories", asy
     "page",
   );
   await expect(page.locator("#settingsSearchInput, .settings-category-meta, .settings-category-description, .settings-list-footer")).toHaveCount(0);
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(9);
+  await expect(page.locator(".settings-category-card:visible")).toHaveCount(10);
   await expect(page.locator("[data-settings-tab]").first()).toHaveAttribute("data-settings-tab", "system");
   await page.locator('[data-settings-tab="storage"]').click();
   await expect(page.locator("#settingsDetailTitle")).toHaveText("数据库与存储");
   await expect(page.locator('[data-section="storage"]')).toBeVisible();
   for (const category of ["deepseek", "pipeline", "system", "models"]) {
     await page.locator(`[data-settings-tab="${category}"]`).click();
-    await expect(
-      page.locator(`#settingsContent > [data-section="${category}"]`),
-    ).toBeVisible();
+    const cards = page.locator(`#settingsContent > [data-section="${category}"]`);
+    const count = category === "pipeline" ? 3 : 1;
+    await expect(cards).toHaveCount(count);
+    for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(
       page.locator("#settingsContent > [data-section]:visible"),
-    ).toHaveCount(1);
+    ).toHaveCount(count);
   }
   await chooseTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

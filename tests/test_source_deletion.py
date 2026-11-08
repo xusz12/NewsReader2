@@ -1,4 +1,6 @@
 import importlib
+from legacy_news_seed import seed_news, confirm_all_read
+
 import json
 import sqlite3
 from pathlib import Path
@@ -31,7 +33,7 @@ def env(tmp_path, monkeypatch):
     app.ensure_db()
     app.ensure_agent_db()
     client = app.app.test_client()
-    assert client.post("/api/reindex").status_code == 200
+    assert seed_news(client).status_code == 200
     with app.db_conn() as conn:
         items = [dict(r) for r in conn.execute("SELECT * FROM items ORDER BY published_at")]
     return app, client, items, source
@@ -138,7 +140,7 @@ def test_deleted_news_stays_deleted_while_same_source_new_news_is_imported(env):
     assert source.read_bytes() == original
     source.write_text(source.read_text() + "\n")
     for full in [False, True]:
-        assert client.post("/api/reindex", json={"full": full}).status_code == 200
+        assert seed_news(client, json={"full": full}).status_code == 200
         with app.db_conn() as conn:
             assert [row[0] for row in conn.execute("SELECT id FROM items")] == [items[-1]["id"]]
     sidecar = source.with_suffix(".newsreader.json")
@@ -146,12 +148,12 @@ def test_deleted_news_stays_deleted_while_same_source_new_news_is_imported(env):
             {"section": "Reuters · World", "title": "Old headline changed", "url": items[0]["url"], "published_at": "2026-11-01 09:00:00", "item_order": 2}]
     sidecar.write_text(json.dumps({"schema_version": "newsreader.daily.v1", "items": rows}))
     for full in [False, True]:
-        assert client.post("/api/reindex", json={"full": full}).status_code == 200
+        assert seed_news(client, json={"full": full}).status_code == 200
         with app.db_conn() as conn:
             assert [r[0] for r in conn.execute("SELECT title FROM items")] == ["New World"]
     assert preview(client)["news_count"] == 1  # The source reappears for newly imported news.
     assert delete(client).status_code == 200
-    assert client.post("/api/reindex", json={"full": True}).status_code == 200
+    assert seed_news(client, json={"full": True}).status_code == 200
     with app.db_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 3
@@ -171,7 +173,7 @@ def test_new_items_in_old_and_new_markdown_files_are_not_blocked_by_date(env):
 - 发布时间：2026-11-02 09:00:00
 """)
     for full in [False, True]:
-        assert client.post("/api/reindex", json={"full": full}).status_code == 200
+        assert seed_news(client, json={"full": full}).status_code == 200
         with app.db_conn() as conn:
             assert {row[0] for row in conn.execute("SELECT title FROM items")} == {'Business', 'Late arrival', 'Next day'}
             assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 2
@@ -188,7 +190,7 @@ def test_deletion_fingerprints_are_compact_deduplicated_and_persist_after_restar
         assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 2
         assert 'WITHOUT ROWID' in conn.execute("SELECT sql FROM sqlite_master WHERE name='deleted_news_items'").fetchone()[0]
     app.ensure_db()
-    assert client.post("/api/reindex", json={"full": True}).status_code == 200
+    assert seed_news(client, json={"full": True}).status_code == 200
     with app.db_conn() as conn:
         assert [r[0] for r in conn.execute("SELECT id FROM items")] == [items[-1]['id']]
 

@@ -1,0 +1,286 @@
+[
+  {
+    "section": "middle-east",
+    "display_name": "Reuters · Middle East",
+    "source_type": "reuters",
+    "source_name": "Reuters",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ReutersBrowser",
+      "news",
+      "https://www.reuters.com/world/middle-east/",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": false,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1
+  },
+  {
+    "section": "china",
+    "display_name": "Reuters · China",
+    "source_type": "reuters",
+    "source_name": "Reuters",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ReutersBrowser",
+      "news",
+      "https://www.reuters.com/world/china/",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": false,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1
+  },
+  {
+    "section": "world",
+    "display_name": "Reuters · World",
+    "source_type": "reuters",
+    "source_name": "Reuters",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ReutersBrowser",
+      "news",
+      "https://www.reuters.com/world/",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": false,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1
+  },
+  {
+    "section": "business",
+    "display_name": "Reuters · Business",
+    "source_type": "reuters",
+    "source_name": "Reuters",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ReutersBrowser",
+      "news",
+      "https://www.reuters.com/business/",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": false,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1
+  },
+  {
+    "section": "technology",
+    "display_name": "Reuters · Technology",
+    "source_type": "reuters",
+    "source_name": "Reuters",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ReutersBrowser",
+      "news",
+      "https://www.reuters.com/technology/",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": false,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1
+  },
+  {
+    "section": "bloomberg_tech",
+    "display_name": "Bloomberg · Tech",
+    "source_type": "bloomberg",
+    "source_name": "Bloomberg",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "BloombergUser",
+      "tech",
+      "--limit",
+      "15",
+      "--format",
+      "json"
+    ],
+    "retry_once": true,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1,
+    "command_timeout_seconds": 25
+  },
+  {
+    "section": "techcrunch",
+    "display_name": "TechCrunch",
+    "source_type": "site",
+    "source_name": "TechCrunch",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "TechcrunchPublic",
+      "news",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": true,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1,
+    "command_timeout_seconds": 25
+  },
+  {
+    "section": "arstechnica",
+    "display_name": "Ars Technica",
+    "source_type": "site",
+    "source_name": "Ars Technica",
+    "translation_policy": "always",
+    "command": [
+      "opencli",
+      "ArsPublic",
+      "news",
+      "--limit",
+      "10",
+      "--format",
+      "json"
+    ],
+    "retry_once": true,
+    "treat_empty_as_failure": true,
+    "min_valid_items": 1,
+    "command_timeout_seconds": 25
+  },
+  {
+    "section": "Ilya Sutskever",
+    "display_name": "Ilya Sutskever",
+    "translation_policy": "auto",
+    "source_type": "twitter",
+    "source_handle": "ilyasut",
+    "source_name": "Ilya Sutskever",
+    "command": [
+      "opencli",
+      "twitter",
+      "tweets",
+      "ilyasut",
+      "--limit",
+      "10",
+      "-f",
+      "json",
+      "--window",
+      "background",
+      "--site-session",
+      "persistent"
+    ],
+    "fallback_command": [
+      "twitter",
+      "user-posts",
+      "ilyasut",
+      "-n",
+      "10",
+      "--full-text",
+      "--json"
+    ]
+  },
+  {
+    "section": "郭明錤",
+    "display_name": "郭明錤",
+    "translation_policy": "auto",
+    "source_type": "twitter",
+    "source_handle": "mingchikuo",
+    "source_name": "郭明錤",
+    "command": [
+      "opencli",
+      "twitter",
+      "tweets",
+      "mingchikuo",
+      "--limit",
+      "10",
+      "-f",
+      "json",
+      "--window",
+      "background",
+      "--site-session",
+      "persistent"
+    ],
+    "fallback_command": [
+      "twitter",
+      "user-posts",
+      "mingchikuo",
+      "-n",
+      "10",
+      "--full-text",
+      "--json"
+    ]
+  },
+  {
+    "section": "外汇交易员",
+    "display_name": "外汇交易员",
+    "translation_policy": "auto",
+    "source_type": "twitter",
+    "source_handle": "fxtrader",
+    "source_name": "外汇交易员",
+    "command": [
+      "opencli",
+      "twitter",
+      "tweets",
+      "fxtrader",
+      "--limit",
+      "10",
+      "-f",
+      "json",
+      "--window",
+      "background",
+      "--site-session",
+      "persistent"
+    ],
+    "fallback_command": [
+      "twitter",
+      "user-posts",
+      "fxtrader",
+      "-n",
+      "10",
+      "--full-text",
+      "--json"
+    ]
+  },
+  {
+    "section": "WaylandZhang",
+    "display_name": "WaylandZhang",
+    "translation_policy": "auto",
+    "source_type": "twitter",
+    "source_handle": "WaylandZhang",
+    "source_name": "WaylandZhang",
+    "command": [
+      "opencli",
+      "twitter",
+      "tweets",
+      "WaylandZhang",
+      "--limit",
+      "10",
+      "-f",
+      "json",
+      "--window",
+      "background",
+      "--site-session",
+      "persistent"
+    ],
+    "fallback_command": [
+      "twitter",
+      "user-posts",
+      "WaylandZhang",
+      "-n",
+      "10",
+      "--full-text",
+      "--json"
+    ]
+  }
+]

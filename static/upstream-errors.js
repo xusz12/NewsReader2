@@ -162,9 +162,9 @@ export class UpstreamErrors {
     if (this.badgeRequest) return this.badgeRequest;
     this.badgeRequest = (async () => {
       try {
-        // The top bar counts today's recorded errors, independent of the panel's date/filter.
+        // Current unresolved sources, independent of the history panel date.
         const data = await api("/api/error-stats?details=0");
-        const count = recordsFrom(data).length;
+        const count = data.unresolved_count ?? recordsFrom(data).length;
         const badge = $("#upstreamErrorBadge");
         $("#upstreamErrorSummary").hidden = count === 0;
         badge.textContent = count > 99 ? "99+" : count ? String(count) : "";
@@ -172,8 +172,8 @@ export class UpstreamErrors {
         this.updateDateControls();
         this.button.classList.toggle("has-errors", count > 0);
         this.button.classList.toggle("no-errors", count === 0);
-        this.button.title = count ? `当日 ${count} 条上游报错记录 · 点击查看` : "当日未记录上游报错 · 点击查看历史记录";
-        this.button.setAttribute("aria-label", `上游数据报错集合：${this.button.title}`);
+        this.button.title = count ? `${count} 个采集来源尚未恢复 · 点击查看` : "当前无采集来源错误 · 点击查看历史记录";
+        this.button.setAttribute("aria-label", `采集错误：${this.button.title}`);
       } catch {
         $("#upstreamErrorSummary").hidden = false;
         $("#upstreamErrorBadge").textContent = "?";
@@ -237,7 +237,7 @@ export class UpstreamErrors {
     const records = this.records;
     const { availability, available_sources, total_sources, ingested_count } = this.stats;
     const availabilityTitle = Number.isFinite(availability)
-      ? `可用来源 ${available_sources} / ${total_sources}；无更新计为可用，发生过报错的来源计为异常`
+      ? `可用来源 ${available_sources} / ${total_sources}；无更新计为可用，以当天最后一次完成的采集结果为准，未执行来源不计入`
       : "当天暂无来源抓取记录";
     const groups = new Map();
     records.forEach(record => {
@@ -253,7 +253,7 @@ export class UpstreamErrors {
       <div class="upstream-health-strip" role="group" aria-label="当日抓取统计" tabindex="0">
         <div title="${e(availabilityTitle)}"><span class="upstream-stat-label">当日抓取可用率</span><strong class="upstream-stat-value ${Number.isFinite(availability) ? (availability < 100 ? "warning" : "success") : ""}">${Number.isFinite(availability) ? `${availability}%` : "—"}</strong></div>
         <div><span class="upstream-stat-label">异常来源</span><strong class="upstream-stat-value">${new Set(records.map(row => row.label)).size} 个</strong></div>
-        <div title="所选日期采集文件中实际已入库的资讯，包含其他日期发布的新闻"><span class="upstream-stat-label">${this.isToday ? "今日" : "当日"}已入库资讯</span><strong class="upstream-stat-value">${Number.isFinite(ingested_count) ? `${ingested_count} 条` : "—"}</strong></div>
+        <div title="所选日期完成翻译并正式入库的新闻，包含其他日期发布的新闻"><span class="upstream-stat-label">${this.isToday ? "今日" : "当日"}已入库资讯</span><strong class="upstream-stat-value">${Number.isFinite(ingested_count) ? `${ingested_count} 条` : "—"}</strong></div>
         <div><span class="upstream-stat-label">当日报错</span><strong class="upstream-stat-value ${records.length ? "warning" : "success"}">${records.length} 条</strong></div>
       </div>
       <div class="upstream-classifier-bar">

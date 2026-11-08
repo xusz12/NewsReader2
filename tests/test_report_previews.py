@@ -42,7 +42,7 @@ def test_completed_week_or_month_can_be_tested_before_0830(service, monkeypatch,
     assert pr.local(row["period_end"]) < pr.now() < pr.local(row["scheduled_at"])
 
 
-def test_trial_refreshes_and_runs_full_window_even_before_activation(service, db):
+def test_trial_uses_published_news_for_full_window_even_before_activation(service, db):
     with closing(db()) as conn:
         before = tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone())
     calls = []
@@ -50,7 +50,9 @@ def test_trial_refreshes_and_runs_full_window_even_before_activation(service, db
         calls.append("refresh")
         with closing(db()) as conn: news(conn, "newly-indexed", "2026-10-30T07:00:00+08:00")
     def model(config, prompt): calls.append("model"); return runner(config, prompt)
-    service.refresh_index, service.runner = refresh, model
+    refresh()
+    calls.clear()
+    service.runner = model
     row = create(service)
     assert row["status"] == "pending" and row["is_preview"]
     assert service.run_one()
@@ -62,7 +64,7 @@ def test_trial_refreshes_and_runs_full_window_even_before_activation(service, db
         assert [s["id"] for s in snapshot["sources"]] == ["newly-indexed"]
         assert tuple(conn.execute("SELECT * FROM periodic_report_meta").fetchone()) == before
         assert conn.execute("SELECT COUNT(*) FROM item_state").fetchone()[0] == 0
-    assert calls == ["refresh", "model", "model"]
+    assert calls == ["model", "model"]
 
 
 def test_request_replay_and_concurrent_clicks_create_one_trial(service, db):

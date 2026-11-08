@@ -59,14 +59,6 @@ def test_resolve_db_path_prefers_saved_configured_database(monkeypatch, tmp_path
     assert settings.resolve_db_path() == configured_db
 
 
-def test_daily_news_input_keeps_original_default_and_environment_override(monkeypatch, tmp_path: Path):
-    monkeypatch.delenv("NEWS_READER_DAILY_NEWS_DIR", raising=False)
-    assert settings.resolve_daily_news_dir() == Path(
-        "/Users/x/Library/Mobile Documents/iCloud~md~obsidian/Documents/DailyNews"
-    )
-    original_input = tmp_path / "DailyNews"
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(original_input))
-    assert settings.resolve_daily_news_dir() == original_input
 
 
 def test_environment_database_path_still_overrides_saved_configured_database(monkeypatch, tmp_path: Path):

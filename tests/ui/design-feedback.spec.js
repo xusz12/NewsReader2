@@ -23,7 +23,7 @@ for (const width of [1440, 390, 320]) {
       await expect(theme.locator('.theme-symbol')).toBeHidden();
       await expect(theme.locator('.select-value')).toBeVisible();
     }
-    const heights = await page.locator('#refreshIndexBtn, #themeSelect').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.getBoundingClientRect().height));
+    const heights = await page.locator('#collectNewsBtn, #themeSelect').evaluateAll(nodes => nodes.filter(n => n.getClientRects().length).map(n => n.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
     expect(heights[0]).toBe(width <= 920 ? 36 : 32);
     if (width <= 920) {

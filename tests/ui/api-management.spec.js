@@ -20,6 +20,7 @@ async function setup(page, request, configured = true) {
   saved.api_models = { jev: { model: 'jev-saved' }, 'opencode-go': { model: 'opencode-go-saved' } };
   saved.agent.runtime = 'codex';
   saved.agent.codex.model = 'chat-model';
+  saved.agent.codex.reasoning_effort = '';
   saved.feature_models.reports = { runtime: 'pi', pi: { provider: 'opencode-go', model: 'report-model' }, codex: {} };
   await page.route('**/api/settings', route => route.request().method() === 'GET' ? route.fulfill({ json: saved }) : route.continue());
   await page.goto('/');

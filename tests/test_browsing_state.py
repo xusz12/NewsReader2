@@ -1,3 +1,4 @@
+from legacy_news_seed import confirm_all_read
 """Browsing acknowledgements are permanent; full-text completion is independent."""
 import pytest
 from test_api import _setup_agent_api_fixture
@@ -38,9 +39,10 @@ def test_repeated_acknowledgements_preserve_first_timestamp(env, action):
         result = client.patch(path, json={'read': True})
     elif action == 'later':
         result = client.patch(path, json={'read_later': True})
+    elif action == 'all':
+        result = confirm_all_read(client)
     else:
-        result = client.post('/api/news/mark-all-read' if action == 'all' else '/api/news/mark-read-by-ids',
-                             json={} if action == 'all' else {'item_ids': [item['id'], item['id']]})
+        result = client.post('/api/news/mark-read-by-ids', json={'item_ids': [item['id'], item['id']]})
     assert result.status_code == 200
     detail = client.get(f'/api/news/{item["id"]}/detail').json
     assert detail['read_at'] == stamp

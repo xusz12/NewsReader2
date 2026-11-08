@@ -1,11 +1,32 @@
 {
-  "api_models": { "jev": { "model": "" }, "opencode": { "model": "" } },
-  "classification": { "enabled": true, "concurrency": 8, "unread_only": false },
-  "llm": {
-    "translation": { "provider": "deepseek", "model": "", "fallback_enabled": true, "pi_fallback_enabled": true },
-    "pi_chat": { "provider": "", "model": "" }
+  "api_models": {
+    "jev": {
+      "model": ""
+    },
+    "opencode": {
+      "model": ""
+    }
   },
-  "feed": { "hidden_source_subkeys": [] },
+  "classification": {
+    "enabled": true,
+    "concurrency": 8,
+    "unread_only": false
+  },
+  "llm": {
+    "translation": {
+      "provider": "deepseek",
+      "model": "",
+      "fallback_enabled": true,
+      "pi_fallback_enabled": true
+    },
+    "pi_chat": {
+      "provider": "",
+      "model": ""
+    }
+  },
+  "feed": {
+    "hidden_source_subkeys": []
+  },
   "tracked": {
     "default_rule_params": {
       "title_weight": 1,
@@ -22,8 +43,36 @@
   "agent": {
     "session_ttl_hours": 72,
     "runtime": "pi",
-    "codex": { "model": "", "profile": "", "sandbox": "read-only" }
+    "codex": {
+      "model": "",
+      "profile": "",
+      "sandbox": "read-only"
+    }
   },
-  "database": { "path": "" },
-  "news_summary": { "max_days": 20, "max_items": 6000 }
+  "database": {
+    "path": ""
+  },
+  "news_summary": {
+    "max_days": 20,
+    "max_items": 6000
+  },
+  "collection": {
+    "translation_concurrency": 4,
+    "enabled": true,
+    "daily": [
+      "00:01",
+      "04:00",
+      "08:00",
+      "12:00",
+      "18:00",
+      "21:00"
+    ],
+    "trading": [
+      "09:00",
+      "10:00",
+      "11:00",
+      "13:00",
+      "14:30"
+    ]
+  }
 }

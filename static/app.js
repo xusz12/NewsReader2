@@ -21,19 +21,19 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=settings-help-1";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.0";
 import { SummaryPanel } from "./summary-panel.js?v=0.4.12";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
-import { ReportPanel } from "./report-panel.js?v=0.4.12";
+import { ReportPanel } from "./report-panel.js?v=0.5.0";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
-import { AgentNotifications } from "./agent-notifications.js?v=0.2.2";
+import { AgentNotifications } from "./agent-notifications.js?v=0.5.0";
 import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
-import { TaskProgress } from "./task-progress.js?v=translation-routing-1";
+import { TaskProgress } from "./task-progress.js?v=0.5.0";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
-import { UpstreamErrors } from "./upstream-errors.js?v=feature-pickers-1";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.5.0";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -46,6 +46,7 @@ const state = {
   category: "all",
   query: "",
   items: [],
+  batch: null,
   selected: null,
   detail: null,
   page: 0,
@@ -593,7 +594,7 @@ function renderFeed() {
     (state.loading
       ? '<li class="list-message" role="status">正在读取新闻…</li>'
       : !state.items.length
-        ? '<li class="list-message">没有符合条件的新闻。<br>试试其他筛选，或点击刷新索引。</li>'
+        ? '<li class="list-message">当前范围没有新闻。可切换筛选，或使用顶栏「立即采集」获取新闻。</li>'
         : state.more
           ? '<li class="load-more-row"><button class="btn-secondary" id="loadMoreBtn" type="button">加载更多</button></li>'
           : '<li class="list-message feed-end">已读到列表末尾</li>');
@@ -648,6 +649,8 @@ async function loadFeed(append = false) {
   if (totalScope !== scope) { totalScope = scope; state.total = null; }
   if (!append) {
     state.items = [];
+    state.batch = null;
+    $("#newNewsNotice").hidden = true;
     state.dateCounts = null;
     state.dateCountsScope = "";
     state.page = 0;
@@ -665,6 +668,7 @@ async function loadFeed(append = false) {
     ...feedParams(),
     page: String(state.page + 1),
   });
+  if (append && state.batch !== null) params.set("batch", String(state.batch));
   if (append && state.cursor) {
     params.set("cursor_date", state.cursor.date_key);
     params.set("cursor_published_at", state.cursor.published_at);
@@ -675,6 +679,7 @@ async function loadFeed(append = false) {
       ? await searchNews(sequence, requestController.signal)
       : await api(`/api/news?${params}`, { signal: requestController.signal });
     if (sequence !== state.sequence) return;
+    state.batch = data.batch;
     for (const item of data.items) stateWrites.reconcile(item.id, item, stateVersion);
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
@@ -719,14 +724,15 @@ async function loadFeed(append = false) {
 }
 async function searchNews(sequence, signal, params = feedParams()) {
   const matches = [];
-  let classificationRevision = 0;
+  let classificationRevision = 0, batch = params.batch;
   let page = 1,
     pages = 1;
   do {
     const data = await api(
-      `/api/search?${new URLSearchParams({ ...params, feed_filters: "1", page: String(page), per: "100" })}`,
+      `/api/search?${new URLSearchParams({ ...params, ...(batch == null ? {} : {batch:String(batch)}), feed_filters: "1", page: String(page), per: "100" })}`,
       { signal },
     );
+    batch = data.batch;
     matches.push(...data.items);
     if (page === 1) classificationRevision = data.classification_revision || 0;
     pages = data.pages;
@@ -761,6 +767,7 @@ async function searchNews(sequence, signal, params = feedParams()) {
       counts[date] = (counts[date] || 0) + 1;
       return counts;
     }, {}),
+    batch,
     classification_revision: classificationRevision,
     total: items.length,
     page: 1,
@@ -768,20 +775,71 @@ async function searchNews(sequence, signal, params = feedParams()) {
     next_cursor: null,
   };
 }
-const indexStatus = { syncing: false, syncedAt: null, scanFailed: false, connectionFailed: false };
+const indexStatus = { connectionFailed: false };
+let collectionStatus = null, collectionPolling = false;
 function renderIndexStatus() {
-  const { syncing, syncedAt, scanFailed, connectionFailed } = indexStatus;
-  const failed = !syncing && (scanFailed || connectionFailed);
-  const message = syncing ? "正在扫描 DailyNews…"
-    : scanFailed ? "索引刷新失败，可点击刷新重试"
-    : connectionFailed ? "新闻库连接失败，请重试"
-    : syncedAt ? `DailyNews 增量索引已同步（最近更新：${syncedAt}）`
-    : "正在连接 DailyNews…";
+  const data = collectionStatus;
+  const last = data?.last_run;
+  const failed = indexStatus.connectionFailed || data?.source_errors > 0 || !!data?.schedule_error;
+  const message = indexStatus.connectionFailed ? "新闻库连接失败，请重试"
+    : data?.running ? "正在采集新闻…"
+    : data?.schedule_error ? "交易日历未就绪，常规采集正常"
+    : last ? `最近采集 ${new Date(last.finished_at || last.created_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})} · ${{done:"完成",partial:"部分失败",failed:"失败"}[last.status] || "待执行"}`
+    : data ? "尚未采集 · 可点击立即采集" : "正在连接新闻库…";
   $("#pipelineStatus").textContent = message;
   const dot = $("#upstreamErrorsBtn .pipeline-dot");
   dot.classList.toggle("failed", failed);
-  dot.classList.toggle("syncing", syncing);
+  dot.classList.toggle("syncing", !!data?.running);
+  $("#collectNewsBtn").disabled = !!data?.running;
 }
+async function pollCollection() {
+  if (document.hidden || collectionPolling) return;
+  collectionPolling = true;
+  try {
+    const data = await api("/api/collection");
+    const previous = collectionStatus;
+    collectionStatus = data;
+    indexStatus.connectionFailed = false;
+    renderIndexStatus();
+    settings.updateCollectionStatus(data);
+    const {failed=0, pending=0, running=0, ready=0} = data.counts;
+    const publicationFailed = data.publication_failed || 0;
+    const notice = $("#collectionTranslationNotice");
+    notice.hidden = !(failed || pending || running || ready || publicationFailed);
+    $("#collectionTranslationText").textContent = failed
+      ? `${failed} 条新闻翻译失败，所在批次等待重试；已完成 ${ready} 条译文已保存${pending+running ? `，另有 ${pending+running} 条处理中` : ""}。`
+      : publicationFailed ? `${publicationFailed} 批新闻入库失败，译文已保存，可重试入库。`
+      : pending+running ? `${pending+running} 条新闻正在翻译，已完成 ${ready} 条；整批完成后统一入库。`
+      : `${ready} 条新闻已完成翻译，${data.running ? "等待本轮采集结束后统一入库" : "正在按批次统一入库"}。`;
+    $("#retryCollectionTranslationBtn").hidden = !(failed || publicationFailed);
+    $("#retryCollectionTranslationBtn").textContent = failed ? "重试翻译" : "重试入库";
+    if (previous?.batch !== data.batch || previous?.source_errors !== data.source_errors) {
+      sourceCatalogByCollection.clear();
+      void refreshBadges();
+      void upstreamErrors.refreshBadge();
+    }
+    if (state.batch !== null && !state.loading && ["feed","important","favorites","read_later"].includes(state.collection)) {
+      const sequence = state.sequence, batch = state.batch, scope = countScope();
+      const params = {...feedParams(), count_only:"1", after_batch:String(batch)};
+      const fresh = await api(`${state.query ? "/api/search" : "/api/news"}?${new URLSearchParams({...params,feed_filters:"1"})}`);
+      if (sequence === state.sequence && batch === state.batch && scope === countScope()) {
+        $("#newNewsNotice").hidden = !fresh.total;
+        $("#newNewsCount").textContent = `有 ${fresh.total} 条新新闻`;
+      }
+    }
+  } catch {
+    indexStatus.connectionFailed = true;
+    renderIndexStatus();
+  } finally { collectionPolling = false; }
+}
+$("#viewNewNewsBtn").onclick = () => loadFeed();
+$("#retryCollectionTranslationBtn").onclick = event => busy(event.currentTarget, async () => {
+  await api("/api/collection/retry-translation", {method:"POST"});
+  await pollCollection();
+});
+setInterval(pollCollection, 5000);
+window.addEventListener("focus", pollCollection);
+document.addEventListener("visibilitychange", pollCollection);
 let navSummary = null, totalScope = "", readCountsFrame;
 const filterCountScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
 const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query, state.collection === "feed" ? state.category : "all"]);
@@ -1261,7 +1319,7 @@ function renderReader() {
   const thoughts = '<div id="researchNotesMount"></div>';
   const hasThoughts = hasContent || savedNotes.length || (payload && state.collection === "notes" && state.idea?.idea_type === "article_note");
   $("#detailContent").innerHTML =
-    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<span>信源：${e(item.source_file?.split("/").at(-1) || item.source || "")}</span><button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重新翻译" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
+    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}<button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重译全文" : "抓取全文"}</button>${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
     ${!hasInsights && hasContent ? `<div class="digest-header">${readingModes}</div>` : ""}
     ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇导读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>导读</span></div>${readingModes}</div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${bilingualBody?.notice ? `<p class="muted" role="status">${e(bilingualBody.notice)}</p>` : ""}
@@ -1444,11 +1502,12 @@ function trackFeedReading() {
   if (!atEnd) { clearTimeout(feedEndTimer); feedEndTimer = null; }
   else if (!feedEndTimer && state.items.some(item => !item.read_at)) {
     const sequence = state.sequence;
+    const readingIds = state.items.filter(item => !item.read_at).map(item => item.id);
     feedEndTimer = setTimeout(() => {
       feedEndTimer = null;
       if (sequence === state.sequence && feedVisible() && !state.more) {
         const rect = $(".feed-end", list)?.getBoundingClientRect();
-        if (rect && rect.top < list.getBoundingClientRect().bottom) markReadIds(state.items.filter(item => !item.read_at).map(item => item.id));
+        if (rect && rect.top < list.getBoundingClientRect().bottom) markReadIds(readingIds);
       }
     }, 5000);
   }
@@ -1459,27 +1518,25 @@ async function markAllRead() {
   const params = feedParams(), sequence = state.sequence, scope = countScope();
   const sourceName = params.source_filter === "all" ? "全部来源"
     : $(`#sourceFilters [data-source="${CSS.escape(params.source_filter)}"] .source-row-info > span:last-child`)?.textContent || params.source_filter;
-  let items = [...state.items], failed = 0, marked = 0;
+  let items = [...state.items], failed = 0, marked = 0, previewId;
   // Earlier button saves must finish before the bulk operation supersedes them.
   await stateWrites.settle();
   if (!later) {
     params.read_filter = "unread";
-    // Fetch the full scoped count, not just the loaded page or a stale badge.
+    // Freeze the exact IDs shown by the confirmation, including unloaded pages.
     const preview = params.q
       ? await searchNews(sequence, undefined, params)
-      : await api(`/api/news?${new URLSearchParams({ ...params, count_only: "1" })}`);
+      : await api("/api/news/mark-all-read", {method:"POST", body:{...params, preview:true}});
     if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部已读");
     if (!preview.total) return toast(`${sourceName}：当前范围没有未读新闻`);
     if (params.q) items = preview.items;
+    else previewId = preview.preview_id;
     const sourceScope = params.source_filter === "all" ? sourceName : `「${sourceName}」`;
     const search = params.q ? `\n搜索条件：「${params.q}」` : "";
     const category = params.category !== "all" ? `\n新闻分类：「${categoryLabels[params.category]}」` : "";
     if (!await confirmAction({ title: "全部标为已读", trigger: "#markAllReadBtn", message: `确认将${sourceScope}的 ${preview.total} 条未读新闻标为已读？${category}${search}\n包含当前范围内尚未加载的新闻。`, action: "全部标为已读" })) return;
     if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部已读");
-    const current = params.q ? await searchNews(sequence, undefined, params) : await api(`/api/news?${new URLSearchParams({ ...params, count_only: "1" })}`);
-    if (sequence !== state.sequence || scope !== countScope() || current.total !== preview.total ||
-        (params.q && JSON.stringify(current.items.map(item => item.id).sort()) !== JSON.stringify(items.map(item => item.id).sort())))
-      return toast("新闻范围已变化，请重新点击全部已读");
+
   }
   if (params.q) {
     if (later) {
@@ -1491,7 +1548,7 @@ async function markAllRead() {
       marked = result.marked;
     }
   } else {
-    const result = await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: params });
+    const result = await api(later ? "/api/news/clear-read-later" : "/api/news/mark-all-read", { method: "POST", body: later ? params : {preview_id:previewId} });
     marked = result.marked;
   }
   await loadFeed();
@@ -1815,31 +1872,11 @@ $$(".mobile-back-btn").forEach((button) => (button.onclick = exitReader));
 $("#shortcutsModal").onclick = (event) => {
   if (event.target.id === "shortcutsModal") shortcutsDialog(false);
 };
-const refreshButton = $("#refreshIndexBtn");
-function refreshIndex(notify = false) {
-  return busy(refreshButton, async () => {
-    indexStatus.syncing = true;
-    renderIndexStatus();
-    let scanError;
-    try {
-      await api("/api/reindex", { method: "POST" });
-      indexStatus.syncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
-      indexStatus.scanFailed = false;
-    } catch (error) {
-      scanError = error;
-      indexStatus.scanFailed = true;
-    }
-    indexStatus.syncing = false;
-    renderIndexStatus();
-    sourceCatalogByCollection.clear();
-    await Promise.all([loadFeed(), refreshBadges()]);
-    if (scanError) {
-      throw scanError;
-    }
-    if (notify) toast("新闻索引已刷新");
-  });
-}
-refreshButton.onclick = () => refreshIndex(true);
+$("#collectNewsBtn").onclick = event => busy(event.currentTarget, async () => {
+  await api("/api/collection", {method:"POST"});
+  toast("采集任务已加入后台队列");
+  await pollCollection();
+});
 
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.isComposing) return;
@@ -1976,7 +2013,8 @@ state.loading = true;
 renderFeed();
 renderReader();
 Promise.allSettled([
-  refreshIndex(),
+  loadFeed(),
+  pollCollection(),
   settings.load(false),
   summaries.load(),
 ]).then(() => renderSources());

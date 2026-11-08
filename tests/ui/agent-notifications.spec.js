@@ -261,7 +261,7 @@ test('mobile bell appears for new replies and hides after reading or dismissing,
   await page.locator('[data-dismiss-notice]').click();
   await expect(bell(page)).toBeHidden();
   await expect(panel(page)).toBeHidden();
-  await expect(page.locator('#refreshIndexBtn')).toBeFocused();
+  await expect(page.locator('#collectNewsBtn')).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.locator('.mobile-bottom-nav button')).toHaveCount(3);
 });

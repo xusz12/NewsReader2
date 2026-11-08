@@ -115,7 +115,8 @@ export class AgentNotifications {
     if (this.rows.length || !matchMedia("(max-width: 920px)").matches) return;
     // A disabled dismiss/read-all button temporarily moves focus to the document body.
     const lostPanelFocus = !this.panel.hidden && document.activeElement === document.body;
-    if (this.button.parentElement.contains(document.activeElement) || lostPanelFocus) $("#refreshIndexBtn").focus({ preventScroll: true });
+    if (this.button.parentElement.contains(document.activeElement) || lostPanelFocus)
+      ($("#collectNewsBtn:not(:disabled)") || $("#upstreamErrorsBtn")).focus({ preventScroll: true });
     this.close();
   }
   render() {

@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.4.12</title>
+    <title>News Reader v0.5.0</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.4.12" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.4.12" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.0" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.0" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.4.12"
+      href="/static/style.css?v=0.5.0"
       rel="stylesheet"
     />
   </head>
@@ -92,13 +92,13 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.4.12</span>
+            <span class="brand-version">v0.5.0</span>
           </div>
         </div>
         <div class="topbar-center">
           <button aria-label="上游数据报错集合" aria-describedby="pipelineStatus" aria-haspopup="dialog" aria-controls="upstreamErrorsPanel" aria-expanded="false" class="pipeline-status topbar-upstream-btn" id="upstreamErrorsBtn" title="正在读取当日上游报错" type="button">
             <span class="pipeline-dot upstream-pulse-dot" aria-hidden="true"></span>
-            <span id="pipelineStatus">正在连接 DailyNews…</span>
+            <span id="pipelineStatus">正在连接新闻库…</span>
             <span class="upstream-badge" id="upstreamErrorSummary" aria-hidden="true"><span id="upstreamErrorBadge">—</span><span class="upstream-badge-label">处报错</span></span>
           </button>
         </div>
@@ -147,10 +147,10 @@
             </section>
           </div>
           <button
-            aria-label="刷新新闻索引"
+            aria-label="立即采集"
             class="topbar-tool-btn topbar-ghost-btn"
-            id="refreshIndexBtn"
-            title="刷新新闻索引"
+            id="collectNewsBtn"
+            title="立即采集"
             type="button"
           >
             <svg
@@ -399,6 +399,8 @@
               <div id="newsCategoryFilters" class="news-category-filters" role="group" aria-label="新闻分类"></div>
             </div>
 
+            <div class="list-notice" id="collectionTranslationNotice" role="status" hidden><span id="collectionTranslationText"></span><button class="reader-tool-btn" id="retryCollectionTranslationBtn" type="button">重试翻译</button></div>
+            <div class="list-notice" id="newNewsNotice" role="status" hidden><span id="newNewsCount"></span><button class="reader-tool-btn" id="viewNewNewsBtn" type="button">查看</button></div>
             <ul class="news-list" id="feedCardList" role="feed"></ul>
           </section>
           <section
@@ -809,7 +811,7 @@
                 ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
               <button class="settings-category-card" id="settingsCategory-schedules" data-settings-tab="schedules" data-title="日报任务" data-description="查看报告排期、运行状态和执行记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="settings-category-copy"><strong>日报任务</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="管理来源开关，增量扫描新闻输入。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
+              <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="配置定时采集与新闻流显示，清理已有数据。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
                   ><svg
                     fill="none"
                     stroke="currentColor"
@@ -953,7 +955,7 @@
         <div class="modal-header">
           <div class="upstream-dialog-heading">
             <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/></svg>
-            <h2 class="modal-title" id="upstreamErrorsTitle">上游信源报错查看</h2>
+            <h2 class="modal-title" id="upstreamErrorsTitle">采集错误</h2>
           </div>
           <button class="modal-close-btn" id="closeUpstreamErrorsBtn" type="button" aria-label="关闭上游报错">✕</button>
         </div>
@@ -1022,9 +1024,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.4.12"></script>
+    <script src="/static/error_ui.js?v=0.5.0"></script>
     <script
-      src="/static/app.js?v=0.4.12"
+      src="/static/app.js?v=0.5.0"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

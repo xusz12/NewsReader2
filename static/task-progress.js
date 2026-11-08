@@ -1,7 +1,7 @@
 import { $, api, busy, escapeHTML as e } from "./ui.js";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { jobErrorText } from "./topic-status.js";
-import { failureText, statusText, progressText } from "./report-status.js?v=report-workspace-1";
+import { failureText, statusText, progressText } from "./report-status.js?v=0.5.0";
 
 const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};
 const retryTime = value => value ? new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value)) : "";
@@ -161,6 +161,6 @@ export class TaskProgress {
     arc.style.strokeDashoffset=String(determinate?100-percent:0);
     arc.style.opacity=determinate&&!done?"0":"1";
     if(this.root.hidden)this.close();
-    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?$("#refreshIndexBtn"):this.indicator);
+    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?($("#collectNewsBtn:not(:disabled)") || $("#upstreamErrorsBtn")):this.indicator);
   }
 }

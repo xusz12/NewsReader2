@@ -155,7 +155,7 @@ test('启用后空列表不塞入样稿，索引失败可重试',async({page,req
   await expect(page.locator('#reportContent')).toContainText('从本次更新后开始生成');
   await request.post('/__test/reports',{data:{failed:true}});
   await page.reload(); await openReports(page);
-  await expect(page.locator('#reportContent')).toContainText('索引刷新失败');
+  await expect(page.locator('#reportContent')).toContainText('旧文件采集阶段未完成');
   await page.locator('#retryReportBtn').click();
   await expect(page.locator('#reportContent')).toContainText('等待生成');
   await expect(page.locator('#retryReportBtn')).toBeHidden();
@@ -185,15 +185,15 @@ test('迟到的日报响应不会覆盖已经切换的月报',async({page})=>{
   await expect(page.locator('#reportContent h1')).toHaveText('合成月报');
 });
 
-for (const width of [390, 1280]) test('刷新失败在列表、通知和详情显示原因及自动重试 '+width,async({page,request})=>{
+for (const width of [390, 1280]) test('旧采集错误在列表、通知和详情显示当前恢复方式 '+width,async({page,request})=>{
   await page.setViewportSize({width,height:900});
   await request.post('/__test/reports',{data:{failed:true,pending:true,error:'report_index_permission_denied'}});
   await page.goto('/'); await openReports(page);
   await expect(page.locator('[data-report-id="report-evening"]')).toContainText('等待重试');
-  await expect(page.locator('[data-report-id="report-evening"]')).toContainText('没有权限读取新闻目录或文件');
-  await expect(page.locator('#toast')).toContainText('没有权限读取新闻目录或文件');
+  await expect(page.locator('[data-report-id="report-evening"]')).toContainText('重试将直接使用当前新闻库');
+  await expect(page.locator('#toast')).toContainText('重试将直接使用当前新闻库');
   await page.locator('[data-report-id="report-evening"]').click();
-  await expect(page.locator('#reportContent [role="alert"]')).toContainText('没有权限读取新闻目录或文件');
+  await expect(page.locator('#reportContent [role="alert"]')).toContainText('重试将直接使用当前新闻库');
   await expect(page.locator('#reportContent')).toContainText('已尝试 1 / 3 次');
   await expect(page.locator('#reportContent')).toContainText('自动重试');
   await expect(page.locator('#retryReportBtn')).toBeHidden();
@@ -201,7 +201,7 @@ for (const width of [390, 1280]) test('刷新失败在列表、通知和详情�
     await page.emulateMedia({colorScheme});
     await chooseTheme(page,theme);
     expect(await page.locator('#reportScrollArea').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
-    await expect(page.locator('#reportContent [role="alert"]')).toContainText('没有权限读取新闻目录或文件');
+    await expect(page.locator('#reportContent [role="alert"]')).toContainText('重试将直接使用当前新闻库');
   }
 });
 

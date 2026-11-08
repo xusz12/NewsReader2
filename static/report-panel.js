@@ -29,7 +29,7 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.4.10";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.5.0";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);
@@ -237,7 +237,7 @@ export class ReportPanel {
     const host = $("#reportCardList"), active = host.contains(document.activeElement) ? document.activeElement : null;
     const focusAttr = active?.hasAttribute("data-report-group") ? "data-report-group" : active?.hasAttribute("data-report-more") ? "data-report-more" : "data-report-id";
     const focusKey = active?.getAttribute(focusAttr);
-    const warning = this.meta?.calendar_warning && this.kind === "daily" ? '<p class="list-message" role="status">交易日历尚未更新，早报与午报暂缓生成。</p>' : "";
+    const warning = this.meta?.calendar_warning && this.kind === "daily" ? '<p class="list-message" role="status">交易日历未就绪，早报与午报暂缓生成。</p>' : "";
     const error = this.listError ? '<div class="list-message" role="status">报告读取失败<button class="btn-secondary" data-report-reload type="button">重试</button></div>' : "";
     const groups = (this.meta?.groups || []).map(group => {
       const open = this.groupOpen(group.key), rows = this.archiveRows().filter(row=>this.groupKey(row)===group.key);

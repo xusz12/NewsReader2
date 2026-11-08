@@ -124,11 +124,25 @@ def set_summary_mode():
 
 @module.app.post('/__test/new-news')
 def new_news():
+    body = module.request.get_json(silent=True) or {}
     with module.db_conn() as conn:
         row = dict(conn.execute("SELECT * FROM items WHERE id='ui-000'").fetchone())
         row.update(id='ui-late-arrival', url='https://example.com/ui-late-arrival', title='快照创建后的新新闻')
+        if body.get('published_at'):
+            row.update(published_at=body['published_at'], date=body['published_at'][:10])
         conn.execute(f"INSERT INTO items ({','.join(row)}) VALUES ({','.join('?' for _ in row)})", tuple(row.values()))
     return {"ok": True, "item_id": row['id']}
+
+@module.app.post('/__test/reset-collection')
+def reset_collection():
+    with module.db_conn() as conn:
+        for table in ('items', 'item_state', 'topic_ingestions'):
+            key = 'id' if table == 'items' else 'item_id'
+            conn.execute(f"DELETE FROM {table} WHERE {key}='ui-late-arrival'")
+        for table in ('collection_items','collection_run_sources','collection_runs','news_read_previews'):
+            conn.execute(f'DELETE FROM {table}')
+        conn.execute('UPDATE item_state SET read_at=NULL')
+    return {"ok": True}
 
 @module.app.post('/__test/reset-summaries')
 def reset_summaries():

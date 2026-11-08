@@ -106,7 +106,7 @@ test('清理失败显示原因并保留大小，空快照禁用清理按钮',asy
   await page.route('**/api/reports/snapshots/clear',route=>route.fulfill({status:409,json:{ok:false,error:'report_materials_busy'}}));
   const clear=page.locator('[data-snapshot-clear]');
   await clear.click();await page.locator('#appConfirmAccept').click();
-  await expect(page.locator('[data-snapshot-error]')).toHaveText('索引正在更新，请稍后清理。');
+  await expect(page.locator('[data-snapshot-error]')).toHaveText('新闻快照正在使用，请稍后清理。');
   await expect(page.locator('[data-snapshot-size]')).toHaveText('2.0 KiB');
   await expect(clear).toBeEnabled();
   state.data.snapshot_storage={bytes:0,clearable_bytes:0,protected_bytes:0,count:0,clearable_count:0};
@@ -466,7 +466,7 @@ for(const width of [320,390,921,1440]) test('排期与快照管理沿用设置�
   if(width<=920) {
     await page.locator('#settingsCategoryBackBtn').click();
     const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(9);
+    await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
     await section(page,'schedules');
   }
   await page.locator('[data-snapshot-clear]').scrollIntoViewIfNeeded();

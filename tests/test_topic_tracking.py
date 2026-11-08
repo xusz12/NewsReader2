@@ -11,7 +11,7 @@ import pytest
 import news_classification as nc
 import news_summaries
 import topic_tracking as tt
-from scanner import apply_schema, reindex
+from legacy_news_scanner import apply_schema, reindex
 from settings import DEFAULT_APP_SETTINGS
 
 ROOT = Path(__file__).resolve().parents[1]

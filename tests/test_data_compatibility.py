@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 
 import app
-from scanner import reindex
+from legacy_news_scanner import reindex
 
 ROOT = Path(__file__).resolve().parents[1]
 STAMP = "2026-05-25 09:30:00"
@@ -65,7 +65,7 @@ def test_existing_database_and_daily_input_keep_history(tmp_path: Path, monkeypa
     seed_original_database(database, str(source.relative_to(daily_root)))
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
     for key, path in {
-        "DB_PATH": database, "DAILY_NEWS_DIR": daily_root,
+        "DB_PATH": database,
         "MEDIA_CACHE_DIR": tmp_path / "media", "AGENT_DB_PATH": tmp_path / "agent.sqlite3",
         "AGENT_RUNTIME_DIR": tmp_path / "agent",
     }.items():

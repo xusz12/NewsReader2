@@ -93,23 +93,15 @@ elif [[ ! -f "$SCRIPT_DIR/node_modules/@botiverse/oar/package.json" ]]; then
   print -u2 -- "新闻 Chat / Agent 依赖缺失；请在项目目录执行 npm ci --ignore-scripts。新闻阅读仍可启动。"
 fi
 
-# Preserve the historical remote-access behavior without making every direct
-# launcher invocation expose the service. An explicit host always wins; when
-# it is absent, use a valid Tailscale IPv4 and otherwise keep loopback.
-if [[ -z "${NEWS_READER_HOST:-}" ]] && command -v tailscale >/dev/null 2>&1; then
-  tailscale_host="$(tailscale ip -4 2>/dev/null)"
-  tailscale_status=$?
-  tailscale_host="$(print -r -- "$tailscale_host" | awk 'NF { print $1; exit }')"
-  if (( tailscale_status == 0 )) && [[ -n "$tailscale_host" ]] && awk -F. '
-    NF == 4 {
-      for (i = 1; i <= NF; i++) {
-        if ($i !~ /^[0-9]+$/ || $i > 255) exit 1
-      }
-      exit 0
-    }
-    { exit 1 }
-  ' <<< "$tailscale_host"; then
-    export NEWS_READER_HOST="$tailscale_host"
+# Detect both implementations on each launch; explicit host settings always win.
+if [[ -z "${NEWS_READER_HOST:-}" ]]; then
+  network_host="$("$PYTHON_BIN" "$SCRIPT_DIR/network_access.py" "${NEWS_READER_PORT:-8080}")"
+  network_status=$?
+  if (( network_status == 0 )) && [[ -n "$network_host" ]]; then
+    export NEWS_READER_HOST="$network_host"
+  else
+    export NEWS_READER_HOST="127.0.0.1"
+    print -u2 -- "网络地址检测不可用，使用本机地址 http://127.0.0.1:${NEWS_READER_PORT:-8080} 启动。"
   fi
 fi
 

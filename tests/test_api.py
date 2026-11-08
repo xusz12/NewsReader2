@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from legacy_news_seed import seed_news, confirm_all_read
+
 import importlib
 import json
 import os
@@ -141,7 +143,7 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    r = client.post("/api/reindex", json={})
+    r = seed_news(client, json={})
     assert r.status_code == 200
     assert r.get_json()["ok"] is True
 
@@ -250,133 +252,10 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     assert combo.get_json()["total"] == 0
 
 
-def test_daily_briefings_index_and_detail(tmp_path: Path, monkeypatch):
-    briefing_dir = tmp_path / "briefings" / "daily"
-    make_daily_briefing(briefing_dir / "2026-06-29_daily.md", DAILY_BRIEFING_0629)
-    make_daily_briefing(briefing_dir / "2026-06-30_daily.md", DAILY_BRIEFING_0630)
-    make_daily_briefing(briefing_dir / "2026-07-01_daily.md", DAILY_BRIEFING_0701)
-    daily_root = tmp_path / "DailyNews"
-    daily_root.mkdir()
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(daily_root))
-    monkeypatch.setenv("NEWS_READER_DAILY_BRIEFING_DIR", str(briefing_dir))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    index = client.get("/api/daily-briefings")
-    assert index.status_code == 200
-    payload = index.get_json()
-    assert payload["ok"] is True
-    assert payload["total"] == 3
-    assert [month["month"] for month in payload["months"]] == ["2026-07", "2026-06"]
-    assert payload["months"][0]["items"][0]["title"] == "📋 7月1日 晨间简报"
-    assert "执行模式：daily" in payload["months"][0]["items"][0]["metadata_summary"]
-
-    june29 = client.get("/api/daily-briefings/2026-06-29")
-    assert june29.status_code == 200
-    june29_payload = june29.get_json()["briefing"]
-    assert june29_payload["metadata"][0]["value"] == "daily"
-    assert june29_payload["title"] == "6月29日 日报"
-    assert june29_payload["sections"][0]["title"] == "当前关注"
-    assert june29_payload["sections"][1]["items"][0]["parts"][0] == {"type": "bold", "text": "中东"}
-
-    june30 = client.get("/api/daily-briefings/2026-06-30")
-    assert june30.status_code == 200
-    june30_payload = june30.get_json()["briefing"]
-    assert june30_payload["title"] == "📋 6月30日 全日摘要"
-    assert june30_payload["footer_note"].startswith("今日数据：197条")
-    tracking = next(section for section in june30_payload["sections"] if section["title"] == "🔍 关注追踪")
-    assert [item["type"] for item in tracking["items"]] == ["paragraph", "paragraph"]
-
-    july01 = client.get("/api/daily-briefings/2026-07-01")
-    assert july01.status_code == 200
-    july01_payload = july01.get_json()["briefing"]
-    ai_section = next(section for section in july01_payload["sections"] if section["title"] == "🤖 AI动态")
-    assert any(part["type"] == "code" and part["text"] == "Claude Sonnet 5" for part in ai_section["items"][1]["parts"])
 
 
-def test_daily_briefings_missing_dir_and_invalid_date(tmp_path: Path, monkeypatch):
-    missing_briefing_dir = tmp_path / "missing-briefings"
-    daily_root = tmp_path / "DailyNews"
-    daily_root.mkdir()
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(daily_root))
-    monkeypatch.setenv("NEWS_READER_DAILY_BRIEFING_DIR", str(missing_briefing_dir))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    empty_index = client.get("/api/daily-briefings")
-    assert empty_index.status_code == 200
-    assert empty_index.get_json()["months"] == []
-    assert empty_index.get_json()["total"] == 0
-
-    invalid = client.get("/api/daily-briefings/2026-99-99")
-    assert invalid.status_code == 400
-    assert invalid.get_json()["error"] == "invalid_date"
-
-    traversal = client.get("/api/daily-briefings/..")
-    assert traversal.status_code == 400
-    assert traversal.get_json()["error"] == "invalid_date"
-
-    missing = client.get("/api/daily-briefings/2026-07-31")
-    assert missing.status_code == 404
-    assert missing.get_json()["error"] == "not_found"
 
 
-def test_reindex_and_detail_return_ingest_provenance(tmp_path: Path, monkeypatch):
-    daily_dir = tmp_path / "DailyNews" / "2026年5月"
-    daily_dir.mkdir(parents=True)
-    md_path = daily_dir / "dailyFreshNews_2026-05-25.md"
-    sidecar_path = daily_dir / "dailyFreshNews_2026-05-25.newsreader.json"
-    make_api_daily(md_path, "Markdown 标题", "https://example.com/api-sidecar", summary="Markdown 摘要")
-    make_api_sidecar(sidecar_path, title="JSON 标题", url="https://example.com/api-sidecar", summary="JSON 摘要")
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    reindex_payload = client.post("/api/reindex", json={}).get_json()
-    assert reindex_payload["ingest_counts"] == {
-        "sidecar_json": 1,
-        "markdown_fallback": 0,
-        "markdown_only": 0,
-    }
-
-    item = client.get("/api/news?per=20").get_json()["items"][0]
-    detail = client.get(f"/api/news/{item['id']}/detail").get_json()
-    assert detail["ingest_mode"] == "sidecar_json"
-    assert detail["ingest_warning"] is None
-
-    sidecar_path.write_text(json.dumps({"schema_version": "newsreader.daily.v0", "items": []}), encoding="utf-8")
-
-    reindex_payload_2 = client.post("/api/reindex", json={}).get_json()
-    assert reindex_payload_2["ingest_counts"] == {
-        "sidecar_json": 0,
-        "markdown_fallback": 1,
-        "markdown_only": 0,
-    }
-    detail_2 = client.get(f"/api/news/{item['id']}/detail").get_json()
-    assert detail_2["ingest_mode"] == "markdown_fallback"
-    assert detail_2["ingest_warning"] == "unsupported_newsreader_daily_schema"
 
 
 def test_sidecar_source_identity_survives_section_only_source(tmp_path: Path, monkeypatch):
@@ -415,7 +294,7 @@ def test_sidecar_source_identity_survives_section_only_source(tmp_path: Path, mo
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?read_filter=all&per=20").get_json()["items"][0]
     assert item["source"] == "world"
@@ -447,7 +326,7 @@ def test_global_search_mvp(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(app_module, "has_secret", lambda name: name == "DEEPSEEK_API_KEY")
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     alpha = next(item for item in items if item["title"] == "AlphaTitle")
@@ -579,7 +458,7 @@ def test_news_reminders_crud_and_snapshot_summary(tmp_path: Path, monkeypatch):
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     item = client.get("/api/news?per=20").get_json()["items"][0]
     assert item["active_reminder_count"] == 0
     assert item["due_reminder_count"] == 0
@@ -672,7 +551,7 @@ def test_reminder_snapshot_survives_stale_item_deletion(tmp_path: Path, monkeypa
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     item = client.get("/api/news?per=20").get_json()["items"][0]
     create = client.post(
         f"/api/news/{item['id']}/reminders",
@@ -686,7 +565,7 @@ def test_reminder_snapshot_survives_stale_item_deletion(tmp_path: Path, monkeypa
     assert create.status_code == 200
 
     daily_file.unlink()
-    assert client.post("/api/reindex", json={"full": True}).status_code == 200
+    assert seed_news(client, json={"full": True}).status_code == 200
     assert client.get("/api/news?per=20").get_json()["total"] == 0
 
     reminders = client.get("/api/reminders").get_json()
@@ -925,7 +804,7 @@ def test_tracked_topics_backfill_incremental_and_overrides(tmp_path: Path, monke
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    first_reindex = client.post("/api/reindex", json={})
+    first_reindex = seed_news(client, json={})
     assert first_reindex.status_code == 200
     assert first_reindex.get_json()["tracked_incremental_matches"] == 0
 
@@ -1139,7 +1018,7 @@ def test_tracked_topics_backfill_incremental_and_overrides(tmp_path: Path, monke
 """,
         encoding="utf-8",
     )
-    second_reindex = client.post("/api/reindex", json={})
+    second_reindex = seed_news(client, json={})
     assert second_reindex.status_code == 200
     assert second_reindex.get_json()["tracked_incremental_matches"] == 1
 
@@ -1242,7 +1121,7 @@ def test_tracked_required_terms_gate_and_backfill_preserves_manual_hidden(tmp_pa
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     by_title = {item["title"]: item for item in items}
@@ -1357,7 +1236,7 @@ def test_tracked_topic_daily_summaries_generate_and_stale(tmp_path: Path, monkey
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     items = client.get("/api/news?per=20").get_json()["items"]
     by_title = {item["title"]: item for item in items}
     create_tag = client.post("/api/market-tags", json={"display_name": "俄乌战争"})
@@ -1543,7 +1422,7 @@ def test_tracked_topic_manual_add_trend_note_rejected(tmp_path: Path, monkeypatc
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     create_tag = client.post("/api/market-tags", json={"display_name": "AI 跟踪测试"})
     assert create_tag.status_code == 200
@@ -1684,7 +1563,7 @@ def test_feed_and_non_feed_sorting_split(tmp_path: Path, monkeypatch):
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     feed_items = client.get("/api/news?read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in feed_items] == ["Morning", "Noon", "Evening"]
@@ -1742,7 +1621,7 @@ def test_read_later_cross_date_order_matches_feed_old_to_new(tmp_path: Path, mon
     app_module.ensure_db()
     client = app_module.app.test_client()
 
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     feed_items = client.get("/api/news?read_filter=unread&per=20").get_json()["items"]
     assert [item["title"] for item in feed_items] == ["D2-early", "D2-later", "D1-early", "D1-middle"]
 
@@ -1801,7 +1680,7 @@ def test_feed_unread_cursor_paging_survives_auto_read_shrink(tmp_path: Path, mon
     monkeypatch.setattr(app_module, "has_secret", lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     page1 = client.get("/api/news?collection=feed&read_filter=unread&source_filter=reuters&page=1&per=30")
     assert page1.status_code == 200
@@ -1873,7 +1752,7 @@ def test_feed_unread_reverse_sort_keeps_cursor_direction(tmp_path: Path, monkeyp
     monkeypatch.setattr(app_module, "has_secret", lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     page1 = client.get("/api/news?collection=feed&read_filter=unread&sort_order=reverse&page=1&per=30")
     assert page1.status_code == 200
@@ -1928,7 +1807,7 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     monkeypatch.setattr(app_module, "has_secret", lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     feed_default = client.get("/api/news?collection=feed&read_filter=all&per=20").get_json()["items"]
     assert [item["title"] for item in feed_default[:4]] == ["Beta Late", "Beta Early", "Alpha Late", "Alpha Early"]
@@ -2026,7 +1905,7 @@ def test_unified_ideas_feed_combines_article_and_trend_notes(tmp_path: Path, mon
     monkeypatch.setattr(app_module, "has_secret", lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     alpha = next(item for item in items if item["title"] == "Idea Alpha")
@@ -2235,7 +2114,7 @@ def test_mark_all_read_cross_page_with_filter(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    r = client.post("/api/reindex", json={})
+    r = seed_news(client, json={})
     assert r.status_code == 200
 
     # Cross-page condition: per=1 but mark-all-read should touch all filtered hits.
@@ -2243,8 +2122,7 @@ def test_mark_all_read_cross_page_with_filter(tmp_path: Path, monkeypatch):
     assert page1.status_code == 200
     assert page1.get_json()["total"] == 2
 
-    mark = client.post(
-        "/api/news/mark-all-read",
+    mark = confirm_all_read(client,
         json={"q": "Alpha", "read_filter": "all"},
     )
     assert mark.status_code == 200
@@ -2280,15 +2158,14 @@ def test_mark_all_read_respects_collection(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news").get_json()["items"]
     item1 = items[0]["id"]
     item2 = items[1]["id"]
     assert client.patch(f"/api/news/{item1}/state", json={"important": True}).status_code == 200
 
-    mark = client.post(
-        "/api/news/mark-all-read",
+    mark = confirm_all_read(client,
         json={"collection": "important", "read_filter": "all"},
     )
     assert mark.status_code == 200
@@ -2325,7 +2202,7 @@ def test_mark_read_by_ids_only_touches_loaded_rows(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     all_items = client.get("/api/news?per=20&q=Alpha").get_json()["items"]
     loaded_ids = [all_items[0]["id"], all_items[1]["id"]]
@@ -2370,7 +2247,7 @@ def test_news_date_counts_follow_filter_and_collection(tmp_path: Path, monkeypat
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     feed_all = client.get("/api/news?per=20&read_filter=all").get_json()
     assert feed_all["date_counts"] == {"2026-05-26": 2, "2026-05-25": 2}
@@ -2421,7 +2298,7 @@ def test_read_later_enqueues_detail_job_and_retry(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news").get_json()["items"][0]
     item_id = item["id"]
@@ -2475,7 +2352,7 @@ def test_twitter_read_later_enqueues_pending_detail_job(tmp_path: Path, monkeypa
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -2511,7 +2388,7 @@ def test_detail_api_includes_ai_fields(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news").get_json()["items"][0]
     item_id = item["id"]
@@ -2574,7 +2451,7 @@ def test_favorite_state_surfaces_in_status_detail_and_sources(tmp_path: Path, mo
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     first_id = items[0]["id"]
@@ -2643,7 +2520,7 @@ def test_sources_and_source_filter(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     src_resp = client.get("/api/sources?collection=feed&read_filter=all")
     assert src_resp.status_code == 200
@@ -2718,7 +2595,7 @@ def test_bloomberg_video_pages_are_hidden_server_side_without_deleting_history(t
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    indexed = client.post("/api/reindex", json={})
+    indexed = seed_news(client, json={})
     assert indexed.status_code == 200
     assert indexed.json["upserted"] == 12 and indexed.json["skipped_videos"] == 3
 
@@ -2852,7 +2729,7 @@ def test_news_section_order_date_asc_and_intra_date_asc_for_feed(tmp_path: Path,
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     res = client.get("/api/news?read_filter=unread&per=20")
     assert res.status_code == 200
@@ -2887,7 +2764,7 @@ def test_reading_checkpoint_save_get_and_locate(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     put = client.put(
         "/api/reading-checkpoint",
@@ -2931,7 +2808,7 @@ def test_reading_checkpoint_locate_not_found(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     assert client.put(
         "/api/reading-checkpoint",
         json={"scope": "feed", "url": "https://example.com/not-exist", "title": "X"},
@@ -2966,7 +2843,7 @@ def test_news_status_batch_endpoint(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     ids = [x["id"] for x in items]
@@ -3002,7 +2879,7 @@ def test_article_note_save_read_and_clear(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     item_id = item["id"]
@@ -3065,7 +2942,7 @@ def test_notes_collection_and_sources_filter(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     reuters_item = next(x for x in items if "reuters.com" in (x.get("url") or ""))
@@ -3121,7 +2998,7 @@ def test_market_tags_crud_and_collection_filter(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     reuters_item = next(x for x in items if "reuters.com" in (x.get("url") or ""))
@@ -3221,7 +3098,7 @@ def test_market_workbench_pinned_notes(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     reuters_item = items[0]
@@ -3317,7 +3194,7 @@ def test_market_trends_matrix_and_detail(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     r1 = next(x for x in items if x["title"] == "R1")
@@ -3379,7 +3256,7 @@ def test_market_tag_definitions_crud_and_dynamic_usage(tmp_path: Path, monkeypat
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     tags_res = client.get("/api/market-tags")
     assert tags_res.status_code == 200
@@ -3453,7 +3330,7 @@ def test_market_tag_reorder_is_atomic_and_normalizes_after_delete_merge(tmp_path
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     first = client.post("/api/market-tags", json={"display_name": "第一自定义"}).get_json()["tag"]
     second = client.post("/api/market-tags", json={"display_name": "第二自定义"}).get_json()["tag"]
@@ -3515,7 +3392,7 @@ def test_market_tag_delete_removes_associations_and_blocks_default_reseed(tmp_pa
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     assert client.put(
@@ -3579,7 +3456,7 @@ def test_market_tag_merge_moves_links_and_notes_and_dedupes_urls(tmp_path: Path,
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     create_res = client.post("/api/market-tags", json={"display_name": "人工智能"})
     assert create_res.status_code == 200
@@ -3671,7 +3548,7 @@ def test_market_trend_notes_manual_signal(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     assert client.put(
@@ -3755,7 +3632,7 @@ def test_market_trend_tag_detail_overview(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     r1 = next(x for x in items if x["title"] == "R1")
@@ -3820,7 +3697,7 @@ def test_market_workbench_overview_and_tag_feed(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     r1 = next(x for x in items if x["title"] == "R1")
@@ -3906,7 +3783,7 @@ def test_market_tag_summary_generate_and_stale(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     items = client.get("/api/news?per=20").get_json()["items"]
     r1 = next(x for x in items if x["title"] == "R1")
@@ -4084,51 +3961,6 @@ def test_deepseek_failure_uses_pi_fallback_and_persists_result(tmp_path: Path, m
     assert fallback_called["pi_provider"] == ""
 
 
-def test_error_stats_today_with_and_without_errors(tmp_path: Path, monkeypatch):
-    daily_dir = tmp_path / "DailyNews" / "2026年6月"
-    daily_dir.mkdir(parents=True)
-    db_path = tmp_path / "news_index.sqlite3"
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    empty = client.get("/api/error-stats?day=2026-06-07")
-    assert empty.status_code == 200
-    assert empty.get_json() == {"ok": True, "day": "2026-06-07", "days": []}
-
-    (daily_dir / "dailyFreshNews_2026-06-07.md").write_text(
-        """## errors
-
-### 1. middle-east
-- 抓取时间：2026-06-07 21:03:38
-- 命令：`opencli ReutersBrowser news https://www.reuters.com/world/middle-east/ --limit 10 --format json`
-- 错误：message: 'TypeError: Failed to fetch'
-
-### 2. china
-- 抓取时间：2026-06-07 10:00:57
-- 命令：`opencli ReutersBrowser news https://www.reuters.com/world/china/ --limit 10 --format json`
-- 错误：message: 'TypeError: Failed to fetch'
-""",
-        encoding="utf-8",
-    )
-
-    payload = client.get("/api/error-stats?day=2026-06-07").get_json()
-    assert payload["ok"] is True
-    assert payload["day"] == "2026-06-07"
-    assert payload["days"] == [
-        {
-            "date": "2026-06-07",
-            "groups": [
-                {"time": "21:03:38", "labels": ["middle-east error"]},
-                {"time": "10:00:57", "labels": ["china error"]},
-            ],
-        }
-    ]
 
 
 def test_process_pending_jobs_once_twitter_success_and_comment_summary(tmp_path: Path, monkeypatch):
@@ -4150,7 +3982,7 @@ def test_process_pending_jobs_once_twitter_success_and_comment_summary(tmp_path:
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -4213,7 +4045,7 @@ def test_process_pending_jobs_once_twitter_article_failure_does_not_fail_detail(
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -4365,7 +4197,7 @@ def test_process_pending_ai_once_twitter_generates_body_only(tmp_path: Path, mon
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -4447,7 +4279,7 @@ def test_process_pending_jobs_once_twitter_success_does_not_enqueue_ai_job(tmp_p
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -4497,7 +4329,7 @@ def test_news_chat_archive_rejects_missing_assistant(tmp_path: Path, monkeypatch
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     res = client.post(
@@ -4647,8 +4479,7 @@ def test_feed_source_subkey_visibility_settings_only_filter_feed(tmp_path: Path,
     assert x_items["x/macromargin"]["label"] == "@MacroMargin"
     assert x_items["x/macromargin"]["hidden"] is True
 
-    marked = client.post(
-        "/api/news/mark-all-read",
+    marked = confirm_all_read(client,
         json={"collection": "feed", "read_filter": "unread", "source_filter": "all"},
     ).get_json()
     assert marked == {"ok": True, "marked": 1}
@@ -5349,7 +5180,7 @@ def test_news_chat_dispatches_to_pi_when_configured(tmp_path: Path, monkeypatch)
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -5439,7 +5270,7 @@ def test_news_chat_archive_always_uses_pi_and_appends_note(tmp_path: Path, monke
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     item = client.get("/api/news?per=20").get_json()["items"][0]
     captured = {}
 
@@ -5489,7 +5320,7 @@ def test_news_chat_pi_timeout_maps_to_provider_timeout(tmp_path: Path, monkeypat
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
@@ -5614,7 +5445,7 @@ def test_detail_api_returns_twitter_media_images_and_hides_raw_json(tmp_path: Pa
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5665,7 +5496,7 @@ def test_detail_api_non_twitter_has_no_media_images(tmp_path: Path, monkeypatch)
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5707,7 +5538,7 @@ def test_detail_retry_twitter_with_detail_requeues_detail_job(tmp_path: Path, mo
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5761,7 +5592,7 @@ def test_detail_retry_twitter_with_detail_mode_ai_requeues_ai_job(tmp_path: Path
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5834,7 +5665,7 @@ def test_detail_retry_non_twitter_with_detail_still_requeues_ai_job(tmp_path: Pa
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5925,7 +5756,7 @@ def test_detail_api_sanitizes_twitter_media_images_and_hides_raw_json(tmp_path: 
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -5988,7 +5819,7 @@ def test_detail_retry_twitter_resets_detail_job_attempts_and_timestamps(tmp_path
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -6261,7 +6092,7 @@ def test_detail_api_returns_cached_urls_for_twitter_images(tmp_path: Path, monke
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = app_module.now_ts()
@@ -6728,7 +6559,7 @@ def test_market_trend_note_patch_date_tag_direction(tmp_path: Path, monkeypatch)
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     assert client.put(
@@ -6859,7 +6690,7 @@ def _setup_review_env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(app_module, "has_secret", lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    client.post("/api/reindex", json={})
+    seed_news(client, json={})
     return client, app_module
 
 
@@ -8163,7 +7994,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     items = client.get("/api/news?per=20&read_filter=all").get_json()["items"]
     by_url = {item["url"]: item for item in items}
     first = by_url[first_url]
@@ -8771,7 +8602,7 @@ def _setup_agent_api_fixture(tmp_path: Path, monkeypatch):
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    assert client.post("/api/reindex", json={}).status_code == 200
+    assert seed_news(client, json={}).status_code == 200
     item = client.get("/api/news?per=20").get_json()["items"][0]
     with app_module.db_conn() as conn:
         stamp = app_module.now_ts()

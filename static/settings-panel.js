@@ -1,13 +1,13 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.0";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
 import { visibilityText } from "./summary-panel.js?v=0.3.0";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
-import { ScheduleObserver } from "./schedule-observer.js?v=report-windows-edit-1";
+import { ScheduleObserver } from "./schedule-observer.js?v=0.5.0";
 import { defaultReportWindows, windowError } from "./report-windows.js";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 
@@ -311,6 +311,7 @@ export class SettingsPanel {
   }
   payload(d = this.draft) {
     return {
+      collection: clone(d.collection),
       llm: clone(d.llm),
       api_models: clone(d.api_models || { jev: { model: "" } }),
       classification: clone(d.classification || { enabled: true, concurrency: 8, unread_only: false }),
@@ -348,6 +349,12 @@ export class SettingsPanel {
   }
   updateDraft(event) {
     const input = event.target;
+    if (input.name?.startsWith("collection.")) {
+      set(this.draft, input.name, input.type === "checkbox" ? input.checked : input.type === "number"
+        ? input.valueAsNumber : input.value.split(/[，,、\s]+/).filter(Boolean));
+      this.status("有未保存的更改");
+      return;
+    }
     if (input.name?.startsWith("keyboard.")) {
       set(this.draft, input.name, input.type === "checkbox" ? input.checked : input.value);
       this.status("有未保存的更改");
@@ -535,7 +542,19 @@ export class SettingsPanel {
       <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
       <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
       <button class="btn-secondary" id="resetCatchupDefaultsBtn" type="button">恢复默认范围（20 天 / 6000 条）</button></section>
-      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>信源增量采集与 opencli 适配器</span></div><p class="muted">保存信源开关后更新新闻流，保留原有阅读状态。正文抓取由本机 opencli 执行，可在文章中查看结果。</p><div id="settingsSources">${this.sourceHTML()}</div><button class="btn-secondary" id="settingsReindexBtn" type="button">重新扫描 DailyNews</button></section>
+      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>自动采集新闻</span></div>
+      <label class="settings-toggle settings-switch"><span>启用定时采集</span><input type="checkbox" role="switch" name="collection.enabled" ${d.collection?.enabled !== false ? "checked" : ""}></label>
+      <p class="muted">北京时间；后台服务运行时执行，关闭网页不影响。保存后生效。暂停定时采集仍可手动采集。</p>
+      ${field("每天采集时间", "collection.daily", (d.collection?.daily || []).join("、"), 'placeholder="00:01、04:00、08:00"')}
+      ${field("A 股交易日增加", "collection.trading", (d.collection?.trading || []).join("、"), 'placeholder="09:00、10:00、14:30"')}
+      <p class="muted">使用 24 小时格式 HH:MM，以顿号、逗号或空格分隔；同一时间只执行一次。</p>
+      ${field("新闻翻译并发上限", "collection.translation_concurrency", d.collection?.translation_concurrency ?? 4, 'type="number" min="1" max="32" step="1" required')}
+      <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。同一轮采集结束且全部翻译成功后统一入库。</p>
+      <p id="settingsCollectionStatus" role="status"></p>
+      <div class="button-row"><button class="btn-secondary" id="settingsCollectBtn" type="button">立即采集</button></div></section>
+      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>固定采集来源</span></div>
+      <p class="muted">当前版本使用以下固定栏目与账号，通过本机 opencli 采集。采集与翻译均在后台运行；整批完成翻译后统一进入新闻库。</p><ul id="settingsCollectionSources"></ul></section>
+      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>新闻流显示与数据清理</span></div><p class="muted">勾选只控制新闻流显示，不启停采集。删除会清除该来源当前数据，后续新新闻仍会采集。</p><div id="settingsSources">${this.sourceHTML()}</div></section>
       <section class="settings-section-card" data-section="storage"><div class="section-card-title"><span>本地 SQLite 数据库与存储路径</span></div>
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
       ${field("下次启动使用的数据库", "database.configured_path", d.database.configured_path, d.database.environment_override ? "disabled" : 'placeholder="已有 SQLite 文件的完整路径"')}
@@ -546,6 +565,7 @@ export class SettingsPanel {
     this.renderShortcuts();
     this.updater.render();
     this.renderClassificationProgress();
+    this.updateCollectionStatus(this.collectionStatus);
     this.schedules.mount($("#scheduleSettings"));
     this.selectSection(this.section, { reveal: false });
     $("#releaseNotes").closest("details").ontoggle = (event) => {
@@ -799,6 +819,17 @@ export class SettingsPanel {
     if (!codex) $(`select[name="${paths.pi}.reasoning_effort"]`, panel).disabled = !piModel?.reasoning_efforts?.length;
     this.selects.refresh(panel);
   }
+  updateCollectionStatus(data) {
+    if (data) this.collectionStatus = data;
+    const node = $("#settingsCollectionStatus");
+    if (!node || !data) return;
+    const time = value => value ? new Date(value).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai",hour12:false}) : "暂无";
+    node.textContent = `${data.running ? "采集中" : data.schedule.enabled ? "定时采集已启用" : "定时采集已暂停"} · 下次：${time(data.next_run_at)}${data.schedule_error ? " · 交易日历未就绪，常规采集正常" : ""}`;
+    const button = $("#settingsCollectBtn");
+    if (button) button.disabled = data.running;
+    const statuses = {none:"尚未执行",pending:"待采集",running:"采集中",done:"成功",failed:"失败"};
+    $("#settingsCollectionSources").innerHTML = data.sources.map(source => `<li>${e(source.label)} · ${e(statuses[source.status] || source.status)}${source.status === "done" ? `，新增 ${source.added} 条` : ""}${source.error ? `（${e(source.error)}）` : ""}</li>`).join("");
+  }
   sourceHTML() {
     const hidden = new Set(this.draft.feed.hidden_source_subkeys || []);
     return (
@@ -807,7 +838,7 @@ export class SettingsPanel {
           (group) =>
             `<fieldset class="settings-source-group"><legend>${e(group.label)}</legend>${group.items.map((item) => `<div class="sub-source-item"><label><input type="checkbox" data-setting-source="${e(item.key)}" ${hidden.has(item.key) ? "" : "checked"}><span>${e(item.label)}</span><span class="muted">${item.count}</span></label><button type="button" class="reader-action-btn danger" data-delete-source="${e(item.key)}" aria-label="删除信源 ${e(group.label)} · ${e(item.label)}">删除</button></div>`).join("")}</fieldset>`,
         )
-        .join("") || '<p class="muted">索引新闻后，这里会显示可配置的信源。</p>'
+        .join("") || '<p class="muted">新闻入库后，这里会显示可配置的信源。</p>'
     );
   }
   async deleteSource(button) {
@@ -827,12 +858,13 @@ export class SettingsPanel {
         `信源：${source.source_label} · ${source.label}`,
         `标识：${source.key}`,
         `新闻数目：${source.news_count.toLocaleString()} 条`,
+        `尚未发布的采集内容：${source.pending_news_count || 0} 条`,
         `新闻日期：${source.first_date} 至 ${source.last_date}`,
         `数据大小：约 ${formatBytes(source.data_bytes)}（数据内容 ${formatBytes(source.database_bytes)}，缓存文件 ${formatBytes(source.file_bytes)}）`,
         `相关数据：${counts.article_details} 篇正文、${counts.article_ai} 篇译文、${source.note_count} 条想法、${counts.article_highlights} 处高亮、${counts.agent_sessions} 个临时会话。`,
         "",
         "将永久清除该信源在当前新闻库中的上述数据、阅读标记及关联任务。已删除的新闻不会重新导入，该信源后续的新新闻仍会正常收录。此操作无法撤销。",
-        "外部 DailyNews 原文件、已生成的报告和主题研究成果保留。其他信源共用的正文与缓存保留。",
+        "已生成的报告和主题研究成果保留。其他信源共用的正文与缓存保留。",
         "数据大小按内容估算，数据库文件不一定立即缩小。",
       ].join("\n");
       if (!await confirmAction({title:"删除信源及全部新闻数据", message, action:"永久删除", trigger:button})) return;
@@ -845,7 +877,7 @@ export class SettingsPanel {
       if ($("#settingsSources")) {
         $("#settingsSources").innerHTML = this.sourceHTML();
         const buttons = $$("[data-delete-source]");
-        (buttons[Math.min(index, buttons.length - 1)] || $("#settingsReindexBtn"))?.focus({preventScroll:true});
+        (buttons[Math.min(index, buttons.length - 1)] || $("#settingsCollectBtn"))?.focus({preventScroll:true});
       }
       this.onSourceDeleted?.(data);
       this.onSources?.();
@@ -954,10 +986,10 @@ export class SettingsPanel {
       },
       retrySettingsBtn: () => this.load(),
       pickDatabaseBtn: () => this.pickDatabase(),
-      settingsReindexBtn: async () => {
-        await api("/api/reindex", { method: "POST" });
-        toast("新闻索引已刷新");
-        this.onSaved();
+      settingsCollectBtn: async () => {
+        await api("/api/collection", {method:"POST"});
+        toast("采集任务已加入后台队列");
+        this.updateCollectionStatus(await api("/api/collection"));
       },
       clearSessionsBtn: async () => {
         const saved = this.saved, path = saved.database.path;
@@ -1017,7 +1049,9 @@ export class SettingsPanel {
         return;
       }
       invalid.reportValidity();
-      this.status(invalid.name === "classification.concurrency" ? "分类并发上限必须是 1–32 的整数" : "总结范围必须填写有效的正整数", true);
+      this.status(invalid.name === "classification.concurrency" ? "分类并发上限必须是 1–32 的整数"
+        : invalid.name === "collection.translation_concurrency" ? "新闻翻译并发上限必须是 1–32 的整数"
+        : "总结范围必须填写有效的正整数", true);
       return;
     }
     const payload = this.payload();

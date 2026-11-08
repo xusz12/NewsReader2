@@ -19,6 +19,7 @@ import report_model
 from feed_sources import is_bloomberg_video_url
 from settings import report_model_feature
 import report_schedule
+import trading_calendar
 from report_generation import generate, parse_json, partition, reading_minutes, validate_events, validate_report
 
 ROOT = Path(__file__).resolve().parent
@@ -125,8 +126,7 @@ def initialize(conn, at=None):
 
 
 def calendar_data():
-    path = Path(os.environ.get("NEWS_READER_TRADING_CALENDAR_PATH") or ROOT / "reports/trading-calendar.json")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return trading_calendar.calendar_data()
 
 
 def trading_day(day: date, calendar: dict) -> bool | None:
@@ -135,7 +135,9 @@ def trading_day(day: date, calendar: dict) -> bool | None:
     year = calendar.get(str(day.year))
     if not year:
         return None
-    return not any(start <= day.isoformat() <= end for start, end in year["closed_ranges"])
+    # A next-year New Year's closure can also cover the preceding December.
+    return not any(start <= day.isoformat() <= end
+                   for entry in calendar.values() for start, end in entry["closed_ranges"])
 
 
 def slots(day: date, calendar: dict, schedule=None):
@@ -237,7 +239,7 @@ def prune_snapshots(conn, cutoff=None):
     return removed
 
 
-def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=None, configs=None, schedule=None):
+def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=None, configs=None, schedule=None, calendar_since=None):
     at = local(at or now())
     # Morning/noon editions are useful when their slot arrives while this
     # service is running. A restart only catches up durable evening/week/month editions.
@@ -259,7 +261,8 @@ def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=Non
             (stamp(at), stamp(intraday_since), time.time()))
         meta = conn.execute("SELECT * FROM periodic_report_meta WHERE singleton=1").fetchone()
         active = local(meta["activated_at"])
-        cursor = local(meta["scheduled_through"])
+        original_cursor = local(meta["scheduled_through"])
+        cursor = min(original_cursor, max(active, local(calendar_since))) if calendar_since else original_cursor
         until = min(at, cursor + timedelta(days=90))
         if until <= cursor:
             conn.commit()
@@ -288,7 +291,7 @@ def enqueue_due(conn, at=None, calendar=None, *, intraday_since=None, config=Non
                     edition_title(kind, scheduled, start, end), stamp(start), stamp(end), stamp(scheduled), ts, ts,
                     encoded(selected_config) if selected_config is not None else None, model_label(selected_config))).rowcount
             day += timedelta(days=1)
-        conn.execute("UPDATE periodic_report_meta SET scheduled_through=? WHERE singleton=1", (stamp(until),))
+        conn.execute("UPDATE periodic_report_meta SET scheduled_through=? WHERE singleton=1", (stamp(max(until, original_cursor)),))
         conn.commit()
         return count
     except Exception:
@@ -329,10 +332,11 @@ def index_error(exc):
 
 
 def capture(conn, report):
-    """Capture after indexing. Newly indexed in-window reports must be included.
+    """Read the formal library at snapshot time, independent of pending collection.
 
-    There is deliberately no read-state filter and no cutoff on created_at: the
-    pre-generation reindex may discover an article published before the deadline.
+    Publication time selects the report window. First ingestion time is not a
+    publication timestamp; backdated articles already published to the library
+    may enter the snapshot, while pending translations remain outside it.
     """
     start, end = local(report["period_start"]), local(report["period_end"])
     rows = conn.execute("""SELECT i.*, d.content, d.fetched_at FROM items i
@@ -432,7 +436,7 @@ def execution_record(row):
 
 
 class Service:
-    def __init__(self, connect, settings, refresh_index, runner=report_model.run, *, index_lock=None, concurrency=MAX_CONCURRENT_REPORTS):
+    def __init__(self, connect, settings, refresh_index=None, runner=report_model.run, *, index_lock=None, concurrency=MAX_CONCURRENT_REPORTS):
         self.connect, self.settings, self.refresh_index, self.runner = connect, settings, refresh_index, runner
         self.index_lock = index_lock if index_lock is not None else threading.RLock()
         self.lock = threading.Lock()
@@ -448,6 +452,7 @@ class Service:
         self.last_schedule_success = None
         self.last_schedule_error = ""
         self.last_database_token = None
+        self.calendar_wait_since = None
 
     def start(self):
         with self.lock:
@@ -461,6 +466,7 @@ class Service:
                 self.last_schedule_success = None
                 self.last_schedule_error = ""
                 self.last_database_token = None
+                self.calendar_wait_since = None
                 self.stopped.clear()
                 self.ready.clear()
             while len(self.threads) < self.concurrency:
@@ -485,6 +491,7 @@ class Service:
     def schedule_once(self, at=None):
         at = local(at or now())
         self.cleanup_snapshots(at)
+        previous_tick = self.last_tick
         if self.started_at is None or (self.last_tick and at - self.last_tick > timedelta(seconds=90)):
             # A machine waking after sleep also misses intraday slots. Model
             # latency cannot trigger this branch: scheduling has its own thread.
@@ -497,6 +504,8 @@ class Service:
                 calendar = calendar_data()
             except (OSError, ValueError, TypeError):
                 raise RuntimeError("report_calendar_failed") from None
+            if str(at.year) not in calendar and self.calendar_wait_since is None:
+                self.calendar_wait_since = max(previous_tick or at, self.started_at) - timedelta(microseconds=1)
             settings = self.settings()
             configs = {}
             for kind in KINDS:
@@ -511,7 +520,14 @@ class Service:
             schedule = report_schedule.Schedule(settings)
         with closing(self.connect()) as conn:
             if not paused:
-                enqueue_due(conn, at, calendar, intraday_since=self.started_at, configs=configs, schedule=schedule)
+                recovering = str(at.year) in calendar and self.calendar_wait_since is not None
+                replay = max(self.calendar_wait_since, self.started_at - timedelta(microseconds=1)) if recovering else None
+                enqueue_due(conn, at, calendar, intraday_since=self.started_at, configs=configs,
+                            schedule=schedule, calendar_since=replay)
+                if recovering:
+                    self.calendar_wait_since = None
+            else:
+                self.calendar_wait_since = None
             meta = conn.execute("SELECT scheduled_through,database_token FROM periodic_report_meta WHERE singleton=1").fetchone()
             cursor = local(meta["scheduled_through"])
             paused = paused or schedule_control(conn)["paused"]
@@ -562,7 +578,7 @@ class Service:
         return {"database_token": token, "schedule_control": control}
 
     def cleanup_snapshots(self, at=None):
-        """Weekly retention; never delay scheduling behind an index refresh."""
+        """Weekly retention; never delay scheduling behind snapshot capture."""
         at = local(at or now())
         if not self.index_lock.acquire(blocking=False):
             return
@@ -699,8 +715,7 @@ class Service:
         if existing is not None:
             return existing
         self.update_progress(job, "waiting_material")
-        # Serialise only index/capture, never model execution. Recheck inside
-        # the shared index guard so competing workers refresh this window once.
+        # Serialise snapshot capture only; collection and translation run independently.
         with self.index_lock:
             with closing(self.connect()) as conn:
                 shared = conn.execute("SELECT * FROM periodic_report_snapshots WHERE period_start=? AND period_end=?",
@@ -713,12 +728,6 @@ class Service:
                 if legacy:
                     material = json.loads(legacy["snapshot_json"])
                 else:
-                    self.update_progress(job, "indexing")
-                    try:
-                        self.refresh_index()
-                    except Exception as exc:
-                        logging.getLogger(__name__).warning("Report index refresh failed (%s)", type(exc).__name__)
-                        raise RuntimeError(index_error(exc)) from None
                     self.update_progress(job, "capturing")
                     with closing(self.connect()) as conn:
                         conn.execute("BEGIN")

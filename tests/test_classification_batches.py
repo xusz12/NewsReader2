@@ -4,7 +4,7 @@ from contextlib import closing
 import news_classification as nc
 from test_news_classification import conn, insert, response, ROOT
 from test_classification_unread import mark_read
-from scanner import apply_schema
+from database_schema import apply_schema
 
 
 def complete(conn, *, unread_only=False):

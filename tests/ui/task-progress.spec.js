@@ -66,7 +66,7 @@ test('失败和自动重试保留原因，断线显示上次结果且可以恢�
   state.data.reports.counts={pending:1,running:0,failed:0};
   await indicator(page).hover();
   await expect(panel(page)).toContainText('未完成联网检索');
-  await expect(panel(page)).toContainText('没有权限读取新闻目录或文件');
+  await expect(panel(page)).toContainText('重试将直接使用当前新闻库');
   await expect(panel(page)).toContainText('10/31 15:00 重试');
   state.failed=true;await page.clock.runFor(2100);
   await expect(panel(page)).toContainText('显示上次结果');
@@ -97,6 +97,25 @@ test('轮询保留焦点、隐藏页面暂停，任务变更立即更新',async(
   state.data.topics.items=[topic()];
   await page.evaluate(()=>document.dispatchEvent(new Event('tasks:changed')));
   await expect(indicator(page)).toBeVisible();
+});
+
+for(const width of [390,1440]) for(const collecting of [false,true])
+test(`任务完成后焦点返回可用顶栏入口 ${width} collecting=${collecting}`,async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.setViewportSize({width,height:900});
+  await page.route('**/api/collection',async route=>{
+    const response=await route.fetch(),data=await response.json();
+    await route.fulfill({json:{...data,running:collecting}});
+  });
+  const state=await start(page);await indicator(page).focus();
+  if(collecting)await expect(page.locator('#collectNewsBtn')).toBeDisabled();
+  else await expect(page.locator('#collectNewsBtn')).toBeEnabled();
+  await page.locator('[data-task-id="report-evening"]').focus();
+  state.data=empty();
+  await page.evaluate(()=>document.dispatchEvent(new Event('tasks:changed')));
+  await expect(page.locator('#classificationProgress')).toBeHidden();
+  await expect(page.locator(collecting?'#upstreamErrorsBtn':'#collectNewsBtn')).toBeFocused();
+  expect(errors).toEqual([]);
 });
 
 for(const width of [390,1440]) test('点击任务进入对应主题和报告，不会触发重新生成 '+width,async({page})=>{

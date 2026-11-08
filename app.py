@@ -30,7 +30,6 @@ from urllib.request import Request, urlopen
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 import certifi
 
-from daily_briefings import list_daily_briefing_files, parse_daily_briefing_date, parse_daily_briefing_file
 from llm_client import (
     LLMClientError,
     generate_pi_fallback_translation,
@@ -44,8 +43,8 @@ from llm_client import (
     _pi_subprocess_env,
     _parse_pi_stdout,
 )
-from parser import parse_daily_availability, parse_daily_errors
-from scanner import apply_schema, list_daily_files, reindex
+from database_schema import apply_schema
+import news_collection
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from updater import STATE_PATH as UPDATE_STATE_PATH
 from updater import REPOSITORY_URL as UPDATE_REPOSITORY_URL
@@ -58,6 +57,7 @@ import agent_notifications
 import news_classification
 import topic_tracking
 import periodic_reports
+import trading_calendar
 import report_reader
 import reader_sources
 import source_deletion
@@ -75,8 +75,6 @@ from settings import (
     default_app_settings,
     load_app_settings,
     normalize_classification,
-    resolve_daily_briefing_dir,
-    resolve_daily_news_dir,
     resolve_db_path,
     save_app_settings,
 )
@@ -85,8 +83,6 @@ from settings import (
 BASE_DIR = Path(__file__).resolve().parent
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 STATIC_DIR = BASE_DIR / "static"
-DAILY_NEWS_DIR = resolve_daily_news_dir()
-DAILY_BRIEFING_DIR = resolve_daily_briefing_dir()
 DB_PATH = resolve_db_path()
 CHANGELOG_PATH = BASE_DIR / "CHANGELOG.md"
 VERSION_PATH = BASE_DIR / "version.json"
@@ -98,7 +94,7 @@ UPDATE_CHECK_CACHE: dict | None = None
 UPDATE_TOKENS: dict[str, dict] = {}
 UPDATE_LAUNCH_LOCK = threading.Lock()
 UPDATE_PROCESS: subprocess.Popen | None = None
-INDEX_REFRESH_LOCK = threading.RLock()
+REPORT_SNAPSHOT_LOCK = threading.RLock()
 
 
 def resolve_media_cache_dir() -> Path:
@@ -351,7 +347,10 @@ def parse_feed_unread_cursor(args) -> dict | None:
     cursor_id = (args.get("cursor_id") or "").strip()
     if not (cursor_date or cursor_published_at or cursor_id):
         return None
-    if not (cursor_date and cursor_published_at and cursor_id):
+    # Unknown source publication time is stored as empty, never replaced by
+    # collection time. Such rows still need a complete, explicit paging cursor.
+    if (not cursor_id or "cursor_date" not in args or "cursor_published_at" not in args
+            or bool(cursor_date) != bool(cursor_published_at)):
         raise ValueError("invalid_cursor")
     return {
         "date_key": cursor_date,
@@ -552,7 +551,7 @@ def load_news_category_counts(conn: sqlite3.Connection, join_sql: str, where_sql
 
 
 def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     try:
         conn.create_function("feed_source_subkey", 4, feed_source_subkey_sql, deterministic=True)
@@ -870,7 +869,9 @@ def ensure_db() -> None:
     MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     conn = db_conn()
     try:
+        conn.execute("PRAGMA journal_mode=WAL")
         apply_schema(conn, SCHEMA_PATH)
+        news_collection.initialize(conn)
         if "title" not in {row[1] for row in conn.execute("PRAGMA table_info(standalone_ideas)")}:
             conn.execute("ALTER TABLE standalone_ideas ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         migrate_article_highlights_schema(conn)
@@ -1801,6 +1802,7 @@ def current_runtime_settings() -> dict:
     merged["api_models"] = model_apis.normalize_api_models(raw.get("api_models", {}))
     merged["classification"] = normalize_classification(raw.get("classification", {}))
     merged["feature_models"] = normalize_feature_models(raw.get("feature_models", {}), merged)
+    merged["collection"] = raw["collection"]
     merged["report_schedule"] = raw["report_schedule"]
     merged["report_schedule_history"] = raw["report_schedule_history"]
     merged["report_windows"] = raw["report_windows"]
@@ -2118,7 +2120,7 @@ def api_settings_source(source_key):
     staged, committed = None, False
     try:
         ensure_agent_db()
-        with INDEX_REFRESH_LOCK, closing(db_conn()) as conn:
+        with REPORT_SNAPSHOT_LOCK, closing(db_conn()) as conn:
             agent_schema = source_deletion.attach_agent(conn, AGENT_DB_PATH, DB_PATH)
             conn.execute("BEGIN IMMEDIATE" if deleting else "BEGIN")
             try:
@@ -2335,6 +2337,7 @@ def serialize_runtime_settings() -> dict:
         "tracked": settings["tracked"],
         "agent": settings["agent"],
         "feature_models": settings["feature_models"],
+        "collection": settings["collection"],
         "report_schedule": settings["report_schedule"],
         "report_windows": settings["report_windows"],
         "report_window_times": dict(periodic_reports.report_schedule.WINDOW_TIMES),
@@ -2403,6 +2406,7 @@ def validate_runtime_settings(payload: object) -> dict:
     api_models = payload.get("api_models")
     legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
     normalized = {
+        "collection": news_collection.normalize_schedule(payload.get("collection", {}), current_settings["collection"]),
         "report_schedule": periodic_reports.report_schedule.normalize(payload.get("report_schedule", {}), current_settings["report_schedule"]),
         "report_windows": periodic_reports.report_schedule.normalize_windows(payload.get("report_windows", {}), current_settings["report_windows"]),
         "feature_models": feature_models,
@@ -4186,90 +4190,6 @@ def api_agent_job_stream(item_id: str, job_id: str):
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-def load_error_stats(day: str, *, details: bool = False) -> list[dict]:
-    target_name = f"dailyFreshNews_{day}.md"
-    target_path = next((path for path in list_daily_files(DAILY_NEWS_DIR) if path.name == target_name), None)
-    if not target_path or not target_path.exists():
-        return []
-
-    grouped: dict[str, list[str]] = {}
-    entries_by_time: dict[str, list[dict]] = {}
-    for entry in parse_daily_errors(target_path):
-        time_key = entry["time"]
-        grouped.setdefault(time_key, []).append(f"{entry['label']} error")
-        entries_by_time.setdefault(time_key, []).append({
-            "label": _agent_error_text(entry["label"]),
-            "error": _agent_error_text(entry["error"]) if entry.get("error") else "未记录具体错误",
-        })
-
-    if not grouped:
-        return []
-
-    ordered = [
-        {"time": time_key, "labels": labels, **({"entries": entries_by_time[time_key]} if details else {})}
-        for time_key, labels in grouped.items()
-    ]
-    return [{"date": day, "groups": ordered}]
-
-
-def load_daily_briefing_index() -> tuple[list[dict], int]:
-    months: list[dict] = []
-    current_month = ""
-    current_items: list[dict] = []
-    total = 0
-    for path in list_daily_briefing_files(DAILY_BRIEFING_DIR):
-        parsed = parse_daily_briefing_file(path)
-        month_key = parsed.get("month") or ""
-        if month_key != current_month:
-            if current_month:
-                months.append(
-                    {
-                        "month": current_month,
-                        "label": current_items[0]["month_label"] if current_items else current_month,
-                        "count": len(current_items),
-                        "items": current_items,
-                    }
-                )
-            current_month = month_key
-            current_items = []
-        current_items.append(
-            {
-                "date": parsed["date"],
-                "filename": parsed.get("filename") or "",
-                "mtime": parsed.get("mtime") or "",
-                "date_label": parsed["date_label"],
-                "weekday_label": parsed["weekday_label"],
-                "month": parsed["month"],
-                "month_label": parsed["month_label"],
-                "title": parsed["title"],
-                "page_title": parsed.get("page_title") or "",
-                "metadata": parsed.get("metadata") or [],
-                "metadata_summary": parsed.get("metadata_summary") or "",
-                "parse_mode": parsed.get("parse_mode") or "structured",
-                "parse_warning": parsed.get("parse_warning") or "",
-            }
-        )
-        total += 1
-    if current_month:
-        months.append(
-            {
-                "month": current_month,
-                "label": current_items[0]["month_label"] if current_items else current_month,
-                "count": len(current_items),
-                "items": current_items,
-            }
-        )
-    return months, total
-
-
-def find_daily_briefing_path(date_key: str) -> Path | None:
-    target = f"{date_key}_daily.md"
-    for path in list_daily_briefing_files(DAILY_BRIEFING_DIR):
-        if path.name == target:
-            return path
-    return None
 
 
 def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]]) -> list[dict]:
@@ -7115,32 +7035,6 @@ def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
 
-@app.get("/api/daily-briefings")
-def api_daily_briefings():
-    months, total = load_daily_briefing_index()
-    return jsonify(
-        {
-            "ok": True,
-            "months": months,
-            "total": total,
-        }
-    )
-
-
-@app.get("/api/daily-briefings/<date_key>")
-def api_daily_briefing_detail(date_key: str):
-    try:
-        normalized = parse_daily_briefing_date(date_key)
-    except ValueError:
-        return jsonify({"ok": False, "error": "invalid_date"}), 400
-
-    path = find_daily_briefing_path(normalized)
-    if not path:
-        return jsonify({"ok": False, "error": "not_found"}), 404
-
-    return jsonify({"ok": True, "briefing": parse_daily_briefing_file(path)})
-
-
 @app.get("/api/nav-summary")
 def api_nav_summary():
     conn = db_conn()
@@ -7148,6 +7042,21 @@ def api_nav_summary():
         return jsonify({"ok": True, "summary": load_nav_summary(conn)})
     finally:
         conn.close()
+
+
+def news_batch_filter(conn):
+    """A read transaction freezes the first page; subsequent pages reuse its horizon."""
+    conn.execute("BEGIN")
+    boundary = news_collection.batch_boundary(conn)
+    if "after_batch" in request.args:
+        clause, args = news_collection.batch_clause(request.args["after_batch"], newer=True)
+    elif "batch" in request.args or request.args.get("count_only") != "1":
+        value = request.args.get("batch", str(boundary))
+        clause, args = news_collection.batch_clause(value)
+        boundary = min(int(value), boundary)
+    else:
+        clause, args = "", []
+    return boundary, clause, args
 
 
 @app.get("/api/news")
@@ -7185,6 +7094,12 @@ def api_news():
 
     conn = db_conn()
     try:
+        try:
+            batch, clause, batch_args = news_batch_filter(conn)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        where_sql += clause
+        args.extend(batch_args)
         classification_revision = news_classification.completed_revision(conn)
         total = conn.execute(
             f"SELECT COUNT(*) FROM items {join_sql} {where_sql}",
@@ -7295,6 +7210,7 @@ def api_news():
     return jsonify(
         {
             "items": items,
+            "batch": batch,
             "classification_revision": classification_revision,
             "total": total,
             "date_counts": date_counts,
@@ -7897,6 +7813,12 @@ def api_search():
 
     conn = db_conn()
     try:
+        try:
+            batch, clause, batch_args = news_batch_filter(conn)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        filter_sql += clause
+        all_args.extend(batch_args)
         classification_revision = news_classification.completed_revision(conn)
         total = conn.execute(
             f"SELECT COUNT(DISTINCT items.id) FROM items {join_sql} {where_sql}{filter_sql}",
@@ -7954,7 +7876,7 @@ def api_search():
 
     items = serialize_news_rows([dict(r) for r in rows], market_tags_map)
     pages = max(1, math.ceil(total / per)) if total else 1
-    return jsonify({"items": items, "total": total, "date_counts": date_counts, "page": page, "pages": pages,
+    return jsonify({"items": items, "batch": batch, "total": total, "date_counts": date_counts, "page": page, "pages": pages,
                     "classification_revision": classification_revision})
 
 
@@ -8032,28 +7954,14 @@ def api_sources():
 
 @app.get("/api/error-stats")
 def api_error_stats():
-    day = (request.args.get("day") or datetime.now().strftime("%Y-%m-%d")).strip()
+    day = (request.args.get("day") or news_collection.now().date().isoformat()).strip()
     try:
         if datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d") != day:
             raise ValueError()
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_day"}), 400
-    days = load_error_stats(day, details=request.args.get("details") == "1")
-    payload = {"ok": True, "day": day, "days": days}
-    if request.args.get("details") == "1":
-        filename = f"dailyFreshNews_{day}.md"
-        path = next((path for path in list_daily_files(DAILY_NEWS_DIR) if path.name == filename), None)
-        stats = parse_daily_availability(path) if path else {
-            "available_sources": 0, "total_sources": 0, "availability": None,
-        }
-        # Collection day comes from the input file, not the article's publication
-        # or initial database import date; old articles can be collected today.
-        with db_conn() as conn:
-            stats["ingested_count"] = conn.execute(
-                "SELECT COUNT(*) FROM items WHERE source_file = ? OR source_file GLOB ?",
-                (filename, f"*/{filename}"),
-            ).fetchone()[0]
-        payload.update(stats=stats, today=datetime.now().strftime("%Y-%m-%d"))
+    payload = COLLECTION_SERVICE.errors(day)
+    payload["unresolved_count"] = COLLECTION_SERVICE.status()["source_errors"]
     return jsonify(payload)
 
 
@@ -8390,6 +8298,7 @@ def api_settings_update():
         save_app_settings(normalized)
         CLASSIFICATION_SERVICE.configure(**normalized["classification"])
     REPORT_SERVICE.schedule_wake.set()
+    COLLECTION_SERVICE.wake.set()
     refresh_agent_session_expiries()
     return jsonify({"ok": True, **serialize_runtime_settings()})
 
@@ -9068,7 +8977,7 @@ def api_market_trend_note_update(note_id: int):
 
     if raw_date_key:
         try:
-            date_key = parse_daily_briefing_date(raw_date_key)
+            date_key = datetime.strptime(raw_date_key, "%Y-%m-%d").strftime("%Y-%m-%d")
         except ValueError:
             return jsonify({"ok": False, "error": "invalid_date"}), 400
     else:
@@ -9430,30 +9339,19 @@ def api_locate_reading_checkpoint():
     )
 
 
-@app.post("/api/reindex")
-def api_reindex():
-    full = bool((request.get_json(silent=True) or {}).get("full", False))
-    conn = db_conn()
-    try:
-        with INDEX_REFRESH_LOCK:
-            stats = reindex(conn, DAILY_NEWS_DIR, full=full)
-            tracked_incremental_matches = run_tracked_topics_incremental(conn)
-            conn.commit()
-    finally:
-        conn.close()
-    return jsonify(
-        {
-            "ok": True,
-            "scanned_files": stats.scanned_files,
-            "changed_files": stats.changed_files,
-            "upserted": stats.upserted,
-            "skipped_videos": stats.skipped_videos,
-            "classification_queued": stats.classification_queued,
-            "deleted_stale": stats.deleted_stale,
-            "ingest_counts": stats.ingest_counts,
-            "tracked_incremental_matches": tracked_incremental_matches,
-        }
-    )
+@app.get("/api/collection")
+def api_collection_status():
+    return jsonify({"ok": True, **COLLECTION_SERVICE.status()})
+
+
+@app.post("/api/collection")
+def api_collection_request():
+    return jsonify({"ok": True, "run_id": COLLECTION_SERVICE.request()}), 202
+
+
+@app.post("/api/collection/retry-translation")
+def api_collection_retry():
+    return jsonify({"ok": True, "retried": COLLECTION_SERVICE.retry()}), 202
 
 
 @app.patch("/api/news/<item_id>/state")
@@ -9608,11 +9506,8 @@ def api_news_detail(item_id: str):
               items.source_name,
               items.source_type,
               items.summary,
-              items.published_at,
-              source_files.ingest_mode,
-              source_files.ingest_warning
+              items.published_at
             FROM items
-            LEFT JOIN source_files ON source_files.path = items.source_file
             WHERE items.id=?
               AND {visible_news_sql()}
             """,
@@ -9754,8 +9649,6 @@ def api_news_detail(item_id: str):
             "tracked_topic_choices": tracked_topic_choices,
             "reminders": reminders,
             "reminder_summary": reminder_summary,
-            "ingest_mode": item["ingest_mode"],
-            "ingest_warning": item["ingest_warning"],
             "chat_context": build_news_chat_context(
                 item=item,
                 detail=detail,
@@ -11166,6 +11059,8 @@ def api_news_detail_retry(item_id: str):
 @app.post("/api/news/mark-all-read")
 def api_mark_all_read():
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict) or ("preview_id" in body and not isinstance(body["preview_id"], str)):
+        return jsonify({"ok": False, "error": "invalid_payload"}), 400
     q = (body.get("q") or "").strip()
     read_filter = (body.get("read_filter") or "all").strip().lower()
     collection = (body.get("collection") or "feed").strip().lower()
@@ -11203,17 +11098,37 @@ def api_mark_all_read():
     if hidden_clause:
         where.append(hidden_clause)
         args.extend(hidden_args)
+    if str(body.get("has_note")) == "1":
+        where.append("EXISTS (SELECT 1 FROM article_notes n WHERE n.url=items.url)")
+    if "batch" in body:
+        try:
+            clause, batch_args = news_collection.batch_clause(body["batch"])
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        where.append(clause.removeprefix(" AND "))
+        args.extend(batch_args)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
     conn = db_conn()
     try:
-        item_ids = [
-            r[0]
-            for r in conn.execute(
-                f"SELECT items.id FROM items {join_sql} {where_sql}",
-                args,
-            ).fetchall()
-        ]
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM news_read_previews WHERE created_at<?", (time.time()-1800,))
+        if body.get("preview_id"):
+            preview = conn.execute("SELECT item_ids FROM news_read_previews WHERE id=?", (body["preview_id"],)).fetchone()
+            if not preview:
+                return jsonify({"ok": False, "error": "read_preview_expired"}), 409
+            item_ids = json.loads(preview[0])
+            # Deleted items must not acquire orphan state if a confirmation stayed open.
+            existing = {row[0] for row in conn.execute("SELECT id FROM items")}
+            item_ids = [ident for ident in item_ids if ident in existing]
+        elif body.get("preview") is True:
+            item_ids = [r[0] for r in conn.execute(f"SELECT items.id FROM items {join_sql} {where_sql}", args)]
+            preview_id = uuid.uuid4().hex
+            conn.execute("INSERT INTO news_read_previews VALUES (?,?,?)", (preview_id,json.dumps(item_ids),time.time()))
+            conn.commit()
+            return jsonify({"ok": True, "total": len(item_ids), "preview_id": preview_id})
+        else:
+            return jsonify({"ok": False, "error": "read_preview_required"}), 400
         if not item_ids:
             return jsonify({"ok": True, "marked": 0})
 
@@ -12343,19 +12258,8 @@ def classification_config() -> tuple[str, str]:
 TOPIC_SERVICE = topic_tracking.Service(db_conn, current_runtime_settings)
 
 
-def refresh_report_index():
-    DAILY_NEWS_DIR.stat()
-    if not DAILY_NEWS_DIR.is_dir():
-        raise NotADirectoryError()
-    # Probe directory access explicitly: recursive globbing may otherwise hide
-    # an unreadable directory and look like a successful empty refresh.
-    with os.scandir(DAILY_NEWS_DIR) as entries:
-        next(entries, None)
-    with INDEX_REFRESH_LOCK, closing(db_conn()) as conn:
-        reindex(conn, DAILY_NEWS_DIR, full=False)
-
-
-REPORT_SERVICE = periodic_reports.Service(db_conn, current_runtime_settings, refresh_report_index, index_lock=INDEX_REFRESH_LOCK)
+COLLECTION_SERVICE = news_collection.Service(db_conn, current_runtime_settings)
+REPORT_SERVICE = periodic_reports.Service(db_conn, current_runtime_settings, index_lock=REPORT_SNAPSHOT_LOCK)
 
 
 @app.get("/api/reports")
@@ -12720,12 +12624,14 @@ def api_classification_retry():
 
 def main() -> None:
     ensure_db()
+    trading_calendar.SERVICE.start()
     start_detail_worker()
     start_agent_worker()
     CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
     CLASSIFICATION_SERVICE.start()
     TOPIC_SERVICE.start()
     REPORT_SERVICE.start()
+    COLLECTION_SERVICE.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:

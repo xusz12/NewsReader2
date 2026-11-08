@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scanner import apply_schema, list_daily_files, reindex
+from legacy_news_scanner import apply_schema, list_daily_files, reindex
 
 
 def make_daily(path: Path, title: str, url: str, t: str = "08:00:00"):

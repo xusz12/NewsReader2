@@ -26,7 +26,7 @@ async function start(page) {
 test('upstream prototype layout uses live counts, source/time filters and escaped copyable logs', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedUpstreamLog = text; } } }));
   await start(page);
-  await expect(page.locator('#upstreamErrorsTitle')).toHaveText('上游信源报错查看');
+  await expect(page.locator('#upstreamErrorsTitle')).toHaveText('采集错误');
   await expect(page.locator('#upstreamErrorsBtn')).toHaveClass(/has-errors/);
   await expect(page.locator('.upstream-stat-label')).toHaveText(['当日抓取可用率', '异常来源', '今日已入库资讯', '当日报错']);
   await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
@@ -211,7 +211,7 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await expect(entry.locator('svg')).toHaveCount(0);
     await page.mouse.move(0, 0);
     await expect(entry).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
-    await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
+    await expect(page.locator('#pipelineStatus')).toContainText('尚未采集');
     const box = await entry.boundingBox();
     expect(box.x + box.width / 2).toBeCloseTo(page.viewportSize().width / 2, 0);
     await entry.screenshot({ path: `.ui-artifacts/upstream-entry-${theme}.png` });
@@ -242,7 +242,7 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     const button = await page.locator('#upstreamErrorsBtn').boundingBox();
     await expect(page.locator('#pipelineStatus')).toBeHidden();
     await expect(page.locator('.upstream-pulse-dot')).toBeVisible();
-    const refresh = await page.locator('#refreshIndexBtn').boundingBox();
+    const refresh = await page.locator('#collectNewsBtn').boundingBox();
     expect(button.x + button.width).toBeLessThanOrEqual(refresh.x);
     const theme = await page.locator('#themeSelect').boundingBox();
     expect(theme.x + theme.width).toBeLessThanOrEqual(width);
@@ -354,7 +354,7 @@ test('badge refreshes lightweight counts while visible and fits large counts at 
   rows = Array.from({ length: 105 }, () => entries[0]);
   await page.clock.fastForward(60000);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('99+');
-  await expect(page.locator('#upstreamErrorsBtn')).toHaveAttribute('title', /105 条/);
+  await expect(page.locator('#upstreamErrorsBtn')).toHaveAttribute('title', /105 个采集来源/);
   expect(details).toBe(0);
   const theme = await page.locator('#themeSelect').boundingBox();
   expect(theme.x + theme.width).toBeLessThanOrEqual(320);

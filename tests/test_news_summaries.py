@@ -5,7 +5,7 @@ import pytest
 import news_summaries as ns
 
 NATIVE_CONFIG_STAMP = ns.native_config_stamp
-from scanner import apply_schema
+from database_schema import apply_schema
 
 
 @pytest.fixture

@@ -15,8 +15,12 @@ test('default unread ascending, collection filters and grouped card dates', asyn
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', 'ui-064');
   await expect(page.locator('.feed-date-heading').first()).toContainText('2026-10-10');
   await expect(page.locator('#feedCardList .news-card .meta-time-row').first()).toHaveText('10:02');
-  const row = await page.locator('#feedColFeed .feed-filter-row').boundingBox();
-  for (const control of await page.locator('#feedColFeed .feed-filter-row button:visible').all()) { const box = await control.boundingBox(); expect(box.y).toBeCloseTo(row.y, 0); }
+  // Counts can rerender controls between separate browser reads; measure one DOM snapshot.
+  const layout = await page.locator('#feedColFeed .feed-filter-row').evaluate(row => ({
+    y: row.getBoundingClientRect().y,
+    controls: [...row.querySelectorAll('button')].map(node => node.getBoundingClientRect()).filter(rect => rect.height > 0).map(rect => rect.y),
+  }));
+  for (const y of layout.controls) expect(y).toBeCloseTo(layout.y, 0);
   await page.locator('#navImportantBtn').click();
   await expect(page.locator('#feedColFeed [data-filter]')).toHaveCount(2);
   await expect(page.locator('#feedColFeed [data-filter="notes"]')).toBeVisible();
@@ -45,7 +49,7 @@ test('scroll marks only cards fully above toolbar and keeps unread rows stable',
 test('end-of-list delay marks only current search range', async ({ page, request }) => {
   await start(page);
   await page.locator('#feedSearchInput').fill('AgentUnmatched');
-  await expect(page.locator('#feedCardList')).toContainText('没有符合条件');
+  await expect(page.locator('#feedCardList')).toContainText('当前范围没有新闻');
   await page.locator('#feedSearchInput').fill('台积电');
   await expect(page.locator('.feed-end')).toHaveCount(1);
   const ids = await page.locator('#feedCardList .news-card').evaluateAll(nodes => nodes.map(n => n.dataset.id));

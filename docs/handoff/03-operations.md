@@ -1,5 +1,7 @@
 # 安装运行与维护
 
+2026-11-08 更新：已启用[内置新闻采集](../native-collection.md)，旧版 DailyNews 扫描、刷新索引及文件日报流程退役。原数据库与阅读状态继续使用；当前采集配置、故障恢复和切换步骤以新文档为准。
+
 首次接手以 macOS、本机回环地址和全新数据目录为基准。Python 需要 3.10+，Node.js 需要 24+；Node 用于 OAR/Pi、编辑器构建和浏览器测试，基础阅读主要依赖 Python。Linux 需另验密钥存储、文件选择和启动器；Windows 原生运行会受到 `fcntl` 等 POSIX 依赖限制。
 
 ## 获取源码
@@ -26,23 +28,20 @@ python3 -m pip install -r requirements.txt
 npm ci --ignore-scripts
 
 source docs/handoff/examples/runtime.env.example
-mkdir -p "$NEWSREADER_DATA_ROOT/daily" "$NEWSREADER_DATA_ROOT/briefings"
+mkdir -p "$NEWSREADER_DATA_ROOT"
 cp -n docs/handoff/examples/app-settings.example.json "$NEWS_READER_APP_SETTINGS_PATH"
-cp -n docs/handoff/examples/dailyFreshNews_2026-10-21.md "$NEWS_READER_DAILY_NEWS_DIR/"
-cp -n docs/handoff/examples/dailyFreshNews_2026-10-21.newsreader.json "$NEWS_READER_DAILY_NEWS_DIR/"
 python3 app.py
 ```
 
-打开 `http://127.0.0.1:8080`。合成样例提供两条索引新闻，不含可抓取的真实媒体 URL、全文或模型结果。页面会请求增量导入；也可以在另一个终端验证：
+打开 `http://127.0.0.1:8080`。全新数据库开始为空，不再导入目录中的合成 Markdown 样例。在另一个终端验证服务与采集状态：
 
 ```bash
 curl --fail http://127.0.0.1:8080/api/version
-curl --fail -X POST http://127.0.0.1:8080/api/reindex \
-  -H 'Content-Type: application/json' -d '{"full":false}'
+curl --fail http://127.0.0.1:8080/api/collection
 curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=10'
 ```
 
-预期版本为 v0.0.15、新闻总数为 2、重复增量导入不重复增加记录。测试收藏、想法及重新启动后的保存效果后，再接入真实数据副本。
+版本以当前源码的 `version.json` 为准。按[内置采集说明](../native-collection.md)准备 opencli 自定义适配器、浏览器会话与翻译配置后，点击「立即采集」验证整批入库、重复采集去重及失败重试。只做历史数据迁移演练时，可先在设置暂停定时采集，再验证收藏、想法及重新启动后的保存效果。
 
 ## 启动方式的区别
 
@@ -50,13 +49,17 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | --- | --- |
 | `python3 app.py` | 直接启动 Flask、初始化数据库和工作线程；适合首次演练，不支持受控升级 |
 | `python3 updater.py --serve` | 通过 supervisor 管理实例、重启、健康检查和升级；默认本机监听 |
-| `./启动NewsReader.command` | macOS 入口，优先使用项目 `.venv`，检查依赖后停止并替换同项目旧受管实例，健康检查通过后打开浏览器；未指定 host 时尝试 Tailscale IPv4 |
+| `./启动NewsReader.command` | macOS 入口，优先使用项目 `.venv`，检查依赖后停止并替换同项目旧受管实例，健康检查通过后打开浏览器；未指定 host 时分别检测独立 Tailscale 与 Surge，依次选择可绑定的客户端地址、可入站的 Surge 节点、本机 127.0.0.1 |
 | `python3 launcher.py --replace-existing` | 同样执行旧受管实例替换；直接从终端使用当前 Python，监听地址按环境配置 |
 | `python3 tests/ui/server.py` | 临时测试库和模型替身；端口 8765，仅用于演示及测试 |
 
 日常受控启动前，加载接手方环境文件，再执行 `python3 updater.py --serve` 或 `.command`。新开终端不会继承上一终端的导出变量；Finder 双击也不会自动加载 shell 环境文件。**本项目不自动读取 `.env`**，示例文件必须显式 `source`，或由服务管理器注入环境。
 
 需要固定本机访问时显式设置 `NEWS_READER_HOST=127.0.0.1`。Tailscale 仅改变网络可达性，不提供应用内用户权限。停止测试服务时在启动终端按 Ctrl+C；不要用按进程名批量结束 Python 的方式停服务。
+
+`network_access.py` 在每次启动时并行检测两种实现，每路 CLI 探测总超时4秒。独立客户端使用 `status --json` 的本机地址，要求运行状态有效、未明确离线，并在随机端口验证本机可绑定；停止后的保留 IP 不作为候选，8080 被旧实例占用也不会误判接口失效。CLI 从 PATH、`/Applications`、用户 Applications 和常见 Homebrew 目录发现，调用 Tailscale 应用内 CLI 时设置 `TAILSCALE_BE_CLI=1`，不弹出 GUI 或登录流程。
+
+Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本机网卡上，不能直接设成 `NEWS_READER_HOST`。启动器通过 `surge-cli` 的有效配置和 `proxy-runtime-status` 动态读取就绪节点；只有可接收入站访问的节点参与自动选择。若独立客户端不可用而 Surge 可用，服务监听 `127.0.0.1`，手机访问提示中的 Surge 节点地址与端口。Surge 未启用 `allow-peer-access` 时仍继续检查独立客户端，不能因此提前选中本机地址。两者均不可用、未安装或探测失败时回退到本机，显式 host 始终优先。探测不修改网络配置、不输出配置正文或凭据。
 
 重复双击 `.command` 会请求旧启动器关闭它拥有的服务，等待服务锁释放后，由新终端接管新实例；连续启动请求按顺序处理。旧实例不健康也可替换，旧实例正在更新时先等待更新及回退流程结束。交接等待上限90秒，超时不启动第二个服务并报告失败，不强杀更新；已收到关闭请求的旧启动器仍会在更新完成后退出。旧版启动器通过同用户、同项目的私有锁文件和进程命令核验后接收 SIGTERM。
 
@@ -67,12 +70,11 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | 变量 | 默认或作用 | 接手要求 |
 | --- | --- | --- |
 | `NEWS_READER_HOST` / `NEWS_READER_PORT` | 直接启动默认 127.0.0.1 / 8080 | 明确监听范围，端口冲突时更换 |
-| `NEWS_READER_DAILY_NEWS_DIR` | `settings.py` 内原开发者的 DailyNews 绝对路径 | 必须指定接手方目录，递归扫描 |
-| `NEWS_READER_DAILY_BRIEFING_DIR` | 原默认 DailyNews 下 `briefings/daily` | 兼容日报如需使用应单独设置；不会自动随新闻目录覆盖而变化 |
 | `NEWS_READER_DB_PATH` | 环境变量 → 设置中的 path → 已存在的父目录库 → 项目内新库 | 明确设置，避免误开父目录历史库 |
 | `NEWS_READER_APP_SETTINGS_PATH` | 项目根目录 `app_settings.json` | 建议放到专用数据目录 |
 | `NEWS_READER_MEDIA_CACHE_DIR` | 主库同级 `media-cache` | 保留与数据库媒体索引的配套关系 |
 | `NEWS_READER_AGENT_DB_PATH` | 主库同级 `agent_sessions.sqlite3` | 不同部署应使用独立路径 |
+| `NEWS_READER_TRADING_CALENDAR_PATH` | 留空时后台自动更新上交所年度日历，缓存位于主库同级 `trading-calendar-cache.json` | 仅手工维护日历时设置；指定后关闭自动更新，以该文件为准 |
 | `NEWS_READER_AGENT_RUNTIME_DIR` | 系统临时目录下按项目路径哈希隔离 | 临时会话状态，不作为长期业务备份 |
 | `NEWS_READER_UPDATER_DIR` | 系统临时目录下项目隔离路径 | 更新锁及 `news-reader-updater-state.json` 所在位置 |
 | `NEWS_READER_PYTHON` | macOS 启动脚本使用的 Python | 可指定依赖已安装的虚拟环境解释器 |
@@ -129,6 +131,7 @@ CI=1 npm run test:ui
 | 空列表 | 实际输入目录、严格日期文件名、Markdown 入口是否存在、增量索引统计、来源及已读筛选 |
 | 换库未生效 | 环境变量是否覆盖设置，是否已重启，设置页显示的当前有效路径 |
 | 启动健康检查失败 | 端口占用、服务终端输出、localhost DNS 和系统代理；本地请求应绕过代理 |
+| `Can't assign requested address` | 监听 IP 是否仍属于本机；Tailscale 停止后 `tailscale ip` 仍可能返回保留地址，`.command` 会检查并回退到本机地址。显式设置的 `NEWS_READER_HOST` 需自行修正，或恢复对应网络后重启 |
 | 抓取失败 | opencli 是否在服务 PATH，适配器大小写、浏览器连接、登录状态和错误详情 |
 | Agent 不可用 | Node 版本、npm 依赖、CLI 登录、模型选择、Pi 项目信任及扩展 |
 | OpenCode 获取模型超时或解析失败 | v0.4.3 将手动目录的网络超时由5秒延长至25秒，包含 HTTPS 握手。`URLError.reason` 中的 `TimeoutError` 表示超时，不代表密钥鉴权失败；接口返回504及 `reason=connection_timeout`。401、403等 HTTP 错误保留上游状态与已知原因；无效 JSON／目录格式返回 `response_parse_failed`。检查网络或代理后手动重试，更新代码后重启后端；失败保留已有目录和模型草稿 |

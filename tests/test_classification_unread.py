@@ -1,4 +1,6 @@
 import sqlite3
+from legacy_news_seed import confirm_all_read
+
 import threading
 
 import news_classification as nc
@@ -143,7 +145,7 @@ def test_status_and_retry_api_follow_saved_scope_without_hiding_classified_read_
     assert client.get('/api/news/classification').json['pending'] == 1
     # Classification scope never changes the reader's existing category results.
     assert client.get('/api/news?category=economy&read_filter=all&count_only=1').json['total'] == 24
-    assert client.post('/api/news/mark-all-read', json={'read_filter': 'unread'}).status_code == 200
+    assert confirm_all_read(client, json={'read_filter': 'unread'}).status_code == 200
     assert client.get('/api/news/classification').json['total'] == 0
     saved = client.put('/api/settings', json={'llm': module.load_app_settings()['llm'],
                                             'classification': {'unread_only': False}})

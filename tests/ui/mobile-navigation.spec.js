@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test';
 
 test.use({ viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
+test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'wait' }); });
 
 test('bottom navigation stays limited to reading views while other workspaces use the drawer', async ({ page }) => {
   await page.goto('/');
@@ -149,7 +150,7 @@ test('every settings subpage swipes back to its category and preserves the origi
     const category = page.locator(`[data-settings-tab="${section}"]`);
     await category.click();
     const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-    await expect(cards).toHaveCount(section === 'classification' ? 2 : 1);
+    await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 3 : 1);
     for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(page.locator('#settingsDetailTitle')).toBeFocused();
     const scroll = await list.evaluate(node => node.scrollTop);
@@ -183,7 +184,7 @@ test('settings swipe preserves the draft while ignoring editing and canceled ges
   }
   await swipe(page, { target: '.settings-main' });
   await expect(page.locator('#detailPanelSettings')).toBeHidden();
-  await expect(page.locator('.settings-category-card:visible')).toHaveCount(9);
+  await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(input).toHaveValue('settings-swipe-draft');
   await expect(page.locator('#settingsStatus')).toHaveClass(/dirty-state/);
@@ -222,7 +223,7 @@ test.describe('original sliding transitions', () => {
       expect(rect.x).toBe(0);
       expect(rect.width).toBe(402);
       const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-      await expect(cards).toHaveCount(section === 'classification' ? 2 : 1);
+      await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 3 : 1);
       for (const card of await cards.all()) await expect(card).toBeVisible();
       await page.locator('#settingsCategoryBackBtn').tap();
       await expect(panel).toBeHidden();

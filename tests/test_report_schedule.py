@@ -109,6 +109,49 @@ def test_observation_orders_nearest_first_null_last_and_listing_matches(db, monk
     assert [row["kind"] for row in service.observation()["schedules"]][-2:] == ["morning", "noon"]
 
 
+@pytest.mark.parametrize("suspended", [False, True])
+def test_calendar_recovery_catches_live_slots_but_not_sleep(db, monkeypatch, suspended):
+    calendar = {}
+    monkeypatch.setattr(pr, "calendar_data", lambda: calendar)
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_report_meta SET activated_at=?,scheduled_through=?",
+                     ("2027-01-03T21:30:00+08:00", "2027-01-04T08:29:30+08:00"))
+    service = pr.Service(db, lambda: SETTINGS)
+    service.schedule_once(pr.local("2027-01-04T08:29:30+08:00"))
+    service.schedule_once(pr.local("2027-01-04T08:30:00+08:00"))
+    with closing(db()) as conn:
+        assert not conn.execute("SELECT id FROM periodic_reports WHERE kind='morning'").fetchall()
+        assert conn.execute("SELECT id FROM periodic_reports WHERE kind='weekly'").fetchone()
+    calendar["2027"] = {"closed_ranges": []}
+    at = pr.local("2027-01-04T08:35:00+08:00" if suspended else "2027-01-04T08:30:30+08:00")
+    service.schedule_once(at)
+    service.schedule_once(at)
+    with closing(db()) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM periodic_reports WHERE kind='morning'").fetchone()[0] == (0 if suspended else 1)
+        assert conn.execute("SELECT COUNT(*) FROM periodic_reports WHERE kind='weekly'").fetchone()[0] == 1
+        assert conn.execute("SELECT scheduled_through FROM periodic_report_meta").fetchone()[0] == pr.stamp(at)
+
+
+def test_calendar_recovery_respects_report_pause(db, monkeypatch):
+    calendar = {}
+    monkeypatch.setattr(pr, "calendar_data", lambda: calendar)
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_report_meta SET activated_at=?,scheduled_through=?",
+                     ("2027-01-03T21:30:00+08:00", "2027-01-04T08:29:30+08:00"))
+        token = conn.execute("SELECT database_token FROM periodic_report_meta").fetchone()[0]
+    service = pr.Service(db, lambda: SETTINGS)
+    service.schedule_once(pr.local("2027-01-04T08:29:30+08:00"))
+    monkeypatch.setattr(pr, "now", lambda: pr.local("2027-01-04T08:29:45+08:00"))
+    service.set_schedule_paused(True, token)
+    service.schedule_once(pr.local("2027-01-04T08:30:00+08:00"))
+    calendar["2027"] = {"closed_ranges": []}
+    monkeypatch.setattr(pr, "now", lambda: pr.local("2027-01-04T08:30:15+08:00"))
+    service.set_schedule_paused(False, token)
+    service.schedule_once(pr.local("2027-01-04T08:30:30+08:00"))
+    with closing(db()) as conn:
+        assert not conn.execute("SELECT id FROM periodic_reports").fetchall()
+
+
 def test_settings_api_save_reload_preserves_history_and_wakes_scheduler(tmp_path, monkeypatch):
     import app
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))

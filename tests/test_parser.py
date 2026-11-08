@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from parser import parse_daily_file, parse_daily_json_file
+from legacy_news_parser import parse_daily_file, parse_daily_json_file
 
 
 def write_daily(path: Path, body: str) -> None:

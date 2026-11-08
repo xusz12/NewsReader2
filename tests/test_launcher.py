@@ -412,25 +412,33 @@ def _run_startup_script_with_fake_python(
     *,
     preflight_status: int,
     launcher_status: int,
-    tailscale_output: str | None = None,
-    tailscale_status: int = 0,
+    network_host: str = "127.0.0.1",
+    network_status: int = 0,
     explicit_host: str | None = None,
 ):
     fake_python = tmp_path / "fake-python"
     captured_host = tmp_path / "captured-host"
     captured_port = tmp_path / "captured-port"
     captured_args = tmp_path / "captured-args"
+    captured_network = tmp_path / "captured-network"
     fake_python.write_text(
         """#!/bin/sh
 if [ \"$1\" = \"-\" ]; then
     cat >/dev/null
     exit %d
 fi
+case \"$1\" in
+    */network_access.py)
+        printf '%%s\\n' \"$@\" > \"$TEST_CAPTURE_NETWORK\"
+        printf '%%s' \"$TEST_NETWORK_HOST\"
+        exit %d
+        ;;
+esac
 printf '%%s' \"${NEWS_READER_HOST-}\" > \"$TEST_CAPTURE_HOST\"
 printf '%%s' \"${NEWS_READER_PORT-}\" > \"$TEST_CAPTURE_PORT\"
 printf '%%s\\n' \"$@\" > \"$TEST_CAPTURE_ARGS\"
 exit %d
-""" % (preflight_status, launcher_status),
+""" % (preflight_status, network_status, launcher_status),
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
@@ -441,26 +449,13 @@ exit %d
         "TEST_CAPTURE_HOST": str(captured_host),
         "TEST_CAPTURE_PORT": str(captured_port),
         "TEST_CAPTURE_ARGS": str(captured_args),
+        "TEST_CAPTURE_NETWORK": str(captured_network),
+        "TEST_NETWORK_HOST": network_host,
     })
     if explicit_host is not None:
         env["NEWS_READER_HOST"] = explicit_host
     else:
         env.pop("NEWS_READER_HOST", None)
-    if tailscale_output is not None or tailscale_status != 0:
-        fake_tailscale = tmp_path / "tailscale"
-        fake_tailscale.write_text(
-            "#!/bin/sh\n"
-            "printf '%s\\n' \"${TEST_TAILSCALE_OUTPUT-}\"\n"
-            f"exit {tailscale_status}\n",
-            encoding="utf-8",
-        )
-        fake_tailscale.chmod(0o755)
-        env["TEST_TAILSCALE_OUTPUT"] = tailscale_output or ""
-        env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
-    else:
-        env["PATH"] = os.pathsep.join(
-            part for part in env["PATH"].split(os.pathsep) if Path(part) != tmp_path
-        )
     result = subprocess.run(
         ["zsh", str(PROJECT_ROOT / "启动NewsReader.command")],
         cwd=PROJECT_ROOT,
@@ -472,6 +467,7 @@ exit %d
     result.captured_host = captured_host.read_text() if captured_host.exists() else None
     result.captured_port = captured_port.read_text() if captured_port.exists() else None
     result.captured_args = captured_args.read_text().splitlines() if captured_args.exists() else []
+    result.captured_network = captured_network.read_text().splitlines() if captured_network.exists() else []
     return result
 
 
@@ -500,31 +496,41 @@ def test_startup_script_requests_replacement(tmp_path: Path):
 
 def test_startup_script_uses_tailscale_ipv4_when_host_is_not_explicit(tmp_path: Path):
     result = _run_startup_script_with_fake_python(
-        tmp_path, preflight_status=0, launcher_status=0, tailscale_output="100.64.12.34",
+        tmp_path, preflight_status=0, launcher_status=0, network_host="100.64.12.34",
     )
     assert result.returncode == 0
     assert result.captured_host == "100.64.12.34"
     assert result.captured_port == ""
+    assert result.captured_network == [str(PROJECT_ROOT / "network_access.py"), "8080"]
+
+
+def test_startup_script_falls_back_when_network_discovery_fails(tmp_path: Path):
+    result = _run_startup_script_with_fake_python(
+        tmp_path, preflight_status=0, launcher_status=0,
+        network_host="100.64.12.34", network_status=1,
+    )
+    assert result.returncode == 0
+    assert result.captured_host == "127.0.0.1"
+    assert "网络地址检测不可用，使用本机地址 http://127.0.0.1:" in result.stderr
 
 
 def test_startup_script_falls_back_to_loopback_when_tailscale_is_unavailable(tmp_path: Path):
     result = _run_startup_script_with_fake_python(
-        tmp_path, preflight_status=0, launcher_status=0, tailscale_output="not-an-ip",
+        tmp_path, preflight_status=0, launcher_status=0, network_host="127.0.0.1",
     )
     assert result.returncode == 0
-    assert result.captured_host is None or result.captured_host == ""
+    assert result.captured_host == "127.0.0.1"
 
 
-def test_startup_script_ignores_tailscale_output_when_command_fails(tmp_path: Path):
+def test_startup_script_falls_back_when_network_discovery_returns_nothing(tmp_path: Path):
     result = _run_startup_script_with_fake_python(
         tmp_path,
         preflight_status=0,
         launcher_status=0,
-        tailscale_output="100.64.12.34",
-        tailscale_status=7,
+        network_host="",
     )
     assert result.returncode == 0
-    assert result.captured_host is None or result.captured_host == ""
+    assert result.captured_host == "127.0.0.1"
 
 
 def test_startup_script_preserves_explicit_host_over_tailscale(tmp_path: Path):
@@ -532,11 +538,12 @@ def test_startup_script_preserves_explicit_host_over_tailscale(tmp_path: Path):
         tmp_path,
         preflight_status=0,
         launcher_status=0,
-        tailscale_output="100.64.12.34",
+        network_host="100.64.12.34",
         explicit_host="127.0.0.1",
     )
     assert result.returncode == 0
     assert result.captured_host == "127.0.0.1"
+    assert result.captured_network == []
 
 
 def _make_fake_python(path: Path, *, preflight_status: int, marker: Path) -> None:

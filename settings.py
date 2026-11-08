@@ -6,13 +6,10 @@ from copy import deepcopy
 from pathlib import Path
 from model_apis import normalize_api_models, normalize_translation
 import report_schedule
+import collection_schedule
 import pi_models
 
 
-DEFAULT_DAILY_NEWS_DIR = Path(
-    "/Users/x/Library/Mobile Documents/iCloud~md~obsidian/Documents/DailyNews"
-)
-DEFAULT_DAILY_BRIEFING_DIR = DEFAULT_DAILY_NEWS_DIR / "briefings" / "daily"
 PROJECT_DB_PATH = Path(__file__).resolve().parent / "news_index.sqlite3"
 LEGACY_DB_PATH = Path(__file__).resolve().parent.parent / "news_index.sqlite3"
 
@@ -116,6 +113,7 @@ def normalize_classification(value: object, *, defaults: dict | None = None, leg
 
 
 DEFAULT_APP_SETTINGS = {
+    "collection": collection_schedule.normalize_schedule({}),
     "report_schedule": dict(report_schedule.DEFAULT_TIMES),
     "report_schedule_history": [],
     "report_windows": report_schedule.normalize_windows({}),
@@ -156,15 +154,6 @@ DEFAULT_APP_SETTINGS = {
     "news_summary": {"max_days": 20, "max_items": 6000},
 }
 
-
-def resolve_daily_news_dir() -> Path:
-    raw = os.environ.get("NEWS_READER_DAILY_NEWS_DIR", "").strip()
-    return Path(raw) if raw else DEFAULT_DAILY_NEWS_DIR
-
-
-def resolve_daily_briefing_dir() -> Path:
-    raw = os.environ.get("NEWS_READER_DAILY_BRIEFING_DIR", "").strip()
-    return Path(raw) if raw else DEFAULT_DAILY_BRIEFING_DIR
 
 
 def resolve_configured_db_path() -> Path | None:
@@ -300,6 +289,10 @@ def load_app_settings() -> dict:
     except ValueError:
         base["feature_models"] = normalize_feature_models({}, base)
     if isinstance(payload, dict):
+        try:
+            base["collection"] = collection_schedule.normalize_schedule(payload.get("collection", {}))
+        except ValueError:
+            pass
         try:
             times = report_schedule.normalize(payload.get("report_schedule", {}))
             revisions = report_schedule.history(payload.get("report_schedule_history"), times)

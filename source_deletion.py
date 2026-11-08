@@ -152,6 +152,10 @@ class Plan:
                 if path and path.is_dir():
                     self.runtime_dirs.append(path)
                     self.files.extend(p for p in path.rglob("*") if p.is_file() and not p.is_symlink())
+        conn.execute("""CREATE TEMP TABLE source_delete_pending AS SELECT item_id FROM collection_items
+            WHERE status<>'done' AND feed_source_subkey(json_extract(raw_json,'$.url'),
+                json_extract(raw_json,'$.source_type'),json_extract(raw_json,'$.source'),json_extract(raw_json,'$.source_name'))=?""", (key,))
+        self.targets["collection_items"] = f"{item_clause} OR item_id IN (SELECT item_id FROM source_delete_pending)"
         self.targets["items"] = f"id IN ({ids})"
 
         digest = hashlib.sha256()
@@ -177,6 +181,7 @@ class Plan:
         self.preview = {
             "key": key, "label": source["label"], "source_label": source["source_label"],
             "news_count": len(self.item_ids), "first_date": dates[0], "last_date": dates[1],
+            "pending_news_count": conn.execute("SELECT COUNT(*) FROM source_delete_pending").fetchone()[0],
             "data_bytes": database_bytes + file_bytes, "database_bytes": database_bytes,
             "file_bytes": file_bytes, "counts": counts,
             "note_count": counts["article_note_entries"] + conn.execute(f"SELECT COUNT(*) FROM article_notes n WHERE {url_clause} AND NOT EXISTS (SELECT 1 FROM article_note_entries e WHERE e.url=n.url)").fetchone()[0],
@@ -187,6 +192,8 @@ class Plan:
     def delete_rows(self):
         self.conn.executemany("INSERT OR IGNORE INTO deleted_news_items(fingerprint) VALUES (?)",
                               ((item_fingerprint(ident),) for ident in self.item_ids))
+        self.conn.execute("""UPDATE news_identities SET deleted=1 WHERE item_id IN (SELECT id FROM source_delete_items)
+            OR item_id IN (SELECT item_id FROM source_delete_pending)""")
         # Explicit predicates also cover old tables that have no foreign keys.
         # Note metadata and review children are removed before their parents.
         self.conn.execute("UPDATE review_chains SET parent_chain_id=NULL WHERE id IN (SELECT id FROM source_delete_reviews)")

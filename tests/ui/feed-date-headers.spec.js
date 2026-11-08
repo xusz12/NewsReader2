@@ -38,7 +38,7 @@ test('date groups include unloaded news, merge across pages and scope counts to 
   await expect(list(page).locator('.news-card')).toHaveCount(search.total);
   await expectDates(page, search.date_counts);
   await page.locator('#feedSearchInput').fill('没有这种新闻的关键词');
-  await expect(list(page)).toContainText('没有符合条件的新闻');
+  await expect(list(page)).toContainText('当前范围没有新闻');
   await expect(groups(page)).toHaveCount(0);
 });
 

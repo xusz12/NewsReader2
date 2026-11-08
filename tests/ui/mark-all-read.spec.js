@@ -20,7 +20,7 @@ test('confirmation uses fresh unread counts across pages, supports cancel and sk
   const readAt = (await (await request.get('/api/news/ui-000/detail')).json()).read_at;
   const writes = [];
   page.on('request', req => {
-    if (req.method() === 'POST' && /\/api\/news\/mark-(all-read|read-by-ids)$/.test(new URL(req.url()).pathname))
+    if (req.method() === 'POST' && /\/api\/news\/mark-(all-read|read-by-ids)$/.test(new URL(req.url()).pathname) && !req.postDataJSON()?.preview)
       writes.push(req.postDataJSON());
   });
   await page.locator('#markAllReadBtn').click();
@@ -35,7 +35,7 @@ test('confirmation uses fresh unread counts across pages, supports cancel and sk
   await answerConfirm(page);
   await expect(page.locator('#toast')).toHaveText('全部来源：已将 64 条新闻标为已读');
   await expect(page.locator('#appConfirmDialog')).toBeHidden();
-  expect(writes).toEqual([expect.objectContaining({ collection: 'feed', source_filter: 'all', read_filter: 'unread' })]);
+  expect(writes).toEqual([{preview_id:expect.any(String)}]);
   expect(await unreadCount(request)).toBe(0);
   expect((await (await request.get('/api/news/ui-000/detail')).json()).read_at).toBe(readAt);
   await page.locator('#markAllReadBtn').click();
@@ -76,19 +76,17 @@ test('a changed source cancels a pending count preview instead of marking the ol
   let release, reached;
   const gate = new Promise(resolve => { release = resolve; });
   const requested = new Promise(resolve => { reached = resolve; });
-  await page.route('**/api/news?*count_only=1*', async route => {
+  await page.route('**/api/news/mark-all-read', async route => {
     const response = await route.fetch();
     reached();
     await gate;
     await route.fulfill({ response });
   });
-  let confirmations = 0;
-  page.on('dialog', async dialog => { confirmations++; await dialog.dismiss(); });
   await page.locator('#markAllReadBtn').click();
   await requested;
   await page.locator('[data-source="reuters"]').click();
   release();
   await expect(page.locator('#toast')).toHaveText('新闻范围已变化，请重新点击全部已读');
-  expect(confirmations).toBe(0);
+  await expect(page.locator('#appConfirmDialog')).toBeHidden();
   expect(await unreadCount(request)).toBe(65);
 });

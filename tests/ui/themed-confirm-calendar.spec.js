@@ -81,7 +81,7 @@ test('confirmation is plain text, one at a time, and external close cancels', as
 test('all-read cancels with zero writes and refuses a changed scope after confirmation opened', async ({ page }) => {
   await start(page);
   let writes = 0;
-  page.on('request', req => { if (req.method() === 'POST' && /\/mark-(all-read|read-by-ids)$/.test(new URL(req.url()).pathname)) writes++; });
+  page.on('request', req => { if (req.method() === 'POST' && /\/mark-(all-read|read-by-ids)$/.test(new URL(req.url()).pathname) && !req.postDataJSON()?.preview) writes++; });
   await page.locator('#markAllReadBtn').click(); await answerConfirm(page, false);
   expect(writes).toBe(0);
   await page.locator('#markAllReadBtn').click(); await expect(modal(page)).toBeVisible();

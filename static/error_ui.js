@@ -15,6 +15,11 @@
   register('model', 'TRANSLATION_PROVIDERS_FAILED', '启用的翻译服务均未完成翻译，请在 API 管理中检查密钥与模型后重试。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
   register('input', 'invalid_report_schedule', '请为每类报告选择有效的小时和分钟。');
+  register('input', 'collection_schedule_invalid', '采集时间请使用 HH:MM 格式，以顿号、逗号或空格分隔；每组最多 48 个时刻。');
+  register('input', 'collection_schedule_empty', '启用定时采集时，请至少设置一个采集时刻。');
+  register('input', 'collection_translation_concurrency_invalid', '新闻翻译并发上限必须是 1–32 的整数。');
+  register('input', 'read_preview_expired', '全部已读的确认范围已过期，请重新点击并确认。');
+  register('input', 'invalid_news_batch', '新闻列表范围已失效，请重新打开当前列表。');
   register('input', 'invalid_report_schedule_order', '早报时间须早于午报，午报时间须早于晚报。');
   register('input', 'invalid_report_schedule_window', '开始生成时间不能早于对应新闻窗口的结束时间。');
   register('input', 'invalid_report_windows', '请选择有效的新闻起止日期、小时和分钟。');

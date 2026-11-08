@@ -6,8 +6,9 @@ test.beforeEach(async ({ request }) => { await request.post('/__test/reset-readi
 
 async function start(page, unread = 65) {
   await page.goto('/');
-  await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await expect(page.locator('#unreadBadge')).toHaveText(String(unread));
+  if(unread)await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
+  else await expect(page.locator('#feedCardList')).toContainText('当前范围没有新闻');
+  await expect(page.locator('#unreadBadge')).toHaveText(unread ? String(unread) : '');
 }
 
 test('unread filter, source and nav counts follow scrolling without reloading rows', async ({ page, request }) => {
@@ -33,11 +34,11 @@ test('clear favorites icon removes all pages and filtered-out favorites while pr
   for (let i = 0; i < 65; i++) await request.patch(`/api/news/ui-${String(i).padStart(3, '0')}/state`, { data: { favorite: true } });
   await request.patch('/api/news/ui-064/state', { data: { important: true, read_later: true } });
   const before = await (await request.get('/api/news/ui-064/detail')).json();
-  await start(page, 64); // Joining read later also marks this news item read.
-  await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
+  await start(page, 0); // Favoriting already marks each news item read.
   await expect(page.locator('#clearFavoritesBtn')).toBeHidden();
   await page.locator('#navFavoritesBtn').click();
   await expect(page.locator('#feedCardList .news-card')).toHaveCount(30);
+  await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
   await expect(page.locator('#favoriteSelectionBar, [data-select-favorite]')).toHaveCount(0);
   const clear = page.getByRole('button', { name: '全部取消收藏', exact: true });
   await expect(clear).toBeVisible();
@@ -63,7 +64,7 @@ test('clear favorites icon removes all pages and filtered-out favorites while pr
 test('clear favorites recovers after failure and retains individual favorite controls', async ({ page, request }) => {
   await request.post('/api/news/clear-favorites');
   await request.patch('/api/news/ui-064/state', { data: { favorite: true } });
-  await start(page);
+  await start(page, 64);
   await page.locator('#navFavoritesBtn').click();
   const clear = page.locator('#clearFavoritesBtn');
   await page.route('**/api/news/clear-favorites', route => route.fulfill({ status: 500, json: { error: '保存失败' } }));
@@ -77,6 +78,8 @@ test('clear favorites recovers after failure and retains individual favorite con
   await expect(page.locator('#feedCardList .news-card')).toHaveCount(0);
   await expect(clear).toBeDisabled();
   await page.locator('#navFeedBtn').click();
+  await page.locator('#feedColFeed [data-filter="all"]').click();
+  await page.locator('#sortNewsBtn').click();
   await page.locator('[data-id="ui-064"] [data-state="favorite"]').click();
   await expect(page.locator('[data-id="ui-064"] [data-state="favorite"]')).toHaveAttribute('aria-busy', 'false');
   await page.locator('#navFavoritesBtn').click();
@@ -88,7 +91,7 @@ test('clear favorites recovers after failure and retains individual favorite con
 test('clear favorites waits for an earlier favorite save and blocks overlapping star clicks', async ({ page, request }) => {
   await request.post('/api/news/clear-favorites');
   for (const id of ['ui-063', 'ui-064']) await request.patch(`/api/news/${id}/state`, { data: { favorite: true } });
-  await start(page);
+  await start(page, 63);
   await page.locator('#navFavoritesBtn').click();
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -116,7 +119,7 @@ test('mobile favorites uses the same icon next to sorting without a selection ba
   await request.post('/api/news/clear-favorites');
   await request.patch('/api/news/ui-064/state', { data: { favorite: true } });
   await page.setViewportSize({ width: 360, height: 800 });
-  await start(page);
+  await start(page, 64);
   await page.locator('#openNavBtn').click();
   await page.locator('#navFavoritesBtn').click();
   const clear = page.locator('#clearFavoritesBtn');
@@ -205,7 +208,7 @@ test('visible polling catches other-device changes and hidden pages pause pollin
   await page.clock.fastForward(31000);
   await page.clock.runFor(200);
   await expect(activeFilter(page)).toHaveText('未读 (64)');
-  await expect(page.locator('#pipelineStatus')).toContainText('DailyNews 增量索引已同步');
+  await expect(page.locator('#pipelineStatus')).toContainText('尚未采集');
   let requests = 0;
   page.on('request', req => { if (req.url().includes('/api/nav-summary')) requests++; });
   await page.evaluate(() => Object.defineProperty(document, 'hidden', { configurable: true, value: true }));

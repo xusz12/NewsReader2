@@ -26,6 +26,8 @@ playwright-report/
 # Project-local environments, caches and runtime data
 .venv/
 media-cache/
+trading-calendar-cache.json
+.trading-calendar-*
 *.db
 *.db-wal
 *.db-shm

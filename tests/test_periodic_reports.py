@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import periodic_reports as pr
-from scanner import apply_schema
+from database_schema import apply_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -104,7 +104,8 @@ def test_restart_skips_unfinished_intraday_but_preserves_completed_or_live_job(d
 
 
 def test_actual_market_holidays_not_makeup_workdays():
-    calendar = pr.calendar_data()
+    # Verify the bundled fixture independently of the user's automatic cache.
+    calendar = json.loads((ROOT / "reports/trading-calendar.json").read_text())
     for day in ("2026-10-01","2026-10-07","2026-10-10","2026-02-23","2026-09-20"):
         assert pr.trading_day(date.fromisoformat(day), calendar) is False
     assert pr.trading_day(date(2026,10,8),calendar) is True
@@ -121,7 +122,7 @@ def test_daily_full_day_and_morning_noon_boundaries():
     assert (slots["evening"][1]-slots["evening"][0]).total_seconds() == 86400
 
 
-def test_index_refresh_precedes_snapshot_and_keeps_newly_indexed_news(db):
+def test_snapshot_uses_formal_news_without_calling_old_scanner(db):
     job = due(db)
     calls = []
     def refresh():
@@ -136,9 +137,11 @@ def test_index_refresh_precedes_snapshot_and_keeps_newly_indexed_news(db):
         calls.append("model")
         assert "存储新工艺开始试产" in prompt
         return runner(config,prompt)
-    service = pr.Service(db,lambda:SETTINGS,refresh,model)
+    refresh()  # Publish before report capture. The old scanning callback is forbidden.
+    calls.clear()
+    service = pr.Service(db,lambda:SETTINGS,lambda:pytest.fail("no scanning"),model)
     assert service.run_one()
-    assert calls == ["refresh","model","model"]
+    assert calls == ["model","model"]
     with closing(db()) as conn:
         saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?",(job["id"],)).fetchone()
         assert saved["status"] == "done", saved["error"]
@@ -244,41 +247,8 @@ def test_reused_video_material_ignores_old_generation_cache_and_resumes_filtered
             assert tuple(archived) == (original, pr.encoded(old_result))
 
 
-def test_index_failure_never_calls_model_or_saves_partial_report(db):
-    due(db)
-    def fail(): raise OSError("private directory details")
-    service = pr.Service(db,lambda:SETTINGS,fail,lambda *_:pytest.fail("must not call model"))
-    for attempt in range(3):
-        assert service.run_one()
-        with closing(db()) as conn, conn:
-            row = conn.execute("SELECT * FROM periodic_reports").fetchone()
-            assert row["error"] == "report_index_failed"
-            assert row["result_json"] is None and row["snapshot_json"] is None
-            conn.execute("UPDATE periodic_reports SET next_attempt=0")
-    assert row["status"] == "failed"
-    assert not service.run_one()
 
 
-@pytest.mark.parametrize("exc,code", [
-    (FileNotFoundError("private path"), "report_index_source_missing"),
-    (NotADirectoryError("private path"), "report_index_not_directory"),
-    (PermissionError("private path"), "report_index_permission_denied"),
-    (OSError(errno.ENOSPC, "private path"), "report_index_disk_full"),
-    (ValueError("private file contents"), "report_index_invalid_file"),
-    (sqlite3.DatabaseError("private database details"), "report_index_database_error"),
-])
-def test_index_failure_exposes_reason_and_retry_without_raw_details(db, exc, code):
-    job = due(db)
-    def fail(): raise exc
-    service = pr.Service(db, lambda:SETTINGS, fail, lambda *_:pytest.fail("no model call"))
-    assert service.run_one()
-    data = service.listing("daily")["items"][0]
-    assert data["error"] == code and data["status"] == "pending"
-    assert data["attempts"] == 1 and data["next_retry_at"]
-    assert "private" not in pr.encoded(data)
-    with closing(db()) as conn:
-        row = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
-        assert row["result_json"] is None and row["snapshot_json"] is None
 
 
 def test_index_database_busy_reason():
@@ -287,52 +257,8 @@ def test_index_database_busy_reason():
     assert pr.index_error(error) == "report_index_database_locked"
 
 
-def test_refresh_missing_directory_has_specific_cause(tmp_path, monkeypatch):
-    import app
-    monkeypatch.setattr(app, "DAILY_NEWS_DIR", tmp_path / "missing")
-    with pytest.raises(FileNotFoundError):
-        app.refresh_report_index()
-    file = tmp_path / "not-a-directory"
-    file.write_text("test")
-    monkeypatch.setattr(app, "DAILY_NEWS_DIR", file)
-    with pytest.raises(NotADirectoryError):
-        app.refresh_report_index()
 
 
-def test_manual_rebuild_cannot_interrupt_capture_but_can_run_during_generation(db, monkeypatch):
-    due(db)
-    guard = threading.RLock()
-    started, rebuilt = threading.Event(), threading.Event()
-    workers = []
-    def manual_rebuild():
-        started.set()
-        with guard, closing(db()) as conn, conn:
-            conn.execute("DELETE FROM items")
-        rebuilt.set()
-    def refresh():
-        with closing(db()) as conn:
-            news(conn, "must-survive")
-        worker = threading.Thread(target=manual_rebuild)
-        workers.append(worker)
-        worker.start()
-        assert started.wait(1)
-    original = pr.capture
-    def capture(conn, job):
-        assert not rebuilt.wait(.05), "manual rebuild entered before snapshot finished"
-        return original(conn, job)
-    monkeypatch.setattr(pr, "capture", capture)
-    def model(config, prompt):
-        assert rebuilt.wait(2), "index lock held during model generation"
-        return runner(config, prompt)
-    try:
-        pr.Service(db, lambda:SETTINGS, refresh, model, index_lock=guard).run_one()
-        with closing(db()) as conn:
-            row = conn.execute("SELECT * FROM periodic_reports").fetchone()
-            assert row["status"] == "done", row["error"]
-            assert json.loads(row["result_json"])["sources"][0]["id"] == "must-survive"
-    finally:
-        for worker in workers:
-            worker.join(2)
 
 
 def test_snapshot_keeps_title_only_and_rejects_later_body(db):

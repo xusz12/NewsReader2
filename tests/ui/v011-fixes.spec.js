@@ -23,7 +23,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'eink']) 
       latest: { version: 'v0.1.2', commit: 'b'.repeat(40) }, blockers: ['dirty_worktree'], checked_at: 1792555200,
     } }); });
     await start(page, width); await chooseTheme(page, theme);
-    const refresh = page.locator('#refreshIndexBtn');
+    const refresh = page.locator('#collectNewsBtn');
     await page.mouse.move(0, 0);
     await expect(refresh).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await expect(refresh).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');

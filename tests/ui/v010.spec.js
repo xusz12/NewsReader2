@@ -5,10 +5,13 @@ test.beforeEach(async ({ request }) => {
 });
 
 test('all-read sources remain selectable with no unread badges after reload', async ({ page, request }) => {
-  await request.post('/api/news/mark-all-read', { data: { collection: 'feed' } });
+  const preview = await request.post('/api/news/mark-all-read', { data: { collection: 'feed', preview: true } });
+  expect(preview.ok()).toBe(true);
+  const result = await request.post('/api/news/mark-all-read', { data: { preview_id: (await preview.json()).preview_id } });
+  expect(result.ok()).toBe(true);
   for (let visit = 0; visit < 2; visit++) {
     await page.goto('/');
-    await expect(page.locator('#feedCardList')).toContainText('没有符合条件的新闻');
+    await expect(page.locator('#feedCardList')).toContainText('当前范围没有新闻');
     for (const key of ['techcrunch', 'ars']) await expect(page.locator(`[data-source="${key}"]`)).toBeVisible();
     await expect(page.locator('#sourceFilters .nav-badge')).toHaveCount(0);
     await page.locator('#feedColFeed [data-filter="all"]').click();

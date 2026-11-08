@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from scanner import apply_schema
+from database_schema import apply_schema
 
 
 STAMP = "2026-10-18 13:00:00"

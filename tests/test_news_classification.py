@@ -1,4 +1,6 @@
 import importlib
+from legacy_news_seed import confirm_all_read
+
 import json
 import sqlite3
 import time
@@ -8,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import news_classification as nc
-from scanner import apply_schema, reindex
+from legacy_news_scanner import apply_schema, reindex
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -239,7 +241,7 @@ def test_filtered_pagination_search_counts_and_scoped_mark_read(api):
     stats = client.get("/api/search?q=分类共同测试词&category=economy&feed_filters=1&read_filter=unread&count_only=1&date_counts=1").json
     assert stats == {"ok": True, "total": 24, "date_counts": {"2026-10-23": 24}}
     assert client.get("/api/news?category=other&count_only=1").json["total"] == 0
-    marked = client.post("/api/news/mark-all-read", json={"category": "economy", "read_filter": "unread"}).json
+    marked = confirm_all_read(client, json={"category": "economy", "read_filter": "unread"}).json
     assert marked["marked"] == 24
     assert client.get("/api/news?category=economy&read_filter=unread&count_only=1&date_counts=1").json["date_counts"] == {}
     assert client.get("/api/nav-summary").json["summary"]["feed_unread"] == 12
@@ -264,7 +266,7 @@ def test_category_counts_follow_full_filter_scope_and_read_changes(api, endpoint
         dict.fromkeys(nc.CATEGORIES, 0))
     assert client.get(endpoint, query_string=params | {"q": "没有匹配结果"}).json["category_counts"] == (
         dict.fromkeys(nc.CATEGORIES, 0))
-    client.post("/api/news/mark-all-read", json={"category": "economy", "read_filter": "unread"})
+    confirm_all_read(client, json={"category": "economy", "read_filter": "unread"})
     assert client.get(endpoint, query_string=params).json["category_counts"] == (expected | {"economy": 0})
     assert client.get(endpoint, query_string=params | {"read_filter": "all"}).json["category_counts"] == expected
     assert client.patch("/api/news/n35/state", json={"read": False}).status_code == 400
