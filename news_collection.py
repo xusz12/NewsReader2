@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS collection_runs (
 CREATE TABLE IF NOT EXISTS collection_run_sources (
  run_id TEXT NOT NULL, source_id TEXT NOT NULL, config_json TEXT NOT NULL, status TEXT NOT NULL,
  count INTEGER DEFAULT 0, added INTEGER DEFAULT 0, error TEXT DEFAULT '', started_at TEXT, finished_at TEXT,
+ duplicate_count INTEGER, filtered_count INTEGER, ingested_count INTEGER NOT NULL DEFAULT 0, ingested_at TEXT,
  PRIMARY KEY(run_id,source_id));
 CREATE TABLE IF NOT EXISTS collection_source_cooldowns (source_id TEXT PRIMARY KEY, until REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS news_identities (
@@ -114,6 +115,23 @@ def initialize(conn):
             (SELECT MAX(ingested_at) FROM collection_items WHERE run_id=collection_runs.id), finished_at)
             WHERE status IN ('done','partial','failed') AND NOT EXISTS (
               SELECT 1 FROM collection_items WHERE run_id=collection_runs.id AND status NOT IN ('done','deleted'))""")
+    source_columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_run_sources)")}
+    for name, definition in (("duplicate_count", "INTEGER"), ("filtered_count", "INTEGER"),
+                             ("ingested_count", "INTEGER NOT NULL DEFAULT 0"), ("ingested_at", "TEXT")):
+        if name not in source_columns:
+            conn.execute(f"ALTER TABLE collection_run_sources ADD COLUMN {name} {definition}")
+    if "ingested_count" not in source_columns:
+        conn.execute("""UPDATE collection_run_sources SET (ingested_count,ingested_at)=(
+            SELECT COUNT(*),MAX(i.ingested_at) FROM collection_items i
+            WHERE i.run_id=collection_run_sources.run_id AND i.source_id=collection_run_sources.source_id
+              AND i.ingested_at IS NOT NULL)""")
+    # Old count - added also included filtered and invalid items. Only zero is
+    # recoverable with certainty; never invent historical duplicate counts.
+    if "duplicate_count" not in source_columns:
+        conn.execute("""UPDATE collection_run_sources SET duplicate_count=0,filtered_count=0
+            WHERE status IN ('done','failed') AND count=added""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_sources_started ON collection_run_sources(started_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_sources_ingested ON collection_run_sources(ingested_at)")
     topic_tracking.seed_ingestions(conn)
     first = conn.execute("SELECT 1 FROM collection_meta").fetchone() is None
     if first:
@@ -263,7 +281,7 @@ class Service:
         if not conn.execute("INSERT OR IGNORE INTO collection_runs(id,slot,trigger,status,created_at) VALUES (?,?,?,'pending',?)",
                             (ident,slot,trigger,stamp())).rowcount:
             return conn.execute("SELECT id FROM collection_runs WHERE slot=?", (slot,)).fetchone()[0]
-        conn.executemany("INSERT INTO collection_run_sources(run_id,source_id,config_json,status) VALUES (?,?,?,'pending')",
+        conn.executemany("INSERT INTO collection_run_sources(run_id,source_id,config_json,status,duplicate_count,filtered_count) VALUES (?,?,?,'pending',0,0)",
                          [(ident, s["section"], encoded(s)) for s in self.sources])
         return ident
 
@@ -324,13 +342,14 @@ class Service:
         return False
 
     def stage(self, conn, run_id, source, raw):
+        """Return the observed disposition without conflating filtering and deduplication."""
         if not str(raw.get("title") or "").strip() or is_bloomberg_video_url(raw.get("url")):
-            return False
+            return "filtered"
         canonical = canonical_url(raw["url"])
         identity_key = hashlib.sha256(canonical.encode()).hexdigest()
         existing = conn.execute("SELECT item_id,deleted FROM news_identities WHERE identity_key=?", (identity_key,)).fetchone()
         if existing:
-            return False
+            return "duplicate"
         published = published_time(raw.get("time"))
         # Honour legacy deletion fingerprints without changing any historical ID.
         legacy = hashlib.sha256(f"{published[:10]}|{raw['url']}".encode()).hexdigest()
@@ -340,12 +359,12 @@ class Service:
             deleted = True
         conn.execute("INSERT INTO news_identities VALUES (?,?,?)", (identity_key,ident,int(deleted)))
         if deleted:
-            return False
+            return "duplicate"
         raw = {**raw, "source": source["display_name"], "source_type": source["source_type"],
                "source_name": source["source_name"], "translation_policy": source["translation_policy"]}
         conn.execute("""INSERT INTO collection_items(item_id,run_id,source_id,raw_json,status,collected_at,published_at)
                         VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),stamp(),published))
-        return True
+        return "added"
 
     def collect_once(self):
         lease = uuid.uuid4().hex
@@ -377,18 +396,21 @@ class Service:
                     conn.execute("BEGIN IMMEDIATE")
                     if not conn.execute("SELECT 1 FROM collection_runs WHERE id=? AND lease=? AND status='running'", (ident,lease)).fetchone():
                         return True
-                    added = 0
+                    added = duplicates = filtered = 0
                     if result["ok"]:
                         for raw in result.get("items", []):
                             try:
-                                added += int(self.stage(conn,ident,source,raw))
+                                disposition = self.stage(conn,ident,source,raw)
+                                added += disposition == "added"
+                                duplicates += disposition == "duplicate"
+                                filtered += disposition == "filtered"
                             except (ValueError, KeyError, TypeError):
                                 result = {**result, "ok":False, "error_code":"INVALID_ITEM"}
                     retry_at = adapters.parse_retry_at(result.get("retry_at"))
                     if retry_at:
                         conn.execute("INSERT OR REPLACE INTO collection_source_cooldowns VALUES (?,?)", (source["section"],retry_at))
-                    conn.execute("UPDATE collection_run_sources SET status=?,count=?,added=?,error=?,finished_at=? WHERE run_id=? AND source_id=?",
-                                 ("done" if result["ok"] else "failed",len(result.get("items",[])),added,
+                    conn.execute("UPDATE collection_run_sources SET status=?,count=?,added=?,duplicate_count=?,filtered_count=?,error=?,finished_at=? WHERE run_id=? AND source_id=?",
+                                 ("done" if result["ok"] else "failed",len(result.get("items",[])),added,duplicates,filtered,
                                   "" if result["ok"] else source_error(result),stamp(),ident,source["section"]))
                 self.wake.set()
             with closing(self.connect()) as conn, conn:
@@ -416,6 +438,11 @@ class Service:
                      (ident,published,published[:10],published[11:16],raw["source"],raw["source_type"],raw["source_name"],
                       translation["title"],summary,raw["url"],ts,ts)).rowcount
         conn.execute("UPDATE collection_items SET status='done',ingested_at=?,error='',lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
+        if inserted:
+            # Keep the historical total even after source cleanup removes items.
+            # This rolls back with the rest of the batch on publication failure.
+            conn.execute("""UPDATE collection_run_sources SET ingested_count=ingested_count+?,ingested_at=?
+                WHERE run_id=? AND source_id=?""", (inserted,ts,job["run_id"],job["source_id"]))
         return inserted
 
     def publish_once(self):
@@ -484,10 +511,26 @@ class Service:
         self.wake.set()
         return True
 
-    def retry(self):
+    def retry(self, *, run_id=None, source_id=None, stage=None):
+        scoped = any(value is not None for value in (run_id, source_id, stage))
+        if scoped and (not isinstance(run_id, str) or not run_id or not isinstance(stage, str) or stage not in {"translation", "publication"}
+                       or (stage == "translation" and (not isinstance(source_id, str) or not source_id))
+                       or (stage == "publication" and source_id is not None)):
+            raise ValueError("collection_retry_invalid")
         with closing(self.connect()) as conn, conn:
-            count = conn.execute("UPDATE collection_items SET status='pending',error='' WHERE status='failed'").rowcount
-            count += conn.execute("UPDATE collection_runs SET publication_status='pending',publication_error='' WHERE publication_status='failed'").rowcount
+            conn.execute("BEGIN IMMEDIATE")
+            if scoped:
+                target = (conn.execute("SELECT 1 FROM collection_run_sources WHERE run_id=? AND source_id=?", (run_id,source_id)).fetchone()
+                          if stage == "translation" else conn.execute("SELECT 1 FROM collection_runs WHERE id=?", (run_id,)).fetchone())
+                if not target:
+                    raise ValueError("collection_retry_target_missing")
+            count = 0
+            if stage in (None, "translation"):
+                scope, args = (" AND run_id=? AND source_id=?", (run_id,source_id)) if scoped else ("", ())
+                count = conn.execute("UPDATE collection_items SET status='pending',error='' WHERE status='failed'" + scope, args).rowcount
+            if stage in (None, "publication"):
+                scope, args = (" AND id=?", (run_id,)) if scoped else ("", ())
+                count += conn.execute("UPDATE collection_runs SET publication_status='pending',publication_error='' WHERE publication_status='failed'" + scope, args).rowcount
         self.wake.set()
         return count
 
@@ -517,19 +560,70 @@ class Service:
                 "sources":[{"id":s["section"],"label":s["display_name"],
                             **next(({k:r[k] for k in ("status","count","added","error")} for r in rows if r["source_id"]==s["section"]), {"status":"none"})} for s in self.sources]}
 
-    def errors(self, day):
+    def errors(self, day, *, details=True):
+        # Timestamps are persisted in Shanghai ISO format. A lexical day bound
+        # also handles 9999-12-31 without overflowing datetime's supported range.
+        end = f"{day}T24:00:00"
         with closing(self.connect()) as conn:
-            rows = conn.execute("SELECT * FROM collection_run_sources WHERE substr(started_at,1,10)=? ORDER BY started_at DESC", (day,)).fetchall()
-            ingested = conn.execute("SELECT COUNT(*) FROM collection_items WHERE substr(ingested_at,1,10)=?", (day,)).fetchone()[0]
-        failures = [r for r in rows if r["status"]=="failed"]
-        labels = {s["section"]:s["display_name"] for s in self.sources}
+            conn.execute("BEGIN")
+            unresolved = conn.execute("""SELECT COUNT(*) FROM collection_run_sources s WHERE s.rowid=(
+                SELECT MAX(n.rowid) FROM collection_run_sources n WHERE n.source_id=s.source_id AND n.status IN ('done','failed'))
+                AND s.status='failed'""").fetchone()[0]
+            payload = {"ok":True,"day":day,"today":now().date().isoformat(),"unresolved_count":unresolved}
+            if not details:
+                return payload
+            rows = conn.execute("""SELECT s.*,r.created_at,r.started_at AS run_started_at,
+                       r.publication_status,r.publication_error,r.published_at
+                FROM collection_run_sources s JOIN collection_runs r ON r.id=s.run_id
+                WHERE (s.started_at>=? AND s.started_at<?)
+                   OR (s.started_at IS NULL AND r.created_at>=? AND r.created_at<?)
+                   OR (s.ingested_at>=? AND s.ingested_at<?)
+                ORDER BY COALESCE(s.started_at,r.created_at) DESC,s.rowid DESC""", (day,end,day,end,day,end)).fetchall()
+            translation_errors = {}
+            run_ids = sorted({r["run_id"] for r in rows})
+            if run_ids:
+                placeholders = ",".join("?" for _ in run_ids)
+                for failure in conn.execute(f"""SELECT run_id,source_id,error,COUNT(*) AS count FROM collection_items
+                        WHERE status='failed' AND run_id IN ({placeholders})
+                        GROUP BY run_id,source_id,error ORDER BY run_id,source_id,error""", run_ids):
+                    translation_errors.setdefault((failure["run_id"],failure["source_id"]), []).append(failure)
+        records, failures = [], []
         latest = {}
         for r in rows:
-            if r["status"] in {"done","failed"}:
+            started = r["started_at"] or r["created_at"]
+            collected_today = started[:10] == day
+            ingested_today = bool(r["ingested_at"] and r["ingested_at"][:10] == day)
+            label = json.loads(r["config_json"]).get("display_name", r["source_id"])
+            notices = []
+            if collected_today:
+                failed = translation_errors.get((r["run_id"],r["source_id"]), [])
+                if failed:
+                    notices.append({"stage":"translation","count":sum(f["count"] for f in failed),
+                                    "error":"\n".join(f"{f['count']} 条：{f['error'] or 'translation_failed'}" for f in failed)})
+                if r["publication_status"] == "failed":
+                    notices.append({"stage":"publication","error":r["publication_error"] or "collection_publish_failed"})
+            record = {"run_id":r["run_id"],"source_id":r["source_id"],"label":label,
+                "batch_started_at":r["run_started_at"] or r["created_at"],"notices":notices,
+                "date":day,"time":(started if collected_today else r["ingested_at"])[11:19],
+                "kind":"collection" if collected_today else "publication",
+                "status":r["status"] if collected_today else "done",
+                "publication_status":r["publication_status"],"published_at":r["published_at"],
+                "fetched_count":r["count"] if collected_today else 0,
+                "duplicate_count":r["duplicate_count"] if collected_today else 0,
+                "filtered_count":r["filtered_count"] if collected_today else 0,
+                "ingested_count":r["ingested_count"] if ingested_today else 0,
+                "error_count":int(collected_today and r["status"]=="failed"),
+                "error":r["error"] if collected_today else ""}
+            records.append(record)
+            if record["error_count"]:
+                failures.append({"time":record["time"],"entries":[{"label":label,"error":r["error"]}]})
+            if collected_today and r["status"] in {"done","failed"}:
                 latest.setdefault(r["source_id"],r["status"])
         available = sum(s=="done" for s in latest.values())
-        return {"ok":True,"day":day,"today":now().date().isoformat(),
-                "days":[{"date":day,"groups":[{"time":r["started_at"][11:19],
-                    "entries":[{"label":labels.get(r["source_id"],r["source_id"]),"error":r["error"]}]} for r in failures]}] if failures else [],
+        return {**payload,"records":records,
+                "days":[{"date":day,"groups":failures}] if failures else [],
                 "stats":{"available_sources":available,"total_sources":len(latest),
-                         "availability":round(100*available/len(latest),1) if latest else None,"ingested_count":ingested}}
+                         "availability":round(100*available/len(latest),1) if latest else None,
+                         **{key:sum(r[key] or 0 for r in records) for key in
+                            ("fetched_count","duplicate_count","ingested_count","error_count")},
+                         "duplicate_unknown":sum(r["duplicate_count"] is None and r["status"] in {"done","failed"} for r in records)}}

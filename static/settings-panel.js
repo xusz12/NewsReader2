@@ -1,7 +1,7 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.0";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.1";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";

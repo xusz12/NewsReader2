@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.0</title>
+    <title>News Reader v0.5.1</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.0" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.0" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.1" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.1" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.0"
+      href="/static/style.css?v=0.5.1"
       rel="stylesheet"
     />
   </head>
@@ -92,11 +92,11 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.0</span>
+            <span class="brand-version">v0.5.1</span>
           </div>
         </div>
         <div class="topbar-center">
-          <button aria-label="上游数据报错集合" aria-describedby="pipelineStatus" aria-haspopup="dialog" aria-controls="upstreamErrorsPanel" aria-expanded="false" class="pipeline-status topbar-upstream-btn" id="upstreamErrorsBtn" title="正在读取当日上游报错" type="button">
+          <button aria-label="采集记录" aria-describedby="pipelineStatus" aria-haspopup="dialog" aria-controls="upstreamErrorsPanel" aria-expanded="false" class="pipeline-status topbar-upstream-btn" id="upstreamErrorsBtn" title="查看每日采集记录" type="button">
             <span class="pipeline-dot upstream-pulse-dot" aria-hidden="true"></span>
             <span id="pipelineStatus">正在连接新闻库…</span>
             <span class="upstream-badge" id="upstreamErrorSummary" aria-hidden="true"><span id="upstreamErrorBadge">—</span><span class="upstream-badge-label">处报错</span></span>
@@ -954,20 +954,20 @@
       <section class="upstream-panel" id="upstreamErrorsPanel" role="dialog" aria-modal="false" aria-labelledby="upstreamErrorsTitle" hidden>
         <div class="modal-header">
           <div class="upstream-dialog-heading">
-            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/></svg>
-            <h2 class="modal-title" id="upstreamErrorsTitle">采集错误</h2>
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h8M8 17h5"/></svg>
+            <h2 class="modal-title" id="upstreamErrorsTitle">采集记录</h2>
           </div>
-          <button class="modal-close-btn" id="closeUpstreamErrorsBtn" type="button" aria-label="关闭上游报错">✕</button>
+          <button class="modal-close-btn" id="closeUpstreamErrorsBtn" type="button" aria-label="关闭采集记录">✕</button>
         </div>
         <div class="modal-body upstream-dialog-body">
           <div class="upstream-error-controls">
             <div class="upstream-date-input">
               <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>
-              <input type="text" id="upstreamErrorDate" aria-label="上游报错日期" placeholder="YYYY-MM-DD" maxlength="10" autocomplete="off" aria-describedby="upstreamDateError">
-              <button type="button" class="calendar-trigger" id="upstreamCalendarBtn" aria-label="选择报错日期" aria-haspopup="dialog" aria-controls="upstreamCalendar" aria-expanded="false">日历</button>
-              <section class="date-calendar" id="upstreamCalendar" role="dialog" aria-label="选择报错日期" hidden></section>
+              <input type="text" id="upstreamErrorDate" aria-label="采集记录日期" placeholder="YYYY-MM-DD" maxlength="10" autocomplete="off" aria-describedby="upstreamDateError">
+              <button type="button" class="calendar-trigger" id="upstreamCalendarBtn" aria-label="选择采集记录日期" aria-haspopup="dialog" aria-controls="upstreamCalendar" aria-expanded="false">日历</button>
+              <section class="date-calendar" id="upstreamCalendar" role="dialog" aria-label="选择采集记录日期" hidden></section>
             </div>
-            <div class="upstream-date-shortcuts" role="group" aria-label="切换报错日期">
+            <div class="upstream-date-shortcuts" role="group" aria-label="切换采集记录日期">
               <button class="upstream-date-arrow" id="upstreamPreviousDayBtn" type="button" aria-label="查看前一天" title="前一天">‹</button>
               <button class="upstream-date-btn" type="button" data-upstream-day-offset="-2" aria-pressed="false">前天</button>
               <button class="upstream-date-btn" type="button" data-upstream-day-offset="-1" aria-pressed="false">昨天</button>
@@ -980,7 +980,7 @@
             <span id="upstreamLoadMessage"></span>
             <button type="button" data-upstream-retry hidden>重新读取</button>
           </div>
-          <div id="upstreamErrorsContent" role="region" aria-label="上游报错记录" aria-live="polite"></div>
+          <div id="upstreamErrorsContent" role="region" aria-label="采集记录" aria-live="polite"></div>
         </div>
       </section>
       <dialog class="catchup-dialog" id="summaryModal" aria-labelledby="summaryModalTitle">
@@ -1024,9 +1024,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.5.0"></script>
+    <script src="/static/error_ui.js?v=0.5.1"></script>
     <script
-      src="/static/app.js?v=0.5.0"
+      src="/static/app.js?v=0.5.1"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

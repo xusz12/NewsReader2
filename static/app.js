@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.0";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.1";
 import { SummaryPanel } from "./summary-panel.js?v=0.4.12";
 import { TopicPanel } from "./topic-panel.js?v=translation-routing-1";
 import { ReportPanel } from "./report-panel.js?v=0.5.0";
@@ -33,7 +33,7 @@ import { TaskProgress } from "./task-progress.js?v=0.5.0";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.5.0";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.5.1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -802,6 +802,7 @@ async function pollCollection() {
     indexStatus.connectionFailed = false;
     renderIndexStatus();
     settings.updateCollectionStatus(data);
+    void upstreamErrors.refreshRecords();
     const {failed=0, pending=0, running=0, ready=0} = data.counts;
     const publicationFailed = data.publication_failed || 0;
     const notice = $("#collectionTranslationNotice");
@@ -838,6 +839,7 @@ $("#retryCollectionTranslationBtn").onclick = event => busy(event.currentTarget,
   await pollCollection();
 });
 setInterval(pollCollection, 5000);
+document.addEventListener("collection:changed", pollCollection);
 window.addEventListener("focus", pollCollection);
 document.addEventListener("visibilitychange", pollCollection);
 let navSummary = null, totalScope = "", readCountsFrame;

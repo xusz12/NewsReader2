@@ -7960,9 +7960,7 @@ def api_error_stats():
             raise ValueError()
     except ValueError:
         return jsonify({"ok": False, "error": "invalid_day"}), 400
-    payload = COLLECTION_SERVICE.errors(day)
-    payload["unresolved_count"] = COLLECTION_SERVICE.status()["source_errors"]
-    return jsonify(payload)
+    return jsonify(COLLECTION_SERVICE.errors(day, details=request.args.get("details") != "0"))
 
 
 def _version_manifest() -> dict:
@@ -9351,7 +9349,17 @@ def api_collection_request():
 
 @app.post("/api/collection/retry-translation")
 def api_collection_retry():
-    return jsonify({"ok": True, "retried": COLLECTION_SERVICE.retry()}), 202
+    body = request.get_json(silent=True)
+    if body is None and not request.content_length:
+        body = {}
+    if not isinstance(body, dict) or set(body) - {"run_id", "source_id", "stage"} or (body and not body.get("run_id")):
+        return jsonify({"ok": False, "error": "collection_retry_invalid"}), 400
+    try:
+        count = COLLECTION_SERVICE.retry(**body)
+    except (ValueError, TypeError) as exc:
+        code = str(exc) if isinstance(exc, ValueError) else "collection_retry_invalid"
+        return jsonify({"ok": False, "error": code}), 404 if code == "collection_retry_target_missing" else 400
+    return jsonify({"ok": True, "retried": count}), 202
 
 
 @app.patch("/api/news/<item_id>/state")

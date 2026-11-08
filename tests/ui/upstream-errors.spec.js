@@ -8,10 +8,11 @@ const entries = [
   { label: 'Reuters world', error: 'connect ETIMEDOUT\nUnable to connect to the upstream source.' },
 ];
 function payload(day = today, rows = entries) {
-  return { ok: true, day, today,
-    stats: day === today ? { availability: 80, available_sources: 8, total_sources: 10, ingested_count: 151 }
-      : { availability: null, available_sources: 0, total_sources: 0, ingested_count: 0 },
-    days: rows.length ? [{ date: day, groups: rows.map((entry, index) => ({ time: index ? '12:40:05' : '13:58:12', labels: [`${entry.label} error`], entries: [entry] })) }] : [] };
+  return { ok: true, day, today, unresolved_count: rows.length,
+    stats: { fetched_count: rows.length * 5, duplicate_count: rows.length * 4,
+      ingested_count: rows.length, error_count: rows.length, duplicate_unknown: 0 },
+    records: rows.map((entry, index) => ({ ...entry, run_id: `fixture-${index}`, batch_started_at: `${day}T${index ? '12:40:05' : '13:58:12'}+08:00`, date: day, time: index ? '12:40:05' : '13:58:12',
+      status: 'failed', fetched_count: 5, duplicate_count: 4, ingested_count: 1, error_count: 1 })) };
 }
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
 test.afterEach(async ({ page }) => { await page.unrouteAll({ behavior: 'wait' }); });
@@ -23,26 +24,22 @@ async function start(page) {
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
 }
 
-test('upstream prototype layout uses live counts, source/time filters and escaped copyable logs', async ({ page }) => {
+test('collection records use live counts, information filters and escaped copyable logs', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedUpstreamLog = text; } } }));
   await start(page);
-  await expect(page.locator('#upstreamErrorsTitle')).toHaveText('采集错误');
+  await expect(page.locator('#upstreamErrorsTitle')).toHaveText('采集记录');
   await expect(page.locator('#upstreamErrorsBtn')).toHaveClass(/has-errors/);
-  await expect(page.locator('.upstream-stat-label')).toHaveText(['当日抓取可用率', '异常来源', '今日已入库资讯', '当日报错']);
-  await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
-  await expect(page.locator('.upstream-error-group')).toHaveCount(2);
+  await expect(page.locator('.upstream-stat-label')).toHaveText(['抓取', '去重', '纳入数据库', '错误']);
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['15 条', '12 条', '3 条', '3 条']);
+  await expect(page.locator('.upstream-dim-btn')).toHaveText(['全部信息', '仅错误与提示']);
+  await expect(page.locator('.upstream-error-card time')).toHaveText(['13:58:12', '12:40:05', '12:40:05']);
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   expect(await page.evaluate(() => window.upstreamInjected)).toBeUndefined();
-  await page.locator('[data-upstream-filter="13:58:12"]').click();
-  await expect(page.locator('.upstream-error-card')).toHaveCount(1);
-  await expect(page.locator('.upstream-showing-count')).toHaveText('当前展示 1 / 3 条报错');
-  await expect(page.locator('.upstream-stat-value')).toHaveText(['80%', '2 个', '151 条', '3 条']);
-  await page.locator('[data-upstream-dimension="source"]').click();
+  await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
-  await page.locator('[data-upstream-filter="Reuters world"]').click();
-  await expect(page.locator('.upstream-error-card')).toHaveCount(2);
-  await page.locator('[data-upstream-copy]').first().click();
-  await expect(page.locator('.upstream-copy-feedback').first()).toHaveText('日志已复制');
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['15 条', '12 条', '3 条', '3 条']);
+  await page.locator('[data-upstream-copy]').nth(1).click();
+  await expect(page.locator('.upstream-copy-feedback').nth(1)).toHaveText('日志已复制');
   expect(await page.evaluate(() => window.copiedUpstreamLog)).toBe(entries[1].error);
   await page.evaluate(() => { navigator.clipboard.writeText = async () => { throw new Error('denied'); }; });
   await page.locator('[data-upstream-copy]').last().click();
@@ -82,8 +79,8 @@ test('historical queries, stale responses and read failures never replace the cu
   const emptyBox = await page.locator('#upstreamErrorsPanel').boundingBox();
   expect({ ...emptyBox, height: dialogBox.height }).toEqual(dialogBox);
   expect(emptyBox.height).toBeLessThan(dialogBox.height);
-  await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('当日已入库资讯');
-  await expect(page.locator('.upstream-stat-value')).toHaveText(['—', '0 个', '0 条', '0 条']);
+  await expect(page.locator('.upstream-stat-label').nth(2)).toHaveText('纳入数据库');
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['0 条', '0 条', '0 条', '0 条']);
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('3');
   await expect(page.locator('#upstreamTodayBtn')).toHaveText('今天 (10/19)', { useInnerText: true });
   await page.locator('#upstreamErrorDate').fill('2026-10-01');
@@ -167,7 +164,7 @@ for (const width of [1440, 320]) {
       if (day === '2026-10-17') await page.screenshot({ path: `.ui-artifacts/upstream-pending-${width}.png` });
       await pending.shift().fulfill({ json: payload(day) });
       await expect(content).toHaveAttribute('aria-busy', 'false');
-      await expect(content).toHaveAttribute('aria-label', `${day} 的上游报错记录`);
+      await expect(content).toHaveAttribute('aria-label', `${day} 的采集记录`);
       await expect(message).toBeEmpty();
       expect(await content.evaluate(node => node.scrollTop)).toBe(0);
     }
@@ -300,9 +297,7 @@ for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]])
     const emptyBox = await panel.boundingBox();
     expect(emptyBox.height).toBeLessThanOrEqual(640);
     expect(emptyBox.y + emptyBox.height).toBeLessThanOrEqual(height - 12);
-    const filter = await page.locator('.upstream-chip-btn').boundingBox();
-    const filters = await page.locator('.upstream-filter-chips').boundingBox();
-    expect(filter.x).toBeCloseTo(filters.x + 3, 0);
+    await expect(page.locator('.upstream-dim-btn')).toHaveText(['全部信息', '仅错误与提示']);
     await page.screenshot({ path: `.ui-artifacts/upstream-empty-${width}.png` });
 
     // The calendar may extend beyond a short empty panel, but remains clickable in the viewport.

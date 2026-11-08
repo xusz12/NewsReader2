@@ -1,14 +1,50 @@
 import { DatePicker, dateKey, localDate } from "./date-picker.js?v=feature-pickers-1";
-import { $, api, escapeHTML as e, errorText, icon } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 
-const sourceIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2M10 14h8m-8 4h5M10 6h8v4h-8Z"/></svg>';
-
-const recordsFrom = data => (data.days || []).flatMap(day => day.groups.flatMap(group =>
+const recordsFrom = data => (data.records || (data.days || []).flatMap(day => day.groups.flatMap(group =>
   (group.entries || (group.labels || []).map(label => ({ label: label.replace(/ error$/, "") })))
-    .map(entry => ({ ...entry, date: day.date, time: group.time, error: entry.error || "未记录具体错误" }))
-)).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+    .map(entry => ({ ...entry, date: day.date, time: group.time, status: "failed", error_count: 1, error: entry.error || "未记录具体错误" }))
+))).sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
   .map((record, index) => ({ ...record, index }));
+
+const countText = value => Number.isFinite(value) ? `${value} 条` : "未记录";
+const aggregateCountText = (value, incomplete = false) => incomplete
+  ? value > 0 ? `≥ ${countText(value)}` : "未记录"
+  : countText(value);
+
+const hasSourceError = record => record.error_count > 0 || record.status === "failed" || !!record.error;
+const noticesFrom = record => (record.notices || []).filter(notice => ["translation", "publication"].includes(notice.stage));
+const needsAttention = record => hasSourceError(record) || noticesFrom(record).length > 0;
+const batchKey = record => record.run_id || `${record.date}T${record.time}`;
+const actionKey = (record, stage) => `${batchKey(record)}:${stage}:${stage === "translation" ? record.source_id : ""}`;
+
+function batchesFrom(records) {
+  const batches = new Map();
+  for (const record of records) {
+    const key = batchKey(record);
+    if (!batches.has(key)) batches.set(key, { key, started: record.batch_started_at || `${record.date}T${record.time}+08:00`, records: [] });
+    batches.get(key).records.push(record);
+  }
+  return [...batches.values()].sort((a, b) => b.started.localeCompare(a.started));
+}
+
+function metricText(records, key) {
+  const known = records.map(record => record[key]).filter(Number.isFinite);
+  return known.length ? aggregateCountText(known.reduce((sum, count) => sum + count, 0), known.length < records.length) : "未记录";
+}
+
+function recordStatus(record) {
+  if (record.kind === "publication") return "跨日入库";
+  if (record.status === "pending") return "等待采集";
+  if (record.status === "running") return "采集中";
+  if (hasSourceError(record)) return `错误 · ${errorBadge(record.error || "")}`;
+  if (noticesFrom(record).some(notice => notice.stage === "translation")) return "提示 · 翻译失败";
+  if (record.publication_status === "failed") return "提示 · 入库失败";
+  if (record.publication_status === "pending") return "等待整批入库";
+  if (record.published_at && !record.published_at.startsWith(record.date)) return `${record.published_at.slice(0, 10)} 已入库`;
+  return "采集完成";
+}
 
 function errorBadge(log) {
   const code = log.match(/\bHTTP(?:Error)?[\s:/]*(?:[12](?:\.\d)?\s+)?([45]\d\d)\b/i)?.[1];
@@ -33,8 +69,10 @@ export class UpstreamErrors {
     this.retryButton.onclick = () => this.load(this.requestedDay);
     this.loadedDay = "";
     this.sequence = 0;
-    this.dimension = "time";
-    this.filter = "";
+    this.view = "all";
+    this.expandedBatches = new Set();
+    this.retrying = new Set();
+    this.actionFeedback = new Map();
     this.today = dateKey(new Date());
     this.button.onclick = event => this.open ? this.close() : this.show(event.detail === 0);
     this.button.addEventListener("keydown", event => {
@@ -77,14 +115,20 @@ export class UpstreamErrors {
     $("#upstreamNextDayBtn").onclick = () => stepDate(1);
     this.updateDateControls();
     this.content.onclick = event => {
-      const dimension = event.target.closest("[data-upstream-dimension]");
-      const filter = event.target.closest("[data-upstream-filter]");
+      const view = event.target.closest("[data-upstream-view]");
       const copy = event.target.closest("[data-upstream-copy]");
-      if (dimension) { this.dimension = dimension.dataset.upstreamDimension; this.filter = ""; this.render(); }
-      else if (filter) { this.filter = filter.dataset.upstreamFilter; this.render(); }
+      const action = event.target.closest("[data-upstream-action]");
+      if (view) { this.view = view.dataset.upstreamView; this.render(); }
       else if (copy) this.copyLog(copy);
+      else if (action) void this.retryNotice(action);
     };
-    const sync = () => { if (!document.hidden) this.refreshBadge(); };
+    this.content.addEventListener("toggle", event => {
+      const details = event.target;
+      if (!this.content.contains(details) || details.dataset.upstreamDetails === undefined) return;
+      if (details.open) this.expandedBatches.add(details.dataset.upstreamDetails);
+      else this.expandedBatches.delete(details.dataset.upstreamDetails);
+    }, true);
+    const sync = () => { if (!document.hidden) { this.refreshBadge(); this.refreshRecords(); } };
     window.addEventListener("focus", sync);
     document.addEventListener("visibilitychange", sync);
     setInterval(sync, 60000);
@@ -164,7 +208,7 @@ export class UpstreamErrors {
       try {
         // Current unresolved sources, independent of the history panel date.
         const data = await api("/api/error-stats?details=0");
-        const count = data.unresolved_count ?? recordsFrom(data).length;
+        const count = data.unresolved_count ?? recordsFrom(data).reduce((sum, row) => sum + (row.error_count || 0), 0);
         const badge = $("#upstreamErrorBadge");
         $("#upstreamErrorSummary").hidden = count === 0;
         badge.textContent = count > 99 ? "99+" : count ? String(count) : "";
@@ -172,13 +216,13 @@ export class UpstreamErrors {
         this.updateDateControls();
         this.button.classList.toggle("has-errors", count > 0);
         this.button.classList.toggle("no-errors", count === 0);
-        this.button.title = count ? `${count} 个采集来源尚未恢复 · 点击查看` : "当前无采集来源错误 · 点击查看历史记录";
-        this.button.setAttribute("aria-label", `采集错误：${this.button.title}`);
+        this.button.title = count ? `${count} 个采集来源尚未恢复 · 点击查看采集记录` : "当前无采集来源错误 · 点击查看采集记录";
+        this.button.setAttribute("aria-label", `采集记录：${this.button.title}`);
       } catch {
         $("#upstreamErrorSummary").hidden = false;
         $("#upstreamErrorBadge").textContent = "?";
         this.button.classList.remove("has-errors", "no-errors");
-        this.button.title = "上游报错统计暂不可用 · 点击重试";
+        this.button.title = "采集记录统计暂不可用 · 点击重试";
         this.button.setAttribute("aria-label", this.button.title);
       }
     })();
@@ -192,11 +236,16 @@ export class UpstreamErrors {
     this.retryButton.hidden = !failed;
   }
 
+  refreshRecords() {
+    if (!this.open || !this.loadedDay || this.retrying.size || this.content.getAttribute("aria-busy") === "true" || this.datePicker.open
+      || $("#upstreamErrorDate").value !== this.loadedDay || document.activeElement === $("#upstreamErrorDate")) return;
+    return this.load(this.loadedDay);
+  }
+
   async load(day = $("#upstreamErrorDate").value) {
     const sequence = ++this.sequence;
     const dateRevision = this.datePicker.inputRevision;
     this.requestedDay = day;
-    const date = $("#upstreamErrorDate");
     this.updateDateControls();
     this.content.setAttribute("aria-busy", "true");
     // Keep the last successful view in place until the next date is ready.
@@ -213,17 +262,15 @@ export class UpstreamErrors {
       this.updateDateControls();
       this.records = recordsFrom(data);
       this.stats = data.stats || {};
-      this.isToday = !data.today || data.day === data.today;
-      this.filter = "";
       this.render();
       if (this.loadedDay !== data.day) this.content.scrollTop = 0;
       this.loadedDay = data.day;
-      this.content.setAttribute("aria-label", `${data.day} 的上游报错记录`);
+      this.content.setAttribute("aria-label", `${data.day} 的采集记录`);
       this.setLoadStatus("");
     } catch (error) {
       if (sequence === this.sequence && this.open) {
         this.setLoadStatus(`${errorText(error)}${this.loadedDay ? `；仍显示 ${this.loadedDay}` : ""}`, true);
-        if (!this.loadedDay) this.content.innerHTML = '<div class="upstream-empty">暂时无法显示上游报错，请重新读取。</div>';
+        if (!this.loadedDay) this.content.innerHTML = '<div class="upstream-empty">暂时无法显示采集记录，请重新读取。</div>';
       }
     } finally {
       if (sequence === this.sequence) this.content.setAttribute("aria-busy", "false");
@@ -231,68 +278,116 @@ export class UpstreamErrors {
   }
 
   render() {
-    const focused = document.activeElement?.dataset;
-    const focusKey = focused?.upstreamDimension !== undefined ? "upstreamDimension" : "upstreamFilter";
-    const focusValue = focused?.[focusKey];
+    const focusedView = document.activeElement?.dataset.upstreamView;
+    const focusedAction = document.activeElement?.dataset.upstreamActionKey;
+    const focusedDetails = document.activeElement?.closest("summary")?.parentElement?.dataset.upstreamDetails;
     const records = this.records;
-    const { availability, available_sources, total_sources, ingested_count } = this.stats;
-    const availabilityTitle = Number.isFinite(availability)
-      ? `可用来源 ${available_sources} / ${total_sources}；无更新计为可用，以当天最后一次完成的采集结果为准，未执行来源不计入`
-      : "当天暂无来源抓取记录";
-    const groups = new Map();
-    records.forEach(record => {
-      const key = this.dimension === "time" ? record.time : record.label;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(record);
-    });
-    const visible = this.filter ? groups.get(this.filter) || [] : records;
-    const groupIcon = this.dimension === "time" ? icon("read_later") : sourceIcon;
-    const chips = [["", this.dimension === "time" ? "全部时间" : "全部来源", records.length],
-      ...[...groups].map(([key, items]) => [key, key, items.length])];
+    const { fetched_count, duplicate_count, duplicate_unknown, ingested_count } = this.stats;
+    const errorCount = this.stats.error_count ?? records.reduce((sum, row) => sum + (row.error_count || 0), 0);
+    const batches = batchesFrom(records);
+    const visible = this.view === "attention" ? batches.filter(batch => batch.records.some(needsAttention)) : batches;
     const html = `
-      <div class="upstream-health-strip" role="group" aria-label="当日抓取统计" tabindex="0">
-        <div title="${e(availabilityTitle)}"><span class="upstream-stat-label">当日抓取可用率</span><strong class="upstream-stat-value ${Number.isFinite(availability) ? (availability < 100 ? "warning" : "success") : ""}">${Number.isFinite(availability) ? `${availability}%` : "—"}</strong></div>
-        <div><span class="upstream-stat-label">异常来源</span><strong class="upstream-stat-value">${new Set(records.map(row => row.label)).size} 个</strong></div>
-        <div title="所选日期完成翻译并正式入库的新闻，包含其他日期发布的新闻"><span class="upstream-stat-label">${this.isToday ? "今日" : "当日"}已入库资讯</span><strong class="upstream-stat-value">${Number.isFinite(ingested_count) ? `${ingested_count} 条` : "—"}</strong></div>
-        <div><span class="upstream-stat-label">当日报错</span><strong class="upstream-stat-value ${records.length ? "warning" : "success"}">${records.length} 条</strong></div>
+      <div class="upstream-health-strip" role="group" aria-label="当日采集统计（北京时间）" tabindex="0">
+        <div title="所选日期各来源返回的新闻候选，包含重复内容"><span class="upstream-stat-label">抓取</span><strong class="upstream-stat-value">${countText(fetched_count)}</strong></div>
+        <div title="${duplicate_unknown ? `${duplicate_unknown} 条旧记录未保存去重数，无法还原完整数量${duplicate_count > 0 ? '；仅显示已知部分' : ''}` : "已存在于新闻库、待翻译或删除账本的重复新闻；不含内容过滤"}"><span class="upstream-stat-label">去重</span><strong class="upstream-stat-value">${aggregateCountText(duplicate_count, duplicate_unknown > 0)}</strong></div>
+        <div title="所选日期实际新增入库的新闻；跨日完成的批次计入实际入库日"><span class="upstream-stat-label">纳入数据库</span><strong class="upstream-stat-value">${countText(ingested_count)}</strong></div>
+        <div title="所选日期失败的来源采集记录数，后续恢复不删除历史错误；翻译和入库问题在提示旁处理"><span class="upstream-stat-label">错误</span><strong class="upstream-stat-value ${errorCount ? "warning" : "success"}">${errorCount} 条</strong></div>
       </div>
       <div class="upstream-classifier-bar">
-        <div class="upstream-dim-row">
-          <div class="upstream-dim-switcher" role="group" aria-label="报错分类方式">
-            <button class="upstream-dim-btn" type="button" data-upstream-dimension="time" aria-pressed="${this.dimension === "time"}">${icon("read_later")}按报错时间分类</button>
-            <button class="upstream-dim-btn" type="button" data-upstream-dimension="source" aria-pressed="${this.dimension === "source"}">${sourceIcon}按信源来源分类</button>
-          </div>
-          <span class="upstream-showing-count">当前展示 ${visible.length} / ${records.length} 条报错</span>
+        <div class="upstream-dim-switcher" role="group" aria-label="采集记录筛选">
+          <button class="upstream-dim-btn" type="button" data-upstream-view="all" aria-pressed="${this.view === "all"}">全部信息</button>
+          <button class="upstream-dim-btn" type="button" data-upstream-view="attention" aria-pressed="${this.view === "attention"}">仅错误与提示</button>
         </div>
-        <div class="upstream-filter-chips" role="group" aria-label="筛选报错记录">${chips.map(([key, label, count]) => `<button class="upstream-chip-btn" type="button" data-upstream-filter="${e(key)}" aria-pressed="${this.filter === key}">${e(label)} <span>(${count})</span></button>`).join("")}</div>
       </div>
-      <div class="upstream-errors-list">${records.length ? [...groups].filter(([key]) => !this.filter || key === this.filter).map(([key, items]) => `
-        <section class="upstream-error-group">
-          <h3 class="upstream-group-header"><span>${groupIcon}${e(key)}</span><span>${items.length} 条报错</span></h3>
-          ${items.map(record => this.card(record)).join("")}
-        </section>`).join("") : '<div class="upstream-empty"><strong>当天没有记录上游报错。</strong><p>可切换日期查看历史记录。</p></div>'}</div>`;
+      <div class="upstream-errors-list">${visible.length ? visible.map(batch => this.card(batch)).join("")
+        : records.length ? '<div class="upstream-empty"><strong>当天没有错误或提示。</strong></div>'
+        : '<div class="upstream-empty"><strong>当天没有记录采集活动。</strong><p>可切换日期查看历史记录。</p></div>'}</div>`;
     // Commit the new view in one paint; unchanged responses keep their DOM and scroll position.
     if (html !== this.renderedHTML) {
       this.content.innerHTML = html;
       this.renderedHTML = html;
-      if (focusValue !== undefined)
-        [...this.content.querySelectorAll("button")].find(button => button.dataset[focusKey] === focusValue)?.focus({ preventScroll: true });
+      if (focusedView !== undefined)
+        [...this.content.querySelectorAll("[data-upstream-view]")].find(button => button.dataset.upstreamView === focusedView)?.focus({ preventScroll: true });
+      if (focusedAction !== undefined)
+        [...this.content.querySelectorAll("[data-upstream-action-key]")].find(button => button.dataset.upstreamActionKey === focusedAction && !button.disabled)?.focus({ preventScroll: true });
+      if (focusedDetails !== undefined)
+        [...this.content.querySelectorAll("[data-upstream-details]")].find(details => details.dataset.upstreamDetails === focusedDetails)?.querySelector("summary")?.focus({ preventScroll: true });
     }
   }
 
-  card(record) {
-    return `<article class="upstream-error-card">
+  card(batch) {
+    const records = batch.records;
+    const failures = records.filter(hasSourceError);
+    const notices = new Map();
+    for (const record of records) for (const notice of noticesFrom(record)) notices.set(actionKey(record, notice.stage), { record, notice });
+    const status = failures.length && notices.size ? "错误与提示" : failures.length ? "采集错误" : notices.size ? "待处理提示"
+      : records.every(record => record.status === "pending") ? "等待采集"
+      : records.some(record => ["pending", "running"].includes(record.status)) ? "采集中"
+      : records.some(record => record.publication_status === "pending") ? "等待整批入库" : "已完成";
+    return `<article class="upstream-error-card" data-upstream-batch="${e(batch.key)}">
       <div class="upstream-card-head">
-        <div class="upstream-source-title"><span class="upstream-source-icon" aria-hidden="true">${e([...record.label][0] || "!")}</span><strong>${e(record.label)}</strong></div>
-        <span class="upstream-error-tag">${e(errorBadge(record.error))}</span>
-        <time datetime="${e(record.date)}T${e(record.time)}">${e(record.time)}</time>
+        <div class="upstream-source-title"><strong>${e(batch.started.slice(0, 19).replace("T", " "))} 采集</strong></div>
+        <span class="${failures.length ? "upstream-error-tag" : notices.size ? "card-tag highlight" : "card-tag"}">${status}</span>
       </div>
-      <div class="upstream-log-box">
-        <div class="upstream-log-head"><span>原始报错日志 (Raw Log)</span><button class="upstream-log-copy-btn" type="button" data-upstream-copy="${record.index}" aria-label="复制 ${e(record.label)} 的报错日志">复制日志</button></div>
-        <pre>${e(record.error)}</pre>
-        <span class="upstream-copy-feedback" role="status"></span>
+      <div class="section-stack">
+        <div class="muted collection-record-summary">抓取 ${metricText(records, "fetched_count")} · 去重 ${metricText(records, "duplicate_count")} · 纳入数据库 ${metricText(records, "ingested_count")} · 错误 ${records.reduce((sum, record) => sum + (record.error_count || 0), 0)} 条</div>
+        ${failures.map(record => `<div class="upstream-log-box">
+          <div class="upstream-log-head"><span>错误 · ${e(record.label)} · 等待下次采集</span><button class="upstream-log-copy-btn" type="button" data-upstream-copy="${record.index}" aria-label="复制 ${e(record.label)} 的报错日志">复制日志</button></div>
+          <pre>${e(record.error || "未记录具体错误")}</pre><span class="upstream-copy-feedback" role="status"></span>
+        </div>`).join("")}
+        ${[...notices.values()].map(({ record, notice }) => this.notice(record, notice)).join("")}
+        <details data-upstream-details="${e(batch.key)}"${this.expandedBatches.has(batch.key) ? " open" : ""}>
+          <summary class="reader-tool-btn">来源明细（${records.length}）</summary>
+          <div class="section-stack">${records.map(record => `<div class="field-item" data-upstream-source="${e(record.source_id || record.label)}">
+            <div class="button-row"><strong class="muted">${e(record.label)}</strong><span class="card-tag">${e(recordStatus(record))}</span><time class="muted" datetime="${e(record.date)}T${e(record.time)}+08:00">${e(record.time)}</time></div>
+            <div class="muted">抓取 ${countText(record.fetched_count)} · 去重 ${countText(record.duplicate_count)} · 纳入数据库 ${countText(record.ingested_count)}${record.filtered_count ? ` · 另过滤 ${record.filtered_count} 条` : ""}</div>
+          </div>`).join("")}</div>
+        </details>
       </div>
     </article>`;
+  }
+
+  notice(record, notice) {
+    const key = actionKey(record, notice.stage), pending = this.retrying.has(key);
+    const translation = notice.stage === "translation";
+    const label = translation ? "重试翻译" : "重试入库";
+    const message = translation ? `${record.label} · ${notice.count} 条新闻翻译失败` : "整批入库失败，译文已保留";
+    return `<div class="field-item collection-record-notice">
+      <div class="button-row"><span class="muted"><strong>提示</strong> · ${e(message)}</span>
+        <button type="button" class="reader-tool-btn" data-upstream-action="${notice.stage}" data-upstream-action-key="${e(key)}" data-upstream-record="${record.index}" aria-label="${e(translation ? `${label} · ${record.label}` : label)}" aria-busy="${pending}"${pending ? " disabled" : ""}>${pending ? "正在提交…" : label}</button></div>
+      <div class="muted">${e(notice.error).replace(/\n/g, "<br>")}</div>
+      ${this.actionFeedback.has(key) ? `<div class="inline-error" role="alert">${e(this.actionFeedback.get(key))}</div>` : ""}
+    </div>`;
+  }
+
+  async retryNotice(button) {
+    const record = this.records[Number(button.dataset.upstreamRecord)], stage = button.dataset.upstreamAction;
+    if (!record?.run_id || !noticesFrom(record).some(notice => notice.stage === stage)) return;
+    const key = actionKey(record, stage);
+    if (this.retrying.has(key)) return;
+    const restoreFocus = document.activeElement === button;
+    this.retrying.add(key);
+    this.actionFeedback.delete(key);
+    this.render();
+    try {
+      const data = await api("/api/collection/retry-translation", { method: "POST", body: {
+        run_id: record.run_id, stage, ...(stage === "translation" ? { source_id: record.source_id } : {}),
+      } });
+      toast(data.retried ? stage === "translation" ? "已加入翻译重试队列" : "已加入入库重试队列" : "该问题已处理，记录已更新");
+      this.retrying.delete(key);
+      await this.refreshRecords();
+      document.dispatchEvent(new Event("collection:changed"));
+    } catch (error) {
+      this.actionFeedback.set(key, errorText(error));
+    } finally {
+      this.retrying.delete(key);
+      this.render();
+      if (restoreFocus && this.open && (document.activeElement === document.body || this.content.contains(document.activeElement))) {
+        const next = [...this.content.querySelectorAll("[data-upstream-action-key]")].find(node => node.dataset.upstreamActionKey === key)
+          || this.content.querySelector(`[data-upstream-view="${this.view}"]`);
+        next?.focus({ preventScroll: true });
+      }
+    }
   }
 
   async copyLog(button) {
