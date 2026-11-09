@@ -13,7 +13,6 @@ from pathlib import Path
 import re
 import threading
 import time
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 import uuid
 
 import collection_sources as adapters
@@ -24,6 +23,8 @@ import periodic_reports
 from report_schedule import TZ
 from source_deletion import item_fingerprint
 import topic_tracking
+import news_versions
+from news_versions import canonical_url
 
 ROOT = Path(__file__).resolve().parent
 from collection_schedule import DEFAULT_SCHEDULE, normalize_schedule
@@ -70,23 +71,6 @@ def stamp(value=None):
 
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
-
-
-def canonical_url(url):
-    parts = urlsplit(str(url).strip())
-    host = (parts.hostname or "").lower().rstrip(".")
-    if parts.scheme not in {"http", "https"} or not host or parts.username or parts.password:
-        raise ValueError("collection_invalid_url")
-    if host.removeprefix("www.") in {"twitter.com", "x.com", "mobile.twitter.com"}:
-        match = re.search(r"/(?:status|statuses)/(\d+)", parts.path)
-        if match:
-            return "https://x.com/i/status/" + match[1]
-    host = host.removeprefix("www.")
-    if parts.port and parts.port not in (80, 443):
-        host += f":{parts.port}"
-    query = [(k,v) for k,v in parse_qsl(parts.query, keep_blank_values=True)
-             if not k.lower().startswith("utm_") and k.lower() not in {"fbclid", "gclid"}]
-    return urlunsplit(("https", host, parts.path or "/", urlencode(query), ""))
 
 
 def published_time(value):
@@ -145,6 +129,7 @@ def initialize(conn):
             conn.execute("INSERT OR IGNORE INTO news_identities VALUES (?,?,0)", (hashlib.sha256(url.encode()).hexdigest(),row[0]))
         ts = stamp()
         conn.execute("INSERT INTO collection_meta VALUES (1,?,?,?,?)", (uuid.uuid4().hex,ts,ts,""))
+    news_versions.backfill(conn)
     conn.commit()
 
 
@@ -343,27 +328,48 @@ class Service:
 
     def stage(self, conn, run_id, source, raw):
         """Return the observed disposition without conflating filtering and deduplication."""
-        if not str(raw.get("title") or "").strip() or is_bloomberg_video_url(raw.get("url")):
+        if not news_versions.normalized_title(raw.get("title")) or is_bloomberg_video_url(raw.get("url")):
             return "filtered"
         canonical = canonical_url(raw["url"])
         identity_key = hashlib.sha256(canonical.encode()).hexdigest()
         existing = conn.execute("SELECT item_id,deleted FROM news_identities WHERE identity_key=?", (identity_key,)).fetchone()
+        tweet = news_versions.is_tweet(raw["url"], source["source_type"])
+        ident = identity_key if tweet else news_versions.version_key(raw["url"], raw["title"])
+        observed_at = stamp()
+        previous_id = None
         if existing:
-            return "duplicate"
+            if tweet or existing["deleted"]:
+                return "duplicate"
+            if conn.execute("SELECT 1 FROM news_title_versions WHERE version_key=?", (ident,)).fetchone():
+                return "duplicate"
+            previous = conn.execute("""SELECT item_id FROM news_title_versions WHERE identity_key=?
+                ORDER BY rowid DESC LIMIT 1""", (identity_key,)).fetchone()
+            if previous is None:
+                # A translated legacy title cannot reconstruct the original.
+                # Learn a baseline without rewriting or re-publishing the old row.
+                news_versions.register(conn, raw["url"], raw["title"], existing["item_id"],
+                                       existing["item_id"], observed_at, baseline=True)
+                return "duplicate"
+            previous_id = previous[0]
         published = published_time(raw.get("time"))
         # Honour legacy deletion fingerprints without changing any historical ID.
         legacy = hashlib.sha256(f"{published[:10]}|{raw['url']}".encode()).hexdigest()
         deleted = bool(conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(legacy),)).fetchone())
-        ident = identity_key
-        if conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(ident),)).fetchone():
+        if conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint IN (?,?)",
+                        (item_fingerprint(ident), item_fingerprint(identity_key))).fetchone():
             deleted = True
-        conn.execute("INSERT INTO news_identities VALUES (?,?,?)", (identity_key,ident,int(deleted)))
+        if not existing:
+            conn.execute("INSERT INTO news_identities VALUES (?,?,?)", (identity_key,ident,int(deleted)))
         if deleted:
             return "duplicate"
+        if not tweet:
+            news_versions.register(conn, raw["url"], raw["title"], ident,
+                                   existing["item_id"] if existing else ident, observed_at,
+                                   update=bool(existing), previous_id=previous_id)
         raw = {**raw, "source": source["display_name"], "source_type": source["source_type"],
                "source_name": source["source_name"], "translation_policy": source["translation_policy"]}
         conn.execute("""INSERT INTO collection_items(item_id,run_id,source_id,raw_json,status,collected_at,published_at)
-                        VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),stamp(),published))
+                        VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),observed_at,published))
         return "added"
 
     def collect_once(self):
@@ -426,7 +432,8 @@ class Service:
     def publish(self, conn, job, translation, ts):
         raw = json.loads(job["raw_json"])
         ident = job["item_id"]
-        if conn.execute("SELECT 1 FROM news_identities WHERE item_id=? AND deleted=1", (ident,)).fetchone() or conn.execute(
+        if conn.execute("SELECT 1 FROM news_identities WHERE identity_key=? AND deleted=1",
+                        (news_versions.identity_key(raw["url"]),)).fetchone() or conn.execute(
                 "SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(ident),)).fetchone():
             conn.execute("UPDATE collection_items SET status='deleted',lease=NULL,lease_until=0 WHERE item_id=?", (ident,))
             return 0
@@ -439,6 +446,7 @@ class Service:
                       translation["title"],summary,raw["url"],ts,ts)).rowcount
         conn.execute("UPDATE collection_items SET status='done',ingested_at=?,error='',lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
         if inserted:
+            news_versions.publish(conn, ident)
             # Keep the historical total even after source cleanup removes items.
             # This rolls back with the rest of the batch on publication failure.
             conn.execute("""UPDATE collection_run_sources SET ingested_count=ingested_count+?,ingested_at=?
@@ -458,7 +466,7 @@ class Service:
                 if not run:
                     return False
                 ident, ts = run[0], stamp()
-                jobs = conn.execute("SELECT * FROM collection_items WHERE run_id=? AND status='ready' ORDER BY collected_at,item_id", (ident,)).fetchall()
+                jobs = conn.execute("SELECT * FROM collection_items WHERE run_id=? AND status='ready' ORDER BY collected_at,rowid", (ident,)).fetchall()
                 inserted = 0
                 for job in jobs:
                     translation = collection_translation.validate(json.loads(job["translation_json"]), json.loads(job["raw_json"]))

@@ -1,4 +1,4 @@
-import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
+import { newsUpdateBadge, $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { jobErrorText } from "./topic-status.js";
 
@@ -561,7 +561,7 @@ export class TopicPanel {
         }).join('');
         return '<article class="news-card news-card--timeline topic-news">'+
           '<div class="news-card-meta"><span class="meta-source-box"><span class="meta-source-name" title="'+e(item.source_name||item.source)+'">'+e(item.source_name||item.source)+'</span>'+
-          this.newMarker(item)+'</span><span class="meta-time-row">'+
+          newsUpdateBadge(item)+this.newMarker(item)+'</span><span class="meta-time-row">'+
           actions+'<time>'+e(item.time||"")+'</time></span></div>'+
           '<button class="news-card-open topic-news-open" type="button" data-topic-item="'+e(item.id)+'" '+(!item.available?'disabled':'')+'>'+
           '<strong class="news-card-title">'+e(item.title)+'</strong><span class="news-card-snippet">'+e(item.summary)+'</span></button>'+

@@ -45,6 +45,7 @@ from llm_client import (
 )
 from database_schema import apply_schema
 import news_collection
+import news_versions
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from updater import STATE_PATH as UPDATE_STATE_PATH
 from updater import REPOSITORY_URL as UPDATE_REPOSITORY_URL
@@ -427,7 +428,7 @@ def count_news_items(
 ) -> int:
     join_sql = """
     LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN article_details ad ON ad.url = items.url
+    LEFT JOIN news_item_details ad ON ad.item_id=items.id
     """
     where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
     row = conn.execute(
@@ -975,6 +976,7 @@ def load_article_highlight_body(
     conn: sqlite3.Connection,
     url: str,
     body_kind: str = ARTICLE_HIGHLIGHT_BODY_KIND,
+    item_id: str | None = None,
 ) -> tuple[str | None, str | None]:
     if not isinstance(body_kind, str) or body_kind not in ARTICLE_HIGHLIGHT_BODY_KINDS:
         return None, "invalid_body_kind"
@@ -991,21 +993,25 @@ def load_article_highlight_body(
         if body_kind == ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND and not (_is_twitter_url(url) or (item_row and item_row["source_type"] == "twitter")):
             return None, "body_not_ready"
         detail_row = conn.execute(
-            "SELECT content FROM article_details WHERE url=?",
-            (url,),
+            "SELECT content FROM news_item_details WHERE item_id=?" if item_id else "SELECT content FROM article_details WHERE url=?",
+            (item_id or url,),
         ).fetchone()
         detail_body = detail_row["content"] if detail_row else None
         if not isinstance(detail_body, str) or not detail_body.strip():
             return None, "body_not_ready"
         return detail_body, None
     row = conn.execute(
-        """
+        ("""
+        SELECT aa.body_zh, aa.key_points_zh, aa.conclusion_zh, aj.status
+        FROM news_item_ai aa LEFT JOIN news_item_ai_jobs aj ON aj.item_id=aa.item_id
+        WHERE aa.item_id=?
+        """ if item_id else """
         SELECT aa.body_zh, aa.key_points_zh, aa.conclusion_zh, aj.status
         FROM article_ai aa
         LEFT JOIN ai_jobs aj ON aj.url = aa.url
         WHERE aa.url=?
-        """,
-        (url,),
+        """),
+        (item_id or url,),
     ).fetchone()
     if not row or not isinstance(row["body_zh"], str) or not row["body_zh"].strip():
         return None, "body_not_ready"
@@ -1079,6 +1085,7 @@ def load_article_highlights_payload(
     conn: sqlite3.Connection,
     url: str,
     body_kind: str = ARTICLE_HIGHLIGHT_BODY_KIND,
+    item_id: str | None = None,
 ) -> dict:
     rows = conn.execute(
         """
@@ -1090,7 +1097,7 @@ def load_article_highlights_payload(
         """,
         (url, body_kind),
     ).fetchall()
-    body, _ = load_article_highlight_body(conn, url, body_kind)
+    body, _ = load_article_highlight_body(conn, url, body_kind, item_id)
     if body is None:
         return {
             "body_ready": False,
@@ -1125,9 +1132,10 @@ def load_article_highlights_response(
     conn: sqlite3.Connection,
     url: str,
     primary_body_kind: str = ARTICLE_HIGHLIGHT_BODY_KIND,
+    item_id: str | None = None,
 ) -> dict:
     surfaces = {
-        body_kind: load_article_highlights_payload(conn, url, body_kind)
+        body_kind: load_article_highlights_payload(conn, url, body_kind, item_id)
         for body_kind in sorted(ARTICLE_HIGHLIGHT_BODY_KINDS)
     }
     response = dict(surfaces[primary_body_kind])
@@ -3454,10 +3462,10 @@ def _load_visible_agent_article(item_id: str) -> tuple[dict | None, dict | None]
         detail = conn.execute(
             """
             SELECT title, source, published_at, content
-            FROM article_details
-            WHERE url=?
+            FROM news_item_details
+            WHERE item_id=?
             """,
-            (item["url"] or "",),
+            (item_id,),
         ).fetchone()
         return dict(item), (dict(detail) if detail else None)
     finally:
@@ -4196,6 +4204,7 @@ def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]
     if items:
         with closing(db_conn()) as conn:
             news_classification.attach(conn, items)
+            news_versions.attach(conn, items)
     # Batch comment counts and respect aggregate edits from the original reader.
     urls = list({item.get("url") for item in items if item.get("has_note") and item.get("url")})
     entries: dict[str, list[str]] = {}
@@ -4295,11 +4304,11 @@ def load_news_item_map(conn: sqlite3.Connection, item_ids: list[str]) -> dict[st
                ) AS next_remind_at
         FROM items
         LEFT JOIN item_state st ON st.item_id = items.id
-        LEFT JOIN detail_jobs dj ON dj.url = items.url
-        LEFT JOIN article_details ad ON ad.url = items.url
+        LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+        LEFT JOIN news_item_details ad ON ad.item_id=items.id
         LEFT JOIN article_notes an ON an.url = items.url
-        LEFT JOIN ai_jobs aj ON aj.url = items.url
-        LEFT JOIN article_ai aa ON aa.url = items.url
+        LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
         WHERE items.id IN ({placeholders})
           AND {visible_news_sql()}
         """,
@@ -4352,10 +4361,10 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
             FROM article_notes an
             JOIN items ON items.url = an.url
             LEFT JOIN item_state st ON st.item_id = items.id
-            LEFT JOIN detail_jobs dj ON dj.url = items.url
-            LEFT JOIN article_details ad ON ad.url = items.url
-            LEFT JOIN ai_jobs aj ON aj.url = items.url
-            LEFT JOIN article_ai aa ON aa.url = items.url
+            LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+            LEFT JOIN news_item_details ad ON ad.item_id=items.id
+            LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
             WHERE {visible_news_sql()}
             """
         ).fetchall()
@@ -4626,7 +4635,7 @@ def tracked_topic_candidate_rows(
                an.note
         FROM items
         LEFT JOIN item_state st ON st.item_id = items.id
-        LEFT JOIN article_ai aa ON aa.url = items.url
+        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
         LEFT JOIN article_notes an ON an.url = items.url
         {where_sql}
         ORDER BY items.published_at DESC, items.id DESC
@@ -4817,11 +4826,11 @@ def tracked_topic_timeline_items(conn: sqlite3.Connection, topic_id: int) -> lis
                    ) AS next_remind_at
             FROM items
             LEFT JOIN item_state st ON st.item_id = items.id
-            LEFT JOIN detail_jobs dj ON dj.url = items.url
-            LEFT JOIN article_details ad ON ad.url = items.url
+            LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+            LEFT JOIN news_item_details ad ON ad.item_id=items.id
             LEFT JOIN article_notes an ON an.url = items.url
-            LEFT JOIN ai_jobs aj ON aj.url = items.url
-            LEFT JOIN article_ai aa ON aa.url = items.url
+            LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
             WHERE items.id IN ({placeholders})
               AND {visible_news_sql()}
             """,
@@ -4898,8 +4907,8 @@ def tracked_daily_summary_source_rows(conn: sqlite3.Connection, topic_id: int, *
                    COALESCE(ad.updated_at, '') AS detail_updated_at
             FROM items
             LEFT JOIN article_notes an ON an.url = items.url
-            LEFT JOIN article_ai aa ON aa.url = items.url
-            LEFT JOIN article_details ad ON ad.url = items.url
+            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
+            LEFT JOIN news_item_details ad ON ad.item_id=items.id
             WHERE items.id IN ({placeholders})
               AND {visible_news_sql()}
             """,
@@ -5618,11 +5627,11 @@ def load_market_tag_feed(
                    {ITEM_DATE_SQL} AS date_key
             FROM items
             LEFT JOIN item_state st ON st.item_id = items.id
-            LEFT JOIN detail_jobs dj ON dj.url = items.url
-            LEFT JOIN article_details ad ON ad.url = items.url
+            LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+            LEFT JOIN news_item_details ad ON ad.item_id=items.id
             LEFT JOIN article_notes an ON an.url = items.url
-            LEFT JOIN ai_jobs aj ON aj.url = items.url
-            LEFT JOIN article_ai aa ON aa.url = items.url
+            LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
             WHERE items.id IN ({placeholders})
               AND {visible_news_sql()}
             """,
@@ -5741,9 +5750,9 @@ def load_market_tag_summary_sources(
         FROM items
         JOIN article_market_tags mt ON mt.url = items.url
         LEFT JOIN article_notes an ON an.url = items.url
-        LEFT JOIN article_ai aa ON aa.url = items.url
-        LEFT JOIN ai_jobs ai ON ai.url = items.url
-        LEFT JOIN article_details ad ON ad.url = items.url
+        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
+        LEFT JOIN news_item_ai_jobs ai ON ai.item_id=items.id
+        LEFT JOIN news_item_details ad ON ad.item_id=items.id
         WHERE mt.tag = ?
           AND items.published_at >= datetime('now', ?)
           AND {visible_news_sql()}
@@ -6014,6 +6023,8 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
     ts = now_ts()
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
+    if news_versions.archived(conn, item_id):
+        return False
     row = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (url,)).fetchone()
     # Duplicate requests must not reset a running attempt or its retry budget.
     if row and row["status"] in ("pending", "running"):
@@ -6651,6 +6662,8 @@ def _detail_retry_at(attempts: int, timestamp: str) -> str:
 
 
 def _owns_detail_job(conn: sqlite3.Connection, job: dict) -> bool:
+    if news_versions.cache_token(conn, job["url"]) != job.get("cache_token", ""):
+        return False
     return conn.execute(
         "SELECT 1 FROM detail_jobs WHERE url=? AND status='running' AND worker_pid=? AND attempts=?",
         (job["url"], os.getpid(), job["attempts"]),
@@ -6731,6 +6744,7 @@ def process_pending_jobs_once() -> bool:
             if not row:
                 return False
             job = dict(row)
+            job["cache_token"] = news_versions.cache_token(conn, job["url"])
             if int(job["attempts"] or 0) >= DETAIL_MAX_ATTEMPTS:
                 conn.execute(
                     """UPDATE detail_jobs SET status='failed', last_error='RETRY_EXHAUSTED',
@@ -6896,41 +6910,23 @@ def generate_news_translation(settings: dict, *, title: str, source: str, conten
 def process_pending_ai_once() -> bool:
     conn = db_conn()
     try:
-        job = conn.execute(
-            """
-            SELECT url, attempts
-            FROM ai_jobs
-            WHERE status='pending'
-            ORDER BY queued_at ASC
-            LIMIT 1
-            """
-        ).fetchone()
-        if not job:
-            return False
-
-        detail = conn.execute(
-            "SELECT title, source, content FROM article_details WHERE url=?",
-            (job["url"],),
-        ).fetchone()
-        if not detail or not (detail["content"] or "").strip():
-            failed = now_ts()
-            with conn:
-                conn.execute(
-                    """
-                    UPDATE ai_jobs
-                    SET status='failed', attempts=?, last_error=?, finished_at=?, updated_at=?
-                    WHERE url=?
-                    """,
-                    (int(job["attempts"] or 0) + 1, "MISSING_ARTICLE_DETAILS", failed, failed, job["url"]),
-                )
-            return True
-
-        started = now_ts()
         with conn:
-            conn.execute(
-                "UPDATE ai_jobs SET status='running', started_at=?, updated_at=? WHERE url=?",
-                (started, started, job["url"]),
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            job = conn.execute("""SELECT url, attempts FROM ai_jobs WHERE status='pending'
+                ORDER BY queued_at ASC LIMIT 1""").fetchone()
+            if not job:
+                return False
+            cache_token = news_versions.cache_token(conn, job["url"])
+            detail = conn.execute("SELECT title, source, content FROM article_details WHERE url=?",
+                                  (job["url"],)).fetchone()
+            started = now_ts()
+            if not detail or not (detail["content"] or "").strip():
+                conn.execute("""UPDATE ai_jobs SET status='failed', attempts=?, last_error=?,
+                    finished_at=?, updated_at=? WHERE url=?""",
+                    (int(job["attempts"] or 0) + 1, "MISSING_ARTICLE_DETAILS", started, started, job["url"]))
+                return True
+            conn.execute("UPDATE ai_jobs SET status='running', started_at=?, updated_at=? WHERE url=?",
+                         (started, started, job["url"]))
 
         ok = False
         payload: dict = {}
@@ -6949,6 +6945,8 @@ def process_pending_ai_once() -> bool:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             # A source deletion or retry can revoke an in-flight translation.
+            if news_versions.cache_token(conn, job["url"]) != cache_token:
+                return True
             if not conn.execute("SELECT 1 FROM ai_jobs WHERE url=? AND status='running' AND started_at=?",
                                 (job["url"], started)).fetchone():
                 return True
@@ -7082,8 +7080,8 @@ def api_news():
         return jsonify({"ok": False, "error": error}), 400
     join_sql = """
     LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN detail_jobs dj ON dj.url = items.url
-    LEFT JOIN article_details ad ON ad.url = items.url
+    LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+    LEFT JOIN news_item_details ad ON ad.item_id=items.id
     LEFT JOIN article_notes an ON an.url = items.url
     """
     where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
@@ -7160,8 +7158,8 @@ def api_news():
                {ITEM_DATE_SQL} AS date_key
         FROM items
         {join_sql}
-        LEFT JOIN ai_jobs aj ON aj.url = items.url
-        LEFT JOIN article_ai aa ON aa.url = items.url
+        LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
         {where_sql}
         """
 
@@ -7307,18 +7305,20 @@ def api_news_status():
                    aa.conclusion_zh AS ai_conclusion_zh
             FROM items
             LEFT JOIN item_state st ON st.item_id = items.id
-            LEFT JOIN detail_jobs dj ON dj.url = items.url
-            LEFT JOIN article_details ad ON ad.url = items.url
-            LEFT JOIN ai_jobs aj ON aj.url = items.url
-            LEFT JOIN article_ai aa ON aa.url = items.url
+            LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+            LEFT JOIN news_item_details ad ON ad.item_id=items.id
+            LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
             WHERE items.id IN ({placeholders})
               AND {visible_news_sql()}
             """,
             ids,
         ).fetchall()
+        items = [dict(r) for r in rows]
+        news_versions.attach(conn, items)
     finally:
         conn.close()
-    return jsonify({"ok": True, "items": [dict(r) for r in rows]})
+    return jsonify({"ok": True, "items": items})
 
 
 @app.get("/api/tracked-topics")
@@ -7768,11 +7768,11 @@ def api_search():
     search_args = [like] * 9 + [like, like]
     join_sql = """
     LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN detail_jobs dj ON dj.url = items.url
-    LEFT JOIN article_details ad ON ad.url = items.url
+    LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
+    LEFT JOIN news_item_details ad ON ad.item_id=items.id
     LEFT JOIN article_notes an ON an.url = items.url
-    LEFT JOIN ai_jobs aj ON aj.url = items.url
-    LEFT JOIN article_ai aa ON aa.url = items.url
+    LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
+    LEFT JOIN news_item_ai aa ON aa.item_id=items.id
     """
     where_sql = """
     WHERE (
@@ -7890,7 +7890,7 @@ def api_sources():
     args: list = []
     join_sql = """
         LEFT JOIN item_state st ON st.item_id = items.id
-        LEFT JOIN article_details ad ON ad.url = items.url
+        LEFT JOIN news_item_details ad ON ad.item_id=items.id
     """
     if q:
         where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
@@ -9391,6 +9391,9 @@ def api_update_item_state(item_id: str):
             "SELECT read_at, important_at, read_later_at, read_later_done_at, favorite_at FROM item_state WHERE item_id=?",
             (item_id,),
         ).fetchone()
+        if (body.get("read_later") is True and news_versions.archived(conn, item_id)
+                and not conn.execute("SELECT 1 FROM news_item_details WHERE item_id=?", (item_id,)).fetchone()):
+            return jsonify({"ok": False, "error": "news_version_archived"}), 409
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         read_at = old_state["read_at"] if old_state else None
         important_at = old_state["important_at"] if old_state else None
@@ -9406,11 +9409,11 @@ def api_update_item_state(item_id: str):
         if "read_later" in body:
             read_later_at = ts if body["read_later"] else None
             read_later_done_at = ts if not body["read_later"] and body.get("read_later_done") else None
-            job = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (row["url"],)).fetchone()
+            job = conn.execute("SELECT status FROM news_item_detail_jobs WHERE item_id=?", (item_id,)).fetchone()
             # A cancel racing with the worker's claim cannot remove running work.
             if not body["read_later"] and not body.get("read_later_done") and job and job["status"] == "running":
                 read_later_at = (old_state["read_later_at"] if old_state else None) or ts
-            job_states["detail_ready"] = conn.execute("SELECT 1 FROM article_details WHERE url=?", (row["url"],)).fetchone() is not None
+            job_states["detail_ready"] = conn.execute("SELECT 1 FROM news_item_details WHERE item_id=?", (item_id,)).fetchone() is not None
         if "favorite" in body:
             favorite_at = ts if body["favorite"] else None
         with conn:
@@ -9436,7 +9439,7 @@ def api_update_item_state(item_id: str):
                 if item_row and item_row["url"]:
                     if body["read_later"]:
                         enqueue_detail_job(conn, item_row["id"], item_row["url"], item_row["source"] or "")
-                    else:
+                    elif not news_versions.archived(conn, item_id):
                         # Removing a queue entry is separate from reading it. Only
                         # queued work can be canceled; an active CLI call continues.
                         conn.execute(
@@ -9524,6 +9527,13 @@ def api_news_detail(item_id: str):
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         url = item["url"] or ""
+        version_meta = {"id": item_id}
+        news_versions.attach(conn, [version_meta])
+        related_ids = [version_meta.get(key) for key in ("previous_item_id", "latest_item_id")
+                       if version_meta.get(key) and version_meta[key] != item_id]
+        related = load_news_item_map(conn, related_ids) if related_ids else {}
+        version_meta["previous_version"] = related.get(version_meta.get("previous_item_id"))
+        version_meta["latest_version"] = related.get(version_meta.get("latest_item_id"))
         job = None
         notes = article_note_entries(conn, url) if url else []
         detail = None
@@ -9575,27 +9585,27 @@ def api_news_detail(item_id: str):
         detail_out = None
         if url:
             job = conn.execute(
-                "SELECT status, attempts, last_error, queued_at, started_at, finished_at, next_attempt_at FROM detail_jobs WHERE url=?",
-                (url,),
+                "SELECT status, attempts, last_error, queued_at, started_at, finished_at, next_attempt_at FROM news_item_detail_jobs WHERE item_id=?",
+                (item_id,),
             ).fetchone()
             ai_job = conn.execute(
-                "SELECT status, attempts, last_error, queued_at, started_at, finished_at FROM ai_jobs WHERE url=?",
-                (url,),
+                "SELECT status, attempts, last_error, queued_at, started_at, finished_at FROM news_item_ai_jobs WHERE item_id=?",
+                (item_id,),
             ).fetchone()
             detail = conn.execute(
-                "SELECT title, author, published_at, content, content_length, fetched_at, raw_json FROM article_details WHERE url=?",
-                (url,),
+                "SELECT title, author, published_at, content, content_length, fetched_at, raw_json FROM news_item_details WHERE item_id=?",
+                (item_id,),
             ).fetchone()
             ai = conn.execute(
-                "SELECT model, key_points_zh, conclusion_zh, body_zh, raw_json, generated_at FROM article_ai WHERE url=?",
-                (url,),
+                "SELECT model, key_points_zh, conclusion_zh, body_zh, raw_json, generated_at FROM news_item_ai WHERE item_id=?",
+                (item_id,),
             ).fetchone()
             note_row = conn.execute(
                 "SELECT note, created_at, updated_at FROM article_notes WHERE url=?",
                 (url,),
             ).fetchone()
             market_tags = load_market_tags_map(conn, [url]).get(url, [])
-            highlight_payload = load_article_highlights_response(conn, url)
+            highlight_payload = load_article_highlights_response(conn, url, item_id=item_id)
 
             detail_out = dict(detail) if detail else None
             if detail_out and (_is_twitter_url(url) or item["source_type"] == "twitter"):
@@ -9630,6 +9640,7 @@ def api_news_detail(item_id: str):
         {
             "ok": True,
             "item_id": item_id,
+            **version_meta,
             "url": item["url"],
             "read_at": (state_row["read_at"] if state_row else None),
             "important_at": (state_row["important_at"] if state_row else None),
@@ -9682,7 +9693,7 @@ def api_news_highlights_list(item_id: str):
         url = (item["url"] or "").strip()
         if not url:
             return jsonify({"ok": False, "error": "missing_url"}), 400
-        payload = load_article_highlights_response(conn, url, body_kind)
+        payload = load_article_highlights_response(conn, url, body_kind, item_id)
     finally:
         conn.close()
     return jsonify({"ok": True, "item_id": item_id, **payload})
@@ -9722,7 +9733,7 @@ def api_news_highlight_create(item_id: str):
         url = (item["url"] or "").strip()
         if not url:
             return jsonify({"ok": False, "error": "missing_url"}), 400
-        article_body, body_error = load_article_highlight_body(conn, url, body_kind)
+        article_body, body_error = load_article_highlight_body(conn, url, body_kind, item_id)
         if article_body is None:
             return jsonify({"ok": False, "error": body_error or "body_not_ready"}), 409
         if end_offset > len(article_body):
@@ -9730,7 +9741,7 @@ def api_news_highlight_create(item_id: str):
         if article_body[start_offset:end_offset] != selected_text:
             return jsonify({"ok": False, "error": "selected_text_mismatch"}), 400
 
-        current_payload = load_article_highlights_payload(conn, url, body_kind)
+        current_payload = load_article_highlights_payload(conn, url, body_kind, item_id)
         for existing in current_payload["highlights"]:
             if existing["status"] != "active":
                 continue
@@ -9769,7 +9780,7 @@ def api_news_highlight_create(item_id: str):
         except sqlite3.IntegrityError:
             return jsonify({"ok": False, "error": "highlight_exists"}), 409
 
-        payload = load_article_highlights_response(conn, url, body_kind)
+        payload = load_article_highlights_response(conn, url, body_kind, item_id)
         saved = next(
             (highlight for highlight in payload["highlights"] if highlight["id"] == highlight_id),
             None,
@@ -9818,7 +9829,7 @@ def api_news_highlight_update(item_id: str, highlight_id: int):
                 "UPDATE article_highlights SET color=?, updated_at=? WHERE id=? AND url=?",
                 (color, now_ts(), highlight_id, url),
             )
-        payload = load_article_highlights_response(conn, url, existing["body_kind"])
+        payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
         updated = next(
             (highlight for highlight in payload["highlights"] if highlight["id"] == highlight_id),
             None,
@@ -9903,7 +9914,7 @@ def api_news_highlight_annotation_save(item_id: str, highlight_id: int):
                 """,
                 (annotation_text, now_ts(), highlight_id, url),
             )
-        payload = load_article_highlights_response(conn, url, existing["body_kind"])
+        payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
         updated = next(
             (highlight for highlight in payload["highlights"] if highlight["id"] == highlight_id),
             None,
@@ -9945,7 +9956,7 @@ def api_news_highlight_annotation_clear(item_id: str, highlight_id: int):
                 """,
                 (now_ts(), highlight_id, url),
             )
-        payload = load_article_highlights_response(conn, url, existing["body_kind"])
+        payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
         updated = next(
             (highlight for highlight in payload["highlights"] if highlight["id"] == highlight_id),
             None,
@@ -9980,7 +9991,7 @@ def api_news_highlight_delete(item_id: str, highlight_id: int):
             return jsonify({"ok": False, "error": "highlight_not_found"}), 404
         with conn:
             conn.execute("DELETE FROM article_highlights WHERE id=? AND url=?", (highlight_id, url))
-        payload = load_article_highlights_response(conn, url, existing["body_kind"])
+        payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
     finally:
         conn.close()
     return jsonify(
@@ -10198,18 +10209,18 @@ def api_news_chat(item_id: str):
         detail = conn.execute(
             """
             SELECT title, source, published_at, content
-            FROM article_details
-            WHERE url=?
+            FROM news_item_details
+            WHERE item_id=?
             """,
-            (url,),
+            (item_id,),
         ).fetchone()
         ai = conn.execute(
             """
             SELECT key_points_zh, conclusion_zh, body_zh
-            FROM article_ai
-            WHERE url=?
+            FROM news_item_ai
+            WHERE item_id=?
             """,
-            (url,),
+            (item_id,),
         ).fetchone()
         note_row = conn.execute(
             """
@@ -11033,11 +11044,14 @@ def api_news_market_tag_delete(item_id: str):
 def api_news_detail_retry(item_id: str):
     conn = db_conn()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT id, url, source, source_type FROM items WHERE id=?", (item_id,)).fetchone()
         if not row:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         if not row["url"]:
             return jsonify({"ok": False, "error": "missing_url"}), 400
+        if news_versions.archived(conn, item_id):
+            return jsonify({"ok": False, "error": "news_version_archived"}), 409
         body = request.get_json(silent=True) or {}
         mode = (request.args.get("mode") or body.get("mode") or "").strip().lower()
         url = row["url"]
@@ -11087,7 +11101,7 @@ def api_mark_all_read():
         where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
         like = f"%{q}%"
         args.extend([like, like, like])
-    join_sql = "LEFT JOIN item_state st ON st.item_id = items.id LEFT JOIN article_details ad ON ad.url = items.url"
+    join_sql = "LEFT JOIN item_state st ON st.item_id = items.id LEFT JOIN news_item_details ad ON ad.item_id=items.id"
     if read_filter == "unread":
         where.append("st.read_at IS NULL")
     elif read_filter == "read":
@@ -11226,7 +11240,7 @@ def api_clear_read_later():
         where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
         like = f"%{q}%"
         args.extend([like, like, like])
-    join_sql = "LEFT JOIN item_state st ON st.item_id = items.id LEFT JOIN article_details ad ON ad.url = items.url"
+    join_sql = "LEFT JOIN item_state st ON st.item_id = items.id LEFT JOIN news_item_details ad ON ad.item_id=items.id"
 
     # 默认仅清理 read_later 集合；即使传入其它 collection，也不允许扩大到全量。
     if collection == "important":
@@ -12445,7 +12459,7 @@ def api_report_detail(report_id):
             context = build_agent_context(item, {"content": report_reader.context_text(item)})
             report["reader"] = {"item": {k: v for k, v in item.items() if k not in {"content", "sources"}},
                                 "body": item["content"],
-                                **load_article_highlights_response(conn, item["url"], "original"),
+                                **load_article_highlights_response(conn, item["url"], "original", item["id"]),
                                 **article_notes_response(conn, item["id"], item["url"]),
                                 "agent": {**load_agent_payload(item["id"]), "context_available": True,
                                           **agent_context_metadata(context)}}

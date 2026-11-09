@@ -137,7 +137,7 @@ def select_items(c, scope_getter=None):
  COALESCE(NULLIF(items.date,''),substr(items.published_at,1,10)) date,
  items.source,items.source_name,items.source_type,items.url,st.read_at
  FROM items LEFT JOIN item_state st ON st.item_id=items.id
- LEFT JOIN article_details d ON d.url=items.url
+ LEFT JOIN news_item_details d ON d.item_id=items.id
  """ + where + " ORDER BY date,items.published_at,items.id", args
         )
     ]
@@ -754,7 +754,7 @@ class Service:
             r = c.execute(
                 """SELECT i.title,COALESCE(i.summary,'') summary,COALESCE(d.content,'') body,
  COALESCE(NULLIF(i.date,''),substr(i.published_at,1,10)) date,i.url,i.source,i.source_name,i.source_type
- FROM items i LEFT JOIN article_details d ON d.url=i.url WHERE i.id=?""",
+ FROM items i LEFT JOIN news_item_details d ON d.item_id=i.id WHERE i.id=?""",
                 (i["id"],),
             ).fetchone()
             if not r or any(

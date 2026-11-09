@@ -20,6 +20,7 @@
   register('input', 'collection_translation_concurrency_invalid', '新闻翻译并发上限必须是 1–32 的整数。');
   register('input', 'collection_retry_invalid', '重试目标无效，请重新读取采集记录。');
   register('input', 'collection_retry_target_missing', '该采集批次或来源已不存在，请重新读取记录。');
+  register('input', 'news_version_archived', '这篇新闻已有更新版本，请查看最新版本。');
   register('input', 'read_preview_expired', '全部已读的确认范围已过期，请重新点击并确认。');
   register('input', 'invalid_news_batch', '新闻列表范围已失效，请重新打开当前列表。');
   register('input', 'invalid_report_schedule_order', '早报时间须早于午报，午报时间须早于晚报。');

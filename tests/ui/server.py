@@ -445,4 +445,39 @@ def source_deletion_fixture():
     return {'ok': True}
 
 
+@module.app.post('/__test/news-versions')
+def news_versions_fixture():
+    url = 'https://www.reuters.com/world/ui-title-versions/'
+    titles = ['版本验收：原稿', '版本验收：第二次进展', '版本验收：最新进展']
+    ids = [module.news_versions.version_key(url, title) for title in titles]
+    with module.db_conn() as conn:
+        for table in ('news_title_versions', 'news_version_snapshots', 'item_state', 'topic_ingestions',
+                      'collection_items', 'item_classifications', 'classification_progress_items'):
+            conn.execute(f"DELETE FROM {table} WHERE item_id IN (?,?,?)", ids)
+        conn.execute('DELETE FROM items WHERE id IN (?,?,?)', ids)
+        for table in ('news_identities', 'news_article_heads'):
+            conn.execute(f'DELETE FROM {table} WHERE identity_key=?', (module.news_versions.identity_key(url),))
+        for table in ('article_details', 'article_ai', 'detail_jobs', 'ai_jobs'):
+            conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
+    if (module.request.get_json(silent=True) or {}).get('clear'):
+        return {'ok': True}
+    svc = module.news_collection.Service(module.db_conn, module.current_runtime_settings,
+        sources=[{'section':'versions-ui','display_name':'Reuters · World','source_type':'reuters',
+                  'source_name':'Reuters','translation_policy':'never'}])
+    for index,title in enumerate(titles):
+        svc.collector = lambda _, title=title: {'ok':True,'items':[
+            {'title':title,'url':url,'time':'2026-10-15T01:00:00Z'}]}
+        svc.request(); svc.collect_once(); svc.translate_once(); svc.publish_once()
+        if index == 0:
+            with module.db_conn() as conn:
+                conn.execute("INSERT INTO item_state(item_id,read_at,favorite_at,updated_at) VALUES (?,'original-read','original-favorite','old')", (ids[0],))
+                conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved original body.','2026-10-15 09:00:00','old')", (url,))
+                conn.execute("INSERT INTO article_ai(url,body_zh,generated_at,updated_at) VALUES (?,'原稿的已缓存正文。','2026-10-15 09:00:00','old')", (url,))
+        if index == 1 and (module.request.get_json(silent=True) or {}).get('cache_middle'):
+            with module.db_conn() as conn:
+                conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved middle version.','2026-10-15 10:00:00','old')", (url,))
+    svc.stop()
+    return {'ok':True,'ids':ids}
+
+
 module.app.run(host='127.0.0.1', port=int(os.environ.get('UI_TEST_PORT', '8765')), debug=False, threaded=True)

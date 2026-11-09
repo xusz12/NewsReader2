@@ -340,7 +340,7 @@ def capture(conn, report):
     """
     start, end = local(report["period_start"]), local(report["period_end"])
     rows = conn.execute("""SELECT i.*, d.content, d.fetched_at FROM items i
-        LEFT JOIN article_details d ON d.url=i.url WHERE i.date>=? AND i.date<=?
+        LEFT JOIN news_item_details d ON d.item_id=i.id WHERE i.date>=? AND i.date<=?
         ORDER BY i.published_at, i.id""", ((start-timedelta(days=1)).date().isoformat(), (end+timedelta(days=1)).date().isoformat())).fetchall()
     sources = []
     for row in rows:

@@ -287,3 +287,6 @@ export function resizeAutoFields(root) {
     if (field.style.height !== height+'px') field.style.height = height+'px';
   }
 }
+export function newsUpdateBadge(item) {
+  return item?.is_update ? '<span class="card-tag highlight" data-news-update aria-label="标题更新" title="同一链接的原文标题发生变化">更新</span>' : '';
+}

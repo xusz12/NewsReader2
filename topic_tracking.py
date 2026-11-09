@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import news_versions
 import sqlite3
 import threading
 import time
@@ -795,9 +796,9 @@ class Service:
                 FROM topic_checks c
                 LEFT JOIN items i ON i.id=c.item_id
                 LEFT JOIN item_state st ON st.item_id=i.id
-                LEFT JOIN detail_jobs dj ON dj.url=i.url
-                LEFT JOIN ai_jobs aj ON aj.url=i.url
-                LEFT JOIN article_details ad ON ad.url=i.url WHERE """ + where +
+                LEFT JOIN news_item_detail_jobs dj ON dj.item_id=i.id
+                LEFT JOIN news_item_ai_jobs aj ON aj.item_id=i.id
+                LEFT JOIN news_item_details ad ON ad.item_id=i.id WHERE """ + where +
                 " ORDER BY json_extract(c.item_json,'$.published_at') DESC,c.seq DESC LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
             items = []
             for row in rows:
@@ -808,6 +809,7 @@ class Service:
                 item["topics"] = [dict(r) for r in conn.execute("""SELECT t.id,t.name FROM event_topics t JOIN topic_checks c ON c.topic_id=t.id
                     WHERE c.item_id=? AND c.status='done' AND c.matched=1 AND t.status='ready' ORDER BY t.name""", (item["id"],))]
                 items.append(item)
+            news_versions.attach(conn, items)
             jobs = conn.execute("SELECT * FROM topic_jobs WHERE topic_id=? ORDER BY rowid DESC LIMIT 1", (ident,)).fetchone()
             checks = {r[0]: r[1] for r in conn.execute("SELECT status,COUNT(*) FROM topic_checks WHERE topic_id=? GROUP BY status", (ident,))}
             return {"topic": topic, "nodes": nodes, "items": items, "total": total,

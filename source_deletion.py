@@ -93,7 +93,7 @@ class Plan:
         dates = conn.execute("SELECT MIN(date),MAX(date) FROM source_delete_items").fetchone()
 
         for table in ("item_state", "item_classifications", "classification_progress_items", "topic_ingestions",
-                      "topic_checks", "topic_node_items", "tracked_topic_items"):
+                      "topic_checks", "topic_node_items", "tracked_topic_items", "news_version_snapshots"):
             self.targets[table] = item_clause
         self.targets["news_reminders"] = f"{item_clause} OR item_url_snapshot IN ({urls})"
         self.targets["reading_checkpoints"] = f"{item_clause} OR {url_clause}"
@@ -123,6 +123,9 @@ class Plan:
                     references = owned if row[0] else shared
                     for text in row[1:]:
                         references.update(_media_keys(text, lookup))
+            for row in conn.execute(f"SELECT item_id IN ({ids}),detail_json,ai_json FROM news_version_snapshots"):
+                for text in row[1:]:
+                    (owned if row[0] else shared).update(_media_keys(text, lookup))
         conn.execute("CREATE TEMP TABLE source_delete_media(url TEXT PRIMARY KEY,relative_path TEXT)")
         conn.executemany("INSERT INTO source_delete_media VALUES (?,?)", [(url, media[url]["relative_path"]) for url in owned - shared])
         self.targets["media_cache"] = "url IN (SELECT url FROM source_delete_media)"
@@ -156,6 +159,13 @@ class Plan:
             WHERE status<>'done' AND feed_source_subkey(json_extract(raw_json,'$.url'),
                 json_extract(raw_json,'$.source_type'),json_extract(raw_json,'$.source'),json_extract(raw_json,'$.source_name'))=?""", (key,))
         self.targets["collection_items"] = f"{item_clause} OR item_id IN (SELECT item_id FROM source_delete_pending)"
+        conn.execute(f"""CREATE TEMP TABLE source_delete_identities AS
+            SELECT identity_key FROM news_title_versions
+            WHERE {item_clause} OR item_id IN (SELECT item_id FROM source_delete_pending)
+            UNION SELECT identity_key FROM news_identities
+            WHERE {item_clause} OR item_id IN (SELECT item_id FROM source_delete_pending)""")
+        self.targets["news_title_versions"] = f"{item_clause} OR item_id IN (SELECT item_id FROM source_delete_pending)"
+        self.targets["news_article_heads"] = "identity_key IN (SELECT identity_key FROM source_delete_identities)"
         self.targets["items"] = f"id IN ({ids})"
 
         digest = hashlib.sha256()
@@ -192,8 +202,8 @@ class Plan:
     def delete_rows(self):
         self.conn.executemany("INSERT OR IGNORE INTO deleted_news_items(fingerprint) VALUES (?)",
                               ((item_fingerprint(ident),) for ident in self.item_ids))
-        self.conn.execute("""UPDATE news_identities SET deleted=1 WHERE item_id IN (SELECT id FROM source_delete_items)
-            OR item_id IN (SELECT item_id FROM source_delete_pending)""")
+        self.conn.execute("""UPDATE news_identities SET deleted=1
+            WHERE identity_key IN (SELECT identity_key FROM source_delete_identities)""")
         # Explicit predicates also cover old tables that have no foreign keys.
         # Note metadata and review children are removed before their parents.
         self.conn.execute("UPDATE review_chains SET parent_chain_id=NULL WHERE id IN (SELECT id FROM source_delete_reviews)")

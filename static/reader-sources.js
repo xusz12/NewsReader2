@@ -1,4 +1,4 @@
-import { escapeHTML as e, safeURL, icon } from "./ui.js";
+import { newsUpdateBadge, escapeHTML as e, safeURL, icon } from "./ui.js";
 
 export function sourceURL(value) {
   try {
@@ -52,6 +52,6 @@ export function readerSources(sources, {className = "", name = "", label = "来�
       const attributes = Object.entries(sourceActionAttributes(item, flag, cardAction)).map(([key,value])=>`${key}="${e(value)}"`).join(" ");
       return `<button ${attributes} type="button" data-source-state="${flag}" data-source-id="${e(item.id)}" data-state="${flag}">${icon(flag)}</button>`;
     }).join("") : "";
-    return `<li>${link}<div class="news-card-meta"><span class="reader-source-meta">${e(source.source_name || source.source || "未知来源")} · ${e(date)}</span>${actions ? `<span class="meta-time-row">${actions}</span>` : ""}</div></li>`;
+    return `<li>${link}<div class="news-card-meta"><span class="meta-source-box"><span class="reader-source-meta">${e(source.source_name || source.source || "未知来源")} · ${e(date)}</span>${newsUpdateBadge(item)}</span>${actions ? `<span class="meta-time-row">${actions}</span>` : ""}</div></li>`;
   }).join("")}</ul></div></details>`;
 }

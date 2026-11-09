@@ -37,3 +37,12 @@ test('missing or stopped historical jobs never pretend to be queued', () => {
     assert.equal(readLaterState(item, true).phase, 'pending');
   }
 });
+
+test('uncaptured historical versions cannot promise a fetch or lose a saved queue flag', () => {
+  assert.equal(readLaterState({archived_version:true}).phase, 'unavailable');
+  const queued = {archived_version:true, read_later_at:'old'};
+  assert.equal(readLaterPending(queued), true);
+  assert.equal(readLaterState(queued).active, true);
+  assert.match(readLaterState(queued).hint, /移出待阅读/);
+  assert.equal(readLaterState({...queued, detail_ready:true}).phase, 'ready');
+});

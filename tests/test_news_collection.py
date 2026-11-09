@@ -67,9 +67,15 @@ def test_stage_translate_publish_and_single_identity(service):
         conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES (?,'read','now')", (item["id"],))
     service.collector = lambda _: {"ok": True, "items": [article(title="标题更新", published="2026-11-08T08:00:00Z")]}
     service.request(); service.collect_once()
-    assert not service.translate_once()
-    assert len(query(service, "SELECT * FROM items")) == 1
+    assert service.translate_once()
+    assert service.publish_once()
+    assert len(query(service, "SELECT * FROM items")) == 2
     assert query(service, "SELECT read_at FROM item_state")[0][0] == "read"
+    updated = query(service, "SELECT v.*,s.read_at FROM news_title_versions v LEFT JOIN item_state s ON s.item_id=v.item_id WHERE is_update=1")[0]
+    assert updated["original_item_id"] == item["id"]
+    assert updated["read_at"] is None
+    service.request(); service.collect_once()
+    assert not service.translate_once()
 
 
 def test_translation_failure_does_not_block_collection_and_retry_is_local(service):
@@ -228,6 +234,40 @@ def test_unknown_publication_date_and_canonical_identity():
     assert collection.canonical_url("http://www.example.com/a?utm_source=x&id=1#s") == "https://example.com/a?id=1"
     with pytest.raises(ValueError):
         collection.normalize_schedule({"daily": ["24:00"]})
+
+
+@pytest.mark.parametrize("urls", [
+    ("https://example.com/story-a", "https://example.com/story-b"),
+    ("https://example.com/story?id=1", "https://example.com/story?id=2"),
+    ("https://example.com/story", "https://another.example/story"),
+    ("https://x.com/author/status/123", "https://x.com/author/status/124"),
+])
+def test_identical_titles_do_not_merge_distinct_article_urls(service, urls):
+    service.collector = lambda _: {"ok": True, "items": [article(url, title="相同标题") for url in urls]}
+    service.request(); service.collect_once()
+    assert service.errors(collection.now().date().isoformat())["stats"]["duplicate_count"] == 0
+    assert service.translate_once(); assert service.translate_once()
+    assert service.publish_once()
+    assert {row[0] for row in query(service, "SELECT url FROM items")} == set(urls)
+
+
+def test_recollected_failed_identity_remains_recoverable_in_original_batch(service):
+    def fail(*_):
+        raise RuntimeError("HTTP_429")
+    service.translator = fail
+    original_run = service.request(); service.collect_once(); service.translate_once()
+    repeated_run = service.request(); service.collect_once()
+    assert repeated_run != original_run
+    job = dict(query(service, "SELECT * FROM collection_items")[0])
+    assert job["run_id"] == original_run and job["status"] == "failed"
+    assert query(service, "SELECT duplicate_count FROM collection_run_sources WHERE run_id=?", (repeated_run,))[0][0] == 1
+    assert service.publish_once()  # The empty repeat can finish independently.
+    assert not query(service, "SELECT * FROM items")
+    service.translator = lambda raw, _: collection_translation.original_fields(raw)
+    assert service.retry(run_id=original_run, source_id="world", stage="translation") == 1
+    assert service.translate_once(); assert service.publish_once()
+    assert len(query(service, "SELECT * FROM items")) == 1
+    assert query(service, "SELECT ingested_count FROM collection_run_sources WHERE run_id=?", (original_run,))[0][0] == 1
 
 
 def test_acquisition_does_not_hold_database_lock_and_duplicate_request_coalesces(service):
@@ -460,6 +500,9 @@ def test_invalid_translation_concurrency_is_rejected(value):
 
 def test_translation_limit_change_preserves_due_schedule(service):
     config = service.settings()["collection"]
+    # Initialization uses the real clock; keep it before this historical slot.
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_meta SET checked_at=?", ("2026-11-09T08:58:00+08:00",))
     service.schedule_once(datetime.fromisoformat("2026-11-09T08:59:00+08:00"))
     config["translation_concurrency"] = 7
     service.schedule_once(datetime.fromisoformat("2026-11-09T09:00:00+08:00"))

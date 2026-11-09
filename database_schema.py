@@ -2,6 +2,7 @@
 import sqlite3
 from pathlib import Path
 import topic_tracking
+import news_versions
 
 def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     conn.executescript(schema_path.read_text(encoding="utf-8"))
@@ -67,4 +68,5 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     }
     if "rules_json" not in tracked_topic_cols:
         conn.execute("ALTER TABLE tracked_topics ADD COLUMN rules_json TEXT NOT NULL DEFAULT ''")
+    news_versions.install_schema(conn)
     conn.commit()
