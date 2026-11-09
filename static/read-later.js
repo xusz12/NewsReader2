@@ -20,7 +20,7 @@ export function readLaterState(item, saving = false) {
     ready: ["全文待看", "点击标记为已看完"],
     failed: ["抓取失败", "点击重新抓取"],
     done: ["已看完", "点击重新加入待阅读"],
-    unavailable: ["无历史正文", item.read_later_at ? "点击移出待阅读，或查看最新版本" : "请查看最新版本"],
+    unavailable: ["无历史正文", item.read_later_at ? "点击移出待阅读，或查看同链接新闻" : "请查看同链接新闻"],
   }[phase];
   return { phase, label, hint, active: ["pending", "running", "ready"].includes(phase) || (phase === "unavailable" && !!item.read_later_at) };
 }

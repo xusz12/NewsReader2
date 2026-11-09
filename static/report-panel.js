@@ -1,4 +1,4 @@
-import { readerSources, updateSourceState } from "./reader-sources.js?v=0.5.2";
+import { readerSources, updateSourceState } from "./reader-sources.js?v=0.5.3";
 import { readerText } from "./reader-highlights.js?v=0.4.6";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";

@@ -24,7 +24,7 @@ from report_schedule import TZ
 from source_deletion import item_fingerprint
 import topic_tracking
 import news_versions
-from news_versions import canonical_url
+from news_identity import canonical_url, identity_key
 
 ROOT = Path(__file__).resolve().parent
 from collection_schedule import DEFAULT_SCHEDULE, normalize_schedule
@@ -98,7 +98,7 @@ def initialize(conn):
         conn.execute("""UPDATE collection_runs SET publication_status='done', published_at=COALESCE(
             (SELECT MAX(ingested_at) FROM collection_items WHERE run_id=collection_runs.id), finished_at)
             WHERE status IN ('done','partial','failed') AND NOT EXISTS (
-              SELECT 1 FROM collection_items WHERE run_id=collection_runs.id AND status NOT IN ('done','deleted'))""")
+              SELECT 1 FROM collection_items WHERE run_id=collection_runs.id AND status NOT IN ('done','deleted','duplicate'))""")
     source_columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_run_sources)")}
     for name, definition in (("duplicate_count", "INTEGER"), ("filtered_count", "INTEGER"),
                              ("ingested_count", "INTEGER NOT NULL DEFAULT 0"), ("ingested_at", "TEXT")):
@@ -129,7 +129,7 @@ def initialize(conn):
             conn.execute("INSERT OR IGNORE INTO news_identities VALUES (?,?,0)", (hashlib.sha256(url.encode()).hexdigest(),row[0]))
         ts = stamp()
         conn.execute("INSERT INTO collection_meta VALUES (1,?,?,?,?)", (uuid.uuid4().hex,ts,ts,""))
-    news_versions.backfill(conn)
+    news_versions.retire_duplicate_jobs(conn)
     conn.commit()
 
 
@@ -328,48 +328,23 @@ class Service:
 
     def stage(self, conn, run_id, source, raw):
         """Return the observed disposition without conflating filtering and deduplication."""
-        if not news_versions.normalized_title(raw.get("title")) or is_bloomberg_video_url(raw.get("url")):
+        if not str(raw.get("title") or "").strip() or is_bloomberg_video_url(raw.get("url")):
             return "filtered"
-        canonical = canonical_url(raw["url"])
-        identity_key = hashlib.sha256(canonical.encode()).hexdigest()
-        existing = conn.execute("SELECT item_id,deleted FROM news_identities WHERE identity_key=?", (identity_key,)).fetchone()
-        tweet = news_versions.is_tweet(raw["url"], source["source_type"])
-        ident = identity_key if tweet else news_versions.version_key(raw["url"], raw["title"])
-        observed_at = stamp()
-        previous_id = None
-        if existing:
-            if tweet or existing["deleted"]:
-                return "duplicate"
-            if conn.execute("SELECT 1 FROM news_title_versions WHERE version_key=?", (ident,)).fetchone():
-                return "duplicate"
-            previous = conn.execute("""SELECT item_id FROM news_title_versions WHERE identity_key=?
-                ORDER BY rowid DESC LIMIT 1""", (identity_key,)).fetchone()
-            if previous is None:
-                # A translated legacy title cannot reconstruct the original.
-                # Learn a baseline without rewriting or re-publishing the old row.
-                news_versions.register(conn, raw["url"], raw["title"], existing["item_id"],
-                                       existing["item_id"], observed_at, baseline=True)
-                return "duplicate"
-            previous_id = previous[0]
+        ident = identity_key(raw["url"])
+        if conn.execute("SELECT 1 FROM news_identities WHERE identity_key=?", (ident,)).fetchone():
+            return "duplicate"
         published = published_time(raw.get("time"))
         # Honour legacy deletion fingerprints without changing any historical ID.
         legacy = hashlib.sha256(f"{published[:10]}|{raw['url']}".encode()).hexdigest()
-        deleted = bool(conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(legacy),)).fetchone())
-        if conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint IN (?,?)",
-                        (item_fingerprint(ident), item_fingerprint(identity_key))).fetchone():
-            deleted = True
-        if not existing:
-            conn.execute("INSERT INTO news_identities VALUES (?,?,?)", (identity_key,ident,int(deleted)))
+        deleted = bool(conn.execute("SELECT 1 FROM deleted_news_items WHERE fingerprint IN (?,?)",
+                                    (item_fingerprint(legacy), item_fingerprint(ident))).fetchone())
+        conn.execute("INSERT INTO news_identities VALUES (?,?,?)", (ident,ident,int(deleted)))
         if deleted:
             return "duplicate"
-        if not tweet:
-            news_versions.register(conn, raw["url"], raw["title"], ident,
-                                   existing["item_id"] if existing else ident, observed_at,
-                                   update=bool(existing), previous_id=previous_id)
         raw = {**raw, "source": source["display_name"], "source_type": source["source_type"],
                "source_name": source["source_name"], "translation_policy": source["translation_policy"]}
         conn.execute("""INSERT INTO collection_items(item_id,run_id,source_id,raw_json,status,collected_at,published_at)
-                        VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),observed_at,published))
+                        VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),stamp(),published))
         return "added"
 
     def collect_once(self):
@@ -433,9 +408,11 @@ class Service:
         raw = json.loads(job["raw_json"])
         ident = job["item_id"]
         if conn.execute("SELECT 1 FROM news_identities WHERE identity_key=? AND deleted=1",
-                        (news_versions.identity_key(raw["url"]),)).fetchone() or conn.execute(
+                        (identity_key(raw["url"]),)).fetchone() or conn.execute(
                 "SELECT 1 FROM deleted_news_items WHERE fingerprint=?", (item_fingerprint(ident),)).fetchone():
             conn.execute("UPDATE collection_items SET status='deleted',lease=NULL,lease_until=0 WHERE item_id=?", (ident,))
+            return 0
+        if news_versions.skip_duplicate_job(conn, job):
             return 0
         published = job["published_at"]
         quoted = "引用推文：" + translation["quoted_text"] if translation["quoted_text"] else ""
@@ -446,7 +423,6 @@ class Service:
                       translation["title"],summary,raw["url"],ts,ts)).rowcount
         conn.execute("UPDATE collection_items SET status='done',ingested_at=?,error='',lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
         if inserted:
-            news_versions.publish(conn, ident)
             # Keep the historical total even after source cleanup removes items.
             # This rolls back with the rest of the batch on publication failure.
             conn.execute("""UPDATE collection_run_sources SET ingested_count=ingested_count+?,ingested_at=?
@@ -461,7 +437,7 @@ class Service:
                 run = conn.execute("""SELECT r.id FROM collection_runs r
                     WHERE r.status IN ('done','partial','failed') AND r.publication_status='pending'
                     AND NOT EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id
-                                    AND i.status NOT IN ('ready','done','deleted'))
+                                    AND i.status NOT IN ('ready','done','deleted','duplicate'))
                     ORDER BY r.created_at,r.id LIMIT 1""").fetchone()
                 if not run:
                     return False
@@ -557,7 +533,7 @@ class Service:
             boundary = batch_boundary(conn)
             publication_failed = conn.execute("SELECT COUNT(*) FROM collection_runs WHERE publication_status='failed'").fetchone()[0]
             awaiting_batches = conn.execute("""SELECT COUNT(*) FROM collection_runs r WHERE r.publication_status<>'done'
-                AND EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id AND i.status NOT IN ('done','deleted'))""").fetchone()[0]
+                AND EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id AND i.status NOT IN ('done','deleted','duplicate'))""").fetchone()[0]
         return {"database_token":meta["database_token"],"schedule":config,
                 "next_run_at":stamp(min(upcoming)) if upcoming else None,"schedule_error":self.schedule_error,
                 "last_check":self.last_check,"running":bool(run and run["status"] in {"pending","running"}),

@@ -1,4 +1,4 @@
-import { readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.5.2";
+import { readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.5.3";
 import { $, api, escapeHTML as e, errorText, toast, markdown, singlePane, formatBytes as bytes } from "./ui.js";
 
 const running = job => !!job && ["pending", "generating", "checking"].includes(job.status);

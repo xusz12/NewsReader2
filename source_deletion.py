@@ -191,7 +191,7 @@ class Plan:
         self.preview = {
             "key": key, "label": source["label"], "source_label": source["source_label"],
             "news_count": len(self.item_ids), "first_date": dates[0], "last_date": dates[1],
-            "pending_news_count": conn.execute("SELECT COUNT(*) FROM source_delete_pending").fetchone()[0],
+            "pending_news_count": conn.execute("SELECT COUNT(*) FROM source_delete_pending p JOIN collection_items c ON c.item_id=p.item_id WHERE c.status IN ('pending','running','ready','failed')").fetchone()[0],
             "data_bytes": database_bytes + file_bytes, "database_bytes": database_bytes,
             "file_bytes": file_bytes, "counts": counts,
             "note_count": counts["article_note_entries"] + conn.execute(f"SELECT COUNT(*) FROM article_notes n WHERE {url_clause} AND NOT EXISTS (SELECT 1 FROM article_note_entries e WHERE e.url=n.url)").fetchone()[0],

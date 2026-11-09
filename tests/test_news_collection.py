@@ -67,15 +67,11 @@ def test_stage_translate_publish_and_single_identity(service):
         conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES (?,'read','now')", (item["id"],))
     service.collector = lambda _: {"ok": True, "items": [article(title="标题更新", published="2026-11-08T08:00:00Z")]}
     service.request(); service.collect_once()
-    assert service.translate_once()
-    assert service.publish_once()
-    assert len(query(service, "SELECT * FROM items")) == 2
-    assert query(service, "SELECT read_at FROM item_state")[0][0] == "read"
-    updated = query(service, "SELECT v.*,s.read_at FROM news_title_versions v LEFT JOIN item_state s ON s.item_id=v.item_id WHERE is_update=1")[0]
-    assert updated["original_item_id"] == item["id"]
-    assert updated["read_at"] is None
-    service.request(); service.collect_once()
     assert not service.translate_once()
+    assert len(query(service, "SELECT * FROM items")) == 1
+    assert query(service, "SELECT read_at FROM item_state")[0][0] == "read"
+    assert item["id"] == hashlib.sha256(collection.canonical_url(article()["url"]).encode()).hexdigest()
+    assert not query(service, "SELECT * FROM news_title_versions")
 
 
 def test_translation_failure_does_not_block_collection_and_retry_is_local(service):

@@ -1,11 +1,11 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.2";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.3";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
-import { visibilityText } from "./summary-panel.js?v=0.5.2";
+import { visibilityText } from "./summary-panel.js?v=0.5.3";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { ScheduleObserver } from "./schedule-observer.js?v=0.5.0";
 import { defaultReportWindows, windowError } from "./report-windows.js";

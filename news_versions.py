@@ -1,10 +1,7 @@
-"""Article title versions, with stable legacy IDs and frozen reader caches."""
-import hashlib
-import html
+"""Read saved v0.5.2 title variants and retire their unpublished duplicates."""
 import json
-import re
-import unicodedata
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from news_identity import identity_key
 
 
 SCHEMA = """
@@ -19,43 +16,6 @@ CREATE TABLE IF NOT EXISTS news_article_heads (identity_key TEXT PRIMARY KEY, it
 CREATE TABLE IF NOT EXISTS news_version_snapshots (
  item_id TEXT PRIMARY KEY, detail_json TEXT, ai_json TEXT);
 """
-
-
-def canonical_url(url):
-    parts = urlsplit(str(url).strip())
-    host = (parts.hostname or "").lower().rstrip(".")
-    if parts.scheme not in {"http", "https"} or not host or parts.username or parts.password:
-        raise ValueError("collection_invalid_url")
-    if host.removeprefix("www.") in {"twitter.com", "x.com", "mobile.twitter.com"}:
-        match = re.search(r"/(?:status|statuses)/(\d+)", parts.path)
-        if match:
-            return "https://x.com/i/status/" + match[1]
-    host = host.removeprefix("www.")
-    if parts.port and parts.port not in (80, 443):
-        host += f":{parts.port}"
-    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-             if not k.lower().startswith("utm_") and k.lower() not in {"fbclid", "gclid"}]
-    return urlunsplit(("https", host, parts.path or "/", urlencode(query), ""))
-
-
-def identity_key(url):
-    return hashlib.sha256(canonical_url(url).encode()).hexdigest()
-
-
-def is_tweet(url, source_type=""):
-    return source_type == "twitter" or (urlsplit(url).hostname or "").lower().removeprefix("www.") in {
-        "x.com", "twitter.com", "mobile.twitter.com"}
-
-
-def normalized_title(title):
-    text = unicodedata.normalize("NFC", html.unescape(str(title or "")))
-    text = text.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "\ufeff": "", "\u200b": ""}))
-    return " ".join(text.split())
-
-
-def version_key(url, title):
-    payload = json.dumps([canonical_url(url), normalized_title(title)], ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 def install_schema(conn):
@@ -97,33 +57,48 @@ def install_schema(conn):
                    "url status attempts last_error queued_at started_at finished_at updated_at " + extra, saved)
 
 
-def register(conn, url, title, item_id, original_id, observed_at, *, update=False, previous_id=None, baseline=False):
-    conn.execute("""INSERT OR IGNORE INTO news_title_versions
-        (version_key,identity_key,item_id,original_title,is_update,original_item_id,previous_item_id,observed_at,baseline_only)
-        VALUES (?,?,?,?,?,?,?,?,?)""", (version_key(url, title), identity_key(url), item_id, title,
-                                       int(update), original_id, previous_id, observed_at, int(baseline)))
+def skip_duplicate_job(conn, job):
+    """Retire an unpublished v0.5.2 title variant without deleting any news."""
+    if not conn.execute("""SELECT 1 FROM news_title_versions v WHERE v.item_id=?
+        AND NOT EXISTS (SELECT 1 FROM items i WHERE i.id=v.item_id)""", (job["item_id"],)).fetchone():
+        return False
+    try:
+        key = identity_key(json.loads(job["raw_json"])["url"])
+    except (ValueError, TypeError, KeyError):
+        # An invalid legacy payload must not prevent the database from opening.
+        # Leave its failure/retry handling to the existing job lifecycle.
+        return False
+    owner = conn.execute("SELECT item_id FROM news_identities WHERE identity_key=?", (key,)).fetchone()
+    already_published = conn.execute("""SELECT 1 FROM news_title_versions v JOIN items i ON i.id=v.item_id
+        WHERE v.identity_key=? LIMIT 1""", (key,)).fetchone()
+    if not ((owner and owner[0] != job["item_id"]) or already_published):
+        return False
+    changed = conn.execute("""UPDATE collection_items SET status='duplicate',error='',lease=NULL,lease_until=0
+        WHERE item_id=? AND status IN ('pending','running','ready','failed')""", (job["item_id"],)).rowcount
+    if changed:
+        # Preserve unknown historical counts; never invent a complete total.
+        conn.execute("""UPDATE collection_run_sources SET added=MAX(0,added-1),duplicate_count=duplicate_count+1
+            WHERE run_id=? AND source_id=?""", (job["run_id"],job["source_id"]))
+    return True
 
 
-def backfill(conn):
+def retire_duplicate_jobs(conn):
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
-    if conn.execute("SELECT 1 FROM news_version_migrations WHERE name='original-title-v1'").fetchone():
-        return
-    for row in conn.execute("SELECT item_id,raw_json,collected_at FROM collection_items ORDER BY collected_at,item_id").fetchall():
-        try:
-            raw = json.loads(row["raw_json"])
-            url, title = raw["url"], raw["title"]
-            if is_tweet(url, raw.get("source_type")) or not normalized_title(title):
-                continue
-            key = identity_key(url)
-        except (ValueError, TypeError, KeyError):
-            continue
-        original = conn.execute("SELECT item_id,deleted FROM news_identities WHERE identity_key=?", (key,)).fetchone()
-        if original and not original["deleted"]:
-            register(conn, url, title, row["item_id"], original["item_id"], row["collected_at"])
-    conn.execute("""INSERT OR IGNORE INTO news_article_heads SELECT n.identity_key,n.item_id
-        FROM news_identities n JOIN items i ON i.id=n.item_id WHERE n.deleted=0""")
-    conn.execute("INSERT INTO news_version_migrations VALUES ('original-title-v1')")
+    runs = set()
+    # Only v0.5.2 jobs can carry a second title for the same URL. Ordinary
+    # URL-only jobs need no per-item compatibility work on every startup.
+    for job in conn.execute("""SELECT c.* FROM collection_items c
+        JOIN news_title_versions v ON v.item_id=c.item_id
+        WHERE c.status IN ('pending','running','ready','failed')""").fetchall():
+        if skip_duplicate_job(conn, job):
+            runs.add(job["run_id"])
+    for run_id in runs:
+        # An empty formerly failed batch can finish through normal publication.
+        conn.execute("""UPDATE collection_runs SET publication_status='pending',publication_error=''
+            WHERE id=? AND publication_status='failed' AND NOT EXISTS (
+                SELECT 1 FROM collection_items WHERE run_id=? AND status NOT IN ('done','deleted','duplicate'))""",
+            (run_id,run_id))
 
 
 def cache_token(conn, url):
@@ -139,48 +114,18 @@ def archived(conn, item_id):
     return conn.execute("SELECT 1 FROM news_version_snapshots WHERE item_id=?", (item_id,)).fetchone() is not None
 
 
-def publish(conn, item_id):
-    version = conn.execute("SELECT rowid AS seq,* FROM news_title_versions WHERE item_id=?", (item_id,)).fetchone()
-    if not version:
-        return
-    head = conn.execute("""SELECT v.rowid FROM news_article_heads h
-        JOIN news_title_versions v ON v.item_id=h.item_id WHERE h.identity_key=?""",
-        (version["identity_key"],)).fetchone()
-    if head and head[0] > version["seq"]:
-        # Translation retries may publish an older observation after a newer one.
-        # Its historical body was never captured; keep the current cache intact.
-        conn.execute("INSERT OR IGNORE INTO news_version_snapshots(item_id) VALUES (?)", (item_id,))
-        return
-    if version["is_update"]:
-        # Freeze all previously visible rows for this article, including legacy
-        # aliases; do not change their titles, IDs, notes or reading state.
-        urls = {r[0] for r in conn.execute("""SELECT url FROM items WHERE id IN
-            (SELECT item_id FROM news_title_versions WHERE identity_key=?) OR id=?""",
-            (version["identity_key"], version["original_item_id"])) if r[0]}
-        for url in urls:
-            detail = conn.execute("SELECT * FROM article_details WHERE url=?", (url,)).fetchone()
-            ai = conn.execute("SELECT * FROM article_ai WHERE url=?", (url,)).fetchone()
-            data = tuple(json.dumps(dict(row), ensure_ascii=False) if row else None for row in (detail, ai))
-            conn.execute("""INSERT OR IGNORE INTO news_version_snapshots(item_id,detail_json,ai_json)
-                SELECT id,?,? FROM items WHERE url=? AND id<>?""", (*data, url, item_id))
-            for table in ("article_details", "article_ai", "detail_jobs", "ai_jobs"):
-                conn.execute(f"DELETE FROM {table} WHERE url=?", (url,))
-    conn.execute("INSERT OR REPLACE INTO news_article_heads VALUES (?,?)", (version["identity_key"], item_id))
-
-
 def attach(conn, items):
     for offset in range(0, len(items), 500):
         batch = items[offset:offset + 500]
         ids = [item["id"] for item in batch]
         marks = ",".join("?" for _ in ids)
-        versions = {r["item_id"]: dict(r) for r in conn.execute(f"""SELECT v.item_id,v.is_update,
-            v.original_item_id,v.previous_item_id,v.observed_at AS update_detected_at,v.baseline_only,
+        versions = {r["item_id"]: dict(r) for r in conn.execute(f"""SELECT v.item_id,v.previous_item_id,
             h.item_id AS latest_item_id FROM news_title_versions v
             LEFT JOIN news_article_heads h ON h.identity_key=v.identity_key WHERE v.item_id IN ({marks})""", ids)}
         frozen = {r[0]: r[1] for r in conn.execute(f"""SELECT s.item_id,i.url FROM news_version_snapshots s
             JOIN items i ON i.id=s.item_id WHERE s.item_id IN ({marks})""", ids)}
         for item in batch:
-            item.update(versions.get(item["id"], {"is_update": 0}))
+            item.update(versions.get(item["id"], {}))
             item["archived_version"] = item["id"] in frozen
             if item["archived_version"] and item["id"] not in versions:
                 # Older file imports could retain several IDs for one URL.

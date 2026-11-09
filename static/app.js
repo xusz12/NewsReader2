@@ -1,6 +1,5 @@
 import { confirmAction } from "./confirm-dialog.js";
 import {
-  newsUpdateBadge,
   singlePane,
   drawerNavigation,
   $,
@@ -22,10 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.2";
-import { SummaryPanel } from "./summary-panel.js?v=0.5.2";
-import { TopicPanel } from "./topic-panel.js?v=0.5.2";
-import { ReportPanel } from "./report-panel.js?v=0.5.2";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.3";
+import { SummaryPanel } from "./summary-panel.js?v=0.5.3";
+import { TopicPanel } from "./topic-panel.js?v=0.5.3";
+import { ReportPanel } from "./report-panel.js?v=0.5.3";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.0";
@@ -34,7 +33,7 @@ import { TaskProgress } from "./task-progress.js?v=0.5.0";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.5.2";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.5.3";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -570,7 +569,7 @@ function card(item) {
   const showUnreadDot = state.collection !== "read_later" && !item.read_at;
   const text = cardSnippet(item);
   return `<li class="news-card ${active ? "active is-active" : ""} ${dimReadCard ? "read" : ""}" data-id="${e(item.id)}" tabindex="0" aria-label="${e(item.title)}" aria-current="${active}">
-    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span class="meta-source-name">${e(item.source || item.source_name || "未知来源")}</span>${newsUpdateBadge(item)}</div><div class="meta-time-row"><span>${e(cardTime(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
+    <div class="news-card-meta"><div class="meta-source-box">${sourceBadge(sourceKey(item))}<span class="meta-source-name">${e(item.source || item.source_name || "未知来源")}</span></div><div class="meta-time-row"><span>${e(cardTime(item))}</span>${showUnreadDot ? '<span class="unread-dot" title="未读"></span>' : ""}</div></div>
     <h3 class="news-card-title">${e(item.title || "无标题")}</h3>
     ${text ? `<p class="news-card-snippet${item.detail_ready ? " news-card-conclusion" : ""}">${e(text)}</p>` : ""}
     <div class="news-card-footer"><div class="card-footer-left">${item.category_label ? `<span class="news-category-tag" aria-label="分类：${e(item.category_label)}">${e(item.category_label)}</span>` : ""}${item.has_note ? `<span class="note-badge" title="${item.note_count || 1} 条想法" aria-label="${item.note_count || 1} 条想法">${icon("comment")}<span>${item.note_count || 1}</span></span>` : ""}</div>
@@ -1324,8 +1323,8 @@ function renderReader() {
   const thoughts = '<div id="researchNotesMount"></div>';
   const hasThoughts = hasContent || savedNotes.length || (payload && state.collection === "notes" && state.idea?.idea_type === "article_note");
   $("#detailContent").innerHTML =
-    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${newsUpdateBadge(payload || item)}${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}${archived ? "" : `<button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重译全文" : "抓取全文"}</button>`}${payload?.is_update && payload?.update_detected_at ? `<span title="本次采集发现标题变化的时间">发现更新于 ${e(payload.update_detected_at.replace("T", " ").slice(0, 19))}</span>` : ""}${payload?.previous_version ? `<button class="reader-action-btn reader-action-btn--meta" data-news-version="previous_version" type="button">上一版本</button>` : ""}${payload?.latest_version ? `<button class="reader-action-btn reader-action-btn--meta" data-news-version="latest_version" type="button">最新版本</button>` : ""}${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
-    ${archived ? `<p class="muted" role="status">${hasContent ? "此处保留的是本版本已缓存的正文。" : "此版本未保存历史正文，请查看最新版本。"}</p>` : ""}
+    `<article class="article-header"><div class="article-meta-top"><div class="article-author-info">${sourceBadge(sourceKey(item))}<strong>${e(item.source || "未知来源")}</strong>${detail?.author ? ` · ${e(detail.author)}` : ""}</div><span>发布于 ${e(item.published_at || item.date || "日期未知")}</span></div><h1 class="article-title" id="articleMainTitle">${e(item.title)}</h1><div class="article-meta-bottom">${body ? `<span>估读：${Math.max(1, Math.ceil(body.length / 650))} 分钟</span>` : ""}${archived ? "" : `<button class="reader-action-btn reader-action-btn--meta" id="fetchArticleBtn" type="button" ${!payload || ["pending", "running"].includes(payload?.detail_status) || ["pending", "running"].includes(payload?.ai_status) ? "disabled" : ""}>${detail?.content ? "重译全文" : "抓取全文"}</button>`}${payload?.previous_version ? `<button class="reader-action-btn reader-action-btn--meta" data-news-version="previous_version" type="button">此前收录</button>` : ""}${payload?.latest_version ? `<button class="reader-action-btn reader-action-btn--meta" data-news-version="latest_version" type="button">同链接新闻</button>` : ""}${hasThoughts && !hasInsights ? '<button class="reader-action-btn" id="writeArticleThoughtBtn" type="button">写想法</button>' : ""}</div></article>
+    ${archived ? `<p class="muted" role="status">${hasContent ? "此处保留的是该条目已保存的正文。" : "此条目未保存历史正文，请查看同链接新闻。"}</p>` : ""}
     ${!hasInsights && hasContent ? `<div class="digest-header">${readingModes}</div>` : ""}
     ${hasThoughts ? `<section class="digest-box ${hasInsights ? "" : "notes-only"}" aria-label="${hasInsights ? "本篇导读" : "阅读笔记"}" ${!hasInsights && !savedNotes.length && state.collection !== "notes" ? "hidden" : ""}>${hasInsights ? `<div class="digest-header"><div class="digest-badge">${icon("read")}<span>导读</span></div>${readingModes}</div>${ai?.conclusion_zh ? `<p class="digest-lead" data-highlight-kind="ai_conclusion_zh">${readerInline(ai.conclusion_zh)}</p>` : ""}${points.length ? `<ul class="digest-points" data-highlight-kind="ai_points_zh">${pointsHTML}</ul>` : ""}` : ""}${thoughts}</section>` : ""}
     ${bilingualBody?.notice ? `<p class="muted" role="status">${e(bilingualBody.notice)}</p>` : ""}
@@ -1375,7 +1374,7 @@ function toggleState(item, flag, force, silent = false, complete = false) {
   if (!item || !["important", "read_later", "favorite"].includes(flag) || (flag === "favorite" && state.removingFavorites)) return;
   let value = force ?? !item[`${flag}_at`];
   if (flag === "read_later" && item.archived_version && !item.detail_ready) {
-    if (value) { toast("此版本未保存历史正文，请查看最新版本。"); return; }
+    if (value) { toast("此条目未保存历史正文，请查看同链接新闻。"); return; }
   } else if (flag === "read_later" && force === undefined) {
     const { phase } = readLaterState(item, stateWrites.has(item.id, flag));
     if (phase === "running") {
@@ -1430,7 +1429,7 @@ async function refreshStateDetail(id) {
 }
 function updateDetailItem(item, payload) {
   const patch = { detail_ready: payload.detail_ready ?? !!payload.detail?.content, detail_status: payload.detail_status, ai_status: payload.ai_status, ai_conclusion_zh: payload.ai?.conclusion_zh || "", has_note: payload.has_note, note_count: payload.notes?.length || 0 };
-  for (const key of ["is_update", "archived_version", "update_detected_at", "original_item_id", "previous_item_id", "latest_item_id"])
+  for (const key of ["archived_version", "previous_item_id", "latest_item_id"])
     if (key in payload) patch[key] = payload[key];
   for (const flag of ["read", "important", "read_later", "read_later_done", "favorite"])
     if (Object.hasOwn(payload, `${flag}_at`)) patch[`${flag}_at`] = payload[`${flag}_at`];
@@ -1481,7 +1480,7 @@ setInterval(async () => {
 }, 3000);
 function pipelineLabel(payload) {
   if (!payload) return "正在读取正文…";
-  if (payload.archived_version) return payload.detail?.content ? "历史版本 · 已保存正文" : "历史版本 · 未保存正文";
+  if (payload.archived_version) return payload.detail?.content ? "历史条目 · 已保存正文" : "历史条目 · 未保存正文";
   if (payload.detail_status === "pending" && payload.job?.next_attempt_at) return "等待重试正文…";
   const fetchLabels = { pending: "等待抓取正文", running: "正文抓取中…", failed: "正文抓取失败", canceled: "正文抓取已取消", skipped: "正文抓取已跳过" };
   if (fetchLabels[payload.detail_status]) return fetchLabels[payload.detail_status];
