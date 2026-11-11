@@ -41,9 +41,9 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
     expect(box.x + box.width).toBeLessThanOrEqual(width);
     await question.focus();
     await page.keyboard.press('Tab');
-    await expect(page.locator('#help-collection-schedule')).toBeFocused();
-    await expect(page.locator('#help-collection-schedule')).toHaveCSS('outline-width', '2px');
-    expect(await page.locator('#help-collection-schedule').evaluate(node => {
+    await expect(page.locator('#help-collection-dedup')).toBeFocused();
+    await expect(page.locator('#help-collection-dedup')).toHaveCSS('outline-width', '2px');
+    expect(await page.locator('#help-collection-dedup').evaluate(node => {
       const rect = node.getBoundingClientRect(), viewport = node.closest('.settings-main').getBoundingClientRect();
       return rect.top - 4 >= viewport.top && rect.bottom + 4 <= viewport.bottom;
     })).toBe(true);
@@ -66,7 +66,7 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
 test('accordion keyboard controls take priority over settings navigation and custom space shortcut', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('newsreader_workbench_shortcuts', JSON.stringify({ bindings: { next: ['Space'] } })));
   await start(page);
-  const first = page.locator('#help-collection-source'), second = page.locator('#help-collection-schedule'), last = page.locator('#help-collection-translation');
+  const first = page.locator('#help-collection-source'), second = page.locator('#help-collection-dedup'), last = page.locator('#help-collection-translation');
   await first.focus();
   await page.keyboard.press('ArrowDown');
   await expect(second).toBeFocused();

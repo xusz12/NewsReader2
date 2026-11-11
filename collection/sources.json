@@ -179,15 +179,6 @@
       "background",
       "--site-session",
       "persistent"
-    ],
-    "fallback_command": [
-      "twitter",
-      "user-posts",
-      "ilyasut",
-      "-n",
-      "10",
-      "--full-text",
-      "--json"
     ]
   },
   {
@@ -210,15 +201,6 @@
       "background",
       "--site-session",
       "persistent"
-    ],
-    "fallback_command": [
-      "twitter",
-      "user-posts",
-      "mingchikuo",
-      "-n",
-      "10",
-      "--full-text",
-      "--json"
     ]
   },
   {
@@ -241,15 +223,6 @@
       "background",
       "--site-session",
       "persistent"
-    ],
-    "fallback_command": [
-      "twitter",
-      "user-posts",
-      "fxtrader",
-      "-n",
-      "10",
-      "--full-text",
-      "--json"
     ]
   },
   {
@@ -272,15 +245,6 @@
       "background",
       "--site-session",
       "persistent"
-    ],
-    "fallback_command": [
-      "twitter",
-      "user-posts",
-      "WaylandZhang",
-      "-n",
-      "10",
-      "--full-text",
-      "--json"
     ]
   }
 ]

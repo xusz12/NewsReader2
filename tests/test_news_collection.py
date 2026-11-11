@@ -49,6 +49,20 @@ def query(svc, sql, args=()):
         return conn.execute(sql, args).fetchall()
 
 
+def test_queued_legacy_x_source_cannot_invoke_retired_fallback(monkeypatch):
+    source = {**SOURCE, "source_type": "twitter", "source_handle": "example",
+              "command": ["opencli", "twitter", "tweets", "example"],
+              "fallback_command": ["twitter", "user-posts", "example"]}
+    calls = []
+    failed = {"ok": False, "items": [], "error_code": "AUTH_REQUIRED"}
+    def execute(**kwargs):
+        calls.append(kwargs["command"])
+        return failed
+    monkeypatch.setattr(collection.adapters, "execute_command_once", execute)
+    assert collection.acquire_source(source) is failed
+    assert calls == [source["command"]]
+
+
 def test_stage_translate_publish_and_single_identity(service):
     run = service.request()
     assert service.request() == run

@@ -1,0 +1,25 @@
+name: Collection runtime
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: npm ci --ignore-scripts
+      - run: python -m pip install -r requirements.txt pytest
+      - run: npm run check:collection
+      - run: npm run test:adapters
+      - run: npm run test:opencli
+      - run: python -m pytest -q tests/test_opencli_runtime.py tests/test_collection_environment.py tests/test_opencli_details.py tests/test_news_collection.py tests/test_dependency_update.py tests/test_updater.py tests/test_opencli_release.py
+      # Live browser evidence must be produced locally for this exact runtime.
+      # CI verifies it, and independently rechecks the current upstream release.
+      - run: npm run check:release

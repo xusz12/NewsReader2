@@ -1,0 +1,47 @@
+[
+  {
+    "name": "Reuters list-style article",
+    "kind": "reuters_list",
+    "url": "https://www.reuters.com/business/media-telecom/openai-limit-weapons-information-teens-chatgpt-violence-prevention-push-2026-10-30/",
+    "required_text": [
+      "OpenAI will restrict practical information on weapons and securi",
+      "For all users, ChatGPT will be able to automatically end chats w",
+      "The company also said it strengthened its age prediction system ",
+      "For all users, OpenAI is limiting detail on past mass attacks, i",
+      "The company said the new safeguards will begin rolling out in th",
+      "OpenAI said earlier this month that teens spend under 15 minutes",
+      "A report by non-profit Common Sense Media earlier this month fou"
+    ]
+  },
+  {
+    "name": "Reuters embedded video article",
+    "kind": "reuters_video",
+    "url": "https://www.reuters.com/world/israels-parliament-sworn-eisenkot-tries-forge-government-2026-11-10/",
+    "required_text": [
+      "Eisenkot",
+      "Reporting by Steven Scheer"
+    ],
+    "forbidden_text": [
+      "This transcript was produced with AI technology",
+      "Speaker 1:"
+    ]
+  },
+  {
+    "name": "X thread",
+    "kind": "x_thread",
+    "url": "https://x.com/ilyasut/status/2094881278621253755?s=20"
+  },
+  {
+    "name": "X note tweet",
+    "kind": "x_note",
+    "url": "https://x.com/mingchikuo/status/2078159616832368941"
+  },
+  {
+    "name": "X long article",
+    "kind": "x_article",
+    "url": "https://x.com/stripe/status/2037197998074335292",
+    "required_text": [
+      "Stripe Projects"
+    ]
+  }
+]

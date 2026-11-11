@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.5.3`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.5.4`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 团队接手请从 [项目交接总览](docs/handoff/README.md) 开始，包含产品范围、架构接口、安装维护、数据迁移、实测结果及移交验收清单。
 
@@ -55,7 +55,7 @@
 
 ## 安装与启动
 
-需要 Python 3.10+。新闻研究 Agent 另需 Node.js 24+，及已安装、配置的 Pi 或 Codex CLI。
+需要 Git、Python 3.10+、Node.js 24+ 和 npm。内置采集、正文抓取及新闻研究 Agent 都使用 Node；Pi 或 Codex 的登录与配置按所选 Agent 功能准备。
 
 在项目目录执行：
 
@@ -64,6 +64,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 npm ci --ignore-scripts
+npm run check:collection
 ./启动NewsReader.command
 ```
 
@@ -77,7 +78,13 @@ NEWS_READER_HOST=127.0.0.2 NEWS_READER_PORT=8081 ./启动NewsReader.command
 
 若旧启动器已退出但服务仍占用目标端口，启动脚本会核验用户身份、项目路径和进程启动信息后清理本项目遗留的 `app.py`；不会因端口被占用而结束其他项目或程序。
 
-安装并配置 `opencli` 及现有采集适配器，用于内置新闻采集和正文抓取。详见 [内置采集说明](docs/native-collection.md)。Node 依赖使用锁文件中的固定版本，不会在启动时自动安装或升级。
+OpenCLI 2.0.3 已纳入项目 npm 精确依赖，所需自定义 adapter 随源码提供。`npm ci --ignore-scripts` 后即可使用项目内采集和正文抓取，无需全局 opencli 或个人 adapter；可用 `npm run check:collection` 检查全部必需命令。浏览器连接、账号与翻译配置仍需首次设置。详见 [集成与升级说明](docs/opencli-integration.md)。
+
+已有 Mac 首次迁入本次集成时，先备份数据库与设置，等待任务结束并停止旧服务，更新源码后执行一次 `npm ci --ignore-scripts`、`npm run check:collection`，再重新启动。已经安装并验证过这份源码依赖的本机无需重复安装。后续新版升级器会准备和校验项目 npm 依赖；普通启动无需执行安装命令。
+
+本次集成版本为 `v0.5.4`，代码及稳定标签发布后可通过「设置 → 系统与版本」检查更新。v0.5.3 的旧升级器可以更新源码，但不会安装新增依赖；首次迁入仍需补做[依赖安装与重启](docs/opencli-integration.md#已有-mac-首次升级)。
+
+设置 → 信源与采集提供「采集环境」检查和「采集服务配置」入口：确认服务所在电脑的项目内 opencli、必需命令与内置 adapter、Chrome／OpenCLI 浏览器扩展连接及 X 登录，并查看翻译缺少的配置。X 仅使用 opencli，不再依赖独立 twitter-cli。浏览器来源要求 Chrome 保持运行；公开 RSS 不受影响。Bypass Paywalls Clean 为可选手动安装项，环境检查不代表全部来源或正文验证通过。
 
 Pi 日报需要当前项目内的 SDK 依赖。若提示「Pi 运行依赖不可用」，在当前项目目录执行 `npm ci --ignore-scripts`，重启应用后重试原报告；仅全局安装 Pi CLI 不能补齐项目依赖。
 
@@ -197,13 +204,13 @@ OpenCode Go 与 Jev 的手动目录请求使用 25 秒网络超时，适用于�
 
 ## 版本与更新
 
-版本统一为 `v0.5.3`；npm 包版本为 `0.5.3`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
+版本统一为 `v0.5.4`；npm 包版本为 `0.5.4`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
 
 在设置 → 系统状态与版本升级中点击「检查更新」，会重新读取 GitHub 的稳定版本 tag（`vN.N.N` 或 `vN.N.N.N`，不含预发布后缀），显示目标版本、检查时间和本地更新条件。没有稳定版本、已是最新版和本地版本领先会分别提示。GitHub 连接或访问限制导致检查失败时可稍后重试。
 
 使用 `启动NewsReader.command` 或 `python3 updater.py --serve` 启动，并保持项目位于干净分支，才能确认更新。未保存的设置需要先保存或重置；未提交的源码或未忽略文件需要先妥善处理。ZIP 下载、detached HEAD 和本地分叉需在终端处理，应用不会自动丢弃修改。
 
-确认后，更新器校验标签提交、目标版本号和更新源，执行快进更新、重启和健康检查；失败时尝试恢复旧提交并重启。数据库、配置、缓存与生成素材已忽略，不阻碍正常更新；目标版本与本地忽略文件同名时会拒绝覆盖。界面显示中文进度，刷新或重新打开设置可恢复查看，完成后点击「刷新使用新版本」。依赖版本发生变化时，仍需按安装说明准备运行依赖；更新器不自动安装依赖。
+确认后，更新器校验标签提交、目标版本号和更新源，执行快进更新、重启和健康检查；失败时尝试恢复旧提交并重启。数据库、配置、缓存与生成素材已忽略，不阻碍正常更新；目标版本与本地忽略文件同名时会拒绝覆盖。界面显示中文进度，刷新或重新打开设置可恢复查看，完成后点击「刷新使用新版本」。v0.5.4 升级器会在停服前准备目标锁定 npm 依赖、校验采集命令，失败时同时恢复代码和依赖。首次从 v0.5.3 升入本版由旧升级器执行，需要更新源码后手动运行一次 `npm ci --ignore-scripts`、`npm run check:collection` 并重启；Python 依赖变化仍按安装说明处理。
 
 本地生成的 `output/`、日志、覆盖率报告、编辑器配置和 `.env` 等不纳入 Git，正式应用资源、锁文件、测试与文档继续纳入版本管理。发布新版本时需保证版本元数据一致，并推送对应稳定 tag；仅修改本地版本号不会产生远端更新。
 

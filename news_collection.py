@@ -161,9 +161,6 @@ def acquire_source(source):
             _, ready = adapters.wait_for_retry(delay, result.get("retry_at"))
             if ready:
                 result = attempt(source["command"])
-    cooldown = adapters.parse_retry_at(result.get("retry_at"))
-    if not result["ok"] and source.get("fallback_command") and (cooldown is None or cooldown <= time.time()):
-        result = attempt(source["fallback_command"])
     return result
 
 

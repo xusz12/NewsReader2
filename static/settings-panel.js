@@ -1,11 +1,12 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.3";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.4";
+import { CollectionEnvironment } from "./collection-environment.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
-import { visibilityText } from "./summary-panel.js?v=0.5.3";
+import { visibilityText } from "./summary-panel.js?v=0.5.4";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { ScheduleObserver } from "./schedule-observer.js?v=0.5.0";
 import { defaultReportWindows, windowError } from "./report-windows.js";
@@ -46,6 +47,7 @@ export class SettingsPanel {
     this.dirty = false;
     this.section = "system";
     this.helpAccordion = new Accordion($("#settingsContent"));
+    this.collectionEnvironment = new CollectionEnvironment();
     this.schedules = new ScheduleObserver({
       isVisible: () => this.open && this.section === "schedules" && (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active")),
       selects,
@@ -276,6 +278,7 @@ export class SettingsPanel {
     $("#settingsDetailDescription").hidden = !selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
     if (changed && section === "models" && this.draft) this.renderModels();
+    if (section === "pipeline" && this.saved) this.renderCollectionServices();
     if (section === "system" && $("#updateResult")) this.updater.restore();
     if (section === "catchup" && $("#settingsCatchupScope")) this.loadCatchupScope();
     if (section === "classification" && this.open) void this.onClassificationRefresh?.();
@@ -542,6 +545,8 @@ export class SettingsPanel {
       <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
       <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
       <button class="btn-secondary" id="resetCatchupDefaultsBtn" type="button">恢复默认范围（20 天 / 6000 条）</button></section>
+      ${this.collectionEnvironment.html()}
+      <section class="settings-section-card" data-section="pipeline" id="collectionServices" aria-labelledby="collectionServicesTitle"></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>自动采集新闻</span></div>
       <label class="settings-toggle settings-switch"><span>启用定时采集</span><input type="checkbox" role="switch" name="collection.enabled" ${d.collection?.enabled !== false ? "checked" : ""}></label>
       <p class="muted">北京时间；后台服务运行时执行，关闭网页不影响。保存后生效。暂停定时采集仍可手动采集。</p>
@@ -566,6 +571,7 @@ export class SettingsPanel {
     this.updater.render();
     this.renderClassificationProgress();
     this.updateCollectionStatus(this.collectionStatus);
+    this.collectionEnvironment.render();
     this.schedules.mount($("#scheduleSettings"));
     this.selectSection(this.section, { reveal: false });
     $("#releaseNotes").closest("details").ontoggle = (event) => {
@@ -830,6 +836,25 @@ export class SettingsPanel {
     const statuses = {none:"尚未执行",pending:"待采集",running:"采集中",done:"成功",failed:"失败"};
     $("#settingsCollectionSources").innerHTML = data.sources.map(source => `<li>${e(source.label)} · ${e(statuses[source.status] || source.status)}${source.status === "done" ? `，新增 ${source.added} 条` : ""}${source.error ? `（${e(source.error)}）` : ""}</li>`).join("");
   }
+  renderCollectionServices() {
+    const panel = $("#collectionServices"), saved = this.saved;
+    if (!panel || !saved) return;
+    const order = this.translationOrder(saved);
+    panel.innerHTML = `<div class="section-card-title"><span id="collectionServicesTitle">采集服务配置</span></div>
+      <p class="muted">采集字段翻译与正文翻译共用以下已保存的服务配置，按顺序尝试。配置齐全不代表连接成功；可进入对应设置运行连接测试。</p>
+      <div class="section-stack">${order.map((provider, index) => {
+        const config = saved.api_providers.find(item => item.id === provider);
+        const model = provider === "pi" ? saved.llm.pi_chat : get(saved, config.model_path);
+        const label = provider === "pi" ? "Pi" : config.label;
+        const missing = provider === "pi"
+          ? (!model?.provider || !model?.model ? "未选择服务商或模型" : "已选择模型；登录授权与连通性需在模型设置中验证")
+          : [!saved.api_status?.[provider]?.configured && "缺少 API 密钥", !model?.trim() && "未选择模型"].filter(Boolean).join("、") || "密钥与模型已配置，连接尚需测试";
+        const selected = provider === "pi" ? [model?.provider, model?.model].filter(Boolean).join(" / ") : model;
+        return `<div class="field-item" data-collection-service="${e(provider)}"><span class="field-label">${index ? "后备" : "首选"} · ${e(label)}</span><span>${e(selected || "尚未配置模型")}</span><span class="muted">${e(missing)}</span></div>`;
+      }).join("")}</div>
+      <div class="button-row"><button class="btn-secondary" id="collectionApiSettingsBtn" type="button">配置翻译 API</button><button class="btn-secondary" id="collectionModelSettingsBtn" type="button">配置 Pi 模型</button></div>
+      <p class="muted">翻译服务不可用时，采集原文暂存，等待翻译完成后整批入库。</p>`;
+  }
   sourceHTML() {
     const hidden = new Set(this.draft.feed.hidden_source_subkeys || []);
     return (
@@ -971,6 +996,10 @@ export class SettingsPanel {
       return;
     }
     const actions = {
+      checkCollectionEnvironmentBtn: () => this.collectionEnvironment.check("environment"),
+      checkCollectionXBtn: () => this.collectionEnvironment.check("x"),
+      collectionApiSettingsBtn: () => { this.selectSection("deepseek"); $("#settingsDetailTitle").focus({preventScroll:true}); },
+      collectionModelSettingsBtn: () => { this.selectSection("models"); $("#settingsDetailTitle").focus({preventScroll:true}); },
       classificationRefreshBtn: () => this.onClassificationRefresh?.(),
       classificationRetryBtn: () => this.onClassificationRetry?.(),
       classificationApiSettingsBtn: () => {

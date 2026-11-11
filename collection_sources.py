@@ -16,11 +16,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
+from opencli_runtime import resolve_command
 
 
 def run_command(command, *, timeout, env=None):
     """Own the process group so timeout cannot leave browser/CLI children running."""
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    with subprocess.Popen(resolve_command(command), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, env=env, start_new_session=True) as process:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -544,11 +545,6 @@ def load_config(config_path: Path) -> list[dict[str, Any]]:
 
         command = parse_command(item.get("command"))
 
-        fallback_raw = item.get("fallback_command")
-        fallback_command = (
-            parse_command(fallback_raw) if fallback_raw is not None else None
-        )
-
         command_timeout = item.get("command_timeout_seconds")
         if command_timeout is not None and (type(command_timeout) is not int or command_timeout <= 0):
             raise ValueError(f"config item #{i} command_timeout_seconds must be a positive integer")
@@ -565,11 +561,7 @@ def load_config(config_path: Path) -> list[dict[str, Any]]:
         source_name = str(item.get("source_name", "")).strip()
         display_name = str(item.get("display_name", "")).strip()
         command_is_twitter = command[:3] == ["opencli", "twitter", "tweets"]
-        fallback_is_twitter = (
-            fallback_command is not None
-            and fallback_command[:2] == ["twitter", "user-posts"]
-        )
-        if (command_is_twitter or fallback_is_twitter) and source_type != "twitter":
+        if command_is_twitter and source_type != "twitter":
             raise ValueError(
                 f"config item #{i} Twitter command requires source_type=twitter"
             )
@@ -584,21 +576,10 @@ def load_config(config_path: Path) -> list[dict[str, Any]]:
             raise ValueError(
                 f"config item #{i} source_handle must match Twitter command handle"
             )
-        if (
-            fallback_is_twitter
-            and fallback_command is not None
-            and len(fallback_command) > 2
-            and fallback_command[2] != source_handle
-        ):
-            raise ValueError(
-                f"config item #{i} source_handle must match Twitter fallback handle"
-            )
-
         parsed.append(
             {
                 "section": section,
                 "command": command,
-                "fallback_command": fallback_command,
                 "retry_once": retry_once,
                 "command_timeout_seconds": command_timeout,
                 "treat_empty_as_failure": treat_empty_as_failure,

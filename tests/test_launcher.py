@@ -36,7 +36,7 @@ def temp_update_repo(tmp_path: Path) -> tuple[Path, str, str]:
     source = tmp_path / "source"
     shutil.copytree(
         PROJECT_ROOT, source,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".pytest_cache"),
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".pytest_cache", "node_modules", "output", ".ui-artifacts", "test-results"),
     )
     manifest_path = source / "version.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -52,6 +52,8 @@ def temp_update_repo(tmp_path: Path) -> tuple[Path, str, str]:
     git("push", "-u", "origin", "main", cwd=source)
     target = tmp_path / "target"
     git("clone", "-b", "main", str(remote), str(target))
+    # A running installed application already has its locked dependencies.
+    shutil.copytree(PROJECT_ROOT / "node_modules", target / "node_modules", symlinks=True)
 
     manifest["version"] = "v2.1.4.7"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -171,6 +173,7 @@ def test_supervisor_update_handoff_and_exit_cleanup(tmp_path: Path, fail_new_hea
         "NEWS_READER_AGENT_RUNTIME_DIR": str(tmp_path / "runtime" / "agent"),
         "NEWS_READER_UPDATER_DIR": str(runtime_dir),
         "TEST_PROJECT_ROOT": str(target),
+        "NEWS_READER_NODE": shutil.which("node"),
         "TEST_UPDATE_TOKEN": token,
         "TEST_UPDATE_TARGET": json.dumps(latest),
     }
@@ -332,6 +335,7 @@ os.execv(os.environ["TEST_REAL_GIT"], [os.environ["TEST_REAL_GIT"], *sys.argv[1:
         "NEWS_READER_AGENT_RUNTIME_DIR": str(tmp_path / "runtime" / "agent"),
         "NEWS_READER_UPDATER_DIR": str(runtime_dir),
         "TEST_PROJECT_ROOT": str(target),
+        "NEWS_READER_NODE": shutil.which("node"),
         "TEST_UPDATE_TOKEN": token,
         "TEST_UPDATE_TARGET": json.dumps(latest),
         "TEST_FETCH_ENTERED": str(fetch_entered),

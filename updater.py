@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+import dependency_update
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -231,6 +232,8 @@ def apply_update(
         new_child = None
         new_instance_id = None
         merged = False
+        dependencies = None
+        retain_dependencies = False
         def report(status: str, **extra: object) -> None:
             _write_state({**progress, "status": status, "updated_at": int(time.time()), **extra})
         report("validating")
@@ -262,6 +265,8 @@ def apply_update(
             )
             if ancestor_check.returncode != 0:
                 raise RuntimeError("target_not_descendant")
+            # Download and validate the target lockfile before service downtime.
+            dependencies = dependency_update.prepare(repo, commit)
             if git_state(repo) != state:
                 raise RuntimeError("worktree_changed")
             if launch:
@@ -286,6 +291,9 @@ def apply_update(
             merged = True
             if _run(repo, "rev-parse", "HEAD") != commit:
                 raise RuntimeError("post_merge_commit_mismatch")
+            if dependencies:
+                dependencies.activate()
+            dependency_update.validate_runtime(repo)
             report("starting_new" if launch else "updated")
             if launch:
                 report("checking_health")
@@ -307,7 +315,7 @@ def apply_update(
             return {"ok": True, "status": "healthy" if launch else "updated", "commit": commit, "version": version}
         except Exception as exc:
             failure = str(exc)[:500]
-            if not launch or not old_stopped:
+            if not old_stopped and not merged:
                 report("failed", error=failure)
                 raise
             report("rolling_back", error=failure)
@@ -330,22 +338,31 @@ def apply_update(
                     _run(repo, "reset", "--keep", old_head)
                 elif current["head"] != old_head:
                     raise RuntimeError("rollback_unsafe_head_changed")
-                if supervised:
+                if dependencies:
+                    dependencies.rollback()
+                if supervised and launch:
                     response = request_supervisor(
                         "restart", pid=os.getpid(), run_id=run_id,
                         expected_commit=old_head, health_url=health_url,
                     )
                     if response.get("ok") is not True or response.get("status") != "healthy":
                         raise RuntimeError(str(response.get("error") or "old_version_health_check_failed"))
-                else:
+                elif launch:
                     old_child = _launch(repo)
                     if not _wait_healthy(health_url, old_head, old_child):
                         raise RuntimeError("old_version_health_check_failed")
                 report("rolled_back", error=failure, active_commit=old_head)
             except Exception as rollback_exc:
-                report("rollback_failed", error=failure, rollback_error=str(rollback_exc)[:500])
+                retain_dependencies = True
+                report("rollback_failed", error=failure, rollback_error=str(rollback_exc)[:500],
+                       dependency_backup_dir=str(dependencies.stage) if dependencies else None)
             raise
         finally:
+            if dependencies:
+                # Preserve both dependency trees if rollback was refused; a
+                # user change must never cause removal of the recovery copy.
+                if not retain_dependencies:
+                    dependencies.close()
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 

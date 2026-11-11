@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "package": "@jackwener/opencli",
+  "version": "2.0.3",
+  "adapters": {
+    "repository": "https://github.com/xusz12/clis",
+    "commit": "c28502779314773797d92306c9bebbc9fe03b6f0",
+    "version": "0.9.2+newsreader.1",
+    "files": {
+      "ars-home/README.md": "5c2d9b9df36261eb1eb4a2e2c8c61e8542a402941f43536f27c7637375b0152f",
+      "ars-home/article-recovery.js": "ed99274e5cb6976b4ece8f07f6cc746ff2ec7d4287c70d47a0512eef02b9690a",
+      "ars-home/article.js": "c6e295a8704943c41093e73b995b2a7d7da5fc3dcbd774b7db4a6148c6312977",
+      "ars-home/article.test.js": "0e5943ea7b1c5767137ff12ffda058cab4a7bb6668f9b403d90c57828eb4d4b4",
+      "ars-home/top10.js": "14d58f9e9bcdea3d3f150da6c75658acf06211161f0616c723487077c1aec114",
+      "bloomberg-user/tech.js": "b8bd8bb507d32d62fffd2d80254bbdf7e073e91d0ce3a659126290a6f48922f8",
+      "reuters-section/README.md": "f43b55bd9c14b4a55f006a43bc9a7242dfd820cc9b1cd51aa1e7de711886cb9c",
+      "reuters-section/news-recovery.js": "14ee98a903fbe5969b9583432fe21451aa131ad659c5a7da4ed6a3f96ac22682",
+      "reuters-section/news-recovery.test.js": "de26fbb763de4ecc9d0c6acf0058e065463ca5159c34f2ca2e9af50caedd025e",
+      "reuters-section/top10.js": "2c13732ac754527c2b8c89d90236f48c88fe88a448d964243db4202c586f17c3",
+      "reuters/README.md": "6d8af8737545a186229e285aa84934c086f1ba07c5750866be10deb1a194a57b",
+      "reuters/article-cleaning.test.js": "0b455790d83b17299e68f52a9beb598c2bb21d0b06bc49a29936f74980f2167e",
+      "reuters/article-detail.js": "47817870e4bf154eaf7e265162f06e8364c8600147f02e2237c4ecc7d6fc784b",
+      "reuters/article-recovery.js": "60de6f901312e69d65a3bed3d5c47c0314376597bc6ddb00146e95489716229c",
+      "reuters/article-recovery.test.js": "2dcac879eb35218d480f9174ffedd07c4897671668bdcc3a6c0fb5d73ffed905",
+      "reuters/reuters.test.js": "a1db2dbc143001f31d9ed210e3d7687b2c7ee2070dd1e90d9ea31176b07e4e21",
+      "reuters/search.js": "018f93bc3f244db973a5e807327d04529363b4f6c8c12d9f98d333a52930785b",
+      "reuters/utils.js": "5691b781ec351aa9be3dba0a110cf1d3dcfa8e5978abec13795721df21e76df7",
+      "rss-feed.js": "6fa4fef7d78f7e705c94950cc08fa995f4915d3a1b9adcb1d9e9e015dff1cd81",
+      "rss-feed.md": "3877e5c0fdf11b7fb3a526284c024139ce1cee17c70f078f4de779105bd01636",
+      "rss-feed.test.js": "1c0ff8112e1b2b07df4a1eb6e4ada11ed878c0b23871eab6118ee54778d4d99f",
+      "techcrunch/README.md": "20c853e21e86e50520e63fff14edf4b2c06544e910666050b67381a2cf585368",
+      "techcrunch/article-http.js": "219e7ad6e3d04bdbd85c3cf5e826766ed6136449e25e9089505c9305531e5cbd",
+      "techcrunch/article.js": "456d688ff0e4327f09f4a6f64ab7c09a29fe49d010c0bbc9115b917c1b5ea0c4",
+      "techcrunch/article.test.js": "fe05b4d9e50f0289e386ba276032fbce8d27bbb8d2115f80c430f73123bdde2e",
+      "techcrunch/latest.js": "cee4e58a4bac092636f6f4f8dddb9f372209fe2aeda988af1c2aff6c393955a7"
+    },
+    "source_version": "0.9.2",
+    "patches": [
+      {
+        "file": "reuters/utils.js",
+        "upstream_sha256": "123515b47fb120e7da9590e2d04889bb4359ff5a9aeb1b4128fb5ede19355a52",
+        "reason": "排除报道容器内的视频转录组件，保留真正的报道及列表正文"
+      },
+      {
+        "file": "reuters/article-cleaning.test.js",
+        "upstream_sha256": "3f920637d408f6e04a2fc6a8d87e32bdcd4fd9f95b6908986c8077fc81c0bf57",
+        "reason": "排除报道容器内的视频转录组件，保留真正的报道及列表正文"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "site": "ReutersBrowser",
+      "name": "news",
+      "origin": "bundled",
+      "module": "reuters-section/top10.js"
+    },
+    {
+      "site": "BloombergUser",
+      "name": "tech",
+      "origin": "bundled",
+      "module": "bloomberg-user/tech.js"
+    },
+    {
+      "site": "TechcrunchPublic",
+      "name": "news",
+      "origin": "bundled",
+      "module": "techcrunch/latest.js"
+    },
+    {
+      "site": "ArsPublic",
+      "name": "news",
+      "origin": "bundled",
+      "module": "ars-home/top10.js"
+    },
+    {
+      "site": "reuters",
+      "name": "article-detail",
+      "origin": "bundled",
+      "module": "reuters/article-detail.js"
+    },
+    {
+      "site": "TechcrunchPublic",
+      "name": "article",
+      "origin": "bundled",
+      "module": "techcrunch/article.js"
+    },
+    {
+      "site": "ArsPublic",
+      "name": "article",
+      "origin": "bundled",
+      "module": "ars-home/article.js"
+    },
+    {
+      "site": "bloomberg",
+      "name": "news",
+      "origin": "builtin",
+      "module": "bloomberg/news.js"
+    },
+    {
+      "site": "twitter",
+      "name": "tweets",
+      "origin": "builtin",
+      "module": "twitter/tweets.js"
+    },
+    {
+      "site": "twitter",
+      "name": "thread",
+      "origin": "builtin",
+      "module": "twitter/thread.js"
+    },
+    {
+      "site": "twitter",
+      "name": "article",
+      "origin": "builtin",
+      "module": "twitter/article.js"
+    },
+    {
+      "site": "twitter",
+      "name": "whoami",
+      "origin": "builtin",
+      "module": "twitter/auth.js"
+    }
+  ]
+}

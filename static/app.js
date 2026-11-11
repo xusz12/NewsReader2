@@ -21,10 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.3";
-import { SummaryPanel } from "./summary-panel.js?v=0.5.3";
-import { TopicPanel } from "./topic-panel.js?v=0.5.3";
-import { ReportPanel } from "./report-panel.js?v=0.5.3";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.4";
+import { SummaryPanel } from "./summary-panel.js?v=0.5.4";
+import { TopicPanel } from "./topic-panel.js?v=0.5.4";
+import { ReportPanel } from "./report-panel.js?v=0.5.4";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.0";
@@ -33,7 +33,7 @@ import { TaskProgress } from "./task-progress.js?v=0.5.0";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.5.3";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.5.4";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";

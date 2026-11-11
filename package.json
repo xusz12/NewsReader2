@@ -8,12 +8,20 @@
   "scripts": {
     "test:oar": "node --test tests/oar_bridge.test.mjs",
     "test:ui": "playwright test",
-    "build:idea-editor": "node scripts/build-idea-editor.mjs"
+    "build:idea-editor": "node scripts/build-idea-editor.mjs",
+    "opencli": "node scripts/opencli.mjs",
+    "check:collection": "node scripts/opencli.mjs --nr-check",
+    "test:adapters": "vitest run --config vitest.adapters.config.mjs",
+    "test:opencli": "node --test tests/opencli_runtime.test.mjs",
+    "check:release": "python3 scripts/check_opencli_release.py",
+    "setup:hooks": "node scripts/install-git-hooks.mjs",
+    "test:collection:live": "python3 scripts/verify_collection_runtime.py --output output/opencli-validation.json --restart-daemon"
   },
   "dependencies": {
     "@botiverse/oar": "0.52.0",
     "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
+    "@jackwener/opencli": "2.0.3",
     "prosemirror-commands": "1.7.2",
     "prosemirror-history": "1.5.1",
     "prosemirror-inputrules": "1.5.1",
@@ -26,7 +34,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "vitest": "4.1.0"
   },
-  "version": "0.5.3"
+  "version": "0.5.4"
 }

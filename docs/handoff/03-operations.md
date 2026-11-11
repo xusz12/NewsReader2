@@ -2,7 +2,7 @@
 
 2026-11-08 更新：已启用[内置新闻采集](../native-collection.md)，旧版 DailyNews 扫描、刷新索引及文件日报流程退役。原数据库与阅读状态继续使用；当前采集配置、故障恢复和切换步骤以新文档为准。
 
-首次接手以 macOS、本机回环地址和全新数据目录为基准。Python 需要 3.10+，Node.js 需要 24+；Node 用于 OAR/Pi、编辑器构建和浏览器测试，基础阅读主要依赖 Python。Linux 需另验密钥存储、文件选择和启动器；Windows 原生运行会受到 `fcntl` 等 POSIX 依赖限制。
+首次接手以 macOS、本机回环地址和全新数据目录为基准。Python 需要 3.10+，Node.js 需要 24+；Node 用于内置采集、正文抓取、OAR/Pi、编辑器构建和浏览器测试，基础阅读主要依赖 Python。Linux 需另验密钥存储、文件选择和启动器；Windows 原生运行会受到 `fcntl` 等 POSIX 依赖限制。当前 v0.5.4 集成的首次升级、新机安装与依赖准备见[集成与升级说明](../opencli-integration.md)。
 
 ## 获取源码
 
@@ -41,7 +41,7 @@ curl --fail http://127.0.0.1:8080/api/collection
 curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=10'
 ```
 
-版本以当前源码的 `version.json` 为准。按[内置采集说明](../native-collection.md)准备 opencli 自定义适配器、浏览器会话与翻译配置后，点击「立即采集」验证整批入库、重复采集去重及失败重试。只做历史数据迁移演练时，可先在设置暂停定时采集，再验证收藏、想法及重新启动后的保存效果。
+版本以当前源码的 `version.json` 为准。按[内置采集说明](../native-collection.md)安装项目 npm 锁定依赖、准备浏览器会话与翻译配置后，点击「立即采集」验证整批入库、重复采集去重及失败重试。只做历史数据迁移演练时，可先在设置暂停定时采集，再验证收藏、想法及重新启动后的保存效果。
 
 ## 启动方式的区别
 
@@ -93,7 +93,7 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 
 ## 正文抓取和模型接入
 
-opencli 不包含在 Python 或 npm 依赖清单中。交付方需另提供安装来源、可复现版本及适配器；浏览器扩展、网络和媒体订阅登录由接手方准备。当前命令映射为：
+OpenCLI 2.0.3 是项目 npm 精确依赖，自定义 adapter 随源码分发。`npm ci --ignore-scripts` 安装后，采集与正文统一调用项目入口，不加载个人 adapter。浏览器扩展、网络和媒体订阅登录由接手方准备。见 [集成与验收](../opencli-integration.md)。以下逻辑命令均由项目入口执行：
 
 | 来源 | 命令前缀 | 超时 |
 | --- | --- | --- |
@@ -103,7 +103,7 @@ opencli 不包含在 Python 或 npm 依赖清单中。交付方需另提供安�
 | Ars Technica | `opencli ArsPublic article` | 45 秒 |
 | X 线程 / 长文 | `opencli twitter thread` / `opencli twitter article` | 90 / 60 秒 |
 
-代码兼容 opencli 2.x 的 `ok/data/error` 包装以及旧列表/对象。具体调用参数见 `app.py` 的抓取函数。先在接手方终端确认这些适配器可用，再通过页面用少量真实文章验证。
+代码兼容 opencli 2.x 的 `ok/data/error` 包装以及旧列表/对象。具体调用参数见 `app.py` 的抓取函数。先运行 `npm run check:collection` 确认必需命令可用，再通过页面用少量真实文章验证。
 
 设置中的原 OpenCode 分区已替换为「OpenCode Go 订阅」，沿用现有密钥与模型。旧首选 `opencode` 归并为 `opencode-go`；首选 Go 时为 Go → DeepSeek → Pi，后备可分别关闭。已有明确 Go 模型优先，密钥须具有 Go 订阅权限；获取目录成功不代表额度可用。Pi 功能使用自身登录或显式环境变量，API 管理不再共享 Keychain 密钥。
 
@@ -132,7 +132,7 @@ CI=1 npm run test:ui
 | 换库未生效 | 环境变量是否覆盖设置，是否已重启，设置页显示的当前有效路径 |
 | 启动健康检查失败 | 端口占用、服务终端输出、localhost DNS 和系统代理；本地请求应绕过代理 |
 | `Can't assign requested address` | 监听 IP 是否仍属于本机；Tailscale 停止后 `tailscale ip` 仍可能返回保留地址，`.command` 会检查并回退到本机地址。显式设置的 `NEWS_READER_HOST` 需自行修正，或恢复对应网络后重启 |
-| 抓取失败 | opencli 是否在服务 PATH，适配器大小写、浏览器连接、登录状态和错误详情 |
+| 抓取失败 | 项目依赖与必需命令检查、Node.js、浏览器连接、登录状态和错误详情 |
 | Agent 不可用 | Node 版本、npm 依赖、CLI 登录、模型选择、Pi 项目信任及扩展 |
 | OpenCode 获取模型超时或解析失败 | v0.4.3 将手动目录的网络超时由5秒延长至25秒，包含 HTTPS 握手。`URLError.reason` 中的 `TimeoutError` 表示超时，不代表密钥鉴权失败；接口返回504及 `reason=connection_timeout`。401、403等 HTTP 错误保留上游状态与已知原因；无效 JSON／目录格式返回 `response_parse_failed`。检查网络或代理后手动重试，更新代码后重启后端；失败保留已有目录和模型草稿 |
 | OpenCode 获取模型返回 403 | 区分密钥错误与 Cloudflare `1010 / browser_signature_banned`；目录及连接测试必须通过 `model_apis.request_headers()` 标识本应用，避免 urllib 默认客户端标识被拒绝。2026-11-01已复现并修复；修改后须重启后端，获取目录成功不等于所选模型鉴权／额度可用 |
@@ -149,6 +149,6 @@ CI=1 npm run test:ui
 2. 修改版本时同步 `version.json`、`package.json`、`package-lock.json`、`static/index.html` 的标题/标记/资源版本、README、CHANGELOG 及版本一致性测试。从 v0.1.2 之后的版本开始，CHANGELOG 根据实际发布差异按 `feat`、`improve`、`fix` 分组，具体规则见 [CHANGELOG 发布分类](../design-guidelines.md#10-changelog-发布分类)。
 3. 完成相关测试，并在数据副本上验证迁移。更换仓库后必须更新 `version.json.repository`，只改 Git remote 不会改变应用更新源；同时更新硬编码该仓库的测试和文档。
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
-5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。依赖变化仍需人工安装，升级器不安装依赖。
+5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。新版升级器在停服前准备目标锁定依赖，健康检查失败同时恢复代码与依赖；首次从旧升级器迁入时需手动执行一次 `npm ci --ignore-scripts`。每次推送前运行 `npm run check:release`，维护者用 `npm run setup:hooks` 启用自动检查。
 
 手工回退使用独立旧版本 checkout，加上升级前备份恢复出的数据副本；验证后再切换服务路径。不要在共享工作区强制 reset，不要认为退回旧源码就能撤销数据库 DDL。

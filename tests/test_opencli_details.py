@@ -112,7 +112,7 @@ def test_v2_article_runs_through_worker_to_database(reader, monkeypatch, host, c
     monkeypatch.setattr(reader.subprocess, "run", run)
     queue(reader, url)
     assert reader.process_pending_jobs_once()
-    assert run.call_args.args[0] == ["opencli", *command, url, "-f", "json"]
+    assert run.call_args.args[0] == reader.resolve_opencli_command(["opencli", *command, url, "-f", "json"])
     row = job(reader, url)
     assert (row["status"], row["attempts"], row["last_error"], row["worker_pid"]) == ("success", 1, None, None)
     with reader.db_conn() as conn:
@@ -129,7 +129,7 @@ def test_v2_x_thread_and_optional_article(reader, monkeypatch, has_article):
     tweets = [{"id": "123", "author": "example", "text": "短帖", "quoted_tweet": {"text": "引用内容"},
                "media_urls": [image]}, {"id": "124", "author": "reply", "text": "评论"}]
     def respond(cmd, **kwargs):
-        if cmd[2] == "thread":
+        if cmd[3] == "thread":
             return cli_response({"ok": True, "data": tweets})
         if has_article:
             return cli_response({"ok": True, "data": [{"content": BODY}]})

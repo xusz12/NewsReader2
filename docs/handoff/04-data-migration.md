@@ -16,7 +16,8 @@
 | `.model-catalogs` 缓存 | 可重新生成 | 位于设置文件旁；迁移不是模型可用性的保证 |
 | Keychain、CLI/浏览器凭据 | 由接手方重新配置 | 不复制到源码包；应用主库不代表完整认证环境 |
 | 浏览器偏好及未保存草稿 | 不随 SQLite 迁移 | 主题等可能在 localStorage；未保存想法先保存 |
-| opencli 自定义适配器与登录会话 | 接手机器另行安装／配置 | 应用已内置采集编排与排期；旧外部 Agent 定时任务停用 |
+| OpenCLI 与自定义 adapter | 随项目源码和锁定 npm 依赖安装 | 无需迁移全局 opencli 或个人 adapter；接手机器执行 `npm ci --ignore-scripts` |
+| 浏览器扩展与登录会话 | 接手机器另行配置 | 安装并启用 OpenCLI Browser Bridge，在同一 Chrome 配置中登录 X；旧外部 Agent 定时任务停用 |
 
 ## 旧版数据来源格式（仅供历史核对）
 

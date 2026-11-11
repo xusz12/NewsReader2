@@ -93,6 +93,13 @@ elif [[ ! -f "$SCRIPT_DIR/node_modules/@botiverse/oar/package.json" ]]; then
   print -u2 -- "新闻 Chat / Agent 依赖缺失；请在项目目录执行 npm ci --ignore-scripts。新闻阅读仍可启动。"
 fi
 
+# Check the bundled collector without opening Chrome or loading personal code.
+if [[ -n "$OAR_NODE" ]] && command -v "$OAR_NODE" >/dev/null 2>&1; then
+  if ! "$OAR_NODE" "$SCRIPT_DIR/scripts/opencli.mjs" --nr-check >/dev/null 2>&1; then
+    print -u2 -- "采集与正文抓取依赖未就绪；请在项目目录执行 npm ci --ignore-scripts，并在设置中检查采集环境。新闻阅读仍可启动。"
+  fi
+fi
+
 # Detect both implementations on each launch; explicit host settings always win.
 if [[ -z "${NEWS_READER_HOST:-}" ]]; then
   network_host="$("$PYTHON_BIN" "$SCRIPT_DIR/network_access.py" "${NEWS_READER_PORT:-8080}")"

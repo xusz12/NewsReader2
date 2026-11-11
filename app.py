@@ -4,6 +4,7 @@ import model_catalogs
 import connection_tests
 import model_apis
 import pi_models
+from opencli_runtime import resolve_command as resolve_opencli_command
 
 import math
 import hashlib
@@ -45,6 +46,7 @@ from llm_client import (
 )
 from database_schema import apply_schema
 import news_collection
+import collection_environment
 import news_versions
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from updater import STATE_PATH as UPDATE_STATE_PATH
@@ -6079,7 +6081,7 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
 
 def _run_opencli_json_command(cmd: list[str], timeout: int) -> tuple[bool, object, str]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        proc = subprocess.run(resolve_opencli_command(cmd), capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:
         return False, None, "TIMEOUT"
     except Exception as exc:
@@ -9345,6 +9347,19 @@ def api_collection_status():
 @app.post("/api/collection")
 def api_collection_request():
     return jsonify({"ok": True, "run_id": COLLECTION_SERVICE.request()}), 202
+
+
+@app.post("/api/collection/environment/check")
+def api_collection_environment_check():
+    body = request.get_json(silent=True)
+    if body is None and not request.content_length:
+        body = {}
+    if not isinstance(body, dict) or set(body) - {"target"} or body.get("target", "environment") not in ("environment", "x"):
+        return jsonify(ok=False, error="invalid_environment_check"), 400
+    try:
+        return jsonify(ok=True, **collection_environment.check(body.get("target", "environment")))
+    except collection_environment.Busy:
+        return jsonify(ok=False, error="collection_environment_busy"), 409
 
 
 @app.post("/api/collection/retry-translation")

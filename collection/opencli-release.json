@@ -1,0 +1,485 @@
+{
+  "checked_at": "2026-11-11T16:10:53.362350+00:00",
+  "fingerprint": "c9b860f0c2fe423e4caa726892ed30275f68e6fc35b09ee407192d1fd5c06f90",
+  "newsreader_version": "0.5.4",
+  "sources": [
+    {
+      "section": "middle-east",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 17.15,
+      "error": "",
+      "samples": [
+        {
+          "title": "Iran will not allow enriched nuclear material to leave the country, security chief says",
+          "url": "https://www.reuters.com/world/middle-east/iran-will-not-allow-enriched-nuclear-material-leave-country-security-chief-says-2026-11-11/",
+          "time": "2026-11-11 18:26:23",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "War, conflict must not distract from climate action, leaders warn COP31",
+          "url": "https://www.reuters.com/sustainability/cop/world-leaders-address-cop31-turkey-pushes-new-climate-deal-2026-11-11/",
+          "time": "2026-11-11 11:02:53",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "china",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 17.3,
+      "error": "",
+      "samples": [
+        {
+          "title": "Spanish watchdog opens TikTok probe but denies government demand to block app",
+          "url": "https://www.reuters.com/legal/government/spanish-watchdog-opens-tiktok-probe-denies-government-demand-block-app-2026-11-11/",
+          "time": "2026-11-12 00:09:59",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "Baird downgrades Nvidia on China curbs, AI demand worries",
+          "url": "https://www.reuters.com/world/china/baird-downgrades-nvidia-china-curbs-ai-demand-worries-2026-11-11/",
+          "time": "2026-11-11 22:29:02",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "world",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 4.7,
+      "error": "",
+      "samples": [
+        {
+          "title": "Russia says military-to-military contacts with Britain are possible if London reaches out",
+          "url": "https://www.reuters.com/world/uk/russia-says-military-to-military-contacts-with-britain-are-possible-if-london-2026-11-11/",
+          "time": "2026-11-11 22:47:51",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "Russia and Ukraine say some progress made at talks, US cites a lack of trust",
+          "url": "https://www.reuters.com/world/europe/us-russia-ukraine-start-second-day-abu-dhabi-peace-talks-2026-11-11/",
+          "time": "2026-11-11 18:12:24",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "business",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 4.7,
+      "error": "",
+      "samples": [
+        {
+          "title": "S&P 500, Nasdaq rise as CoreWeave results ease AI spending worries",
+          "url": "https://www.reuters.com/business/sp-500-nasdaq-futures-rise-after-coreweave-soothes-ai-spending-fears-2026-11-11/",
+          "time": "2026-11-11 18:43:04",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "CoreWeave sparks AI cloud stock rally, lifts Nvidia as results ease bubble fears",
+          "url": "https://www.reuters.com/world/china/coreweave-sparks-ai-cloud-stock-rally-lifts-nvidia-results-ease-bubble-fears-2026-11-11/",
+          "time": "2026-11-11 20:12:25",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "technology",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 4.11,
+      "error": "",
+      "samples": [
+        {
+          "title": "Spanish watchdog opens TikTok probe but denies government demand to block app",
+          "url": "https://www.reuters.com/legal/government/spanish-watchdog-opens-tiktok-probe-denies-government-demand-block-app-2026-11-11/",
+          "time": "2026-11-12 00:09:59",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "Romanian intelligence agency says it identified Russian-linked cyber attack",
+          "url": "https://www.reuters.com/technology/romanian-intelligence-agency-says-it-identified-russian-linked-cyber-attack-2026-11-11/",
+          "time": "2026-11-11 22:02:21",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "bloomberg_tech",
+      "ok": true,
+      "raw_count": 15,
+      "valid_count": 15,
+      "seconds": 2.88,
+      "error": "",
+      "samples": [
+        {
+          "title": "Meta’s Head of Infrastructure, Engineering to Step Down in 2027",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-11/meta-s-head-of-infrastructure-engineering-to-step-down-in-2027",
+          "time": "2026-11-12 00:02:10",
+          "source_name": "Bloomberg"
+        },
+        {
+          "title": "Nvidia Is Playing Out Like a Greek Tragedy, Says Seaport's Goldberg",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-11/nvidia-is-playing-out-like-a-greek-tragedy-goldberg-video",
+          "time": "2026-11-12 00:01:34",
+          "source_name": "Bloomberg"
+        }
+      ]
+    },
+    {
+      "section": "techcrunch",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 1.39,
+      "error": "",
+      "samples": [
+        {
+          "title": "Siri co-founder backs Helix for its voice ID tech",
+          "url": "https://techcrunch.com/2026/11/11/siri-co-founder-backs-helix-for-its-voice-id-tech/",
+          "time": "2026-11-11 23:02:47",
+          "source_name": "TechCrunch"
+        },
+        {
+          "title": "Databricks’ new AI agent tells CEO Ali Ghodsi the unvarnished truth",
+          "url": "https://techcrunch.com/2026/11/11/databricks-new-ai-agent-tells-ceo-ali-ghodsi-the-unvarnished-truth/",
+          "time": "2026-11-11 23:00:00",
+          "source_name": "TechCrunch"
+        }
+      ]
+    },
+    {
+      "section": "arstechnica",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 1.72,
+      "error": "",
+      "samples": [
+        {
+          "title": "Trump wanted little Kei trucks for America, Toyota makes it happen",
+          "url": "https://arstechnica.com/cars/2026/11/toyota-resurrects-scion-with-right-hand-drive-kei-trucks/",
+          "time": "2026-11-11 23:25:44",
+          "source_name": "Ars Technica"
+        },
+        {
+          "title": "Google DeepMind just mathematically verified key parts of Signal",
+          "url": "https://arstechnica.com/ai/2026/11/signals-encryption-just-passed-an-ai-powered-mathematical-checkup/",
+          "time": "2026-11-11 22:08:57",
+          "source_name": "Ars Technica"
+        }
+      ]
+    },
+    {
+      "section": "Ilya Sutskever",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 1.66,
+      "error": "",
+      "samples": [
+        {
+          "title": "Neoclouds have limited cybersecurity. Next time agents successfully go rouge, they'll try taking over a neocloud to run more copies. This is bad. Thus: neoclouds should greatly strengthen their cybersecurity and every company with strong cyber models should help with that.",
+          "url": "https://x.com/ilyasut/status/2094881278621253755?s=20",
+          "time": "2026-09-02 04:13",
+          "source_name": "Ilya Sutskever"
+        },
+        {
+          "title": "RT @daniellevy__: Deep learning happens when a small, cracked team operates a big computer. The computer just got bigger.",
+          "url": "https://x.com/ilyasut/status/2081750892714602535?s=20",
+          "time": "2026-07-27 22:37",
+          "source_name": "Ilya Sutskever"
+        }
+      ]
+    },
+    {
+      "section": "郭明錤",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 1.61,
+      "error": "",
+      "samples": [
+        {
+          "title": "My latest supply chain checks indicate that Nvidia has begun testing glass-free copper-clad laminate (CCL) based primarily on hydrocarbon (HC) resin as a replacement for glass-free PTFE-based CCL tested previously, paired with glass-free HC-based PP. The goal is to determine whether this material combination can meet the switch tray PCB requirements for Rubin Ultra NVL576, an eight-rack interconnected solution expected to enter mass production in 2H27. Preliminary tests conducted as part of efforts to improve PCB manufacturability show that glass-free HC CCL meets the switch tray’s high-frequency electrical requirements. Its electrical performance trails that of the original PTFE solution but exceeds that of M9-class solutions and even surpasses M10’s stated specifications. These results do not represent a final material selection, but they indicate that NVIDIA continues to seek higher PCB manufacturing yields and greater production efficiency while meeting electrical requirements. 1. Key Takeaways and Analysis (1) Previous NVL576 switch tray tests used glass-free PTFE CCL paired with glass-free HC PP. The latest round replaces the PTFE CCL with glass-free HC CCL while retaining the same HC PP part number. (2) Shengyi Technology is currently the leading supplier in the NVL576 switch tray material evaluations. The materials involved are SG5300N (glass-free PTFE CCL), SG1030N (glass-free HC CCL), and SIF09 (glass-free HC PP). (3) The primary objective of testing glass-free HC CCL as a replacement for glass-free PTFE CCL is to determine whether PCB manufacturing yields and production efficiency can be improved while still meeting high-frequency electrical requirements. (4) To further improve PCB manufacturability, subsequent tests may also evaluate replacing glass-free HC PP with woven-glass-reinforced HC PP. The challenge is whether the glass-reinforced material can still meet signal integrity and 0.4 dB/in loss requirements. (5) Notably, both SG1030N and SIF09 still contain small amount of PTFE, although HC is the primary material. These tests therefore do not represent a complete shift away from PTFE. Rather, they involve adjusting the primary resin system and material combination to balance high-frequency electrical performance with PCB manufacturability. 2. Conclusions (1) The long-term trend toward broader use of PTFE in advanced PCB materials, including CCL and PP, remains clear. However, the pace of shipment growth over the next two years remains uncertain. Key variables include NVL576 switch tray PCB’s final material selection, NVL576 adoption rate, and development progress on Kyber-like rack designs that use orthogonal backplanes. (2) HC use in advanced CCL and PP continues to expand. Beyond NVL576 switch trays, near-term growth drivers include the production ramp of M9-class materials beginning in 4Q26, followed by the adoption of M10-class materials. (3) Once specifications are finalized and mass production begins, it's expected that Shengyi Technology to accelerate sourcing from Chinese HC suppliers. These include existing suppliers such as Dongcai and Shengquan, as well as potential ones such as GCH Technology. This should help alleviate supply shortages and optimize its cost structure.",
+          "url": "https://x.com/mingchikuo/status/2105199423680893343?s=20",
+          "time": "2026-09-30 15:33",
+          "source_name": "郭明錤"
+        },
+        {
+          "title": "我最新的產業調查顯示，Nvidia 開始測試以碳氫樹脂（hydrocarbon resin，HC）為主的無布 CCL，取代先前測試的 PTFE 無布 CCL，並搭配 HC 無布 PP，評估能否滿足預計於 2H27 量產的 Rubin Ultra NVL576（8 機櫃互連方案）之 switch tray PCB 需求。 在提升 PCB 生產性的目標下，HC 無布 CCL 的初步測試結果符合 switch tray 的高頻電性要求（表現不及原 PTFE 方案，但優於 M9 等級方案，甚至優於 M10 的帳面規格）。上述測試不代表最終定案，但顯示 Nvidia 仍在滿足電性要求的前提下，尋求更好的 PCB 製造良率與生產效率。 1. 重點解讀與分析： (1) 先前測試 NVL576 switch tray 的組合，是 PTFE 無布 CCL 搭配 HC 無布 PP。近期的新一輪測試，則是以 HC 無布 CCL 替代原本的 PTFE 無布 CCL，HC 無布 PP 仍使用相同料號。 (2) 生益科技是目前 NVL576 switch tray 材料測試的領先供應商。相關材料包括 SG5300N（PTFE 無布 CCL）、SG1030N（HC 無布 CCL），以及 SIF09（HC 無布 PP）。 (3) 將 PTFE 無布 CCL 改為 HC 無布 CCL，主要是評估在改善 PCB 的製造良率與生產效率的目標下，同時滿足高頻電性要求。 (4) 為進一步優化 PCB 可製造性，後續也可能測試將 HC 無布 PP 換成 HC 有布 PP。導入 HC 有布 PP 的挑戰在於，能否仍達到訊號完整性與 0.4 dB/in 的損耗要求。 (5) 值得注意的是，SG1030N 與 SIF09 雖以 HC 為主要材料，但配方中仍含少量 PTFE。因此，這次測試並非完全去 PTFE 化，而是調整材料主體與組合，以兼顧高頻電性與 PCB 可製造性。 2. 結論： (1) PTFE 導入高階 PCB 材料（CCL 與 PP）的長期趨勢明確，但未來兩年的出貨成長節奏仍有變數。關鍵在於：NVL576 switch tray PCB 的最終材料方案、NVL576 的採用比重，以及採用正交背板的 Kyber-like 機櫃設計之研發進展。 (2) HC 在高階 CCL／PP 的應用持續擴大。短期成長動能除了 NVL576 switch tray，還包括自 4Q26 開始放量的 M9 等級材料，以及後續的 M10。 (3) 預期未來規格定案與開始量產後，生益科技將加速導入中國的 HC 供應商（如既有的東材與聖泉，潛在供應商呈和等），有助於供應缺口改善與優化成本結構。",
+          "url": "https://x.com/mingchikuo/status/2105199402759651704?s=20",
+          "time": "2026-09-30 15:33",
+          "source_name": "郭明錤"
+        }
+      ]
+    },
+    {
+      "section": "外汇交易员",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 8,
+      "seconds": 1.53,
+      "error": "",
+      "samples": [
+        {
+          "title": "中共中央政治局委员、外交部长王毅11日同美国国务卿鲁比奥通电话。双方就中美关系及两国元首互动深入交换意见，通话是积极和建设性的。 王毅表示，中美关系稳定势头来之不易，是两个大国从各自和共同利益出发作出的理性选择。中国对美政策保持稳定性和连续性，愿同美方加强沟通合作，妥善处理分歧和敏感问题，相互支持办好2026年亚太经合组织领导人非正式会议和二十国集团领导人峰会，推动中美建设性战略稳定关系落地见效。（新华社）",
+          "url": "https://x.com/fxtrader/status/2120533658817732647?s=20",
+          "time": "2026-11-11 23:06",
+          "source_name": "外汇交易员"
+        },
+        {
+          "title": "俄罗斯谈判代表团团长、俄总统助理梅金斯基公布了本轮俄美乌三方会谈的部分成果。 梅金斯基表示，俄乌原则同意进行新一轮大规模在押人员交换。他还表示，俄方代表团在阿布扎比没有和欧洲代表进行接触。",
+          "url": "https://x.com/fxtrader/status/2120486037759856869?s=20",
+          "time": "2026-11-11 19:57",
+          "source_name": "外汇交易员"
+        }
+      ]
+    },
+    {
+      "section": "WaylandZhang",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 2.06,
+      "error": "",
+      "samples": [
+        {
+          "title": "anthropic的路演看完，本质上是一个长期算力期权 + AI行业应用层期权的双期权投资策略。你在买（aka“赌”）的是未来算力成本波动和软件（生物/办公）渗透率的波动。 跟底层大模型指标已经关系不大了。",
+          "url": "https://x.com/WaylandZhang/status/2120370041950740732?s=20",
+          "time": "2026-11-11 12:16",
+          "source_name": "WaylandZhang"
+        },
+        {
+          "title": "Makes sense.",
+          "url": "https://x.com/WaylandZhang/status/2118495916470812793?s=20",
+          "time": "2026-11-06 08:09",
+          "source_name": "WaylandZhang"
+        }
+      ]
+    }
+  ],
+  "details": [
+    {
+      "name": "Reuters",
+      "kind": "article",
+      "url": "https://www.reuters.com/world/middle-east/iran-will-not-allow-enriched-nuclear-material-leave-country-security-chief-says-2026-11-11/",
+      "ok": true,
+      "title": "Iran will not allow enriched nuclear material to leave the country, security chief says",
+      "length": 2145,
+      "seconds": 15.9,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "79c4975709770b1f8e06c365c5879022f16dd2dfc8471a41a336fee22b40e6f1",
+      "preview": "DUBAI, Nov 11 (Reuters) - Iran will not allow even a single particle of enriched nuclear material to leave the country and there will be consequences in the eve"
+    },
+    {
+      "name": "Bloomberg",
+      "kind": "article",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-11/meta-s-head-of-infrastructure-engineering-to-step-down-in-2027",
+      "ok": true,
+      "title": "Meta’s Head of Infrastructure, Engineering to Step Down in 2027",
+      "length": 4613,
+      "seconds": 32.36,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "c07f549325244eb6455c01a2b859d9d35faa8a191f6d7f6e6f31a62916081459",
+      "preview": "Meta Platforms Inc.’s longtime infrastructure chief will leave the company in early 2027, a major leadership change as it continues to invest hundreds of billio"
+    },
+    {
+      "name": "TechCrunch",
+      "kind": "article",
+      "url": "https://techcrunch.com/2026/11/11/siri-co-founder-backs-helix-for-its-voice-id-tech/",
+      "ok": true,
+      "title": "Siri co-founder backs Helix for its voice ID tech",
+      "length": 4204,
+      "seconds": 2.04,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "3ab0d3b0dc3b442d538337bacbf7448f6f41b31edb65aa4575ec504e5e452c6f",
+      "preview": "For years, websites have relied on technology like CAPTCHA to prove that the user on the other end is human. More recently, social media platforms have turned t"
+    },
+    {
+      "name": "Ars Technica",
+      "kind": "article",
+      "url": "https://arstechnica.com/cars/2026/11/toyota-resurrects-scion-with-right-hand-drive-kei-trucks/",
+      "ok": true,
+      "title": "Trump wanted little Kei trucks for America, Toyota makes it happen",
+      "length": 3888,
+      "seconds": 16.13,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "4f7579a12ff2329de0c0800e0530b3c999b0cebbb0d8443fe0cb737f862b1487",
+      "preview": "The idea that Americans should be offered a greater choice of smaller cars has support from strange bedfellows indeed. After all, who could forget President Tru"
+    },
+    {
+      "name": "Reuters list-style article",
+      "kind": "reuters_list",
+      "url": "https://www.reuters.com/business/media-telecom/openai-limit-weapons-information-teens-chatgpt-violence-prevention-push-2026-10-30/",
+      "ok": true,
+      "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
+      "length": 1647,
+      "seconds": 5.0,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 7,
+      "forbidden_text_checks": 0,
+      "content_sha256": "d0bdbb3d0b59494315fbb878fd68f636cb37caeca7881da14f37730f55893af3",
+      "preview": "Oct 30 (Reuters) - OpenAI said on Friday it is tightening limits on the weapons-related information ChatGPT provides to teens, even when a question appears harm"
+    },
+    {
+      "name": "Reuters embedded video article",
+      "kind": "reuters_video",
+      "url": "https://www.reuters.com/world/israels-parliament-sworn-eisenkot-tries-forge-government-2026-11-10/",
+      "ok": true,
+      "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
+      "length": 4206,
+      "seconds": 16.17,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 2,
+      "forbidden_text_checks": 2,
+      "content_sha256": "08727c122e3a6ec4c37483f8e7d9ff9b1507bbb68c873718bcaf3a5e9b5b538f",
+      "preview": "JERUSALEM, Nov 10 (Reuters) - Israel's parliament was sworn in on Tuesday without a new government, after a deadlocked general election stripped Prime Minister "
+    },
+    {
+      "name": "X thread",
+      "kind": "x_thread",
+      "url": "https://x.com/ilyasut/status/2094881278621253755?s=20",
+      "ok": true,
+      "title": "ilyasut",
+      "length": 680,
+      "seconds": 18.97,
+      "error": "",
+      "article_length": 0,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "5843a44d282783401198cc80107247668de2cde6d6b602a660faf8a379f65dfa",
+      "preview": "【主推文】\nNeoclouds have limited cybersecurity.   Next time agents successfully go rouge, they'll try taking over a neocloud to run more copies.  This is bad.\n\nThus"
+    },
+    {
+      "name": "X note tweet",
+      "kind": "x_note",
+      "url": "https://x.com/mingchikuo/status/2078159616832368941",
+      "ok": true,
+      "title": "mingchikuo",
+      "length": 8779,
+      "seconds": 8.58,
+      "error": "",
+      "article_length": 1906,
+      "required_text_checks": 0,
+      "forbidden_text_checks": 0,
+      "content_sha256": "ba419c2a4bbf83c4a4f96a2a863db4138ce8856090290aafc8a5a940439aaeed",
+      "preview": "【主推文】\nA few quick thoughts on what TSMC said about CoPoS during its Q2 2026 earnings call (screenshot from the transcript). The devil is in the details:\n\n1. The"
+    },
+    {
+      "name": "X long article",
+      "kind": "x_article",
+      "url": "https://x.com/stripe/status/2037197998074335292",
+      "ok": true,
+      "title": "stripe",
+      "length": 4755,
+      "seconds": 7.68,
+      "error": "",
+      "article_length": 3851,
+      "required_text_checks": 1,
+      "forbidden_text_checks": 0,
+      "content_sha256": "742ec56984e1a598f9d3ee65f7830ec86db97922da37eabccc79e749832c997e",
+      "preview": "【主推文】\nhttps://t.co/yaIRTsCQ4t\n\n【长文补充】\nWe're rolling out Stripe Projects, a new tool in the Stripe CLI that lets you provision real services from the terminal, k"
+    }
+  ],
+  "isolation": {
+    "external_modules_blocked": true,
+    "project_daemon_started": true,
+    "global_cli_used": false
+  },
+  "runtime": {
+    "version": "2.0.3",
+    "isolated": true,
+    "adapter_commit": "c28502779314773797d92306c9bebbc9fe03b6f0",
+    "adapter_version": "0.9.2+newsreader.1",
+    "commands": [
+      "ReutersBrowser news",
+      "BloombergUser tech",
+      "TechcrunchPublic news",
+      "ArsPublic news",
+      "reuters article-detail",
+      "TechcrunchPublic article",
+      "ArsPublic article",
+      "bloomberg news",
+      "twitter tweets",
+      "twitter thread",
+      "twitter article",
+      "twitter whoami"
+    ]
+  },
+  "environment": {
+    "checks": [
+      {
+        "id": "runtime",
+        "status": "success",
+        "message": "opencli 2.0.3；使用 NewsReader 锁定的项目内版本。"
+      },
+      {
+        "id": "adapters",
+        "status": "success",
+        "message": "12 项必需命令与内置 adapter 校验通过；不加载个人 adapter 或插件。"
+      },
+      {
+        "id": "chrome",
+        "status": "success",
+        "message": "已通过浏览器连接检查；采集期间请保持 Chrome 运行。"
+      },
+      {
+        "id": "bridge",
+        "status": "success",
+        "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
+      }
+    ],
+    "checked_at": "2026-11-11T16:10:55.754557+00:00"
+  },
+  "x_login": {
+    "checks": [
+      {
+        "id": "runtime",
+        "status": "success",
+        "message": "opencli 2.0.3；使用 NewsReader 锁定的项目内版本。"
+      },
+      {
+        "id": "adapters",
+        "status": "success",
+        "message": "12 项必需命令与内置 adapter 校验通过；不加载个人 adapter 或插件。"
+      },
+      {
+        "id": "x",
+        "status": "success",
+        "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
+      }
+    ],
+    "checked_at": "2026-11-11T16:11:03.245832+00:00"
+  },
+  "ok": true,
+  "upstream": {
+    "latest": "2.0.3",
+    "checked_at": "2026-11-11T16:16:36.819761+00:00",
+    "retained_reason": ""
+  },
+  "offline_checks_passed": true
+}
