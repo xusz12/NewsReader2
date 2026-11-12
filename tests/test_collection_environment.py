@@ -1,5 +1,7 @@
 import json
 import subprocess
+import sqlite3
+from contextlib import closing
 
 import pytest
 
@@ -137,11 +139,17 @@ def test_overlapping_checks_are_rejected_and_lock_is_released(monkeypatch):
 def test_environment_api_restricts_commands_and_does_not_queue_collection(monkeypatch, tmp_path):
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
     import app
+    monkeypatch.setattr(app, "DB_PATH", tmp_path / "news.sqlite3")
+    with app.db_conn() as conn:
+        environment.initialize(conn)
     monkeypatch.setattr(app.COLLECTION_SERVICE, "request", lambda: pytest.fail("must not collect"))
     calls = []
-    monkeypatch.setattr(environment, "check", lambda target: calls.append(target) or {"checks": [], "checked_at": "test"})
+    monkeypatch.setattr(environment, "check", lambda target: calls.append(target) or {
+        "checks": [{"id": "x" if target == "x" else "runtime", "status": "success", "message": "检查通过"}],
+        "checked_at": "2026-11-12T01:00:00+00:00"})
     client = app.app.test_client()
     endpoint = "/api/collection/environment/check"
+    assert client.get('/api/collection/environment').json == {'ok': True, 'checks': []}
     for body in ({"target": "login"}, {"target": ["x"]}, {"target": {"command": "bad"}},
                  {"target": "x", "command": "bad"}, [], None):
         response = client.post(endpoint, data=json.dumps(body), content_type="application/json")
@@ -149,8 +157,43 @@ def test_environment_api_restricts_commands_and_does_not_queue_collection(monkey
     assert not calls
     assert client.post(endpoint).status_code == 200
     assert client.post(endpoint, json={"target": "x"}).status_code == 200
+    assert {row['id'] for row in client.get('/api/collection/environment').json['checks']} == {'runtime', 'x'}
     assert calls == ["environment", "x"]
     def busy(_):
         raise environment.Busy()
     monkeypatch.setattr(environment, "check", busy)
     assert client.post(endpoint).status_code == 409
+
+
+def test_latest_checks_survive_reopening_and_retain_stale_account_results(tmp_path):
+    path = tmp_path / 'checks.sqlite3'
+    def connect():
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        return conn
+    account = {'checked_at': '2026-11-12T01:00:00+00:00', 'checks': [
+        {'id': 'x', 'status': 'success', 'message': '已验证 X 登录'}]}
+    browser = {'checked_at': '2026-11-12T02:00:00+00:00', 'checks': [
+        {'id': 'runtime', 'status': 'success', 'message': 'opencli 已就绪'},
+        {'id': 'bridge', 'status': 'failed', 'message': '扩展未连接'}]}
+    with closing(connect()) as conn:
+        environment.initialize(conn)
+        environment.remember(conn, 'x', account)
+        result = environment.remember(conn, 'environment', browser)
+    with closing(connect()) as conn:
+        environment.initialize(conn)
+        assert environment.latest(conn) == result
+        records = {row['id']: row for row in result}
+        assert records['x']['stale'] and records['x']['checked_at'] == account['checked_at']
+        assert records['bridge']['status'] == 'failed'
+        # An older delayed login result cannot undo the newer browser check.
+        environment.remember(conn, 'x', account)
+        assert next(row for row in environment.latest(conn) if row['id'] == 'x')['stale']
+        refreshed = {**account, 'checked_at': '2026-11-12T03:00:00+00:00'}
+        environment.remember(conn, 'x', refreshed)
+        environment.remember(conn, 'environment', browser)
+        assert not next(row for row in environment.latest(conn) if row['id'] == 'x')['stale']
+        environment.remember(conn, 'environment', {**browser, 'checked_at': '2026-11-12T04:00:00+00:00',
+            'checks': [{'id': 'bridge', 'status': 'success', 'message': '扩展已连接'}]})
+        assert next(row for row in environment.latest(conn) if row['id'] == 'bridge')['status'] == 'success'
+        assert len(environment.latest(conn)) == 3

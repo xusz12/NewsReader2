@@ -49,7 +49,7 @@
 - `AdaptiveConcurrency` 对当前进程的全部分类线程共享有效并发和冷却。429／529 使有效并发减半，按请求代次避免同批响应重复降速；指数等待 5–300 秒并遵守更长的 `Retry-After`（秒数或 HTTP 日期）。冷却后稳定至少 30 秒且累计 `max(8, 有效并发×2)` 次连续成功，每次增加 1，最多恢复至配置上限；限流前发出的请求即使迟到成功也不能触发恢复。限流任务保留 pending、撤销本次失败次数并保存下次执行时间；手动重试和调整并发不清除共享冷却。调速状态在进程内维护，重启按保存的上限开始，已有分类和队列重试时间继续保留；多进程部署需另做跨进程限速。
 - `classification.unread_only` 是布尔开关（默认 false），保存后即时更新服务，启动时恢复。开启时 `claim`、`status`、`retry_failed` 使用同一未读条件：不存在 `item_state.read_at IS NOT NULL` 的状态记录；无状态记录也视为未读。领取任务与设置切换串行，模型请求在锁外执行；切换前已领取的请求继续完成。索引仍维护全部新闻的队列，已读待处理记录不消耗请求或尝试次数，关闭开关后自动恢复资格。已有结果不清除，分类筛选不受开关影响；进度接口返回 `unread_only` 及当前范围的计数。
 - `classification_progress_batch` 与 `classification_progress_items` 仅保存当前批次及其新闻标题指纹／规则版本。首次读取状态或领取任务时，在写事务内收录当前可执行且未完成的新闻；本批仍有待处理、在途或失败任务时合入新增任务，已结束后出现新任务才清空成员并生成新批ID。刷新、服务重启和重试保留批次；仅未读范围变化重新建立，已完成成员不因标读退出。已删除或标题／规则不符的成员不计入，改写任务重新收录。状态查询的短写事务用于持久化批次发现，模型请求仍在事务外。
-- `GET /api/news/classification` 返回独立的 `batch` 本次进度、全库 `coverage`、原有队列进度和 `throttle`（配置／有效并发、在途数、限流状态、剩余冷却秒数）；`POST /api/news/classification/retry` 重排失败任务并恢复配置错误导致的暂停，保留限流冷却。接口不返回密钥或上游错误正文。无密钥时等待，阅读和索引仍正常。
+- `GET /api/news/classification` 返回独立的 `batch` 本次进度、全库 `coverage`、原有队列进度和 `throttle`（配置／有效并发、在途数、限流状态、剩余冷却秒数）；`errors` 按当前有效标题、规则及未读范围聚合未完成任务的安全错误码、状态和数量，包含自动重试中的错误。采集记录复用同一前端快照显示当前异常并合并角标；`POST /api/news/classification/retry` 重排失败任务并恢复配置错误导致的暂停，保留限流冷却。接口不返回密钥或上游错误正文。无密钥时等待，阅读和索引仍正常。
 - `static/classification-progress.js` 独立维护顶栏确定性圆环与悬停卡片。所有集合中有 pending／running 时每 2 秒读取进度，空闲每 30 秒探测；页面隐藏暂停、回到前台或刷新索引时立即读取，限制单个在途请求，失败时保留上次计数并标注。圆环按 batch.done／batch.total 绘制，pending／running／failed 均为零时连同浮层隐藏；失败不伪装为成功。分类进度刷新不重载新闻列表或修改阅读位置。
 - `/api/news`、`/api/search`、`/api/news/mark-all-read` 接受 `category=all|china|ai|politics|economy|business|science|other`；未知类别返回 400。服务端先筛选当前标题和规则下的完成结果，再做计数、日期分组、分页或批量操作。新闻序列化增加 `category`、`category_label`、`classification_status`。未完成记录只出现在全部，侧栏全局计数不跟随分类。
 - 新闻列表复用 `/api/news`、`/api/search` 的 `date_counts` 生成日期分组。`count_only=1` 可追加 `date_counts=1` 取得同一筛选范围的每日完整数量；不传时保持仅返回总数。未知日期归入 `unknown`。主筛选统计使用 `category=all`，日期统计保留当前分类；前端以请求序号、范围及写入版本隔离过期响应，乐观标读同步更新当日数量。
@@ -96,6 +96,10 @@ flowchart LR
 2026-10-31新增顶栏统一进度：`GET /api/tasks/progress` 通过 `task_progress.snapshot()` 在一个只读事务中读取主题任务、主题匹配队列及报告阶段，不加载新闻正文、模型配置或生成结果，也不启动工作线程。只保留当前主题生命周期的最新活动／失败任务及未处理匹配，排除归档与已完成任务；报告返回全量状态计数及最多10条元数据。`static/task-progress.js` 与分类轮询共享顶栏浮层，运行中每2秒、空闲每30秒观察；成功的主题／报告写请求发出 `tasks:changed` 立即刷新，查看状态本身没有生成或标读副作用。
 
 2026-10-30新增定期报告：`periodic_reports.py` 使用独立调度与生成线程，负责排期、刷新后的快照、重试与归档；`report_generation.py` 负责按模型容量规划一次成文或分批编辑、引用覆盖及局部修复；`report_model.py` 解析模型容量并执行无工具调用；`static/report-panel.js` 复用工作台阅读器，展示重点与简讯。完整窗口、启用边界、数据表和日历维护约定见 [定期报告](../periodic-reports.md)。
+
+2026-11-12月报重要新闻：`report_monthly.py` 定义当月重要新闻必收及历史仅作背景的补充规则；共享窗口的 `monthly_snapshot_json` 在首份月报取材时固定重要标记和补充来源，旧独立快照使用报告自身同名字段。`report_generation.py` 和 `report_workspace.py` 在初筛、归并、章节计划及成稿引用中执行必收／背景约束，仍先按标题选稿、后开放入选摘要与正文。补充材料沿用原快照的并发、租约、用量及清理生命周期，已完成报告不改写。
+
+2026-11-12报告元信息与环境记录：`periodic_reports.source_count` 在生成前保存取材条数，材料清理后保留；列表与详情的 `selected_source_count` 按存档正文及简讯的实际来源引用去重计算。`collection_environment_checks` 保存每个环境检查项最近的脱敏结果、时间及待复查标记；`GET /api/collection/environment` 只读取记录，POST 检查完成后更新记录，重查浏览器后保留并标记旧 X 登录结果为待复查。
 
 | 位置 | 职责 | 修改时关联检查 |
 | --- | --- | --- |

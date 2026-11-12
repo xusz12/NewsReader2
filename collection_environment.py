@@ -10,6 +10,38 @@ from collection_sources import run_command
 
 
 _lock = threading.Lock()
+CHECK_IDS = {"runtime", "adapters", "chrome", "bridge", "x"}
+
+
+def initialize(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS collection_environment_checks (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, message TEXT NOT NULL,
+        checked_at TEXT NOT NULL, stale INTEGER NOT NULL DEFAULT 0)""")
+
+
+def latest(conn):
+    return [{**dict(row), "stale": bool(row["stale"])} for row in conn.execute(
+        "SELECT id,status,message,checked_at,stale FROM collection_environment_checks ORDER BY id")]
+
+
+def remember(conn, target, result):
+    """Keep the latest safe diagnostic per check, independent of browser storage."""
+    at = result["checked_at"]
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if target == "environment":
+            conn.execute("UPDATE collection_environment_checks SET stale=1 WHERE id='x' AND checked_at<=?", (at,))
+        for row in result["checks"]:
+            if row["id"] not in CHECK_IDS or row["status"] not in {"success", "failed", "unknown"}:
+                continue
+            stale = row["id"] == "x" and bool(conn.execute("""SELECT 1 FROM collection_environment_checks
+                WHERE id IN ('chrome','bridge') AND checked_at>? LIMIT 1""", (at,)).fetchone())
+            conn.execute("""INSERT INTO collection_environment_checks(id,status,message,checked_at,stale)
+                VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,
+                message=excluded.message,checked_at=excluded.checked_at,stale=excluded.stale
+                WHERE excluded.checked_at>=collection_environment_checks.checked_at""",
+                (row["id"], row["status"], row["message"], at, int(stale)))
+        return latest(conn)
 
 
 class Busy(Exception):

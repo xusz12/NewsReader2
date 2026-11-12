@@ -846,6 +846,7 @@ def ensure_db() -> None:
         conn.execute("PRAGMA journal_mode=WAL")
         apply_schema(conn, SCHEMA_PATH)
         news_collection.initialize(conn)
+        collection_environment.initialize(conn)
         if "title" not in {row[1] for row in conn.execute("PRAGMA table_info(standalone_ideas)")}:
             conn.execute("ALTER TABLE standalone_ideas ADD COLUMN title TEXT NOT NULL DEFAULT ''")
         migrate_article_highlights_schema(conn)
@@ -9167,6 +9168,12 @@ def api_collection_request():
     return jsonify({"ok": True, "run_id": COLLECTION_SERVICE.request()}), 202
 
 
+@app.get("/api/collection/environment")
+def api_collection_environment():
+    with closing(db_conn()) as conn:
+        return jsonify(ok=True, checks=collection_environment.latest(conn))
+
+
 @app.post("/api/collection/environment/check")
 def api_collection_environment_check():
     body = request.get_json(silent=True)
@@ -9175,7 +9182,13 @@ def api_collection_environment_check():
     if not isinstance(body, dict) or set(body) - {"target"} or body.get("target", "environment") not in ("environment", "x"):
         return jsonify(ok=False, error="invalid_environment_check"), 400
     try:
-        return jsonify(ok=True, **collection_environment.check(body.get("target", "environment")))
+        target = body.get("target", "environment")
+        # Resolve the database before probing, so a later settings change cannot
+        # move an in-flight check's result into another library.
+        with closing(db_conn()) as conn:
+            result = collection_environment.check(target)
+            results = collection_environment.remember(conn, target, result)
+        return jsonify(ok=True, **result, results=results)
     except collection_environment.Busy:
         return jsonify(ok=False, error="collection_environment_busy"), 409
 

@@ -2384,6 +2384,11 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
 .term-line-ok {
   color: var(--status-success);
 }
+.status-text[data-status="success"] { color: color-mix(in oklab, var(--status-success) 60%, var(--fg)); }
+.status-text:is([data-status="failed"], [data-status="unknown"]) { color: color-mix(in oklab, var(--status-danger) 60%, var(--fg)); }
+.status-dot { background: var(--muted); vertical-align: middle; }
+.status-dot[data-status="success"] { background: var(--status-success); }
+.status-dot:is([data-status="failed"], [data-status="unknown"]) { background: var(--status-danger); }
 .term-line-dim {
   color: oklch(60% 0.01 250);
 }
@@ -4004,12 +4009,15 @@ button:disabled {
 }
 .settings-status::before {
   content: "";
+  background: var(--status-success);
+}
+.settings-status::before,
+.status-dot {
   display: inline-block;
   width: 6px;
   height: 6px;
   margin-right: 7px;
   border-radius: 50%;
-  background: var(--status-success);
 }
 .settings-status.dirty-state::before {
   background: var(--status-warning);
@@ -4212,11 +4220,11 @@ button:disabled {
 .agent-dock.minimized .agent-header { height: 42px; min-height: 42px; }
 .agent-dock.minimized .agent-caption { display: none; }
 .agent-empty-caption { color: var(--muted); font-size: var(--fs-meta); line-height: 1.7; margin: auto; text-align: center; }
-.agent-send-btn { width: 40px; align-self: stretch; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.agent-send-btn { width: 40px; height: 40px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .agent-send-btn svg { width: 18px; height: 18px; }
 .agent-model-controls { display: flex; align-items: center; flex-shrink: 0; }
 .agent-model-status { font-size: var(--fs-meta); overflow-wrap: anywhere; }
-.agent-input-row { align-items: stretch; flex-shrink: 0; padding: var(--space-3); gap: var(--space-2); }
+.agent-input-row { align-items: flex-end; flex-shrink: 0; padding: var(--space-3); gap: var(--space-2); }
 .agent-input { min-width: 0; resize: none; box-sizing: border-box; line-height: 1.5; font-family: var(--font-body); }
 .agent-input-measure { position: fixed; top: 0; left: 0; height: 0 !important; min-height: 0 !important; max-height: none !important; visibility: hidden; pointer-events: none; overflow: hidden; }
 @media (max-width: 1279px) {

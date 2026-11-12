@@ -1,8 +1,8 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.4";
-import { CollectionEnvironment } from "./collection-environment.js";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.6";
+import { CollectionEnvironment } from "./collection-environment.js?v=0.5.6";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
@@ -278,7 +278,10 @@ export class SettingsPanel {
     $("#settingsDetailDescription").hidden = !selected.dataset.description;
     if (changed) $(".settings-main").scrollTop = 0;
     if (changed && section === "models" && this.draft) this.renderModels();
-    if (section === "pipeline" && this.saved) this.renderCollectionServices();
+    if (section === "pipeline" && this.saved) {
+      this.renderCollectionServices();
+      void this.collectionEnvironment.load();
+    }
     if (section === "system" && $("#updateResult")) this.updater.restore();
     if (section === "catchup" && $("#settingsCatchupScope")) this.loadCatchupScope();
     if (section === "classification" && this.open) void this.onClassificationRefresh?.();

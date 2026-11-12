@@ -557,7 +557,32 @@ class Service:
                 AND s.status='failed'""").fetchone()[0]
             payload = {"ok":True,"day":day,"today":now().date().isoformat(),"unresolved_count":unresolved}
             if not details:
-                return payload
+                translation_count = conn.execute("""SELECT COUNT(*) FROM (
+                    SELECT run_id,source_id FROM collection_items WHERE status='failed' GROUP BY run_id,source_id)""").fetchone()[0]
+                publication_count = conn.execute("SELECT COUNT(*) FROM collection_runs WHERE publication_status='failed'").fetchone()[0]
+                return {**payload,"notice_count":translation_count + publication_count}
+            active_notices = {}
+            for failure in conn.execute("""SELECT i.run_id,i.source_id,i.error,COUNT(*) AS count,
+                       s.config_json,COALESCE(s.started_at,r.created_at) AS started_at
+                FROM collection_items i JOIN collection_runs r ON r.id=i.run_id
+                JOIN collection_run_sources s ON s.run_id=i.run_id AND s.source_id=i.source_id
+                WHERE i.status='failed' GROUP BY i.run_id,i.source_id,i.error
+                ORDER BY started_at DESC,i.run_id,i.source_id,i.error"""):
+                key = (failure["run_id"], failure["source_id"])
+                record = active_notices.setdefault(key, {
+                    "run_id":failure["run_id"], "source_id":failure["source_id"],
+                    "label":json.loads(failure["config_json"]).get("display_name", failure["source_id"]),
+                    "date":failure["started_at"][:10], "notices":[{"stage":"translation", "count":0, "error":""}]})
+                notice = record["notices"][0]
+                notice["count"] += failure["count"]
+                notice["error"] += ("\n" if notice["error"] else "") + f"{failure['count']} 条：{failure['error'] or 'translation_failed'}"
+            for failure in conn.execute("""SELECT id,COALESCE(started_at,created_at) AS started_at,publication_error
+                FROM collection_runs WHERE publication_status='failed' ORDER BY started_at DESC,id"""):
+                active_notices[(failure["id"], "")] = {"run_id":failure["id"], "source_id":"", "label":"整批入库",
+                    "date":failure["started_at"][:10],
+                    "notices":[{"stage":"publication", "error":failure["publication_error"] or "collection_publish_failed"}]}
+            payload["notice_count"] = len(active_notices)
+            payload["active_notices"] = list(active_notices.values())
             rows = conn.execute("""SELECT s.*,r.created_at,r.started_at AS run_started_at,
                        r.publication_status,r.publication_error,r.published_at
                 FROM collection_run_sources s JOIN collection_runs r ON r.id=s.run_id
@@ -565,14 +590,6 @@ class Service:
                    OR (s.started_at IS NULL AND r.created_at>=? AND r.created_at<?)
                    OR (s.ingested_at>=? AND s.ingested_at<?)
                 ORDER BY COALESCE(s.started_at,r.created_at) DESC,s.rowid DESC""", (day,end,day,end,day,end)).fetchall()
-            translation_errors = {}
-            run_ids = sorted({r["run_id"] for r in rows})
-            if run_ids:
-                placeholders = ",".join("?" for _ in run_ids)
-                for failure in conn.execute(f"""SELECT run_id,source_id,error,COUNT(*) AS count FROM collection_items
-                        WHERE status='failed' AND run_id IN ({placeholders})
-                        GROUP BY run_id,source_id,error ORDER BY run_id,source_id,error""", run_ids):
-                    translation_errors.setdefault((failure["run_id"],failure["source_id"]), []).append(failure)
         records, failures = [], []
         latest = {}
         for r in rows:
@@ -582,10 +599,9 @@ class Service:
             label = json.loads(r["config_json"]).get("display_name", r["source_id"])
             notices = []
             if collected_today:
-                failed = translation_errors.get((r["run_id"],r["source_id"]), [])
+                failed = active_notices.get((r["run_id"],r["source_id"]))
                 if failed:
-                    notices.append({"stage":"translation","count":sum(f["count"] for f in failed),
-                                    "error":"\n".join(f"{f['count']} 条：{f['error'] or 'translation_failed'}" for f in failed)})
+                    notices.extend(failed["notices"])
                 if r["publication_status"] == "failed":
                     notices.append({"stage":"publication","error":r["publication_error"] or "collection_publish_failed"})
             record = {"run_id":r["run_id"],"source_id":r["source_id"],"label":label,

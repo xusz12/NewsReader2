@@ -20,6 +20,14 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from feed_sources import is_bloomberg_video_url
+
+
+def article_sample(items):
+    """Pick supported article evidence; a dedicated video has no reader body."""
+    return next((item["url"] for item in items
+                 if item.get("url") and not is_bloomberg_video_url(item["url"])), None)
+
 
 def content_fingerprint():
     """Bind results to exactly the runtime/config/dependency files tested."""
@@ -116,8 +124,9 @@ def main():
                    "seconds": round(time.monotonic() - started, 2), "error": result.get("error", ""),
                    "samples": [{k: item.get(k) for k in ("title", "url", "time", "source_name")} for item in items[:2]]}
             report["sources"].append(row)
-            if items:
-                source_urls.setdefault(source["source_name"], items[0]["url"])
+            sample = article_sample(items)
+            if sample:
+                source_urls.setdefault(source["source_name"], sample)
             print(json.dumps({"source": source["section"], "ok": row["ok"], "count": row["valid_count"], "error": row["error"]}, ensure_ascii=False), flush=True)
             save()
         cases = [{"name": name, "url": source_urls.get(name), "kind": "article"}

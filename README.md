@@ -1,6 +1,6 @@
 # News Reader Workbench
 
-本地新闻阅读工作台。当前稳定版本：`v0.5.5`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
+本地新闻阅读工作台。当前稳定版本：`v0.5.6`。版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 团队接手请从 [项目交接总览](docs/handoff/README.md) 开始，包含产品范围、架构接口、安装维护、数据迁移、实测结果及移交验收清单。
 
@@ -82,7 +82,7 @@ OpenCLI 2.0.3 已纳入项目 npm 精确依赖，所需自定义 adapter 随源�
 
 已有 Mac 首次迁入本次集成时，先备份数据库与设置，等待任务结束并停止旧服务，更新源码后执行一次 `npm ci --ignore-scripts`、`npm run check:collection`，再重新启动。已经安装并验证过这份源码依赖的本机无需重复安装。后续新版升级器会准备和校验项目 npm 依赖；普通启动无需执行安装命令。
 
-OpenCLI 集成自 `v0.5.4` 引入；当前 `v0.5.5` 可通过「设置 → 系统与版本」检查更新。v0.5.3 的旧升级器可以更新源码，但不会安装新增依赖；首次迁入仍需补做[依赖安装与重启](docs/opencli-integration.md#已有-mac-首次升级)。
+OpenCLI 集成自 `v0.5.4` 引入；当前 `v0.5.6` 可通过「设置 → 系统与版本」检查更新。v0.5.3 的旧升级器可以更新源码，但不会安装新增依赖；首次迁入仍需补做[依赖安装与重启](docs/opencli-integration.md#已有-mac-首次升级)。
 
 设置 → 信源与采集提供「采集环境」检查和「采集服务配置」入口：确认服务所在电脑的项目内 opencli、必需命令与内置 adapter、Chrome／OpenCLI 浏览器扩展连接及 X 登录，并查看翻译缺少的配置。X 仅使用 opencli，不再依赖独立 twitter-cli。浏览器来源要求 Chrome 保持运行；公开 RSS 不受影响。Bypass Paywalls Clean 为可选手动安装项，环境检查不代表全部来源或正文验证通过。
 
@@ -204,7 +204,7 @@ OpenCode Go 与 Jev 的手动目录请求使用 25 秒网络超时，适用于�
 
 ## 版本与更新
 
-版本统一为 `v0.5.5`；npm 包版本为 `0.5.5`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
+版本统一为 `v0.5.6`；npm 包版本为 `0.5.6`。更新源明确配置为本项目的 `https://github.com/xusz12/NewsReader2.git`，不会自动读取其他远程仓库。
 
 在设置 → 系统状态与版本升级中点击「检查更新」，会重新读取 GitHub 的稳定版本 tag（`vN.N.N` 或 `vN.N.N.N`，不含预发布后缀），显示目标版本、检查时间和本地更新条件。没有稳定版本、已是最新版和本地版本领先会分别提示。GitHub 连接或访问限制导致检查失败时可稍后重试。
 

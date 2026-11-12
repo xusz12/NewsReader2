@@ -6,6 +6,17 @@ import sys
 import pytest
 
 from scripts import check_opencli_release as release
+from scripts.verify_collection_runtime import article_sample
+
+
+def test_live_article_sample_skips_dedicated_bloomberg_video_without_skipping_supported_articles():
+    video = "https://www.bloomberg.com/news/videos/2026-11-12/technology-news-video"
+    article = "https://www.bloomberg.com/news/articles/2026-11-12/technology-news"
+    reuters = "https://www.reuters.com/world/article-with-embedded-video-2026-11-12/"
+    assert article_sample([{"url": video}, {"url": article}]) == article
+    assert article_sample([{"url": reuters}]) == reuters
+    assert article_sample([{"url": video}]) is None
+    assert article_sample([]) is None
 
 
 @pytest.fixture

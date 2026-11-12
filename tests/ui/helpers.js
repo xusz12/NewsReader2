@@ -53,7 +53,12 @@ export async function contrast(button) {
       });
       return values[0] * .2126 + values[1] * .7152 + values[2] * .0722;
     }
-    const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => a - b);
+    let background = style.backgroundColor, parent = node.parentElement;
+    while ((background === 'rgba(0, 0, 0, 0)' || background === 'transparent') && parent) {
+      background = getComputedStyle(parent).backgroundColor;
+      parent = parent.parentElement;
+    }
+    const values = [luminance(style.color), luminance(background)].sort((a, b) => a - b);
     return (values[1] + .05) / (values[0] + .05);
   });
 }

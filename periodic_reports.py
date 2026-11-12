@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import report_model
 from feed_sources import is_bloomberg_video_url
+import report_monthly
 from settings import report_model_feature
 import report_schedule
 import trading_calendar
@@ -101,9 +102,12 @@ def initialize(conn, at=None):
     for name, declaration in (("progress_json", "TEXT NOT NULL DEFAULT '{}'"), ("started_at", "TEXT"),
                               ("model_label", "TEXT NOT NULL DEFAULT ''"), ("snapshot_id", "TEXT"),
                               ("snapshot_captured_at", "TEXT"), ("generation_seconds", "REAL"),
-                              ("attempt_seconds", "REAL NOT NULL DEFAULT 0"), ("read_completed_at", "TEXT")):
+                              ("attempt_seconds", "REAL NOT NULL DEFAULT 0"), ("read_completed_at", "TEXT"),
+                              ("source_count", "INTEGER"), ("monthly_snapshot_json", "TEXT")):
         if name not in columns:
             conn.execute(f"ALTER TABLE periodic_reports ADD COLUMN {name} {declaration}")
+    if "monthly_snapshot_json" not in {row[1] for row in conn.execute("PRAGMA table_info(periodic_report_snapshots)")}:
+        conn.execute("ALTER TABLE periodic_report_snapshots ADD COLUMN monthly_snapshot_json TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_periodic_reports_window ON periodic_reports(period_start,period_end)")
     if "model_label" not in columns:
         for ident, raw in conn.execute("SELECT id,config_json FROM periodic_reports WHERE config_json IS NOT NULL").fetchall():
@@ -118,6 +122,24 @@ def initialize(conn, at=None):
         conn.execute("""UPDATE periodic_reports SET generation_seconds=
             ROUND((julianday(updated_at)-julianday(started_at))*86400,3)
             WHERE status='done' AND julianday(updated_at)>=julianday(started_at)""")
+    if "source_count" not in columns:
+        for row in conn.execute("""SELECT r.id,r.result_json,r.progress_json,
+                COALESCE(r.snapshot_json,s.snapshot_json) AS material
+            FROM periodic_reports r LEFT JOIN periodic_report_snapshots s ON s.id=r.snapshot_id""").fetchall():
+            try:
+                result = json.loads(row["result_json"] or "{}")
+                progress = json.loads(row["progress_json"] or "{}")
+                count = result.get("generation", {}).get("source_count", progress.get("source_count"))
+                if type(count) is not int or count < 0:
+                    sources = json.loads(row["material"] or "{}").get("sources")
+                    # Old snapshots containing video exclusions cannot reliably
+                    # reconstruct how many sources that edition actually used.
+                    count = len(sources) if isinstance(sources, list) and all(
+                        isinstance(source, dict) and not is_bloomberg_video_url(source.get("url")) for source in sources) else None
+                if count is not None:
+                    conn.execute("UPDATE periodic_reports SET source_count=? WHERE id=?", (count, row["id"]))
+            except (ValueError, TypeError, AttributeError):
+                continue
     ts = stamp(at or now())
     conn.execute("INSERT OR IGNORE INTO periodic_report_meta VALUES (1, ?, ?, ?)", (uuid.uuid4().hex, ts, ts))
     conn.execute("INSERT OR IGNORE INTO periodic_report_snapshot_cleanup(singleton,next_run_at) VALUES (1,?)",
@@ -216,10 +238,10 @@ def snapshot_storage(conn):
     # Count stored UTF-8 bytes, not characters or the size of the entire DB.
     # Shared material is counted once regardless of how many reports reference it.
     row = conn.execute(f"""WITH materials AS (
-        SELECT LENGTH(CAST(s.snapshot_json AS BLOB)) AS bytes, NOT ({SHARED_SNAPSHOT_IN_USE}) AS clearable
+        SELECT LENGTH(CAST(s.snapshot_json AS BLOB))+COALESCE(LENGTH(CAST(s.monthly_snapshot_json AS BLOB)),0) AS bytes, NOT ({SHARED_SNAPSHOT_IN_USE}) AS clearable
             FROM periodic_report_snapshots s
         UNION ALL
-        SELECT LENGTH(CAST(r.snapshot_json AS BLOB)), {LEGACY_SNAPSHOT_CLEARABLE}
+        SELECT LENGTH(CAST(r.snapshot_json AS BLOB))+COALESCE(LENGTH(CAST(r.monthly_snapshot_json AS BLOB)),0), {LEGACY_SNAPSHOT_CLEARABLE}
             FROM periodic_reports r WHERE r.snapshot_json IS NOT NULL)
         SELECT COALESCE(SUM(bytes),0),COALESCE(SUM(CASE WHEN clearable THEN bytes ELSE 0 END),0),
             COUNT(*),COALESCE(SUM(clearable),0) FROM materials""").fetchone()
@@ -233,7 +255,7 @@ def prune_snapshots(conn, cutoff=None):
         AND NOT ({SHARED_SNAPSHOT_IN_USE})"""
     conn.execute(f"UPDATE periodic_reports SET snapshot_id=NULL WHERE snapshot_id IN ({unused})", (cutoff, cutoff))
     removed = conn.execute(f"DELETE FROM periodic_report_snapshots WHERE id IN ({unused})", (cutoff, cutoff)).rowcount
-    removed += conn.execute(f"""UPDATE periodic_reports AS r SET snapshot_json=NULL
+    removed += conn.execute(f"""UPDATE periodic_reports AS r SET snapshot_json=NULL,monthly_snapshot_json=NULL
         WHERE r.snapshot_json IS NOT NULL AND (? IS NULL OR COALESCE(r.snapshot_captured_at,r.updated_at)<=?)
         AND {LEGACY_SNAPSHOT_CLEARABLE}""", (cutoff, cutoff)).rowcount
     return removed
@@ -331,6 +353,24 @@ def index_error(exc):
     return "report_index_failed"
 
 
+def source_material(row, end):
+    if is_bloomberg_video_url(row["url"]):
+        return None
+    try:
+        published = local(row["published_at"])
+    except (ValueError, TypeError):
+        return None
+    body = ""
+    try:
+        if row["content"] and local(row["fetched_at"]) <= end:
+            body = row["content"]
+    except (ValueError, TypeError):
+        pass
+    return {"id": row["id"], "title": row["title"], "summary": row["summary"] or "",
+            "published_at": stamp(published), "source_name": row["source_name"] or row["source"] or "来源未注明",
+            "url": safe_url(row["url"]), "body": body[:12000], "body_excerpt": len(body) > 12000}
+
+
 def capture(conn, report):
     """Read the formal library at snapshot time, independent of pending collection.
 
@@ -344,28 +384,45 @@ def capture(conn, report):
         ORDER BY i.published_at, i.id""", ((start-timedelta(days=1)).date().isoformat(), (end+timedelta(days=1)).date().isoformat())).fetchall()
     sources = []
     for row in rows:
-        # Old databases can still contain video pages hidden from the feed.
-        if is_bloomberg_video_url(row["url"]):
+        source = source_material(row, end)
+        if source is None or not start <= local(source["published_at"]) < end:
             continue
-        try:
-            published = local(row["published_at"])
-        except (ValueError, TypeError):
-            continue
-        if not start <= published < end:
-            continue
-        body = ""
-        try:
-            if row["content"] and local(row["fetched_at"]) <= end:
-                body = row["content"]
-        except (ValueError, TypeError):
-            pass
-        sources.append({"ref": f"N{len(sources)+1:05}", "id": row["id"], "title": row["title"],
-                        "summary": row["summary"] or "", "published_at": stamp(published),
-                        "source_name": row["source_name"] or row["source"] or "来源未注明", "url": safe_url(row["url"]),
-                        "body": body[:12000], "body_excerpt": len(body) > 12000})
+        sources.append({"ref": f"N{len(sources)+1:05}", **source})
     policy = json.loads((ROOT / "reports/selection-rules.json").read_text(encoding="utf-8"))
     return {"sources": sources, "policy": policy, "captured_at": stamp(now()),
             "period_start": report["period_start"], "period_end": report["period_end"], "kind": report["kind"]}
+
+
+def capture_monthly(conn, snapshot):
+    """Freeze flags and optional history once, without changing the shared base."""
+    start, end = local(snapshot["period_start"]), local(snapshot["period_end"])
+    existing = {s["id"] for s in snapshot["sources"]}
+    refs = {s["ref"] for s in snapshot["sources"]}
+    important, additions, history = [], [], []
+    rows = conn.execute("""SELECT i.*,d.content,d.fetched_at FROM item_state st
+        JOIN items i ON i.id=st.item_id LEFT JOIN news_item_details d ON d.item_id=i.id
+        WHERE st.important_at IS NOT NULL ORDER BY i.published_at,i.id""")
+    for row in rows:
+        source = source_material(row, end)
+        if source is None or local(source["published_at"]) >= end:
+            continue
+        if local(source["published_at"]) >= start:
+            important.append(source["id"])
+            if source["id"] not in existing:
+                additions.append({**source, "monthly_role": "important"})
+        elif source["id"] not in existing:
+            history.append({**source, "monthly_role": "background"})
+    # A month with no current news cannot be manufactured out of historical flags.
+    if any(not is_bloomberg_video_url(source.get("url")) for source in snapshot["sources"]) or additions:
+        additions.extend(history)
+    number = 1
+    for source in additions:
+        while f"N{number:05}" in refs:
+            number += 1
+        source["ref"] = f"N{number:05}"
+        refs.add(source["ref"])
+    return {"version": report_monthly.VERSION, "captured_at": stamp(now()),
+            "important_ids": important, "sources": additions}
 
 
 def model_label(config):
@@ -381,12 +438,15 @@ def stored_snapshot(conn, report):
     # Preserve legacy inputs. New reports reference shared materials; editorial
     # kind remains specific to the individual report.
     if report["snapshot_json"]:
-        return json.loads(report["snapshot_json"])
+        snapshot = {**json.loads(report["snapshot_json"]), "kind": report["kind"]}
+        supplement = report["monthly_snapshot_json"]
+        return report_monthly.combine(snapshot, json.loads(supplement)) if report["kind"] == "monthly" and supplement else snapshot
     if report["snapshot_id"]:
-        row = conn.execute("SELECT snapshot_json FROM periodic_report_snapshots WHERE id=?", (report["snapshot_id"],)).fetchone()
+        row = conn.execute("SELECT snapshot_json,monthly_snapshot_json FROM periodic_report_snapshots WHERE id=?", (report["snapshot_id"],)).fetchone()
         if row is None:
             raise RuntimeError("report_snapshot_missing")
-        return {**json.loads(row[0]), "kind": report["kind"]}
+        snapshot = {**json.loads(row[0]), "kind": report["kind"]}
+        return report_monthly.combine(snapshot, json.loads(row[1])) if report["kind"] == "monthly" and row[1] else snapshot
     return None
 
 
@@ -401,6 +461,12 @@ def serialize(row, detail=False):
     value["is_manual"] = row["edition_key"].startswith(MANUAL_PREFIX)
     value["progress"] = progress_record(row)
     value["started_at"] = row["started_at"]
+    value["source_count"] = row["source_count"]
+    value["selected_source_count"] = None
+    if result is not None and row["status"] == "done":
+        refs = {ref for section in result.get("sections", []) for paragraph in section["paragraphs"] for ref in paragraph["refs"]}
+        refs.update(ref for brief in result.get("briefs", []) for ref in brief["refs"])
+        value["selected_source_count"] = len({source["ref"] for source in result.get("sources", []) if source["ref"] in refs})
     value.update({key:row[key] for key in ("model_label", "snapshot_id", "snapshot_captured_at", "generation_seconds", "read_completed_at")})
     value["attempts"] = row["attempts"]
     value["next_retry_at"] = (stamp(datetime.fromtimestamp(row["next_attempt"], TZ))
@@ -692,8 +758,8 @@ class Service:
 
     def update_progress(self, job, stage, **details):
         with closing(self.connect()) as conn, conn:
-            changed = conn.execute("UPDATE periodic_reports SET progress_json=?,updated_at=?,lease_until=? WHERE id=? AND lease=? AND status='running'",
-                (encoded({"stage": stage, **details}), stamp(now()), time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
+            changed = conn.execute("UPDATE periodic_reports SET progress_json=?,source_count=COALESCE(?,source_count),updated_at=?,lease_until=? WHERE id=? AND lease=? AND status='running'",
+                (encoded({"stage": stage, **details}), details.get("source_count"), stamp(now()), time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
             if changed != 1:
                 raise RuntimeError("report_interrupted")
 
@@ -756,6 +822,25 @@ class Service:
                 conn.commit()
             return {**json.loads(shared["snapshot_json"]), "kind": job["kind"]}
 
+    def monthly_snapshot(self, job, snapshot):
+        if job["kind"] != "monthly" or snapshot.get("monthly"):
+            return snapshot
+        with self.index_lock, closing(self.connect()) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute("UPDATE periodic_reports SET lease_until=? WHERE id=? AND lease=? AND status='running'",
+                (time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
+            if changed != 1:
+                raise RuntimeError("report_interrupted")
+            saved = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (job["id"],)).fetchone()
+            table = "periodic_reports" if saved["snapshot_json"] else "periodic_report_snapshots"
+            ident = saved["id"] if saved["snapshot_json"] else saved["snapshot_id"]
+            raw = conn.execute(f"SELECT monthly_snapshot_json FROM {table} WHERE id=?", (ident,)).fetchone()[0]
+            supplement = json.loads(raw) if raw else capture_monthly(conn, snapshot)
+            if not raw:
+                conn.execute(f"UPDATE {table} SET monthly_snapshot_json=? WHERE id=?", (encoded(supplement), ident))
+            conn.commit()
+        return report_monthly.combine(snapshot, supplement)
+
     def run_one(self):
         job = self.claim()
         if not job:
@@ -774,6 +859,7 @@ class Service:
                     if changed != 1:
                         raise RuntimeError("report_interrupted")
             snapshot = self.shared_snapshot(job)
+            snapshot = self.monthly_snapshot(job, snapshot)
             sources = [source for source in snapshot["sources"] if not is_bloomberg_video_url(source.get("url"))]
             # Keep archived materials immutable, but never send their video
             # sources to a new/retried report. Old answers and workspace drafts

@@ -800,6 +800,9 @@ def test_collection_notices_and_translation_retry_are_scoped_to_run_and_source(s
     for _ in range(4): assert service.translate_once()
     history = service.errors(collection.now().date().isoformat())
     assert history["stats"]["error_count"] == 2  # Translation failures are notices, not acquisition errors.
+    assert history["notice_count"] == 4
+    assert len(history["active_notices"]) == 4
+    assert service.errors("2026-01-01", details=False)["notice_count"] == 4
     assert len({r["batch_started_at"] for r in history["records"] if r["run_id"] == first}) == 1
     for record in history["records"]:
         if record["source_id"] == "broken":
@@ -821,6 +824,7 @@ def test_collection_notices_and_translation_retry_are_scoped_to_run_and_source(s
     assert not service.publish_once()  # Another source still needs repair.
     assert len(calls) == 8
     refreshed = service.errors(collection.now().date().isoformat())
+    assert refreshed["notice_count"] == 3
     assert not next(r for r in refreshed["records"] if r["run_id"] == first and r["source_id"] == "world")["notices"]
     assert refreshed["stats"]["error_count"] == 2
 
@@ -834,6 +838,7 @@ def test_publication_notice_retry_only_republishes_selected_batch(service, monke
         runs.append(service.request()); service.collect_once(); service.translate_once()
         assert service.publish_once()
     history = service.errors(collection.now().date().isoformat())
+    assert history["notice_count"] == 2
     assert history["stats"]["error_count"] == history["stats"]["ingested_count"] == 0
     assert all(r["notices"] == [{"stage": "publication", "error": "collection_publish_failed"}] for r in history["records"])
     monkeypatch.setattr(collection.topic_tracking, "enqueue_checks", original)
@@ -847,8 +852,29 @@ def test_publication_notice_retry_only_republishes_selected_batch(service, monke
     assert query(service, "SELECT publication_status FROM collection_runs WHERE id=?", (runs[1],))[0][0] == "failed"
     assert service.retry(run_id=runs[0], stage="publication") == 0
     history = service.errors(collection.now().date().isoformat())
+    assert history["notice_count"] == 1
     assert not next(r for r in history["records"] if r["run_id"] == runs[0])["notices"]
     assert next(r for r in history["records"] if r["run_id"] == runs[1])["notices"]
+
+
+def test_unresolved_translation_stays_visible_across_days_and_clears_on_retry(service, monkeypatch):
+    at = datetime.fromisoformat("2026-11-09T23:59:00+08:00")
+    monkeypatch.setattr(collection, "now", lambda: at)
+    service.translator = lambda *_: (_ for _ in ()).throw(RuntimeError("translation_failed | deepseek: HTTP_401 | pi: TIMEOUT"))
+    run = service.request(); service.collect_once(); service.translate_once()
+    at = datetime.fromisoformat("2026-11-10T09:00:00+08:00")
+    history = service.errors("2026-11-10")
+    assert history["records"] == [] and history["stats"]["error_count"] == 0
+    assert history["unresolved_count"] == 0 and history["notice_count"] == 1
+    active = history["active_notices"][0]
+    assert active["date"] == "2026-11-09" and active["run_id"] == run
+    assert active["notices"] == [{"stage": "translation", "count": 1,
+        "error": "1 条：translation_failed | deepseek: HTTP_401 | pi: TIMEOUT"}]
+    light = service.errors("2026-11-10", details=False)
+    assert light["notice_count"] == 1 and "active_notices" not in light
+    assert service.retry(run_id=run, source_id=active["source_id"], stage="translation") == 1
+    assert service.errors("2026-11-10")["active_notices"] == []
+    assert service.errors("2026-11-10", details=False)["notice_count"] == 0
 
 
 def test_scoped_retry_api_rejects_bad_targets_without_retrying_other_failures(api, service, monkeypatch):

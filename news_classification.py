@@ -412,12 +412,17 @@ def _status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:
         + (UNREAD_SCOPE_SQL if unread_only else "") + " GROUP BY c.status", (RULE_VERSION,)).fetchall()
     counts = {s: 0 for s in ("pending", "running", "done", "failed")}
     counts.update({r[0]: r[1] for r in rows})
+    errors = [dict(row) for row in conn.execute("""SELECT c.last_error AS code,c.status,COUNT(*) AS count
+        FROM item_classifications c JOIN items i ON i.id=c.item_id AND i.title=c.title
+        WHERE c.rule_version=? AND c.status<>'done' AND c.last_error IS NOT NULL"""
+        + (UNREAD_SCOPE_SQL if unread_only else "") + " GROUP BY c.last_error,c.status ORDER BY c.last_error,c.status",
+        (RULE_VERSION,))]
     # Coverage always includes the entire library, even in unread-only mode.
     # Unqueued, changed-title and outdated-rule items are not yet classified.
     coverage = conn.execute("""SELECT COUNT(*) AS total, COUNT(c.item_id) AS done FROM items i
         LEFT JOIN item_classifications c ON c.item_id=i.id AND c.title=i.title
           AND c.rule_version=? AND c.status='done'""", (RULE_VERSION,)).fetchone()
-    return {**counts, "total": sum(counts.values()), "rule_version": RULE_VERSION, "unread_only": unread_only,
+    return {**counts, "total": sum(counts.values()), "errors": errors, "rule_version": RULE_VERSION, "unread_only": unread_only,
             "coverage": {"total": coverage[0], "done": coverage[1]},
             "completed_revision": completed_revision(conn),
             "revision": conn.execute("SELECT COALESCE(MAX(updated_at),0) FROM item_classifications").fetchone()[0]}

@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.5</title>
+    <title>News Reader v0.5.6</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.5" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.5" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.6" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.6" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.5"
+      href="/static/style.css?v=0.5.6"
       rel="stylesheet"
     />
   </head>
@@ -92,14 +92,14 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.5</span>
+            <span class="brand-version">v0.5.6</span>
           </div>
         </div>
         <div class="topbar-center">
           <button aria-label="采集记录" aria-describedby="pipelineStatus" aria-haspopup="dialog" aria-controls="upstreamErrorsPanel" aria-expanded="false" class="pipeline-status topbar-upstream-btn" id="upstreamErrorsBtn" title="查看每日采集记录" type="button">
             <span class="pipeline-dot upstream-pulse-dot" aria-hidden="true"></span>
             <span id="pipelineStatus">正在连接新闻库…</span>
-            <span class="upstream-badge" id="upstreamErrorSummary" aria-hidden="true"><span id="upstreamErrorBadge">—</span><span class="upstream-badge-label">处报错</span></span>
+            <span class="upstream-badge" id="upstreamErrorSummary" aria-hidden="true"><span id="upstreamErrorBadge">—</span><span class="upstream-badge-label">处异常</span></span>
           </button>
         </div>
         <div class="topbar-right">
@@ -1007,9 +1007,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.5.5"></script>
+    <script src="/static/error_ui.js?v=0.5.6"></script>
     <script
-      src="/static/app.js?v=0.5.5"
+      src="/static/app.js?v=0.5.6"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

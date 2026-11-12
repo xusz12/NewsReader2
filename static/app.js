@@ -21,10 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.4";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.6";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.4";
 import { TopicPanel } from "./topic-panel.js?v=0.5.4";
-import { ReportPanel } from "./report-panel.js?v=0.5.4";
+import { ReportPanel } from "./report-panel.js?v=0.5.6";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
@@ -33,7 +33,7 @@ import { TaskProgress } from "./task-progress.js?v=0.5.5";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.5.4";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.5.6";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -129,7 +129,17 @@ const stateWrites = new ItemStateQueue({
   },
   onError: error => { toast(errorText(error)); refreshBadges(); },
 });
-const upstreamErrors = new UpstreamErrors();
+const upstreamErrors = new UpstreamErrors({
+  onClassificationRefresh: () => classification.refresh(),
+  onClassificationRetry: async () => {
+    await api("/api/news/classification/retry", {method:"POST"});
+    await classification.refresh();
+  },
+  onClassificationSettings: async () => {
+    if (!settings.open) await settings.toggle();
+    settings.selectSection("classification");
+  },
+});
 let requestController,
   detailTimer,
   searchTimer,
@@ -390,7 +400,7 @@ function mountReportReader(report, rendered = false) {
 
 const categoryLabels = { all: "全部", china: "中国", ai: "AI", politics: "政治与国际", economy: "经济与金融", business: "商业", science: "科技与科学", other: "其他" };
 const classification = new ClassificationProgress({
-  onChange: snapshot => {settings.updateClassificationProgress(snapshot);tasks.updateClassification(snapshot);},
+  onChange: snapshot => {settings.updateClassificationProgress(snapshot);tasks.updateClassification(snapshot);upstreamErrors.updateClassification(snapshot);},
 });
 const tasks = new TaskProgress({
   classification,
@@ -830,6 +840,8 @@ async function pollCollection() {
     void upstreamErrors.refreshRecords();
     const {failed=0, pending=0, running=0, ready=0} = data.counts;
     const publicationFailed = data.publication_failed || 0;
+    if (previous && (previous.counts.failed !== failed || previous.publication_failed !== data.publication_failed))
+      void upstreamErrors.refreshBadge();
     const notice = $("#collectionTranslationNotice");
     notice.hidden = !(failed || pending || running || ready || publicationFailed);
     $("#collectionTranslationText").textContent = failed

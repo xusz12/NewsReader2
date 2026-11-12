@@ -1,6 +1,7 @@
 import { DatePicker, dateKey, localDate } from "./date-picker.js?v=feature-pickers-1";
 import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
+import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 
 const recordsFrom = data => (data.records || (data.days || []).flatMap(day => day.groups.flatMap(group =>
   (group.entries || (group.labels || []).map(label => ({ label: label.replace(/ error$/, "") })))
@@ -59,7 +60,8 @@ function shiftDay(day, offset) {
 }
 
 export class UpstreamErrors {
-  constructor() {
+  constructor({ onClassificationRefresh, onClassificationRetry, onClassificationSettings } = {}) {
+    Object.assign(this, { onClassificationRefresh, onClassificationRetry, onClassificationSettings });
     this.panel = $("#upstreamErrorsPanel");
     this.backdrop = $("#upstreamErrorsBackdrop");
     this.button = $("#upstreamErrorsBtn");
@@ -118,9 +120,11 @@ export class UpstreamErrors {
       const view = event.target.closest("[data-upstream-view]");
       const copy = event.target.closest("[data-upstream-copy]");
       const action = event.target.closest("[data-upstream-action]");
+      const classification = event.target.closest("[data-upstream-classification]");
       if (view) { this.view = view.dataset.upstreamView; this.render(); }
       else if (copy) this.copyLog(copy);
       else if (action) void this.retryNotice(action);
+      else if (classification) void this.classificationAction(classification);
     };
     this.content.addEventListener("toggle", event => {
       const details = event.target;
@@ -143,6 +147,7 @@ export class UpstreamErrors {
     this.backdrop.hidden = false;
     this.button.setAttribute("aria-expanded", "true");
     this.position(); this.showToday();
+    void this.onClassificationRefresh?.();
     if (keyboard) $("#upstreamErrorDate").focus({ preventScroll: true });
   }
 
@@ -206,27 +211,97 @@ export class UpstreamErrors {
     if (this.badgeRequest) return this.badgeRequest;
     this.badgeRequest = (async () => {
       try {
-        // Current unresolved sources, independent of the history panel date.
+        // Current source and processing failures, independent of the history date.
         const data = await api("/api/error-stats?details=0");
-        const count = data.unresolved_count ?? recordsFrom(data).reduce((sum, row) => sum + (row.error_count || 0), 0);
-        const badge = $("#upstreamErrorBadge");
-        $("#upstreamErrorSummary").hidden = count === 0;
-        badge.textContent = count > 99 ? "99+" : count ? String(count) : "";
+        this.badgeData = data;
+        this.badgeError = false;
         this.today = data.today || data.day || this.today;
         this.updateDateControls();
-        this.button.classList.toggle("has-errors", count > 0);
-        this.button.classList.toggle("no-errors", count === 0);
-        this.button.title = count ? `${count} 个采集来源尚未恢复 · 点击查看采集记录` : "当前无采集来源错误 · 点击查看采集记录";
-        this.button.setAttribute("aria-label", `采集记录：${this.button.title}`);
       } catch {
-        $("#upstreamErrorSummary").hidden = false;
-        $("#upstreamErrorBadge").textContent = "?";
-        this.button.classList.remove("has-errors", "no-errors");
-        this.button.title = "采集记录统计暂不可用 · 点击重试";
-        this.button.setAttribute("aria-label", this.button.title);
+        this.badgeError = true;
       }
+      this.renderBadge();
     })();
     try { await this.badgeRequest; } finally { this.badgeRequest = null; }
+  }
+
+  classificationIssue() {
+    const { progress: p, error } = this.classificationSnapshot || {};
+    if (p?.enabled === false) return null;
+    if (error) return { message: error, retry: false };
+    if (!p || !(p.pending || p.running || p.failed || p.error)) return null;
+    const errors = p.errors || [];
+    if (p.configured && !p.error && !p.failed && !p.throttle?.rate_limited && !errors.length) return null;
+    const codes = [...new Set([p.error, ...errors.map(row => row.code)].filter(Boolean))];
+    const reasons = { http_401: "鉴权失败（HTTP 401）", http_403: "无调用权限（HTTP 403）", http_429: "请求限流（HTTP 429）",
+      http_529: "服务过载（HTTP 529）", network_error: "网络连接失败", invalid_response: "模型返回格式异常",
+      classification_failed: "模型调用失败", worker_unavailable: "分类服务暂不可用", interrupted: "分类任务中断" };
+    const status = p.configured && !p.error && errors.length && !p.failed && !p.throttle?.rate_limited
+      ? "分类请求失败，正在自动重试" : classificationStatus(p);
+    return { message: [status, p.failed ? `${p.failed} 条新闻分类失败` : "",
+      ...codes.map(code => reasons[code] || code)].filter(Boolean).join("；"), retry: !!(p.failed || p.error) };
+  }
+
+  updateClassification(snapshot) {
+    this.classificationSnapshot = snapshot;
+    this.renderBadge();
+    if (this.open && this.records && !this.datePicker.open && document.activeElement !== $("#upstreamErrorDate")) this.render();
+  }
+
+  renderBadge() {
+    const data = this.badgeData;
+    if (!data && !this.badgeError) return;
+    const sources = data?.unresolved_count ?? (data ? recordsFrom(data).reduce((sum, row) => sum + (row.error_count || 0), 0) : 0);
+    const notices = data?.notice_count || 0, classification = this.classificationIssue();
+    const count = sources + notices + Number(!!classification);
+    $("#upstreamErrorSummary").hidden = count === 0 && !this.badgeError;
+    $("#upstreamErrorBadge").textContent = count > 99 ? "99+" : count ? String(count) : this.badgeError ? "?" : "";
+    this.button.classList.toggle("has-errors", count > 0);
+    this.button.classList.toggle("no-errors", count === 0 && !this.badgeError);
+    const parts = [sources ? `${sources} 个采集来源尚未恢复` : "", notices ? `${notices} 处翻译或入库问题待处理` : "",
+      classification ? `新闻分类 · ${classification.message}` : "", this.badgeError ? "采集记录统计暂不可用" : ""].filter(Boolean);
+    this.button.title = `${parts.join("；") || "当前无采集或模型处理异常"} · 点击查看采集记录`;
+    this.button.setAttribute("aria-label", `采集记录：${this.button.title}`);
+  }
+
+  classificationCard() {
+    const issue = this.classificationIssue();
+    if (!issue) return "";
+    return `<article class="upstream-error-card" data-upstream-model="classification">
+      <div class="upstream-card-head"><div class="upstream-source-title"><strong>新闻分类 · Jev</strong></div><span class="upstream-error-tag">当前异常</span></div>
+      <div class="section-stack"><div class="muted">${e(issue.message)}</div>
+      <div class="button-row"><button class="reader-tool-btn" type="button" data-upstream-classification="settings">检查分类设置</button>
+      <button class="reader-tool-btn" type="button" data-upstream-classification="${issue.retry ? "retry" : "refresh"}" aria-busy="${!!this.classificationBusy}"${this.classificationBusy ? " disabled" : ""}>${issue.retry ? "重试分类" : "刷新状态"}</button></div>
+      ${this.classificationFeedback ? `<div class="inline-error" role="alert">${e(this.classificationFeedback)}</div>` : ""}</div>
+    </article>`;
+  }
+
+  async classificationAction(button) {
+    const action = button.dataset.upstreamClassification;
+    if (action === "settings") { this.close(); await this.onClassificationSettings?.(); return; }
+    if (this.classificationBusy) return;
+    const restoreFocus = document.activeElement === button;
+    this.classificationBusy = true;
+    this.classificationFeedback = "";
+    this.render();
+    try {
+      if (action === "retry") await this.onClassificationRetry?.();
+      else await this.onClassificationRefresh?.();
+    } catch (error) { this.classificationFeedback = errorText(error); }
+    finally {
+      this.classificationBusy = false;
+      this.render();
+      if (restoreFocus && this.open && (document.activeElement === document.body || this.content.contains(document.activeElement)))
+        (this.content.querySelector(`[data-upstream-classification="${action}"]`) || this.content.querySelector(`[data-upstream-view="${this.view}"]`))?.focus({ preventScroll: true });
+    }
+  }
+
+  activeNoticeCards() {
+    const records = (this.activeNotices || []).map((record, index) => ({ ...record, index:`active-${index}`, batch_started_at:record.date }));
+    return batchesFrom(records).map(batch => `<article class="upstream-error-card" data-upstream-current-notice>
+      <div class="upstream-card-head"><div class="upstream-source-title"><strong>${e(batch.started.slice(0, 10))} 采集</strong></div><span class="upstream-error-tag">仍待处理</span></div>
+      <div class="section-stack">${batch.records.flatMap(record => noticesFrom(record).map(notice => this.notice(record, notice))).join("")}</div>
+    </article>`).join("");
   }
 
   setLoadStatus(message, failed = false) {
@@ -261,6 +336,9 @@ export class UpstreamErrors {
       else this.datePicker.selectedDay = data.day;
       this.updateDateControls();
       this.records = recordsFrom(data);
+      const shownNotices = new Set(this.records.flatMap(record => noticesFrom(record).map(notice => actionKey(record, notice.stage))));
+      this.activeNotices = (data.active_notices || []).filter(record =>
+        noticesFrom(record).some(notice => !shownNotices.has(actionKey(record, notice.stage))));
       this.stats = data.stats || {};
       this.render();
       if (this.loadedDay !== data.day) this.content.scrollTop = 0;
@@ -281,6 +359,7 @@ export class UpstreamErrors {
     const focusedView = document.activeElement?.dataset.upstreamView;
     const focusedAction = document.activeElement?.dataset.upstreamActionKey;
     const focusedDetails = document.activeElement?.closest("summary")?.parentElement?.dataset.upstreamDetails;
+    const focusedClassification = document.activeElement?.dataset.upstreamClassification;
     const records = this.records;
     const { fetched_count, duplicate_count, duplicate_unknown, ingested_count } = this.stats;
     const errorCount = this.stats.error_count ?? records.reduce((sum, row) => sum + (row.error_count || 0), 0);
@@ -299,7 +378,8 @@ export class UpstreamErrors {
           <button class="upstream-dim-btn" type="button" data-upstream-view="attention" aria-pressed="${this.view === "attention"}">仅错误与提示</button>
         </div>
       </div>
-      <div class="upstream-errors-list">${visible.length ? visible.map(batch => this.card(batch)).join("")
+      <div class="upstream-errors-list">${this.classificationCard()}${this.activeNoticeCards()}
+      ${visible.length ? visible.map(batch => this.card(batch)).join("")
         : records.length ? '<div class="upstream-empty"><strong>当天没有错误或提示。</strong></div>'
         : '<div class="upstream-empty"><strong>当天没有记录采集活动。</strong><p>可切换日期查看历史记录。</p></div>'}</div>`;
     // Commit the new view in one paint; unchanged responses keep their DOM and scroll position.
@@ -312,6 +392,8 @@ export class UpstreamErrors {
         [...this.content.querySelectorAll("[data-upstream-action-key]")].find(button => button.dataset.upstreamActionKey === focusedAction && !button.disabled)?.focus({ preventScroll: true });
       if (focusedDetails !== undefined)
         [...this.content.querySelectorAll("[data-upstream-details]")].find(details => details.dataset.upstreamDetails === focusedDetails)?.querySelector("summary")?.focus({ preventScroll: true });
+      if (focusedClassification !== undefined)
+        (this.content.querySelector(`[data-upstream-classification="${focusedClassification}"]:not(:disabled)`) || this.content.querySelector(`[data-upstream-view="${this.view}"]`))?.focus({ preventScroll: true });
     }
   }
 
@@ -361,7 +443,9 @@ export class UpstreamErrors {
   }
 
   async retryNotice(button) {
-    const record = this.records[Number(button.dataset.upstreamRecord)], stage = button.dataset.upstreamAction;
+    const index = button.dataset.upstreamRecord;
+    const record = index.startsWith("active-") ? this.activeNotices[Number(index.slice(7))] : this.records[Number(index)];
+    const stage = button.dataset.upstreamAction;
     if (!record?.run_id || !noticesFrom(record).some(notice => notice.stage === stage)) return;
     const key = actionKey(record, stage);
     if (this.retrying.has(key)) return;
@@ -376,6 +460,7 @@ export class UpstreamErrors {
       toast(data.retried ? stage === "translation" ? "已加入翻译重试队列" : "已加入入库重试队列" : "该问题已处理，记录已更新");
       this.retrying.delete(key);
       await this.refreshRecords();
+      await this.refreshBadge();
       document.dispatchEvent(new Event("collection:changed"));
     } catch (error) {
       this.actionFeedback.set(key, errorText(error));

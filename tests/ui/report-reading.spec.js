@@ -21,11 +21,30 @@ async function openAgentModels(page) {
 }
 test.beforeEach(async({request})=>{
   await request.post('/__test/reset-reading');
-  await request.post('/__test/reports',{data:{linked_sources:true,briefs:true}});
+  await request.post('/__test/reports',{data:{linked_sources:true,briefs:true,source_count:120,generation_seconds:125}});
   await request.delete('/api/news/report:report-evening/agent/session');
   const reader=(await (await request.get('/api/reports/report-evening')).json()).report.reader;
   for(const row of reader.highlight_surfaces.original.highlights) await request.delete('/api/news/report:report-evening/highlights/'+row.id);
   for(const row of reader.notes) await request.delete('/api/news/report:report-evening/notes/'+row.id);
+});
+
+test('日报周报月报元信息区分取材与实际去重收录，旧记录不编造数量',async({page,request})=>{
+  await page.goto('/'); await openReports(page);
+  for(const kind of ['evening','weekly','monthly']) {
+    if(kind !== 'evening') {
+      await page.locator(`[data-report-kind="${kind}"]`).click();
+      await page.locator(`[data-report-id="report-${kind}"]`).click();
+    }
+    const metadata=page.locator('#reportContent .report-masthead .article-meta-bottom').last();
+    await expect(metadata).toContainText('取材 120 条');
+    await expect(metadata).toContainText('收录 2 条');
+    await expect(metadata).toContainText('生成用时 2 分 5 秒');
+  }
+  await request.post('/__test/reports',{data:{briefs_only:true}});
+  await page.reload(); await openReports(page);
+  const metadata=page.locator('#reportContent .report-masthead .article-meta-bottom').last();
+  await expect(metadata).toContainText('取材 未记录');
+  await expect(metadata).toContainText('收录 2 条');
 });
 
 for(const width of [390,1440]) test('日报保留高亮与引用 Agent、独立草稿，不提供写想法入口 '+width,async({page,request})=>{
@@ -172,6 +191,13 @@ for(const width of [390,1440]) test('Agent 面板直接切换模型与推理，�
 for(const width of [390,1440]) for(const theme of ['light','dark','system-light','system-dark','eink']) test('日报来源与 Agent 主题字号 '+width+' '+theme,async({page})=>{
   await page.setViewportSize({width,height:900}); await page.emulateMedia({colorScheme:theme==='system-dark'?'dark':'light'});
   await page.goto('/'); await chooseTheme(page,theme.startsWith('system')?'system':theme); await openReports(page);
+  const metadata=page.locator('#reportContent .report-masthead .article-meta-bottom').last();
+  await expect(metadata).toContainText('取材 120 条');
+  await expect(metadata).toContainText('收录 2 条');
+  for(const scale of [.9,1,1.15,1.3]) {
+    await page.evaluate(scale=>document.documentElement.style.setProperty('--reading-scale',String(scale)),scale);
+    expect(await metadata.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  }
   const readButton=page.locator('#markReportReadBtn'), copyButton=page.locator('#copyReportBtn');
   await expect(readButton).toBeEnabled();
   const buttonSize=await readButton.boundingBox();
@@ -205,11 +231,20 @@ for(const width of [390,1440]) for(const theme of ['light','dark','system-light'
   await expect(page.locator('#agentPromptInput')).toHaveAttribute('rows','1');
   await expect(page.locator('#agentModelTrigger')).toHaveText('');
   const input=await page.locator('#agentPromptInput').boundingBox(), send=await page.locator('#agentSendBtn').boundingBox(), model=await page.locator('#agentModelTrigger').boundingBox();
-  expect(send.height).toBeCloseTo(input.height,0);
+  expect(send.height).toBe(40);
+  expect(send.width).toBe(40);
+  await page.locator('#agentPromptInput').fill('第一行\n第二行\n第三行\n第四行');
+  await expect.poll(async()=>(await page.locator('#agentPromptInput').boundingBox()).height).toBeGreaterThan(input.height);
+  const grownSend=await page.locator('#agentSendBtn').boundingBox(), grownModel=await page.locator('#agentModelTrigger').boundingBox(), grownInput=await page.locator('#agentPromptInput').boundingBox();
+  expect([grownSend.width,grownSend.height]).toEqual([40,40]);
+  expect(Math.abs(grownSend.y+grownSend.height-grownInput.y-grownInput.height)).toBeLessThan(1);
+  expect(Math.abs(grownModel.y+grownModel.height-grownInput.y-grownInput.height)).toBeLessThan(1);
+  await page.screenshot({path:'.ui-artifacts/agent-bottom-'+width+'-'+theme+'.png'});
+  await page.locator('#agentPromptInput').fill('');
   expect(model.width).toBeLessThanOrEqual(32);
   expect(model.x).toBeGreaterThan(input.x+input.width);
   expect(model.x+model.width).toBeLessThan(send.x);
-  expect(Math.abs(model.y+model.height/2-send.y-send.height/2)).toBeLessThan(1);
+  expect(Math.abs(model.y+model.height-send.y-send.height)).toBeLessThan(1);
   expect(await page.locator('#agentModelControls').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   await page.screenshot({path:'.ui-artifacts/v046-'+width+'-'+theme+'.png'});
   await openAgentModels(page);

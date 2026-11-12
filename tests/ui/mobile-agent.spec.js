@@ -32,12 +32,17 @@ async function expectUsable(page, top, bottom) {
     const box = node.getBoundingClientRect();
     return box.top >= top && box.bottom <= bottom + 1;
   }, { top, bottom })).toBe(true);
-  for (const selector of ['#agentPromptInput', '#agentSendBtn']) {
+  for (const selector of ['#agentPromptInput', '#agentModelTrigger', '#agentSendBtn']) {
     await expect.poll(() => page.locator(selector).evaluate((node, { top, bottom }) => {
       const box = node.getBoundingClientRect();
       return box.top >= top && box.bottom <= bottom + 1 &&
         node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
     }, { top, bottom })).toBe(true);
+  }
+  const input = await page.locator('#agentPromptInput').boundingBox();
+  for (const selector of ['#agentModelTrigger', '#agentSendBtn']) {
+    const button = await page.locator(selector).boundingBox();
+    expect(Math.abs(button.y+button.height-input.y-input.height)).toBeLessThan(1);
   }
 }
 
@@ -55,7 +60,8 @@ test('mobile starts at one line without opening the keyboard, grows and returns 
   await input.fill('第一行'); await input.press('Enter'); await input.pressSequentially('第二行');
   await expect(input).toHaveValue('第一行\n第二行');
   await expect.poll(async () => (await input.boundingBox()).height).toBeGreaterThan(line);
-  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBeCloseTo((await input.boundingBox()).height,0);
+  expect((await page.locator('#agentSendBtn').boundingBox()).height).toBe(40);
+  expect((await page.locator('#agentSendBtn').boundingBox()).width).toBe(40);
   await expectUsable(page, 50, 788);
   await input.fill('');
   await expect.poll(async () => (await input.boundingBox()).height).toBeCloseTo(line, 0);

@@ -406,7 +406,10 @@ export class ReportPanel {
   modelMetadata(report, full = false) {
     const seconds = Number.isFinite(report.generation_seconds) ? Math.round(report.generation_seconds) : null;
     const duration = seconds === null || report.status === "running" ? "" : `生成用时 ${seconds < 1 ? "不足 1 秒" : seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds/60)} 分 ${seconds%60} 秒`}`;
-    return [report.model_label, duration, report.snapshot_captured_at ? `取材于 ${dateText(report.snapshot_captured_at, full)}` : ""].filter(Boolean);
+    const counts = report.status === "done" || Number.isInteger(report.source_count)
+      ? [`取材 ${Number.isInteger(report.source_count) ? `${report.source_count} 条` : "未记录"}`,
+        report.status === "done" ? `收录 ${Number.isInteger(report.selected_source_count) ? `${report.selected_source_count} 条` : "未记录"}` : ""] : [];
+    return [report.model_label, duration, ...counts, report.snapshot_captured_at ? `取材于 ${dateText(report.snapshot_captured_at, full)}` : ""].filter(Boolean);
   }
   modelMarkup(report) {
     const parts = this.modelMetadata(report);

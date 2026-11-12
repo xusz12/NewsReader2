@@ -67,7 +67,7 @@ test('报告模型旁显示固定生成用时，缺失时不编造',async({page,
   await page.goto('/');await openReports(page);
   const metadata=page.locator('#reportContent .article-meta-bottom').filter({hasText:'Pi · test-model'});
   await expect(metadata).toContainText('生成用时 2 分 5 秒');
-  await expect(metadata.locator('span')).toHaveText(['Pi · test-model','生成用时 2 分 5 秒']);
+  await expect(metadata.locator('span')).toHaveText(['Pi · test-model','生成用时 2 分 5 秒','取材 未记录','收录 2 条']);
   await page.locator('[data-report-kind="weekly"]').click();
   await expect(metadata).toContainText('生成用时 2 分 5 秒');
   await request.post('/__test/reports',{data:{generation_seconds:null}});

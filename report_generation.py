@@ -7,13 +7,20 @@ import math
 import re
 
 import report_model
+import report_monthly
 
 WORKFLOW_VERSION = "title-first-v1"
 
 
 def headline_material(source):
     """The only evidence exposed before selection, including through tools."""
-    return {key: source.get(key, "") for key in ("ref", "title", "published_at", "source_name")}
+    return {key: source.get(key, "") for key in ("ref", "title", "published_at", "source_name")} | (
+        {"monthly_role": source["monthly_role"]} if "monthly_role" in source else {})
+
+
+def report_context(snapshot):
+    return {key: value for key, value in snapshot.items() if key != "sources"} | (
+        {"monthly_rules": report_monthly.RULES} if snapshot["kind"] == "monthly" else {})
 
 
 def writing_material(source):
@@ -112,7 +119,7 @@ def omitted_refs(value, allowed):
     return refs
 
 
-def validate_events(value, allowed):
+def validate_events(value, allowed, required=()):
     if not isinstance(value, dict):
         raise InvalidReport([{"path": "/", "reason": "必须返回 events 和 omitted"}])
     if not isinstance(value.get("events"), list):
@@ -134,6 +141,9 @@ def validate_events(value, allowed):
         omitted -= used
         if used | omitted != allowed:
             raise CoverageGap(allowed - used - omitted, events=True)
+        missing = set(required) - used
+        if missing:
+            raise InvalidReport([{"path": "/events", "reason": "以下当月重要新闻必须保留在候选事件中，不得舍弃：" + encoded(sorted(missing))}])
         return {"events": events, "omitted": sorted(omitted)}
     except (ValueError, TypeError, AttributeError) as exc:
         raise InvalidReport([{"path": "/omitted", "reason": str(exc)}]) from None
@@ -143,6 +153,12 @@ def validate_report(value, sources, kind):
     if not isinstance(value, dict):
         raise InvalidReport([{"path": "/", "reason": "报告必须是 JSON 对象"}])
     allowed = {source["ref"] for source in sources}
+    background = report_monthly.background_refs(sources, kind)
+    def checked_refs(value):
+        refs = refs_field(value, allowed)
+        if set(refs) & background and not set(refs) - background:
+            raise ValueError("历史重要新闻只作相关背景：请与同一事件的当月来源在本段共同引用并注明历史时间，不能单独成文")
+        return refs
     # Old drafts may still contain overview; it is no longer part of a report.
     issues, sections, briefs, used = [], [], [], set()
     if not isinstance(value.get("sections"), list):
@@ -156,7 +172,7 @@ def validate_report(value, sources, kind):
                 paragraphs = []
                 for paragraph in section["paragraphs"]:
                     text = text_field(paragraph.get("text"))
-                    refs = refs_field(paragraph.get("refs"), allowed)
+                    refs = checked_refs(paragraph.get("refs"))
                     emphasis = paragraph.get("emphasis", "")
                     # Invalid decorative emphasis is harmless to remove locally.
                     if not isinstance(emphasis, str) or emphasis not in text:
@@ -172,13 +188,16 @@ def validate_report(value, sources, kind):
     else:
         for index, brief in enumerate(raw_briefs):
             try:
-                refs = refs_field(brief.get("refs"), allowed)
+                refs = checked_refs(brief.get("refs"))
                 briefs.append({"text": text_field(brief.get("text")), "refs": refs})
                 used.update(refs)
             except (ValueError, AttributeError) as exc:
                 issues.append({"path": f"/briefs/{index}", "reason": str(exc)})
     if issues:
         raise InvalidReport(issues)
+    missing = report_monthly.required_refs(sources, kind) - used
+    if missing:
+        raise InvalidReport([{"path": "/briefs", "reason": "保留已有内容；以下当月重要新闻必须补入原有主题或简讯并引用，不能舍弃：" + encoded(sorted(missing))}])
     return {"sections": sections, "briefs": briefs,
             "sources": [{k: v for k, v in source.items() if k not in {"body", "summary", "body_excerpt"}}
                         for source in sources if source["ref"] in used],
@@ -246,7 +265,7 @@ def enrich_selected(report, snapshot, config, call, checkpoint, progress, state_
     if not any(s.get("summary") or s.get("body") for s in sources):
         return report
     material = [writing_material(s) for s in sources]
-    context = encoded({k: v for k, v in snapshot.items() if k != "sources"})
+    context = encoded(report_context(snapshot))
     plan = {k: report[k] for k in ("sections", "briefs")}
     prompt = (EDITOR + "\n编辑规则与期别：" + context + EDITION.split("返回 {")[0] + WRITING
               + "\n标题初稿：" + encoded(plan) + "\n新闻资料：" + encoded(material))
@@ -433,12 +452,15 @@ def edited_call(key, prompt, material, context, config, call, checkpoint, valida
 def generate(snapshot, config, call, checkpoint, progress=None, state_store=None):
     progress = progress or (lambda stage, **details: None)
     saved_checkpoint = checkpoint
-    checkpoint = lambda key, fn: saved_checkpoint(WORKFLOW_VERSION + ":" + key, fn)
+    version = WORKFLOW_VERSION + (":" + report_monthly.VERSION if snapshot["kind"] == "monthly" else "")
+    checkpoint = lambda key, fn: saved_checkpoint(version + ":" + key, fn)
     sources = snapshot["sources"]
-    if not sources:
+    if not sources or len(report_monthly.background_refs(sources, snapshot["kind"])) == len(sources):
         progress("validating")
         return validate_report({"sections": [], "briefs": []}, [], snapshot["kind"])
-    context = encoded({key: value for key, value in snapshot.items() if key != "sources"})
+    context = encoded(report_context(snapshot))
+    required = report_monthly.required_refs(sources, snapshot["kind"])
+    background = report_monthly.background_refs(sources, snapshot["kind"])
     compact, duplicates = [], {}
     for source in sources:
         item = {key: value for key, value in headline_material(source).items() if key != "ref"}
@@ -474,8 +496,8 @@ def generate(snapshot, config, call, checkpoint, progress=None, state_store=None
         progress("selecting", completed=index, total=len(batches))
         allowed = {ref for item in batch for ref in item["refs"]}
         result = edited_call(f"v2:extract:{index}", make_extract(batch), batch, context, config, call, checkpoint,
-                             lambda value: validate_events(value, allowed), progress)
-        events.extend(result["events"])
+                             lambda value: validate_events(value, allowed, required & allowed), progress)
+        events.extend(report_monthly.event_signals(event, required, background) for event in result["events"])
         progress("selecting", completed=index+1, total=len(batches))
     level = 0
     while events and not report_model.fits(config, make_edition(events)):
@@ -487,8 +509,8 @@ def generate(snapshot, config, call, checkpoint, progress=None, state_store=None
             progress("merging", completed=index, total=len(batches), round=level+1)
             allowed = {ref for item in batch for ref in item["refs"]}
             result = edited_call(f"v2:merge:{level}:{index}", merge_prompt(batch), batch, context, config, call, checkpoint,
-                                 lambda value: validate_events(value, allowed), progress)
-            merged.extend(result["events"])
+                                 lambda value: validate_events(value, allowed, required & allowed), progress)
+            merged.extend(report_monthly.event_signals(event, required, background) for event in result["events"])
             progress("merging", completed=index+1, total=len(batches), round=level+1)
         events = merged
         level += 1

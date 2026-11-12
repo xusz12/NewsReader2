@@ -198,7 +198,7 @@ def test_reused_video_material_ignores_old_generation_cache_and_resumes_filtered
         if storage == "inline":
             conn.execute("UPDATE periodic_reports SET snapshot_json=? WHERE id=?", (original, job["id"]))
         elif storage.startswith("shared"):
-            conn.execute("INSERT INTO periodic_report_snapshots VALUES ('old-material',?,?,?,?)",
+            conn.execute("INSERT INTO periodic_report_snapshots(id,period_start,period_end,captured_at,snapshot_json) VALUES ('old-material',?,?,?,?)",
                          (job["period_start"], job["period_end"], snapshot["captured_at"], original))
             if storage == "shared_bound":
                 conn.execute("UPDATE periodic_reports SET snapshot_id='old-material' WHERE id=?", (job["id"],))

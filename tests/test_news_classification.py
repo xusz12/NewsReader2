@@ -149,6 +149,27 @@ def test_worker_persists_result_and_pauses_bad_configuration(conn):
     assert conn.execute("SELECT category FROM item_classifications").fetchone()[0] == "economy"
 
 
+def test_status_exposes_current_failures_during_retry_and_respects_scope(conn):
+    for ident in ("retrying", "failed", "read", "stale"):
+        insert(conn, ident, title=ident)
+    with conn:
+        nc.enqueue(conn)
+        conn.execute("UPDATE item_classifications SET last_error='http_503'")
+        conn.execute("UPDATE item_classifications SET status='failed' WHERE item_id='failed'")
+        conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES ('read','2026-11-12','2026-11-12')")
+        conn.execute("UPDATE items SET title='changed' WHERE id='stale'")
+    assert nc.status(conn)["errors"] == [
+        {"code": "http_503", "status": "failed", "count": 1},
+        {"code": "http_503", "status": "pending", "count": 2},
+    ]
+    assert nc.status(conn, unread_only=True)["errors"][-1]["count"] == 1
+    job = nc.claim(conn, item_id="retrying")
+    assert nc.status(conn)["errors"][-1] == {"code": "http_503", "status": "running", "count": 1}
+    nc.finish(conn, job, nc.parse_response(response()))
+    nc.retry_failed(conn)
+    assert nc.status(conn, unread_only=True)["errors"] == []
+
+
 def test_rule_change_and_deleted_item(conn):
     insert(conn)
     with conn:

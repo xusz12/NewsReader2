@@ -404,6 +404,8 @@ def fixture_reports():
             if 'generation_seconds' in body:
                 conn.execute('UPDATE periodic_reports SET model_label=?,generation_seconds=? WHERE id=?',
                     ('Pi · test-model', body['generation_seconds'], 'report-'+kind))
+            if 'source_count' in body:
+                conn.execute('UPDATE periodic_reports SET source_count=? WHERE id=?', (body['source_count'], 'report-'+kind))
             if status == 'pending':
                 conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
             if status == 'running':
@@ -412,7 +414,7 @@ def fixture_reports():
             for kind in ('evening','weekly'):
                 report = conn.execute('SELECT period_start,period_end FROM periodic_reports WHERE id=?', ('report-'+kind,)).fetchone()
                 raw = json.dumps({'sources':[{'title':'合成快照材料' * 100}]}, ensure_ascii=False)
-                conn.execute('INSERT INTO periodic_report_snapshots VALUES (?,?,?,?,?)',
+                conn.execute('INSERT INTO periodic_report_snapshots(id,period_start,period_end,captured_at,snapshot_json) VALUES (?,?,?,?,?)',
                     ('snapshot-'+kind,report['period_start'],report['period_end'],'2026-10-30T15:00:00+08:00',raw))
                 conn.execute('UPDATE periodic_reports SET snapshot_id=? WHERE id=?',('snapshot-'+kind,'report-'+kind))
             conn.execute("UPDATE periodic_reports SET status='pending' WHERE id='report-weekly'")

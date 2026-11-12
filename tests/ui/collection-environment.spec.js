@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme } from './helpers.js';
+import { openSettings, chooseTheme, contrast } from './helpers.js';
 
 const checked_at = '2026-11-10T03:00:00+00:00';
 const environment = {ok:true, checked_at, checks:[
@@ -9,6 +9,13 @@ const environment = {ok:true, checked_at, checks:[
   {id:'bridge',status:'success',message:'OpenCLI 浏览器扩展 1.0.27 已连接。'},
 ]};
 const x = {ok:true, checked_at, checks:[{id:'x',status:'success',message:'已验证当前浏览器中的 X 登录会话。'}]};
+const mixed = {...environment, checks: environment.checks.map(row => row.id === 'bridge'
+  ? {...row,status:'failed',message:'浏览器扩展未连接。'} : row.id === 'chrome'
+    ? {...row,status:'unknown',message:'浏览器连接尚未确认。'} : row)};
+
+test.beforeEach(async ({page}) => {
+  await page.route('**/api/collection/environment', route => route.fulfill({json:{ok:true,checks:[]}}));
+});
 
 async function start(page) {
   await page.goto('/');
@@ -32,7 +39,9 @@ test('checks are explicit, retain settings drafts and invalidate account results
   await expect(page.locator('[data-environment-check="x"]')).toContainText('通过');
   await page.locator('#checkCollectionEnvironmentBtn').click();
   await expect(page.locator('[data-environment-check="bridge"]')).toContainText('已连接');
-  await expect(page.locator('[data-environment-check="x"]')).toContainText('未检查');
+  await expect(page.locator('[data-environment-check="x"]')).toContainText('待复查（上次通过）');
+  await expect(page.locator('[data-environment-check="x"] .status-dot')).toHaveAttribute('data-status','unchecked');
+  await expect(page.locator('[data-environment-check="x"]')).toContainText('检查于');
   await expect(page.locator('[name="collection.daily"]')).toHaveValue('07:00、19:00');
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   await page.locator('#collectionApiSettingsBtn').click();
@@ -96,17 +105,87 @@ test('services show saved routing, distinguish configured from tested and reuse 
   await expect(page.locator('#settingsDetailTitle')).toBeFocused();
 });
 
+test('the latest check results and timestamps restore after reloading without running diagnostics', async ({page}) => {
+  let saved = [], checks = 0;
+  await page.route('**/api/collection/environment', route => route.fulfill({json:{ok:true,checks:saved}}));
+  await page.route('**/api/collection/environment/check', async route => {
+    checks++;
+    saved = mixed.checks.map(row => ({...row,checked_at,stale:false}));
+    await route.fulfill({json:{...mixed,results:saved}});
+  });
+  await start(page);
+  await page.locator('#checkCollectionEnvironmentBtn').click();
+  await expect(page.locator('[data-environment-check="bridge"]')).toContainText('未通过');
+  await page.reload();
+  await openSettings(page);
+  await page.locator('[data-settings-tab="pipeline"]').click();
+  await expect(page.locator('[data-environment-check="runtime"]')).toContainText('通过');
+  await expect(page.locator('[data-environment-check="bridge"]')).toContainText('未通过');
+  await expect(page.locator('[data-environment-check="bridge"]')).toContainText('2026/11/10 11:00:00');
+  expect(checks).toBe(1);
+});
+
+test('a delayed history response cannot replace a newer manual check', async ({page}) => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/collection/environment', async route => {
+    await pending;
+    await route.fulfill({json:{ok:true,checks:mixed.checks.map(row=>({...row,checked_at}))}});
+  });
+  await page.route('**/api/collection/environment/check', route => route.fulfill({json:environment}));
+  try {
+    await start(page);
+    await page.locator('#checkCollectionEnvironmentBtn').click();
+    await expect(page.locator('[data-environment-check="bridge"]')).toContainText('已连接');
+    const restored = page.waitForResponse(response=>response.url().endsWith('/api/collection/environment'));
+    release(); await restored;
+    await expect(page.locator('[data-environment-check="bridge"]')).toContainText('已连接');
+  } finally { release(); }
+});
+
 for (const width of [1440,390]) for (const appearance of ['light','dark','system-light','system-dark','eink']) {
   test.describe(`${width} ${appearance}`, () => {
     test.use({hasTouch:width === 390});
     test('environment and service cards reuse shared layout and stay stable across reading sizes', async ({page}) => {
       await page.setViewportSize({width,height:900});
       if (appearance.startsWith('system-')) await page.emulateMedia({colorScheme:appearance.slice(7)});
-      await page.route('**/api/collection/environment/check', route => route.fulfill({json:environment}));
+      await page.route('**/api/collection/environment/check', route => route.fulfill({json:mixed}));
       await start(page);
       await chooseTheme(page,appearance.startsWith('system-') ? 'system' : appearance);
       await page.locator('#checkCollectionEnvironmentBtn').click();
-      await expect(page.locator('[data-environment-check="bridge"]')).toContainText('已连接');
+      await expect(page.locator('[data-environment-check="bridge"]')).toContainText('未通过');
+      const success = page.locator('[data-environment-check="runtime"] .status-text');
+      const failure = page.locator('[data-environment-check="bridge"] .status-text');
+      await expect(success).toHaveAttribute('data-status','success');
+      await expect(failure).toHaveAttribute('data-status','failed');
+      expect(await contrast(success)).toBeGreaterThanOrEqual(4.5);
+      expect(await contrast(failure)).toBeGreaterThanOrEqual(4.5);
+      const colors = await page.evaluate(() => {
+        const sample = document.createElement('span');document.body.append(sample);
+        sample.style.color='color-mix(in oklab, var(--status-success) 60%, var(--fg))';
+        const success=getComputedStyle(sample).color;
+        sample.style.color='color-mix(in oklab, var(--status-danger) 60%, var(--fg))';
+        const failure=getComputedStyle(sample).color;sample.remove();return {success,failure};
+      });
+      await expect(success).toHaveCSS('color',colors.success);
+      await expect(failure).toHaveCSS('color',colors.failure);
+      const dots = {success:page.locator('[data-environment-check="runtime"] .status-dot'),
+        failed:page.locator('[data-environment-check="bridge"] .status-dot'),
+        unknown:page.locator('[data-environment-check="chrome"] .status-dot'),
+        unchecked:page.locator('[data-environment-check="x"] .status-dot')};
+      const dotColors = await page.evaluate(() => {
+        const sample=document.createElement('span');document.body.append(sample);
+        const colors=Object.fromEntries(Object.entries({success:'--status-success',failed:'--status-danger',unknown:'--status-danger',unchecked:'--muted'}).map(([status,token])=>{
+          sample.style.backgroundColor=`var(${token})`;return [status,getComputedStyle(sample).backgroundColor];
+        }));sample.remove();return colors;
+      });
+      await expect(page.locator('#collectionEnvironmentResults .status-dot')).toHaveCount(5);
+      for(const [status,dot] of Object.entries(dots)) {
+        await expect(dot).toHaveAttribute('data-status',status);
+        await expect(dot).toHaveAttribute('aria-hidden','true');
+        await expect(dot).toHaveCSS('background-color',dotColors[status]);
+        expect(await dot.evaluate(node=>node === node.parentElement.firstElementChild)).toBe(true);
+      }
       for (const scale of [.9,1,1.15,1.3]) {
         await page.evaluate(scale => document.documentElement.style.setProperty('--reading-scale',String(scale)),scale);
         const styles = await page.evaluate(() => {

@@ -14,9 +14,10 @@ import threading
 import time
 
 import report_model
+import report_monthly
 from report_generation import (EDITOR, EDITION, InvalidReport, edited_call, encoded, json_call,
                                headline_material, writing_material, validate_selected_report,
-                               validate_events)
+                               validate_events, report_context)
 
 VERSION = "v4-title-first-1"
 WORK_TOKENS = 24000
@@ -108,9 +109,12 @@ class Workspace:
         self.snapshot, self.config = snapshot, config
         self.delegation = config.get("_delegation", True)
         self.sources = {s["ref"]: s for s in snapshot["sources"]}
+        self.required = report_monthly.required_refs(snapshot["sources"], snapshot["kind"])
+        self.background = report_monthly.background_refs(snapshot["sources"], snapshot["kind"])
         self.batches = {"B0001": list(self.sources)} if title_report else working_batches(snapshot["sources"], config)
         public_config = {k: v for k, v in config.items() if not k.startswith("_") and k != "session_id"}
-        self.identity = hashlib.sha256(encoded([VERSION, snapshot, public_config, self.batches, title_report]).encode()).hexdigest()
+        self.workflow = VERSION + (":" + report_monthly.VERSION if snapshot["kind"] == "monthly" else "")
+        self.identity = hashlib.sha256(encoded([self.workflow, snapshot, public_config, self.batches, title_report]).encode()).hexdigest()
         self.key = VERSION + ":" + self.identity
         self.store = state_store or (lambda key, value=None: None)
         self.progress = progress or (lambda *a, **kw: None)
@@ -150,7 +154,7 @@ class Workspace:
         return bool(self.state["plan"]) and not self.unread_drafts()
 
     def events(self):
-        return [{"id": f"{batch}:E{i+1:04}", **event} for batch in self.batches
+        return [{"id": f"{batch}:E{i+1:04}", **report_monthly.event_signals(event, self.required, self.background)} for batch in self.batches
                 for i, event in enumerate(self.state["reviews"].get(batch, {}).get("events", []))]
 
     def selected_refs(self):
@@ -162,7 +166,7 @@ class Workspace:
 
     def status(self):
         plan = self.state["plan"]
-        return {"context": {k: v for k, v in self.snapshot.items() if k != "sources"},
+        return {"context": report_context(self.snapshot),
                 "source_count": len(self.sources), "reviewed_count": sum(len(self.batches[b]) for b in self.state["reviews"]),
                 "batches": [{"id": b, "first_ref": refs[0], "last_ref": refs[-1], "count": len(refs), "done": b in self.state["reviews"]} for b, refs in self.batches.items()],
                 "event_count": len(self.events()), "plan": plan, "selection_locked": plan is not None,
@@ -219,7 +223,8 @@ class Workspace:
         return self.page(events, offset)
 
     def _review(self, batch_id, events, omitted):
-        checked = validate_events({"events": events, "omitted": omitted}, set(self.batches[batch_id]))
+        allowed = set(self.batches[batch_id])
+        checked = validate_events({"events": events, "omitted": omitted}, allowed, self.required & allowed)
         if self.state["reviews"].get(batch_id) != checked:
             if self.state["plan"] is not None:
                 raise ValueError("标题选稿已确认，不能在读取摘要或正文后更改入选名单")
@@ -254,6 +259,14 @@ class Workspace:
             missing, duplicate = sorted(allowed-set(counts)), sorted(e for e, n in counts.items() if n != 1)
             raise ValueError("每个候选必须且只能分配给一个章节或 omitted_events；请修正编号。" + encoded({
                 "missing_count": len(missing), "missing_first_40": missing[:40], "duplicate_count": len(duplicate), "duplicate_first_40": duplicate[:40]}))
+        event_refs = {event["id"]: set(event["refs"]) for event in self.events()}
+        selected = set().union(*(event_refs[e] for e in used))
+        if self.required - selected:
+            raise ValueError("章节计划不能舍弃当月重要新闻，请纳入原有主题或简讯：" + encoded(sorted(self.required-selected)))
+        for part in parts:
+            refs = set().union(*(event_refs[e] for e in part["event_ids"]))
+            if refs and refs <= self.background:
+                raise ValueError("历史重要新闻只能补充相关当月事件，不得独立成章；请合并到包含关联当月新闻的章节或舍弃背景")
         revision = hashlib.sha256(encoded([self.state["reviews"], parts, omitted_events]).encode()).hexdigest()[:16]
         if not self.state["plan"] or self.state["plan"]["revision"] != revision:
             if self.state["plan"] is not None:
@@ -306,7 +319,7 @@ class Workspace:
         selected = self.selected_refs()
         result = validate_selected_report({"sections": sections, "briefs": briefs},
                                           [s for r, s in self.sources.items() if r in selected], self.snapshot["kind"])
-        result["generation"] = {"workflow": VERSION, "identity": self.identity, "source_count": len(self.sources),
+        result["generation"] = {"workflow": self.workflow, "identity": self.identity, "source_count": len(self.sources),
                                 "reviewed_count": sum(len(self.batches[b]) for b in self.state["reviews"]),
                                 "candidate_count": len(self.events()), "selected_source_count": len(result["sources"]),
                                 "reviewed_chapters": [p["id"] for p in plan["parts"]],
@@ -351,7 +364,7 @@ class Workspace:
             self.persist()
 
 
-WORKFLOW = """你有本期不可变的新闻快照和可恢复的报告工作区。先读 report_status，复用已完成整理和章节。
+WORKFLOW = """你有本期不可变的新闻快照和可恢复的报告工作区。先读 report_status，复用已完成整理和章节。月报同时遵循其中的当月重要新闻必收、历史仅作相关背景规则。
 1. 选稿只看标题、来源与发布时间：分页读取全部 report_sources；长标题用 report_source 续读。按独立事件将标题支持的事实、变化和反证写入 report_review，其余明确 omitted。摘要、正文及其可用性在此阶段不可见，不得猜测。不要因批次边界拆断同一事件。
 2. 翻完 report_events，统筹全期；确认前可检索全部标题、重审 omitted 并修订 report_review。按主题/事件分配章节，显式决定每个候选，最后调用 report_plan 确认。此操作固定最终入选名单及章节，之后不能改选；充分审视标题后再提交。
 3. 计划确认后，仅入选新闻开放已有摘要与正文。各章回查入选原文，用细节、条件和反证完善写作；所有本章入选编号都须引用，标题新闻保持简短表述，不因有无正文而增删。正文纠正标题时明确写出纠正或不确定性。调用 report_draft 保存，不设固定主题数或字数，避免重复。
@@ -402,7 +415,7 @@ def program_editor(workspace, config, call, checkpoint):
         if batch_id in workspace.state["reviews"]:
             return
         material = [{**headline_material(workspace.sources[r]), "refs": [r]} for r in workspace.batches[batch_id]]
-        context = encoded({k: v for k, v in workspace.snapshot.items() if k != "sources"})
+        context = encoded(report_context(workspace.snapshot))
         prompt = EDITOR + "\n编辑规则与期别：" + context + '\n本批仅建立可供主编辑回查的事件记录，并非最终删选。保留独立的重要事实、关键日期、数字、变化、分歧与限定；同事件的不同进展应保留，周月报尤其注意早期信号与后续结果。确无新闻价值的来源可放 omitted。每个输入编号必须出现在 events 或 omitted 中。返回 {"events":[{"text":"事实与时间、条件","refs":["N00001"]}],"omitted":[]}。\n新闻资料：' + encoded(material)
         if not report_model.fits(config, prompt):
             # An unusually long individual source remains for paged reading by
@@ -410,14 +423,14 @@ def program_editor(workspace, config, call, checkpoint):
             return
         allowed = set(workspace.batches[batch_id])
         result = edited_call(workspace.key + ":" + batch_id, prompt, material, context, config, call, checkpoint,
-                             lambda value: validate_events(value, allowed))
+                             lambda value: validate_events(value, allowed, workspace.required & allowed))
         saved = workspace.invoke("report_review", {"batch_id": batch_id, **result})
         if "error" in saved:
             raise RuntimeError("report_coverage_incomplete")
     workspace.progress("reading", completed=len(workspace.state["reviews"]), total=len(workspace.batches))
     run_parallel([b for b in workspace.batches if b not in workspace.state["reviews"]], review, abort)
     workspace.progress("planning")
-    context = encoded({k: v for k, v in workspace.snapshot.items() if k != "sources"})
+    context = encoded(report_context(workspace.snapshot))
 
     def draft(part):
         revision = workspace.state["plan"]["revision"]
