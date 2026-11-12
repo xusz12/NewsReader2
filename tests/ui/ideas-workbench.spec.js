@@ -50,7 +50,7 @@ test('linked idea reuses full reader, retains highlights and authorship, and arc
     const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
     element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   });
-  await page.getByRole('button', { name: '高亮', exact: true }).click();
+  await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
   await expect(paragraph.locator('mark')).not.toHaveCount(0);
   await page.locator('[data-body-mode="bilingual"]').click();
   await page.locator('#detailScrollArea').evaluate(node => node.scrollTop = 210);

@@ -69,6 +69,7 @@ export function readerBilingual(original, translated, originalKind = "original")
 }
 const sourceName = kind => ({ ai_zh: "translated", ai_conclusion_zh: "conclusion", ai_points_zh: "points" })[kind] || "original";
 const codePointOffset = (raw, utf16) => [...raw.slice(0, utf16)].length;
+const highlightColors = new Set(["yellow", "red", "green", "blue", "pink"]);
 
 export class ReaderHighlights {
   constructor({ onQuote, onUpdate }) {
@@ -77,7 +78,10 @@ export class ReaderHighlights {
     this.popover = $("#selectionPopover");
     // Keep the selected range intact until an action consumes it, including touch taps.
     this.popover.addEventListener("pointerdown", event => event.preventDefault());
-    $("#highlightSelectionBtn").onclick = event => busy(event.currentTarget, () => this.save());
+    this.colorButtons = $$("[data-highlight-color]", this.popover);
+    for (const button of this.colorButtons) {
+      button.onclick = () => busy(null, () => this.save(button.dataset.highlightColor));
+    }
     $("#quoteNoteBtn").onclick = () => this.quote("note");
     $("#quoteAgentBtn").onclick = () => this.quote("agent");
     this.root = $("#detailScrollArea");
@@ -90,6 +94,7 @@ export class ReaderHighlights {
       area.addEventListener("keydown", event => {
         if (["Enter", " "].includes(event.key) && event.target.matches("[data-highlight-id]")) {
           event.preventDefault(); this.selectMark(event.target);
+          (this.colorButtons.find(button => button.getAttribute("aria-pressed") === "true") || this.colorButtons[0]).focus();
         }
       });
     }
@@ -101,7 +106,11 @@ export class ReaderHighlights {
       clearTimeout(this.timer);
       if (!event.target.closest("#selectionPopover")) this.hide();
     });
-    document.addEventListener("keydown", event => { if (event.key === "Escape") this.hide(); });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && this.popover.classList.contains("show")) {
+        event.preventDefault(); event.stopPropagation(); this.hide();
+      }
+    }, true);
     document.addEventListener("scroll", event => {
       if (event.target !== this.root) return;
       if (!this.popover.classList.contains("show")) return;
@@ -117,7 +126,12 @@ export class ReaderHighlights {
     window.visualViewport?.addEventListener("resize", reposition);
     window.visualViewport?.addEventListener("scroll", reposition);
   }
-  hide() { this.popover.classList.remove("show"); }
+  hide() {
+    if (this.popover.contains(document.activeElement) && this.anchor instanceof Element && this.anchor.isConnected) {
+      this.anchor.focus({ preventScroll: true });
+    }
+    this.popover.classList.remove("show");
+  }
   mount(id, bodies, surfaces = {}, root = $("#detailScrollArea"), { allowNotes = true } = {}) {
     this.root = root;
     this.allowNotes = allowNotes;
@@ -152,7 +166,7 @@ export class ReaderHighlights {
           const b = Math.min(end, entry.end);
           if (a >= b) continue;
           html += e(text.slice(cursor - start, a - start));
-          const color = ["yellow", "green", "blue", "pink"].includes(entry.color) ? entry.color : "yellow";
+          const color = highlightColors.has(entry.color) ? entry.color : "yellow";
           html += `<mark class="reader-highlight highlight-${color}" data-highlight-id="${entry.id}" tabindex="0" role="button" aria-label="高亮文本，点击管理">${e(text.slice(a - start, b - start))}</mark>`;
           cursor = b;
         }
@@ -209,10 +223,23 @@ export class ReaderHighlights {
     this.show(mark.getBoundingClientRect());
   }
   show(rect) {
-    $("#highlightSelectionBtn").textContent = this.selection.existing ? "取消高亮" : "高亮";
-    $("#highlightSelectionBtn").disabled = !this.selection.existing && !this.surfaces[this.selection.kind]?.body_ready;
+    this.updateActions();
     this.popover.classList.add("show");
     this.position(rect);
+  }
+  updateActions() {
+    const selected = this.selection;
+    const surface = this.surfaces?.[selected?.kind];
+    const existing = surface?.highlights?.find(row => row.id === selected?.existing);
+    const disabled = !!this.saving || !selected || (!selected.existing && !surface?.body_ready);
+    this.popover.setAttribute("aria-busy", String(!!this.saving));
+    for (const button of this.colorButtons) {
+      const active = existing?.color === button.dataset.highlightColor;
+      button.disabled = disabled;
+      button.setAttribute("aria-pressed", String(active));
+      button.title = (active ? "取消" : "") + button.getAttribute("aria-label");
+      button.querySelector(".highlight-color-swatch").textContent = active ? "✓" : button.getAttribute("aria-label").charAt(0);
+    }
   }
   position(rect) {
     const docked = singlePane.matches || matchMedia("(pointer: coarse)").matches;
@@ -235,18 +262,27 @@ export class ReaderHighlights {
     getSelection()?.removeAllRanges();
     this.hide();
   }
-  async save() {
+  async save(color) {
     const selected = this.selection;
-    if (!selected || selected.itemId !== this.itemId) return;
+    if (!selected || selected.itemId !== this.itemId || this.saving) return;
+    const existing = this.surfaces[selected.kind]?.highlights?.find(row => row.id === selected.existing);
     const base = `/api/news/${encodeURIComponent(selected.itemId)}/highlights`;
-    const data = await api(selected.existing ? `${base}/${selected.existing}` : base, selected.existing
-      ? { method: "DELETE" }
-      : { method: "POST", body: { body_kind: selected.kind, start_offset: selected.start, end_offset: selected.end, selected_text: selected.selected_text, color: "yellow" } });
-    this.onUpdate(selected.itemId, data);
-    if (selected.itemId !== this.itemId) return;
-    this.surfaces = data.highlight_surfaces || {};
-    getSelection()?.removeAllRanges();
-    this.paint();
-    this.hide();
+    this.saving = true;
+    this.updateActions();
+    try {
+      const data = await api(selected.existing ? `${base}/${selected.existing}` : base, selected.existing
+        ? (existing?.color === color ? { method: "DELETE" } : { method: "PATCH", body: { color } })
+        : { method: "POST", body: { body_kind: selected.kind, start_offset: selected.start, end_offset: selected.end, selected_text: selected.selected_text, color } });
+      this.onUpdate(selected.itemId, data);
+      if (selected.itemId !== this.itemId) return;
+      this.surfaces = data.highlight_surfaces || {};
+      getSelection()?.removeAllRanges();
+      this.paint();
+      if (data.highlight) this.anchor = $(`[data-highlight-id="${data.highlight.id}"]`, this.root);
+      this.hide();
+    } finally {
+      this.saving = false;
+      this.updateActions();
+    }
   }
 }

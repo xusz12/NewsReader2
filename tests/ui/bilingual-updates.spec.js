@@ -59,7 +59,7 @@ test('双语逐段交替，保留两种语言的原始偏移、高亮和引用',
   expect(await pairs.locator('[lang]').evaluateAll(nodes=>nodes.map(n=>n.lang))).toEqual(['en','zh-Hans','en','zh-Hans','en','zh-Hans']);
   for(const [lang,kind] of [['en','original'],['zh-Hans','ai_zh']]) {
     const paragraph=pairs.nth(1).locator('[lang="'+lang+'"]');
-    await selectText(paragraph);await page.getByRole('button',{name:'高亮',exact:true}).click();
+    await selectText(paragraph);await page.getByRole('button',{name:'黄色高亮',exact:true}).click();
     await expect(paragraph.locator('mark')).not.toHaveCount(0);
     const data=(await (await request.get('/api/news/ui-063/detail')).json());
     const surface=data.highlight_surfaces[kind];

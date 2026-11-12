@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.7</title>
+    <title>News Reader v0.5.8</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.7" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.7" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.8" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.8" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.7"
+      href="/static/style.css?v=0.5.8"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.7</span>
+            <span class="brand-version">v0.5.8</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -1002,15 +1002,26 @@
     </div>
     <div aria-live="polite" class="app-toast" id="toast" role="status"></div>
     <div class="selection-popover" id="selectionPopover" role="group" aria-label="选中文本操作">
-      <button class="selection-pop-btn" id="highlightSelectionBtn" type="button">高亮</button>
-      <button class="selection-pop-btn" id="quoteNoteBtn" type="button">引用写想法</button>
-      <button class="selection-pop-btn accent" id="quoteAgentBtn" type="button">
-        引用提问 Agent
-      </button>
+      <div class="selection-action-group" role="group" aria-label="高亮颜色">
+        <button class="selection-pop-btn selection-color-btn highlight-yellow" data-highlight-color="yellow" type="button" aria-label="黄色高亮" title="黄色高亮" aria-pressed="false"><span class="highlight-color-swatch" aria-hidden="true">黄</span></button>
+        <button class="selection-pop-btn selection-color-btn highlight-red" data-highlight-color="red" type="button" aria-label="红色高亮" title="红色高亮" aria-pressed="false"><span class="highlight-color-swatch" aria-hidden="true">红</span></button>
+        <button class="selection-pop-btn selection-color-btn highlight-green" data-highlight-color="green" type="button" aria-label="绿色高亮" title="绿色高亮" aria-pressed="false"><span class="highlight-color-swatch" aria-hidden="true">绿</span></button>
+        <button class="selection-pop-btn selection-color-btn highlight-blue" data-highlight-color="blue" type="button" aria-label="蓝色高亮" title="蓝色高亮" aria-pressed="false"><span class="highlight-color-swatch" aria-hidden="true">蓝</span></button>
+      </div>
+      <div class="selection-action-group">
+        <button class="selection-pop-btn" id="quoteNoteBtn" type="button" aria-label="引用写想法" title="引用写想法">
+          <span class="selection-action-label">引用写想法</span>
+          <span class="selection-action-label-compact" aria-hidden="true">想法</span>
+        </button>
+        <button class="selection-pop-btn accent" id="quoteAgentBtn" type="button" aria-label="引用提问 Agent" title="引用提问 Agent">
+          <span class="selection-action-label">引用提问 Agent</span>
+          <span class="selection-action-label-compact" aria-hidden="true">提问</span>
+        </button>
+      </div>
     </div>
-    <script src="/static/error_ui.js?v=0.5.7"></script>
+    <script src="/static/error_ui.js?v=0.5.8"></script>
     <script
-      src="/static/app.js?v=0.5.7"
+      src="/static/app.js?v=0.5.8"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

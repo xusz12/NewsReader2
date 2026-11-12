@@ -212,7 +212,7 @@ ARTICLE_HIGHLIGHT_BODY_KINDS = {
     ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND,
     ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND,
 }
-ARTICLE_HIGHLIGHT_COLORS = {"yellow", "green", "blue", "pink"}
+ARTICLE_HIGHLIGHT_COLORS = {"yellow", "red", "green", "blue", "pink"}
 ARTICLE_HIGHLIGHT_CONTEXT_CHARS = 48
 ARTICLE_HIGHLIGHT_ANNOTATION_MAX_LENGTH = 2000
 ARTICLE_HIGHLIGHT_UNAVAILABLE_AI_STATUSES = {"pending", "running", "failed"}
@@ -768,8 +768,12 @@ def migrate_article_highlights_schema(conn: sqlite3.Connection) -> None:
 
     columns = {row[1] for row in conn.execute("PRAGMA table_info(article_highlights)").fetchall()}
     table_sql = (table[0] or "").lower()
-    needs_rebuild = any(kind not in table_sql for kind in ARTICLE_HIGHLIGHT_BODY_KINDS)
+    needs_rebuild = (
+        any(kind not in table_sql for kind in ARTICLE_HIGHLIGHT_BODY_KINDS)
+        or any(f"'{color}'" not in table_sql for color in ARTICLE_HIGHLIGHT_COLORS)
+    )
     if needs_rebuild:
+        sequence = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='article_highlights'").fetchone()
         conn.execute("DROP INDEX IF EXISTS idx_article_highlights_url")
         conn.execute("DROP INDEX IF EXISTS idx_article_highlights_content_hash")
         conn.execute("ALTER TABLE article_highlights RENAME TO article_highlights_legacy")
@@ -785,7 +789,7 @@ def migrate_article_highlights_schema(conn: sqlite3.Connection) -> None:
               end_offset INTEGER NOT NULL CHECK (end_offset > start_offset),
               selected_text TEXT NOT NULL CHECK (length(selected_text) > 0),
               color TEXT NOT NULL DEFAULT 'yellow'
-                CHECK (color IN ('yellow', 'green', 'blue', 'pink')),
+                CHECK (color IN ('yellow', 'red', 'green', 'blue', 'pink')),
               annotation_text TEXT NOT NULL DEFAULT ''
                 CHECK (length(annotation_text) <= 2000),
               prefix TEXT NOT NULL DEFAULT '',
@@ -811,6 +815,11 @@ def migrate_article_highlights_schema(conn: sqlite3.Connection) -> None:
             """
         )
         conn.execute("DROP TABLE article_highlights_legacy")
+        # Keep deleted IDs retired as well as preserving every surviving record.
+        if sequence and not conn.execute(
+            "UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='article_highlights'", (sequence[0],)
+        ).rowcount:
+            conn.execute("INSERT INTO sqlite_sequence(name,seq) VALUES ('article_highlights',?)", (sequence[0],))
         columns = {row[1] for row in conn.execute("PRAGMA table_info(article_highlights)").fetchall()}
 
     if "color" not in columns:

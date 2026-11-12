@@ -24,7 +24,7 @@ import {
 import { SettingsPanel } from "./settings-panel.js?v=0.5.7";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.4";
 import { TopicPanel } from "./topic-panel.js?v=0.5.4";
-import { ReportPanel } from "./report-panel.js?v=0.5.6";
+import { ReportPanel } from "./report-panel.js?v=0.5.8";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
@@ -32,7 +32,7 @@ import { ClassificationProgress } from "./classification-progress.js?v=translati
 import { TaskProgress } from "./task-progress.js?v=0.5.5";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
-import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
+import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
 import { UpstreamErrors } from "./upstream-errors.js?v=0.5.6";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";

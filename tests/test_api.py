@@ -8091,12 +8091,13 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     assert too_long_annotation.status_code == 400
     assert too_long_annotation.get_json()["error"] == "annotation_too_long"
 
-    recolored = client.patch(
-        f"/api/news/{first['id']}/highlights/{highlight_id}",
-        json={"color": "green"},
-    )
-    assert recolored.status_code == 200
-    assert recolored.get_json()["highlight"]["color"] == "green"
+    for color in ("red", "blue", "green"):
+        recolored = client.patch(
+            f"/api/news/{first['id']}/highlights/{highlight_id}",
+            json={"color": color},
+        )
+        assert recolored.status_code == 200
+        assert recolored.get_json()["highlight"]["color"] == color
 
     same_hash = client.get(f"/api/news/{first['id']}/highlights").get_json()
     assert same_hash["highlights"][0]["resolved_start_offset"] == start
@@ -8392,6 +8393,39 @@ def test_article_highlights_schema_migrates_legacy_body_kind_and_color(tmp_path:
     assert "annotation_text" in columns
     row = conn.execute("SELECT body_kind, color, annotation_text FROM article_highlights").fetchone()
     assert tuple(row) == ("ai_zh", "yellow", "")
+
+
+def test_article_highlights_color_migration_preserves_existing_records_and_is_idempotent():
+    import app as app_module
+
+    with sqlite3.connect(":memory:") as conn:
+        legacy_schema = (Path(__file__).resolve().parents[1] / "schema.sql").read_text().replace(
+            "'yellow', 'red', 'green', 'blue', 'pink'", "'yellow', 'green', 'blue', 'pink'")
+        conn.executescript(legacy_schema)
+        for index, color in enumerate(("yellow", "green", "blue", "pink"), 1):
+            conn.execute("""INSERT INTO article_highlights
+                (id,url,body_kind,content_hash,start_offset,end_offset,selected_text,color,annotation_text,prefix,suffix,created_at,updated_at)
+                VALUES (?,?,'original','hash',1,3,'原文',?,'既有批注','前','后','created','updated')""",
+                (index * 10, f"newsreader-report:legacy-{index}" if index % 2 else f"https://example.com/{index}", color))
+        conn.execute("UPDATE sqlite_sequence SET seq=999 WHERE name='article_highlights'")
+        before = conn.execute("SELECT * FROM article_highlights ORDER BY id").fetchall()
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE article_highlights SET color='red' WHERE id=10")
+        app_module.migrate_article_highlights_schema(conn)
+        assert conn.execute("SELECT * FROM article_highlights ORDER BY id").fetchall() == before
+        statements = []
+        conn.set_trace_callback(statements.append)
+        app_module.migrate_article_highlights_schema(conn)
+        conn.set_trace_callback(None)
+        assert not any("ALTER TABLE" in statement.upper() or "DROP TABLE" in statement.upper() for statement in statements)
+        assert conn.execute("SELECT * FROM article_highlights ORDER BY id").fetchall() == before
+        conn.execute("UPDATE article_highlights SET color='red' WHERE id=10")
+        assert conn.execute("SELECT color,annotation_text FROM article_highlights WHERE id=10").fetchone() == ("red", "既有批注")
+        inserted = conn.execute("""INSERT INTO article_highlights
+            (url,content_hash,start_offset,end_offset,selected_text,color,created_at,updated_at)
+            VALUES ('https://example.com/new','hash',0,2,'新增','red','now','now')""")
+        assert inserted.lastrowid > 999
+        assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
 
 
 def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_news(tmp_path: Path, monkeypatch):

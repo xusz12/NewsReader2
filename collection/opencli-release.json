@@ -1,18 +1,18 @@
 {
-  "checked_at": "2026-11-12T06:15:22.617379+00:00",
-  "fingerprint": "cc6a3ede9d48d5192d288d8ab4eae1027dd9bf7ea78cbfefd9b4c40d3c589ca7",
-  "newsreader_version": "0.5.7",
+  "checked_at": "2026-11-12T08:36:20.602492+00:00",
+  "fingerprint": "865b1382541ca3de66af90399ec2b5316c615ded1c36c047380f46ebbf172a5e",
+  "newsreader_version": "0.5.8",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 8.25,
+      "seconds": 17.46,
       "error": "",
       "samples": [
         {
-          "title": "Israeli strike on southern Gaza hospital kills six, Gaza civil defence says",
+          "title": "Israeli strike on southern Gaza hospital kills six",
           "url": "https://www.reuters.com/world/middle-east/israeli-strike-southern-gaza-hospital-kills-four-gaza-civil-defence-says-2026-11-11/",
           "time": "2026-11-12 07:26:09",
           "source_name": "Reuters"
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.38,
+      "seconds": 4.55,
       "error": "",
       "samples": [
         {
-          "title": "Switzerland's Sonova raises full-year forecasts on market-share gains, product launches",
-          "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/switzerlands-sonova-raises-full-year-forecasts-market-share-gains-product-2026-11-12/",
-          "time": "2026-11-12 14:12:31",
+          "title": "Nvidia's Asian supply chain prepares for life after Huang",
+          "url": "https://www.reuters.com/business/media-telecom/nvidias-asian-supply-chain-prepares-life-after-huang-2026-11-12/",
+          "time": "2026-11-12 16:25:48",
           "source_name": "Reuters"
         },
         {
-          "title": "Public funds ploughing cash into AI will 'own' megatrends shaping economy",
-          "url": "https://www.reuters.com/business/finance/public-funds-ploughing-cash-into-ai-will-own-megatrends-shaping-economy-2026-11-12/",
-          "time": "2026-11-12 14:06:51",
+          "title": "Citi turns to China Inc.'s global expansion, yuan to grow cross-border business",
+          "url": "https://www.reuters.com/business/finance/citi-turns-china-incs-global-expansion-yuan-grow-cross-border-business-2026-11-12/",
+          "time": "2026-11-12 16:18:11",
           "source_name": "Reuters"
         }
       ]
@@ -52,13 +52,13 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.42,
+      "seconds": 4.69,
       "error": "",
       "samples": [
         {
-          "title": "Explainer: What is ASEAN and why does the bloc matter?",
-          "url": "https://www.reuters.com/world/asia-pacific/what-is-asean-why-does-bloc-matter-2026-11-12/",
-          "time": "2026-11-12 14:11:53",
+          "title": "Russia says it launched a massive overnight strike on Ukrainian military factories",
+          "url": "https://www.reuters.com/world/europe/russia-ukraine-exchange-attacks-capitals-us-envoys-head-moscow-2026-11-12/",
+          "time": "2026-11-12 10:14:29",
           "source_name": "Reuters"
         },
         {
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.4,
+      "seconds": 4.42,
       "error": "",
       "samples": [
         {
-          "title": "Chinese AI firms rush to secure Nvidia chip capacity as spy scandal stirs fear of US curbs",
-          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
-          "time": "2026-11-12 13:31:18",
+          "title": "Nvidia board meets to decide CEO Huang's future as leadership crisis deepens",
+          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
+          "time": "2026-11-12 06:34:14",
           "source_name": "Reuters"
         },
         {
-          "title": "Leadership crisis deepens at world's dominant supplier of AI chips",
-          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
-          "time": "2026-11-12 06:34:14",
+          "title": "Chinese AI firms rush to secure Nvidia chip capacity on fears of US curbs",
+          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
+          "time": "2026-11-12 13:31:18",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.84,
+      "seconds": 17.34,
       "error": "",
       "samples": [
         {
-          "title": "Public funds ploughing cash into AI will 'own' megatrends shaping economy",
-          "url": "https://www.reuters.com/business/finance/public-funds-ploughing-cash-into-ai-will-own-megatrends-shaping-economy-2026-11-12/",
-          "time": "2026-11-12 14:06:51",
+          "title": "Chinese AI firms rush to secure Nvidia chip capacity on fears of US curbs",
+          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
+          "time": "2026-11-12 13:31:18",
           "source_name": "Reuters"
         },
         {
-          "title": "Chinese AI firms rush to secure Nvidia chip capacity as spy scandal stirs fear of US curbs",
-          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
-          "time": "2026-11-12 13:31:18",
+          "title": "Nvidia board meets to decide CEO Huang's future as leadership crisis deepens",
+          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
+          "time": "2026-11-12 06:34:14",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.96,
+      "seconds": 20.94,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia Faces More Risks in Deal Pace Than Huang Exit, BI Says",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-faces-more-risks-in-deal-pace-than-huang-exit-bi-says",
-          "time": "2026-11-12 13:08:42",
+          "title": "Drone Startup Uforce Valued at $6 Billion With UK Wealth Fund Backing",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-12/drone-startup-uforce-valued-at-6-billion-with-uk-wealth-fund-backing",
+          "time": "2026-11-12 16:30:00",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Nvidia Drama Triggers Difficult Search for Huang’s Successor",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-drama-triggers-difficult-search-for-huang-s-successor",
-          "time": "2026-11-12 13:04:55",
+          "title": "The Case For India in a World Obsessed With the AI Trade",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-12/the-case-for-india-in-a-world-obsessed-with-the-ai-trade",
+          "time": "2026-11-12 16:18:05",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,7 +140,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.56,
+      "seconds": 1.5,
       "error": "",
       "samples": [
         {
@@ -162,7 +162,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.19,
+      "seconds": 2.07,
       "error": "",
       "samples": [
         {
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.69,
+      "seconds": 2.74,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.77,
+      "seconds": 1.6,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.57,
+      "seconds": 1.56,
       "error": "",
       "samples": [
         {
-          "title": "摩根士丹利将英伟达移出TopPick首选名单。因为认为黄仁勋的领导力对公司的战略方向至关重要，尽管近期不确定性仍存在，但保持“增持”观点，维持十二个月的目标价不变。 就在风波升级前的11月9日，摩根士丹利半导体团队仍将英伟达保留在首选名单中，并将当时的板块抛售定性为“似乎过度”。几天后，黄仁勋出轨事件的发酵让大摩迅速改变立场。",
-          "url": "https://x.com/fxtrader/status/2120758386371527104?s=20",
-          "time": "2026-11-12 13:59",
+          "title": "#观察 腾讯在28周年当天全量上线了“元宝搜索”，替代了腾讯搜索。 不过这个AI模式的等待UI，应该是像素级“致敬”了Google吧。 https://t.co/upkfgXdqKT",
+          "url": "https://x.com/fxtrader/status/2120795763030819187?s=20",
+          "time": "2026-11-12 16:28",
           "source_name": "外汇交易员"
         },
         {
-          "title": "FT：欧盟与英国将推迟对电动汽车征收10%关税。",
-          "url": "https://x.com/fxtrader/status/2120744998450958371?s=20",
-          "time": "2026-11-12 13:06",
+          "title": "今日网传腾讯要裁员50%，有同事圈截图称马化腾要推动组织变革，内部人心惶惶。 对此，腾讯公关总监张军回应表示，这是“误会和谣言”。腾讯管理层在腾讯28周年的Linktime线上直播中，主动表达了要加快组织变革的决心，同时特别提到，这一次是面向AI时代的主动出击，更偏“增效”。 https://t.co/l7cbUe2sVL",
+          "url": "https://x.com/fxtrader/status/2120787958362153401?s=20",
+          "time": "2026-11-12 15:57",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.66,
+      "seconds": 1.56,
       "error": "",
       "samples": [
         {
@@ -276,7 +276,7 @@
       "ok": true,
       "title": "Israeli strike on southern Gaza hospital kills six, Gaza civil defence says",
       "length": 2208,
-      "seconds": 3.19,
+      "seconds": 16.32,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -287,17 +287,17 @@
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-faces-more-risks-in-deal-pace-than-huang-exit-bi-says",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-12/drone-startup-uforce-valued-at-6-billion-with-uk-wealth-fund-backing",
       "ok": true,
-      "title": "Nvidia Faces More Risks in Deal Pace Than Huang Exit, BI Says",
-      "length": 1034,
-      "seconds": 31.37,
+      "title": "Drone Startup Uforce Valued at $6 Billion With UK Wealth Fund Backing",
+      "length": 3524,
+      "seconds": 31.44,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "dc4b9940d4647a8efc4c5a351c1fe8db46422d0fd315bef4049bddea228c4c4e",
-      "preview": "Nvidia Corp. faces more risk from slower new agreements and tighter China scrutiny than from the leadership uncertainty around Chief Executive Officer Jensen Hu"
+      "content_sha256": "774281170537e4fe4643c40a7481585dfe5260601833ddcc9ddcade0f7ed833a",
+      "preview": "The UK National Wealth Fund made its largest defense investment as part of a $700 million financing round for Uforce, a drone startup initially formed in Ukrain"
     },
     {
       "name": "TechCrunch",
@@ -306,7 +306,7 @@
       "ok": true,
       "title": "Who could replace Jensen Huang? A highly unscientific list of possible successors",
       "length": 5060,
-      "seconds": 2.06,
+      "seconds": 2.18,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -321,7 +321,7 @@
       "ok": true,
       "title": "CEO Jensen Huang’s job is suddenly on the line at Nvidia",
       "length": 3626,
-      "seconds": 16.32,
+      "seconds": 16.06,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 3.64,
+      "seconds": 16.37,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.4,
+      "seconds": 3.08,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 639,
-      "seconds": 10.05,
+      "seconds": 13.11,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 6.48,
+      "seconds": 8.9,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.45,
+      "seconds": 9.07,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-12T06:15:25.317196+00:00"
+    "checked_at": "2026-11-12T08:36:22.962862+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-12T06:15:31.757034+00:00"
+    "checked_at": "2026-11-12T08:36:28.673967+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-12T06:18:17.799766+00:00",
+    "checked_at": "2026-11-12T08:40:10.459548+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

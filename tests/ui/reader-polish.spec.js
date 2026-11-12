@@ -32,7 +32,7 @@ test('persistent highlights in body, conclusion and points, including formatted 
   await ready(page);
   for (const [selector, kind] of [['#articleBodyContent > p:nth-child(2)', 'ai_zh'], ['.digest-lead', 'ai_conclusion_zh'], ['.digest-point-item:nth-child(2) > span:last-child', 'ai_points_zh']]) {
     await selection(page, selector);
-    await page.getByRole('button', { name: '高亮', exact: true }).click();
+    await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
     await expect(page.locator(`${selector} mark`)).not.toHaveCount(0);
     const surface = (await (await request.get(path + '/highlights')).json()).highlight_surfaces[kind];
     expect(surface.highlights).toHaveLength(1);
@@ -43,10 +43,10 @@ test('persistent highlights in body, conclusion and points, including formatted 
   await expect(page.locator('#articleBodyContent mark')).not.toHaveCount(0);
   await page.locator('[data-body-mode="bilingual"]').click();
   await selection(page, '#articleBodyContent [lang="en"] > p:nth-child(3)');
-  await page.getByRole('button', { name: '高亮', exact: true }).click();
+  await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
   await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(3) mark')).toContainText(['📌 ', '重复判断', ' 与 ', '引用', ' 和 ', 'code', '。']);
   await selection(page, '#articleBodyContent [lang="en"] > p:nth-child(4)');
-  await page.getByRole('button', { name: '高亮', exact: true }).click();
+  await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
   const data = (await (await request.get(path + '/detail')).json());
   const raw = [...data.detail.content];
   const marks = data.highlight_surfaces.twitter_detail.highlights;
@@ -57,7 +57,7 @@ test('persistent highlights in body, conclusion and points, including formatted 
   await page.locator('[data-body-mode="bilingual"]').click();
   await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark')).toHaveText('重复判断。');
   await page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark').click();
-  await page.getByRole('button', { name: '取消高亮' }).click();
+  await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
   await expect(page.locator('#articleBodyContent [lang="en"] > p:nth-child(4) mark')).toHaveCount(0);
 });
 
@@ -282,7 +282,7 @@ test('selection menu stays within a phone viewport and can save and quote a dige
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   await page.screenshot({ path: '.ui-artifacts/reader-selection-phone.png' });
-  await page.getByRole('button', { name: '高亮', exact: true }).click();
+  await page.getByRole('button', { name: '黄色高亮', exact: true }).click();
   await expect(page.locator('.digest-point-item:first-child mark')).not.toHaveCount(0);
   await page.locator('.digest-point-item:first-child mark').first().focus();
   await page.keyboard.press('Enter');

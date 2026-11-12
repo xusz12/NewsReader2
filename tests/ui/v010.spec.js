@@ -85,11 +85,14 @@ test.describe('touch selection toolbar', () => {
     const box = await toolbar.boundingBox(), nav = await page.locator('.mobile-bottom-nav').boundingBox();
     expect(box.y + box.height).toBeCloseTo(nav.y - 8, 0);
     expect(box.y).toBeGreaterThan((await page.locator('.digest-lead').boundingBox()).y);
-    await page.locator('#highlightSelectionBtn').tap();
-    await expect(page.locator('.digest-lead mark')).not.toHaveCount(0);
+    await page.getByRole('button', { name: '红色高亮', exact: true }).tap();
+    await expect(page.locator('.digest-lead mark').first()).toHaveClass(/highlight-red/);
     await page.locator('.digest-lead mark').first().tap();
-    await expect(page.locator('#highlightSelectionBtn')).toHaveText('取消高亮');
-    await page.locator('#highlightSelectionBtn').tap();
+    await page.getByRole('button', { name: '绿色高亮', exact: true }).tap();
+    await expect(page.locator('.digest-lead mark').first()).toHaveClass(/highlight-green/);
+    await page.locator('.digest-lead mark').first().tap();
+    await expect(page.getByRole('button', { name: '绿色高亮', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: '绿色高亮', exact: true }).tap();
     await expect(page.locator('.digest-lead mark')).toHaveCount(0);
     await selectText();
     await page.locator('#articleMainTitle').tap();
@@ -100,6 +103,9 @@ test.describe('touch selection toolbar', () => {
     expect(small.x).toBeGreaterThanOrEqual(8);
     expect(small.x + small.width).toBeLessThanOrEqual(312);
     expect(small.y + small.height).toBeLessThanOrEqual(smallNav.y - 7);
+    expect(small.height).toBeLessThanOrEqual(54);
+    await expect(page.locator('#quoteNoteBtn')).toHaveAccessibleName('引用写想法');
+    await expect(page.locator('#quoteNoteBtn .selection-action-label')).toBeHidden();
     await page.screenshot({ path: '.ui-artifacts/v010-touch-selection.png' });
     await page.locator('#quoteNoteBtn').tap();
     await expect(page.locator('.draft-quote')).toContainText('引用精读结论');
