@@ -1,6 +1,10 @@
 import { confirmAction } from "./confirm-dialog.js";
 import { $, api, escapeHTML as e, errorText, toast, copyText } from "./ui.js";
-import { IdeaMarkdownEditor } from "./vendor/idea-markdown-editor.js?v=0.0.15-md1";
+let editorModule;
+const loadEditor = () => editorModule ||= import("./vendor/idea-markdown-editor.js?v=0.0.15-md1").catch(error => {
+  editorModule = null;
+  throw error;
+});
 
 const markdownExamples = [
   ["标题", "## 标题"],
@@ -109,7 +113,8 @@ export class StandaloneIdeas {
     const error = $("#ideaSaveError");
     if (error) { error.textContent = draft?.error || ""; error.hidden = !draft?.error; }
   }
-  render() {
+  async render() {
+    const generation = this.renderGeneration = (this.renderGeneration || 0) + 1;
     this.releaseEditor();
     const draft = this.current;
     if (!draft) {
@@ -143,8 +148,23 @@ export class StandaloneIdeas {
     $(".standalone-markdown-help", this.element).ontoggle = event => {
       this.markdownHelpOpen = event.currentTarget.open;
     };
-    this.editor = new IdeaMarkdownEditor($("#ideaEditorMount"), {
-      markdown: note, state: draft.editorState, baseline: item.note || "", disabled: draft.deleting,
+    this.updateControls();
+    const mount = $("#ideaEditorMount");
+    mount.innerHTML = '<div class="list-message" role="status">正在读取编辑器…</div>';
+    let IdeaMarkdownEditor;
+    try { ({ IdeaMarkdownEditor } = await loadEditor()); }
+    catch (error) {
+      if (generation !== this.renderGeneration) return;
+      mount.innerHTML = '<button class="btn-secondary" type="button">重试加载编辑器</button>';
+      mount.firstElementChild.onclick = () => this.render();
+      draft.error = errorText(error);
+      this.updateControls();
+      return;
+    }
+    if (generation !== this.renderGeneration || this.current !== draft || !mount.isConnected) return;
+    mount.replaceChildren();
+    this.editor = new IdeaMarkdownEditor(mount, {
+      markdown: draft.note, state: draft.editorState, baseline: item.note || "", disabled: draft.deleting,
       onChange: (note, state) => {
         draft.note = note;
         draft.editorState = state;
@@ -187,7 +207,7 @@ export class StandaloneIdeas {
       if (this.current === draft) {
         const title = $("#ideaTitle");
         if (title && title.value === sent.title) title.value = draft.title;
-        this.editor.setBaseline(result.idea.note);
+        this.editor?.setBaseline(result.idea.note);
         $(".standalone-updated", this.element).textContent = `更新于 ${result.idea.updated_at}`;
       }
       toast("想法已保存");

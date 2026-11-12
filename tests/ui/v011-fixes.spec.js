@@ -15,7 +15,7 @@ async function agent(page, width = 1440) {
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-agent'); await request.post('/__test/reset-reading'); });
 
 for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'eink']) {
-  test(`update conclusion and ghost refresh use clear theme controls at ${width} ${theme}`, async ({ page }) => {
+  test(`update conclusion uses clear theme controls at ${width} ${theme}`, async ({ page }) => {
     let release;
     await page.route('**/api/update/status', route => route.fulfill({ json: { ok: true, status: 'idle' } }));
     await page.route('**/api/update/check?*', async route => { await new Promise(resolve => { release = resolve; }); await route.fulfill({ json: {
@@ -23,15 +23,6 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'eink']) 
       latest: { version: 'v0.1.2', commit: 'b'.repeat(40) }, blockers: ['dirty_worktree'], checked_at: 1792555200,
     } }); });
     await start(page, width); await chooseTheme(page, theme);
-    const refresh = page.locator('#collectNewsBtn');
-    await page.mouse.move(0, 0);
-    await expect(refresh).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
-    await expect(refresh).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await refresh.hover(); await expect(refresh).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
-    await page.mouse.move(0, 0); await refresh.focus();
-    await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
-    await expect(refresh).toBeFocused();
-    await expect(refresh).not.toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
     await openSettings(page); await page.locator('[data-settings-tab="system"]').click();
     await page.locator('#checkUpdateBtn').click();
     await expect(page.locator('#updateResult')).toHaveAttribute('data-state', 'checking');

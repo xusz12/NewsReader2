@@ -6,6 +6,17 @@
 
 ## 组件关系
 
+### 阅读查询与加载（2026-11-12）
+
+- `news_query.py` 先筛选轻量的新闻 ID、时间和有效分类，在一个 SQL 语句中复用筛选结果计算日期统计、分类统计和当前页 ID；`app.load_news_item_map()` 仅为当前页补齐正文／精读状态、想法、提醒及历史版本。统计与正文补齐共用读事务，避免全库视图物化及重复排序。SQLite 需支持物化 CTE（3.35+）和 JSON 函数。
+- `/api/news` 和 `/api/search?feed_filters=1` 支持 `include_facets=1`：`total`、`date_counts` 对应所选分类，`filter_total`、`category_counts` 对应当前主筛选／来源／搜索下的全部分类。旧版 `count_only` 契约保留。搜索按服务端排序、分页、批次边界和游标加载；只有明确执行搜索范围的批量操作时才收集全部匹配 ID。
+- 导航三个新闻计数合并为一次条件聚合。`/api/sources?include_catalog=1` 一次返回当前阅读状态的 `sources` 和全状态 `catalog`；`source_groups=1` 提供全库来源名称，使全部隐藏／已浏览或不在当前集合的来源仍有筛选入口，无需读取模型设置。纯 URL 判断／来源解析使用有上限的内存缓存；可变阅读状态、搜索结果和统计不做服务端持久缓存。
+- 首页先请求可见列表，复用响应中的统计；导航和来源随后刷新，设置／模型目录及研究列表在打开对应页面时加载。浏览器最多保留 12 个筛选范围、30 秒的首屏预览，返回时仍立即请求最新数据；本地状态版本变化后不复用旧预览，预览期间不自动标读。
+- `/api/ideas` 先在数据库筛选、统计和分页，再补齐当页内容；`q` 搜索全部匹配条目，`reading_only=1` 将「全部」限制为新闻想法和独立想法，历史趋势想法接口继续兼容。独立想法的 Markdown 编辑器按需导入。
+- 想法列表使用 `cursor_mode=1`，后续页传 `cursor_updated_at`、`cursor_id`，以 `(updated_at, idea_id)` 为稳定边界，返回 `next_cursor`；删除或保存已加载条目不改变续页起点。`total / date_counts` 仍覆盖完整筛选范围，旧页码接口保持兼容。前端保存后复用响应更新卡片，保留当前顺序、已加载页与视口锚点；当前分页会话的写入记录防止较早发出的列表响应覆盖已保存内容或恢复已删除卡片，切换筛选时清空记录并重新读取。
+- `static_delivery.py` 为文本静态资源提供 gzip、`Vary: Accept-Encoding` 和有上限的压缩结果缓存；继续保留条件验证、304、Range 及未版本化模块的 `no-cache` 行为，不缓存 API 状态。
+- 日报调度将时钟与秒精度的持久游标按相同精度比较，避免微秒差导致空转；真正超过 90 天的补排仍立即继续，下一排期仍按精确时刻唤醒。
+
 ### 按功能配置模型
 
 - 设置页在「模型与 Agent」中以始终展开的共享分区分别编辑 Chat、主题追踪、新闻总结、日报（早／午／晚）及周报／月报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；主题、总结保存在 `feature_models.topics / summaries`；早午晚报共用 `feature_models.reports`，周报与月报共用 `feature_models.reports_periodic`，没有自定义报告模型配置，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。

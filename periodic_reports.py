@@ -538,7 +538,9 @@ class Service:
         self.wake.set()
         if paused:
             return 30
-        if cursor < at:
+        # The durable cursor is stored to whole seconds. Comparing it with the
+        # clock's microseconds would mistake every normal tick for a backlog.
+        if cursor < at.replace(microsecond=0):
             return 0  # Continue a >90-day durable catch-up without delaying live slots.
         upcoming = [scheduled for delta in range(2)
                     for _, scheduled, _, _ in slots(at.date() + timedelta(days=delta), calendar, schedule) if scheduled > at]

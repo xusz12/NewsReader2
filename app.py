@@ -48,6 +48,8 @@ from database_schema import apply_schema
 import news_collection
 import collection_environment
 import news_versions
+import news_query
+from static_delivery import compress_static_response
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from updater import STATE_PATH as UPDATE_STATE_PATH
 from updater import REPOSITORY_URL as UPDATE_REPOSITORY_URL
@@ -130,6 +132,7 @@ AGENT_DB_PATH = resolve_agent_session_db_path()
 AGENT_RUNTIME_DIR = resolve_agent_runtime_dir()
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+app.after_request(compress_static_response)
 
 DETAIL_LOCK = threading.Lock()
 CHAT_LOCKS: dict[str, threading.Lock] = {}
@@ -362,27 +365,6 @@ def parse_feed_unread_cursor(args) -> dict | None:
     }
 
 
-def build_feed_unread_cursor_clause(cursor: dict | None, ascending: bool) -> tuple[str, list]:
-    if not cursor:
-        return "", []
-    op = ">" if ascending else "<"
-    clause = f"""
-    AND (
-      {ITEM_DATE_SQL} {op} ? OR
-      ({ITEM_DATE_SQL} = ? AND items.published_at {op} ?) OR
-      ({ITEM_DATE_SQL} = ? AND items.published_at = ? AND items.id {op} ?)
-    )
-    """
-    return clause, [
-        cursor["date_key"],
-        cursor["date_key"],
-        cursor["published_at"],
-        cursor["date_key"],
-        cursor["published_at"],
-        cursor["id"],
-    ]
-
-
 def build_feed_source_hidden_clause(collection: str) -> tuple[str, list[str]]:
     if collection != "feed":
         return "", []
@@ -428,13 +410,10 @@ def count_news_items(
     q: str = "",
     category: str = "all",
 ) -> int:
-    join_sql = """
-    LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN news_item_details ad ON ad.item_id=items.id
-    """
+    join_sql = news_query.filter_joins(collection)
     where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
     row = conn.execute(
-        f"SELECT COUNT(DISTINCT items.id) AS c FROM items {join_sql} {where_sql}",
+        f"SELECT COUNT(*) AS c FROM items {join_sql} {where_sql}",
         args,
     ).fetchone()
     return int((row["c"] if row else 0) or 0)
@@ -453,13 +432,20 @@ def count_pending_review_chains(conn: sqlite3.Connection) -> int:
 
 
 def load_nav_summary(conn: sqlite3.Connection) -> dict:
-    feed_unread = count_news_items(conn, collection="feed", read_filter="unread")
-    read_later_unread = count_news_items(conn, collection="read_later", read_filter="unread")
+    hidden, hidden_args = build_feed_source_hidden_clause("feed")
+    feed_condition = "st.read_at IS NULL" + (f" AND {hidden}" if hidden else "")
+    row = conn.execute(f"""SELECT
+        COALESCE(SUM(CASE WHEN {feed_condition} THEN 1 ELSE 0 END),0) AS feed_unread,
+        COALESCE(SUM(CASE WHEN {READ_LATER_PENDING_SQL} THEN 1 ELSE 0 END),0) AS read_later_unread,
+        COALESCE(SUM(st.favorite_at IS NOT NULL),0) AS favorites
+        FROM items LEFT JOIN item_state st ON st.item_id=items.id
+        LEFT JOIN news_item_details ad ON ad.item_id=items.id
+        WHERE {visible_news_sql()}""", hidden_args).fetchone()
     pending_review = count_pending_review_chains(conn)
     return {
-        "feed_unread": feed_unread,
-        "read_later_unread": read_later_unread,
-        "favorites": count_news_items(conn, collection="favorites", read_filter="all"),
+        "feed_unread": row["feed_unread"],
+        "read_later_unread": row["read_later_unread"],
+        "favorites": row["favorites"],
         "pending_review": pending_review,
         "topics_unseen": topic_tracking.unseen_topic_count(conn),
     }
@@ -536,21 +522,6 @@ def _build_search_filter_clause(range_value: str, time_value: str) -> tuple[str,
 
     where_sql = (" AND " + " AND ".join(where)) if where else ""
     return where_sql, args
-
-
-def load_news_category_counts(conn: sqlite3.Connection, join_sql: str, where_sql: str, args: list) -> dict:
-    rows = conn.execute(
-        f"""SELECT nc.category, COUNT(DISTINCT items.id) AS total
-            FROM items {join_sql}
-            JOIN item_classifications nc ON nc.item_id = items.id
-              AND nc.status = 'done' AND nc.title = items.title AND nc.rule_version = ?
-            {where_sql}
-            GROUP BY nc.category""",
-        [news_classification.RULE_VERSION, *args],
-    ).fetchall()
-    counts = dict.fromkeys(news_classification.CATEGORIES, 0)
-    counts.update({row["category"]: row["total"] for row in rows if row["category"] in counts})
-    return counts
 
 
 def db_conn() -> sqlite3.Connection:
@@ -4202,23 +4173,22 @@ def api_agent_job_stream(item_id: str, job_id: str):
     )
 
 
-def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]]) -> list[dict]:
-    if items:
+def serialize_news_rows(items: list[dict], market_tags_map: dict[str, list[dict]], conn=None) -> list[dict]:
+    if not items:
+        return items
+    if conn is None:
         with closing(db_conn()) as conn:
-            news_classification.attach(conn, items)
-            news_versions.attach(conn, items)
+            return serialize_news_rows(items, market_tags_map, conn)
+    news_classification.attach(conn, items)
+    news_versions.attach(conn, items)
     # Batch comment counts and respect aggregate edits from the original reader.
     urls = list({item.get("url") for item in items if item.get("has_note") and item.get("url")})
     entries: dict[str, list[str]] = {}
     if urls:
-        conn = db_conn()
-        try:
-            for offset in range(0, len(urls), 500):
-                batch = urls[offset:offset + 500]
-                for row in conn.execute("SELECT url, note FROM article_note_entries WHERE url IN (" + ",".join("?" for _ in batch) + ") ORDER BY created_at, rowid", batch):
-                    entries.setdefault(row["url"], []).append(row["note"])
-        finally:
-            conn.close()
+        for offset in range(0, len(urls), 500):
+            batch = urls[offset:offset + 500]
+            for row in conn.execute("SELECT url, note FROM article_note_entries WHERE url IN (" + ",".join("?" for _ in batch) + ") ORDER BY created_at, rowid", batch):
+                entries.setdefault(row["url"], []).append(row["note"])
     for item in items:
         notes = entries.get(item.get("url"), [])
         structured = notes and "\n\n---\n".join(notes) == item.get("note_preview_source")
@@ -4286,6 +4256,7 @@ def load_news_item_map(conn: sqlite3.Connection, item_ids: list[str]) -> dict[st
                aj.status AS ai_status,
                aj.last_error AS ai_error,
                CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready,
+               aa.conclusion_zh AS ai_conclusion_zh,
                {ITEM_DATE_SQL} AS date_key,
                (
                  SELECT COUNT(*)
@@ -4318,12 +4289,16 @@ def load_news_item_map(conn: sqlite3.Connection, item_ids: list[str]) -> dict[st
     ).fetchall()
     urls = [row["url"] for row in rows if row["url"]]
     market_tags_map = load_market_tags_map(conn, urls)
-    serialized = serialize_news_rows([dict(row) for row in rows], market_tags_map)
+    serialized = serialize_news_rows([dict(row) for row in rows], market_tags_map, conn)
     return {item["id"]: item for item in serialized}
 
 
-def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) -> list[dict]:
+def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str, selected_ids=None) -> list[dict]:
     ideas: list[dict] = []
+    def selected(kind):
+        return [key.split(":", 1)[1] for key in selected_ids or [] if key.startswith(kind + ":")]
+    def restriction(column, kind):
+        return f" AND {column} IN (" + ",".join("?" for _ in selected(kind)) + ")" if selected_ids is not None else ""
 
     if idea_type in ("all", "article"):
         article_rows = conn.execute(
@@ -4367,12 +4342,12 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
             LEFT JOIN news_item_details ad ON ad.item_id=items.id
             LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
             LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-            WHERE {visible_news_sql()}
-            """
+            WHERE {visible_news_sql()} {restriction("items.id", "article")}
+            """, selected("article"),
         ).fetchall()
         article_items = [dict(row) for row in article_rows]
         article_tags_map = load_market_tags_map(conn, [item["url"] for item in article_items if item.get("url")])
-        article_items = serialize_news_rows(article_items, article_tags_map)
+        article_items = serialize_news_rows(article_items, article_tags_map, conn)
         for item in article_items:
             item["idea_id"] = f"article:{item['id']}"
             item["idea_type"] = "article_note"
@@ -4386,7 +4361,7 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
 
     if idea_type in ("all", "trend"):
         trend_rows = conn.execute(
-            """
+            f"""
             SELECT mtn.id,
                    mtn.date_key,
                    mtn.tag,
@@ -4397,7 +4372,8 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
                    mtd.display_name
             FROM market_trend_notes mtn
             LEFT JOIN market_tag_definitions mtd ON mtd.key = mtn.tag
-            """
+            WHERE 1=1 {restriction("mtn.id", "trend")}
+            """, selected("trend"),
         ).fetchall()
         for row in trend_rows:
             direction_label = "看多" if row["direction"] == "bullish" else "看空"
@@ -4432,10 +4408,10 @@ def load_idea_rows(conn: sqlite3.Connection, idea_type: str, sort_order: str) ->
 
     if idea_type in ("all", "standalone"):
         standalone_rows = conn.execute(
-            """
+            f"""
             SELECT id, title, note, created_at, updated_at
-            FROM standalone_ideas
-            """
+            FROM standalone_ideas WHERE 1=1 {restriction("id", "standalone")}
+            """, selected("standalone"),
         ).fetchall()
         ideas.extend(_serialize_standalone_idea(row) for row in standalone_rows)
 
@@ -7044,15 +7020,15 @@ def api_nav_summary():
         conn.close()
 
 
-def news_batch_filter(conn):
+def news_batch_filter(conn, *, item_lookup=False):
     """A read transaction freezes the first page; subsequent pages reuse its horizon."""
     conn.execute("BEGIN")
     boundary = news_collection.batch_boundary(conn)
     if "after_batch" in request.args:
-        clause, args = news_collection.batch_clause(request.args["after_batch"], newer=True)
+        clause, args = news_collection.batch_clause(request.args["after_batch"], newer=True, item_lookup=item_lookup)
     elif "batch" in request.args or request.args.get("count_only") != "1":
         value = request.args.get("batch", str(boundary))
-        clause, args = news_collection.batch_clause(value)
+        clause, args = news_collection.batch_clause(value, item_lookup=item_lookup)
         boundary = min(int(value), boundary)
     else:
         clause, args = "", []
@@ -7080,153 +7056,69 @@ def api_news():
     except ValueError as exc:
         error = str(exc) if str(exc) in {"invalid_sort_order", "invalid_category"} else "invalid_cursor"
         return jsonify({"ok": False, "error": error}), 400
-    join_sql = """
-    LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
-    LEFT JOIN news_item_details ad ON ad.item_id=items.id
-    LEFT JOIN article_notes an ON an.url = items.url
-    """
-    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, category)
+    combined = request.args.get("include_facets") == "1"
+    where_sql, args = _build_news_where_clause(q, read_filter, collection, source_filter, "all" if combined else category)
     if request.args.get("has_note") == "1":
         where_sql += " AND EXISTS (SELECT 1 FROM article_notes n WHERE n.url = items.url)"
-    order_by_sql = news_order_by_sql(collection, sort_order, read_filter)
-    ascending_order = news_sort_ascending(collection, read_filter, sort_order)
+    return reading_page_response(
+        news_query.filter_joins(collection), where_sql, args,
+        collection=collection, read_filter=read_filter, category=category,
+        sort_order=sort_order, page=page, per=per, cursor_mode=cursor_mode, cursor=cursor,
+    )
 
-    conn = db_conn()
-    try:
+
+def reading_page_response(joins, where, args, *, collection, read_filter, category,
+                          sort_order, page, per, cursor_mode=False, cursor=None):
+    combined = request.args.get("include_facets") == "1"
+    count_only = request.args.get("count_only") == "1"
+    with closing(db_conn()) as conn:
         try:
-            batch, clause, batch_args = news_batch_filter(conn)
+            batch, clause, batch_args = news_batch_filter(conn, item_lookup=collection in {"favorites", "important"})
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
-        where_sql += clause
-        args.extend(batch_args)
-        classification_revision = news_classification.completed_revision(conn)
-        total = conn.execute(
-            f"SELECT COUNT(*) FROM items {join_sql} {where_sql}",
-            args,
-        ).fetchone()[0]
-        counts = {"ok": True, "total": total}
-        if request.args.get("count_only") == "1" and request.args.get("category_counts") == "1":
-            counts["category_counts"] = load_news_category_counts(conn, join_sql, where_sql, args)
-        if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
-            return jsonify(counts)
-
-        date_count_rows = conn.execute(
-            f"""
-            SELECT {ITEM_DATE_SQL} AS date_key, COUNT(DISTINCT items.id) AS total
-            FROM items
-            {join_sql}
-            {where_sql}
-            GROUP BY date_key
-            ORDER BY date_key DESC
-            """,
-            args,
-        ).fetchall()
-        date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
-        if request.args.get("count_only") == "1":
-            return jsonify({**counts, "date_counts": date_counts})
-
-        base_select_sql = f"""
-        SELECT DISTINCT items.id, items.source_file, items.item_order, items.published_at,
-               items.date, items.time, items.source, items.source_type,
-               items.source_name, items.title, items.summary, items.url,
-               st.read_at, st.important_at, st.read_later_at, st.read_later_done_at, st.favorite_at,
-               dj.status AS detail_status,
-               dj.last_error AS detail_error,
-               CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS detail_ready,
-               an.note AS note_preview_source,
-               CASE WHEN an.url IS NULL THEN 0 ELSE 1 END AS has_note,
-               aj.status AS ai_status,
-               aj.last_error AS ai_error,
-               CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready,
-               aa.conclusion_zh AS ai_conclusion_zh,
-               (
-                 SELECT COUNT(*)
-                 FROM news_reminders nr
-                 WHERE nr.item_id = items.id AND nr.status = 'active'
-               ) AS active_reminder_count,
-               (
-                 SELECT COUNT(*)
-                 FROM news_reminders nr
-                 WHERE nr.item_id = items.id
-                   AND nr.status = 'active'
-                   AND nr.remind_at <= datetime('now', 'localtime')
-               ) AS due_reminder_count,
-               (
-                 SELECT MIN(nr.remind_at)
-                 FROM news_reminders nr
-                 WHERE nr.item_id = items.id AND nr.status = 'active'
-               ) AS next_remind_at,
-               {ITEM_DATE_SQL} AS date_key
-        FROM items
-        {join_sql}
-        LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
-        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-        {where_sql}
-        """
-
-        has_more = False
-        next_cursor = None
-        if cursor_mode:
-            cursor_clause, cursor_args = build_feed_unread_cursor_clause(cursor, ascending_order)
-            raw_rows = conn.execute(
-                f"""
-                {base_select_sql}
-                {cursor_clause}
-                ORDER BY {order_by_sql}
-                LIMIT ?
-                """,
-                [*args, *cursor_args, per + 1],
-            ).fetchall()
-            has_more = len(raw_rows) > per
-            rows = raw_rows[:per]
-            if rows and has_more:
-                last = rows[-1]
-                next_cursor = {
-                    "date_key": last["date_key"],
-                    "published_at": last["published_at"],
-                    "id": str(last["id"]),
-                }
-        else:
-            offset = (page - 1) * per
-            rows = conn.execute(
-                f"""
-                {base_select_sql}
-                ORDER BY {order_by_sql}
-                LIMIT ? OFFSET ?
-                """,
-                [*args, per, offset],
-            ).fetchall()
-        urls = [r["url"] for r in rows if r["url"]]
-        market_tags_map = load_market_tags_map(conn, urls)
-    finally:
-        conn.close()
-
-    items = [dict(r) for r in rows]
-    items = serialize_news_rows(items, market_tags_map)
-    pages = max(1, math.ceil(total / per)) if total else 1
-    if cursor_mode:
-        pages = max(page, pages)
-    return jsonify(
-        {
-            "items": items,
-            "batch": batch,
-            "classification_revision": classification_revision,
-            "total": total,
-            "date_counts": date_counts,
-            "page": page,
-            "pages": pages,
-            "has_more": has_more if cursor_mode else page < pages,
-            "next_cursor": next_cursor if cursor_mode else None,
-            "sort_order": sort_order,
-        }
-    )
+        result = news_query.select_page(
+            conn, joins, where + clause, [*args, *batch_args],
+            category=category if combined else "all",
+            categories=combined or request.args.get("category_counts") == "1",
+            dates=not count_only or request.args.get("date_counts") == "1",
+            count_only=count_only, ascending=news_sort_ascending(collection, read_filter, sort_order),
+            cursor=cursor if cursor_mode else None, limit=per + int(cursor_mode),
+            offset=0 if cursor_mode else (page - 1) * per,
+        )
+        ids = result.pop("ids")
+        if not combined:
+            result.pop("filter_total")
+        if count_only:
+            return jsonify({"ok": True, **result})
+        has_more = len(ids) > per if cursor_mode else page * per < result["total"]
+        ids = ids[:per]
+        item_map = load_news_item_map(conn, ids)
+        items = [item_map[ident] for ident in ids if ident in item_map]
+        revision = news_classification.completed_revision(conn)
+    next_cursor = None
+    if cursor_mode and has_more and items:
+        last = items[-1]
+        # Serialization labels an empty date as "unknown"; a cursor must retain
+        # the actual SQL sort key, including an empty publication timestamp.
+        next_cursor = {"date_key": last["date"] or last["published_at"][:10],
+                       "published_at": last["published_at"], "id": str(last["id"])}
+    pages = max(1, math.ceil(result["total"] / per))
+    return jsonify({**result, "items": items, "batch": batch, "classification_revision": revision,
+                    "page": page, "pages": max(page, pages) if cursor_mode else pages,
+                    "has_more": has_more, "next_cursor": next_cursor, "sort_order": sort_order})
 
 
 @app.get("/api/ideas")
 def api_ideas():
     page = max(1, int(request.args.get("page", "1")))
     per = min(100, max(10, int(request.args.get("per", "30"))))
+    cursor_mode = request.args.get("cursor_mode") == "1"
+    cursor = None
+    if cursor_mode and ("cursor_id" in request.args or "cursor_updated_at" in request.args):
+        cursor = {"idea_id": request.args.get("cursor_id", "").strip(),
+                  "updated_at": request.args.get("cursor_updated_at", "").strip()}
+        if not all(cursor.values()):
+            return jsonify({"ok": False, "error": "invalid_cursor"}), 400
     try:
         sort_order = parse_news_sort_order(request.args)
         idea_type = parse_idea_type_filter(request.args)
@@ -7234,29 +7126,31 @@ def api_ideas():
         error = "invalid_idea_type" if str(exc) == "invalid_idea_type" else "invalid_sort_order"
         return jsonify({"ok": False, "error": error}), 400
 
-    conn = db_conn()
-    try:
-        ideas = load_idea_rows(conn, idea_type, sort_order)
-    finally:
-        conn.close()
-
-    total = len(ideas)
-    date_counts: dict[str, int] = {}
-    for idea in ideas:
-        date_key = idea.get("date_key") or "unknown"
-        date_counts[date_key] = date_counts.get(date_key, 0) + 1
-
-    offset = (page - 1) * per
-    page_items = ideas[offset: offset + per]
+    with closing(db_conn()) as conn:
+        conn.execute("BEGIN")
+        selection = news_query.select_idea_page(
+            conn, idea_type, reading_only=request.args.get("reading_only") == "1",
+            query=(request.args.get("q") or "").strip(), ascending=sort_order == "reverse",
+            cursor=cursor, limit=per + int(cursor_mode), offset=0 if cursor_mode else (page - 1) * per,
+        )
+        page_items = load_idea_rows(conn, idea_type, sort_order, selection["ids"][:per])
+    total = selection["total"]
+    date_counts = selection["date_counts"]
     pages = max(1, math.ceil(total / per)) if total else 1
+    has_more = len(selection["ids"]) > per if cursor_mode else page < pages
+    next_cursor = None
+    if cursor_mode and has_more and page_items:
+        last = page_items[-1]
+        next_cursor = {"updated_at": last["updated_at"], "idea_id": last["idea_id"]}
     return jsonify(
         {
             "items": page_items,
             "total": total,
             "date_counts": date_counts,
             "page": page,
-            "pages": pages,
-            "has_more": page < pages,
+            "pages": max(page, pages) if cursor_mode else pages,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
             "sort_order": sort_order,
             "type": idea_type,
         }
@@ -7757,8 +7651,9 @@ def api_search():
     valid_times = {"all", "today", "7d", "30d"}
     try:
         category = news_classification.parse_category(request.args.get("category"))
-    except ValueError:
-        return jsonify({"ok": False, "error": "invalid_category"}), 400
+        sort_order = parse_news_sort_order(request.args)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     if range_value not in valid_ranges:
         return jsonify({"ok": False, "error": "invalid_range"}), 400
     if time_value not in valid_times:
@@ -7768,14 +7663,10 @@ def api_search():
 
     like = f"%{q}%"
     search_args = [like] * 9 + [like, like]
-    join_sql = """
-    LEFT JOIN item_state st ON st.item_id = items.id
-    LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
-    LEFT JOIN news_item_details ad ON ad.item_id=items.id
-    LEFT JOIN article_notes an ON an.url = items.url
-    LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
-    LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-    """
+    feed_filters = request.args.get("feed_filters") == "1"
+    collection = request.args.get("collection", "feed") if feed_filters else "feed"
+    read_filter = request.args.get("read_filter", "all") if feed_filters else "all"
+    join_sql = news_query.filter_joins(collection, search=True)
     where_sql = """
     WHERE (
       items.title LIKE ? OR
@@ -7798,7 +7689,7 @@ def api_search():
     AND is_bloomberg_video_url(items.url) = 0
     """
     filter_sql, filter_args = _build_search_filter_clause(range_value, time_value)
-    category_clause, category_args = news_classification.filter_sql(category)
+    category_clause, category_args = news_classification.filter_sql("all" if request.args.get("include_facets") == "1" else category)
     if category_clause:
         filter_sql += " AND " + category_clause
         filter_args.extend(category_args)
@@ -7813,73 +7704,18 @@ def api_search():
             filter_sql += " AND EXISTS (SELECT 1 FROM article_notes n WHERE n.url = items.url)"
     all_args = [*search_args, *filter_args]
 
-    conn = db_conn()
+    cursor_mode = feed_filters and use_feed_unread_cursor_paging(collection, read_filter)
+    if page > 1 and not any(key in request.args for key in ("cursor_date", "cursor_published_at", "cursor_id")):
+        cursor_mode = False
     try:
-        try:
-            batch, clause, batch_args = news_batch_filter(conn)
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        filter_sql += clause
-        all_args.extend(batch_args)
-        classification_revision = news_classification.completed_revision(conn)
-        total = conn.execute(
-            f"SELECT COUNT(DISTINCT items.id) FROM items {join_sql} {where_sql}{filter_sql}",
-            all_args,
-        ).fetchone()[0]
-        counts = {"ok": True, "total": total}
-        if request.args.get("count_only") == "1" and request.args.get("category_counts") == "1":
-            counts["category_counts"] = load_news_category_counts(conn, join_sql, where_sql + filter_sql, all_args)
-        if request.args.get("count_only") == "1" and request.args.get("date_counts") != "1":
-            return jsonify(counts)
-
-        date_count_rows = conn.execute(
-            f"""
-            SELECT {ITEM_DATE_SQL} AS date_key, COUNT(DISTINCT items.id) AS total
-            FROM items
-            {join_sql}
-            {where_sql}{filter_sql}
-            GROUP BY date_key
-            ORDER BY date_key DESC
-            """,
-            all_args,
-        ).fetchall()
-        date_counts = {row["date_key"] or "unknown": row["total"] for row in date_count_rows}
-        if request.args.get("count_only") == "1":
-            return jsonify({**counts, "date_counts": date_counts})
-
-        offset = (page - 1) * per
-        rows = conn.execute(
-            f"""
-            SELECT DISTINCT items.id, items.source_file, items.item_order, items.published_at,
-                   items.date, items.time, items.source, items.source_type,
-                   items.source_name, items.title, items.summary, items.url,
-                   st.read_at, st.important_at, st.read_later_at, st.read_later_done_at, st.favorite_at,
-                   dj.status AS detail_status,
-                   dj.last_error AS detail_error,
-                   CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS detail_ready,
-                   an.note AS note_preview_source,
-                   CASE WHEN an.url IS NULL THEN 0 ELSE 1 END AS has_note,
-                   aj.status AS ai_status,
-                   aj.last_error AS ai_error,
-                   CASE WHEN aa.url IS NULL THEN 0 ELSE 1 END AS ai_ready,
-                   aa.conclusion_zh AS ai_conclusion_zh
-            FROM items
-            {join_sql}
-            {where_sql}{filter_sql}
-            ORDER BY {NON_FEED_NEWS_ORDER_BY_SQL}
-            LIMIT ? OFFSET ?
-            """,
-            [*all_args, per, offset],
-        ).fetchall()
-        urls = [r["url"] for r in rows if r["url"]]
-        market_tags_map = load_market_tags_map(conn, urls)
-    finally:
-        conn.close()
-
-    items = serialize_news_rows([dict(r) for r in rows], market_tags_map)
-    pages = max(1, math.ceil(total / per)) if total else 1
-    return jsonify({"items": items, "batch": batch, "total": total, "date_counts": date_counts, "page": page, "pages": pages,
-                    "classification_revision": classification_revision})
+        cursor = parse_feed_unread_cursor(request.args) if cursor_mode else None
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_cursor"}), 400
+    return reading_page_response(
+        join_sql, where_sql + filter_sql, all_args,
+        collection=collection, read_filter=read_filter, category=category,
+        sort_order=sort_order, page=page, per=per, cursor_mode=cursor_mode, cursor=cursor,
+    )
 
 
 @app.get("/api/sources")
@@ -7888,70 +7724,52 @@ def api_sources():
     read_filter = (request.args.get("read_filter") or "all").strip().lower()
     collection = (request.args.get("collection") or "feed").strip().lower()
 
-    where = [visible_news_sql()]
-    args: list = []
-    join_sql = """
-        LEFT JOIN item_state st ON st.item_id = items.id
-        LEFT JOIN news_item_details ad ON ad.item_id=items.id
-    """
-    if q:
-        where.append("(items.title LIKE ? OR items.summary LIKE ? OR items.source LIKE ?)")
-        like = f"%{q}%"
-        args.extend([like, like, like])
-    if collection == "read_later":
-        if read_filter == "unread":
-            where.append(READ_LATER_PENDING_SQL)
-        elif read_filter == "read":
-            where.append("(st.read_later_done_at IS NOT NULL AND st.read_later_at IS NULL)")
+    include_catalog = request.args.get("include_catalog") == "1"
+    include_groups = request.args.get("source_groups") == "1"
+    where_sql, args = _build_news_where_clause(q, "all" if include_catalog else read_filter, collection, "all")
+    joins = news_query.filter_joins(collection)
+    detail = "ad.url IS NOT NULL" if collection == "read_later" else "0"
+    with closing(db_conn()) as conn:
+        rows = conn.execute(f"""SELECT items.url,items.source_type,items.source,
+            st.read_at,st.read_later_at,st.read_later_done_at,{detail} AS detail_ready
+            FROM items {joins} {where_sql}""", args).fetchall()
+        group_rows = rows
+        if include_groups and not (collection == "feed" and include_catalog and not q
+                                   and not build_feed_source_hidden_clause("feed")[0]):
+            # Navigation includes sources whose articles are all hidden/read or
+            # outside this collection. It needs identities, not model settings.
+            group_rows = conn.execute(f"SELECT url,source_type,source FROM items WHERE {visible_news_sql()}").fetchall()
+    matched = rows
+    if include_catalog and read_filter in {"unread", "read"}:
+        if collection == "read_later":
+            if read_filter == "unread":
+                matched = [r for r in rows if r["read_later_at"] is not None or (r["detail_ready"] and r["read_later_done_at"] is None)]
+            else:
+                matched = [r for r in rows if r["read_later_done_at"] is not None and r["read_later_at"] is None]
         else:
-            where.append("(st.read_later_at IS NOT NULL OR st.read_later_done_at IS NOT NULL OR ad.url IS NOT NULL)")
-    else:
-        if read_filter == "unread":
-            where.append("st.read_at IS NULL")
-        elif read_filter == "read":
-            where.append("st.read_at IS NOT NULL")
-    if collection == "important":
-        where.append("st.important_at IS NOT NULL")
-    elif collection == "favorites":
-        where.append("st.favorite_at IS NOT NULL")
-    elif collection == "notes":
-        where.append("EXISTS (SELECT 1 FROM article_notes an WHERE an.url = items.url)")
-    elif collection == "market_tags":
-        where.append("EXISTS (SELECT 1 FROM article_market_tags mt WHERE mt.url = items.url)")
-    hidden_clause, hidden_args = build_feed_source_hidden_clause(collection)
-    if hidden_clause:
-        where.append(hidden_clause)
-        args.extend(hidden_args)
-    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+            matched = [r for r in rows if (r["read_at"] is None) == (read_filter == "unread")]
+    result = {"ok": True, "sources": source_counts(matched)}
+    if include_catalog:
+        result["catalog"] = result["sources"] if matched is rows else source_counts(rows)
+    if include_groups:
+        groups = result["sources"] if group_rows is matched else result.get("catalog") if group_rows is rows else None
+        if groups is None:
+            groups = source_counts(group_rows)
+        result["groups"] = [{"source_key": row["key"], "label": row["label"]} for row in groups]
+    return jsonify(result)
 
-    conn = db_conn()
-    try:
-        rows = conn.execute(
-            f"SELECT items.url, items.source_type, items.source, items.source_name FROM items {join_sql} {where_sql}",
-            args,
-        ).fetchall()
-    finally:
-        conn.close()
 
-    counts: dict[str, int] = {}
-    labels: dict[str, str] = {}
-    for r in rows:
-        key = derive_source_key(r["url"], r["source_type"], r["source"])
+def source_counts(rows):
+    counts = {}
+    labels = {}
+    for row in rows:
+        key = derive_source_key(row["url"], row["source_type"], row["source"])
         counts[key] = counts.get(key, 0) + 1
-        labels.setdefault(key, source_label_for_key(key, r["source"]))
-
+        labels.setdefault(key, source_label_for_key(key, row["source"]))
     known_order = ["reuters", "bloomberg", "techcrunch", "ars", "x"]
-    ordered: list[dict] = []
-    for key in known_order:
-        if key in counts:
-            ordered.append({"key": key, "label": SOURCE_LABELS[key], "count": counts[key]})
-
-    unknown = [k for k in counts.keys() if k not in set(known_order)]
-    unknown.sort(key=lambda x: labels.get(x, x))
-    for key in unknown:
-        ordered.append({"key": key, "label": labels.get(key, key), "count": counts[key]})
-
-    return jsonify({"ok": True, "sources": ordered})
+    keys = [key for key in known_order if key in counts]
+    keys += sorted((key for key in counts if key not in known_order), key=lambda key: labels.get(key, key))
+    return [{"key": key, "label": labels[key], "count": counts[key]} for key in keys]
 
 
 @app.get("/api/error-stats")

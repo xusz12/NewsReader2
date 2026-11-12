@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme } from './helpers.js';
+import { chooseTheme, openSettings } from './helpers.js';
 
 const today = '2026-11-09';
 const records = [
@@ -44,8 +44,12 @@ test('real collection API exposes queued runs even with zero errors', async ({ p
   await expect(page.locator('.upstream-empty')).toContainText('当天没有记录');
   await expect(page.locator('.upstream-stat-value')).toHaveText(['0 条', '0 条', '0 条', '0 条']);
   await page.locator('#closeUpstreamErrorsBtn').click();
-  await page.locator('#collectNewsBtn').click();
-  await expect(page.locator('#pipelineStatus')).toContainText('正在采集');
+  await openSettings(page);
+  await page.locator('[data-settings-tab="pipeline"]').click();
+  await page.locator('#settingsCollectBtn').click();
+  await expect(page.locator('#settingsCollectBtn')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#pipelineStatus')).toContainText('正在采集', {timeout:12000});
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
   await expect(page.locator('.upstream-card-head > .card-tag')).toHaveText('等待采集');

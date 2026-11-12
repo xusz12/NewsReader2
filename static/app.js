@@ -27,11 +27,11 @@ import { TopicPanel } from "./topic-panel.js?v=0.5.4";
 import { ReportPanel } from "./report-panel.js?v=0.5.4";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
-import { AgentNotifications } from "./agent-notifications.js?v=0.5.0";
+import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
 import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
-import { TaskProgress } from "./task-progress.js?v=0.5.0";
+import { TaskProgress } from "./task-progress.js?v=0.5.5";
 import { ResearchNotes } from "./research-notes.js";
-import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.1.0";
+import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.4.6";
 import { UpstreamErrors } from "./upstream-errors.js?v=0.5.4";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
@@ -67,6 +67,12 @@ const state = {
   ideaType: "all",
   ideaSequence: 0,
   ideas: [],
+  ideasPage: 0,
+  ideasCursor: null,
+  ideasMore: false,
+  ideasLoading: false,
+  ideasError: null,
+  ideasScope: "",
   idea: null,
   readerViews: new Map(),
   bodyMode: "translated",
@@ -128,6 +134,7 @@ let requestController,
   detailTimer,
   searchTimer,
   lastFocus;
+const feedPreviews = new Map();
 const selects = new SelectControls(document.body);
 // Reserve equal room on both sides so status stays at the window's center,
 // including when classification progress appears or the theme menu compacts.
@@ -162,6 +169,8 @@ const settings = new SettingsPanel({
     }
   },
   onSaved: () => {
+    feedPreviews.clear();
+    sourceGroups = [];
     sourceCatalogByCollection.clear();
     refreshClassification();
     loadFeed();
@@ -170,6 +179,8 @@ const settings = new SettingsPanel({
   },
   onSources: renderSources,
   onSourceDeleted: ({deleted_item_ids: ids}) => {
+    feedPreviews.clear();
+    sourceGroups = [];
     const deleted = new Set(ids);
     stateWrites.version++;
     sourcesSequence++;
@@ -195,18 +206,13 @@ const settings = new SettingsPanel({
 const researchNotes = new ResearchNotes({ onUpdate: updateResearchNotes });
 const standaloneIdeas = new StandaloneIdeas({
   onSaved: (idea, oldId) => {
-    // Invalidate a list request that began before this write.
-    state.ideaSequence++;
-    state.ideas = state.ideas.filter(row => row.idea_id !== oldId && row.idea_id !== idea.idea_id);
-    state.ideas.push(idea);
-    state.ideas.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+    if (oldId !== idea.idea_id) recordIdeaChange(oldId, null);
+    recordIdeaChange(idea.idea_id, idea);
     if (state.idea?.idea_id === oldId || state.idea?.idea_id === idea.idea_id) state.idea = idea;
     renderIdeas();
-    if (state.collection === "notes") void loadIdeas({ quiet: true });
   },
   onDeleted: idea => {
-    state.ideaSequence++;
-    state.ideas = state.ideas.filter(row => row.idea_id !== idea.idea_id);
+    recordIdeaChange(idea.idea_id, null);
     if (state.idea?.idea_id === idea.idea_id) {
       state.idea = null;
       if (state.collection === "notes") {
@@ -233,15 +239,24 @@ function updateResearchNotes(id, result) {
     state.detail = { ...state.detail, ...patch, note: result.note, notes };
   }
   researchNotes.update(id, { ...result, notes });
-  const idea = state.ideas.find(row => row.idea_type === "article_note" && row.id === id);
-  if (idea) {
-    Object.assign(idea, patch, {
-      note: result.note?.note || "", latest_note_preview: notes.at(-1)?.note || "", updated_at: result.note?.updated_at || idea.updated_at,
-    });
-    if (!notes.length) state.ideas = state.ideas.filter(row => row !== idea);
-    if (state.collection === "notes") renderIdeas();
+  const ideaId = `article:${id}`;
+  const idea = state.ideas.find(row => row.idea_id === ideaId) || (state.selected?.id === id ? state.selected : item);
+  const notePatch = notes.length ? { ...patch, note: result.note?.note || "",
+    latest_note_preview: notes.at(-1)?.note || "", created_at: result.note?.created_at,
+    updated_at: result.note?.updated_at } : null;
+  articleIdeaChanges.set(ideaId, notePatch);
+  if (idea?.url) articleIdeaChanges.set(idea.url, notePatch);
+  // Historical versions of one article share their notes by URL.
+  const linked = state.ideas.filter(row => row.idea_id === ideaId ||
+    row.idea_type === "article_note" && idea?.url && row.url === idea.url);
+  if (idea && !linked.some(row => row.idea_id === ideaId))
+    linked.push({ ...idea, idea_id: ideaId, idea_type: "article_note", idea_context_label: "新闻想法" });
+  for (const row of linked) {
+    const updated = notePatch && { ...row, ...notePatch };
+    recordIdeaChange(row.idea_id, updated);
+    if (updated && state.idea?.idea_id === row.idea_id) state.idea = updated;
   }
-  if (state.collection === "notes") void loadIdeas({ quiet: true });
+  if (state.collection === "notes") renderIdeas();
   renderFeed();
   refreshBadges();
 }
@@ -594,7 +609,7 @@ function renderFeed() {
     (state.loading
       ? '<li class="list-message" role="status">正在读取新闻…</li>'
       : !state.items.length
-        ? '<li class="list-message">当前范围没有新闻。可切换筛选，或使用顶栏「立即采集」获取新闻。</li>'
+        ? '<li class="list-message">当前范围没有新闻。可切换筛选，或前往设置「信源与采集」获取新闻。</li>'
         : state.more
           ? '<li class="load-more-row"><button class="btn-secondary" id="loadMoreBtn" type="button">加载更多</button></li>'
           : '<li class="list-message feed-end">已读到列表末尾</li>');
@@ -646,9 +661,13 @@ async function loadFeed(append = false) {
   const stateVersion = stateWrites.version;
   const countsSnapshot = countSnapshot();
   const scope = filterCountScope();
+  const previewKey = new URLSearchParams(feedParams()).toString();
   if (totalScope !== scope) { totalScope = scope; state.total = null; }
   if (!append) {
-    state.items = [];
+    const preview = feedPreviews.get(previewKey);
+    const valid = preview && preview.version === stateWrites.version && Date.now() - preview.at < 30000;
+    state.previewing = !!valid;
+    state.items = valid ? structuredClone(preview.items) : [];
     state.batch = null;
     $("#newNewsNotice").hidden = true;
     state.dateCounts = null;
@@ -663,10 +682,11 @@ async function loadFeed(append = false) {
   }
   state.loading = true;
   renderFeed();
-  if (!append && state.collection === "feed") void refreshBadges();
   const params = new URLSearchParams({
     ...feedParams(),
     page: String(state.page + 1),
+    include_facets: "1",
+    feed_filters: "1",
   });
   if (append && state.batch !== null) params.set("batch", String(state.batch));
   if (append && state.cursor) {
@@ -675,25 +695,30 @@ async function loadFeed(append = false) {
     params.set("cursor_id", state.cursor.id);
   }
   try {
-    const data = state.query
-      ? await searchNews(sequence, requestController.signal)
-      : await api(`/api/news?${params}`, { signal: requestController.signal });
+    const data = await api(`/api/${state.query ? "search" : "news"}?${params}`, { signal: requestController.signal });
     if (sequence !== state.sequence) return;
     state.batch = data.batch;
     for (const item of data.items) stateWrites.reconcile(item.id, item, stateVersion);
+    if (!append) state.items = [];
     const known = new Set(state.items.map((item) => item.id));
     state.items.push(...data.items.filter((item) => !known.has(item.id)));
     state.page = data.page;
     if (countsAreCurrent(countsSnapshot)) {
       state.dateCounts = data.date_counts || {};
       state.dateCountsScope = countScope();
+      state.total = data.filter_total ?? data.total;
+      state.categoryCounts = data.category_counts || null;
+      state.categoryCountsScope = scope;
     } else refreshBadges();
-    // Primary filter counts span categories; a category-limited page cannot replace them.
-    if (countsAreCurrent(countsSnapshot) && params.get("category") === "all") state.total = data.total;
-    else refreshBadges();
     state.more = data.has_more;
     state.cursor = data.next_cursor;
     state.loading = false;
+    state.previewing = false;
+    if (!append && countsAreCurrent(countsSnapshot)) {
+      feedPreviews.delete(previewKey);
+      feedPreviews.set(previewKey, {items: structuredClone(state.items), version: stateWrites.version, at: Date.now()});
+      if (feedPreviews.size > 12) feedPreviews.delete(feedPreviews.keys().next().value);
+    }
     void refreshClassification();
     if (state.selected)
       state.selected =
@@ -705,6 +730,7 @@ async function loadFeed(append = false) {
       selectNews(state.items[0], false);
     indexStatus.connectionFailed = false;
     renderIndexStatus();
+    if (!append) void refreshBadges({ skipFeed: true });
   } catch (error) {
     if (error.name === "AbortError" || sequence !== state.sequence) return;
     state.loading = false;
@@ -785,12 +811,11 @@ function renderIndexStatus() {
     : data?.running ? "正在采集新闻…"
     : data?.schedule_error ? "交易日历未就绪，常规采集正常"
     : last ? `最近采集 ${new Date(last.finished_at || last.created_at).toLocaleString("zh-CN", {timeZone:"Asia/Shanghai", month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})} · ${{done:"完成",partial:"部分失败",failed:"失败"}[last.status] || "待执行"}`
-    : data ? "尚未采集 · 可点击立即采集" : "正在连接新闻库…";
+    : data ? "尚未采集" : "正在连接新闻库…";
   $("#pipelineStatus").textContent = message;
   const dot = $("#upstreamErrorsBtn .pipeline-dot");
   dot.classList.toggle("failed", failed);
   dot.classList.toggle("syncing", !!data?.running);
-  $("#collectNewsBtn").disabled = !!data?.running;
 }
 async function pollCollection() {
   if (document.hidden || collectionPolling) return;
@@ -814,7 +839,8 @@ async function pollCollection() {
       : `${ready} 条新闻已完成翻译，${data.running ? "等待本轮采集结束后统一入库" : "正在按批次统一入库"}。`;
     $("#retryCollectionTranslationBtn").hidden = !(failed || publicationFailed);
     $("#retryCollectionTranslationBtn").textContent = failed ? "重试翻译" : "重试入库";
-    if (previous?.batch !== data.batch || previous?.source_errors !== data.source_errors) {
+    if (previous && (previous.batch !== data.batch || previous.source_errors !== data.source_errors)) {
+      sourceGroups = [];
       sourceCatalogByCollection.clear();
       void refreshBadges();
       void upstreamErrors.refreshBadge();
@@ -950,10 +976,11 @@ function setReadState(item, value, silent) {
   });
 }
 
-let badgesTimer, badgesRunning = false, badgesPending = false;
+let badgesTimer, badgesRunning = false, badgesPending = false, badgesNeedFeed = false;
 const badgesWaiters = [];
-function refreshBadges() {
+function refreshBadges({ skipFeed = false } = {}) {
   badgesPending = true;
+  badgesNeedFeed ||= !skipFeed;
   const promise = new Promise(resolve => badgesWaiters.push(resolve));
   // Throttle: new events do not push an already scheduled refresh further back.
   if (!badgesRunning && !badgesTimer) {
@@ -965,21 +992,20 @@ async function updateBadges() {
   badgesTimer = null;
   // The visible counts already include pending reads. Reconcile only against
   // a settled snapshot, which cannot count the same read twice.
-  if (stateWrites.pending.size) {
+  if (stateWrites.pending.size || state.loading) {
     badgesTimer = setTimeout(updateBadges, 120);
     return;
   }
   badgesRunning = true;
   badgesPending = false;
+  const needsFeed = badgesNeedFeed;
+  badgesNeedFeed = false;
   const snapshot = countSnapshot();
   const feedSequence = state.sequence;
   const scope = filterCountScope();
   const dateScope = countScope();
-  const params = new URLSearchParams({ ...feedParams(), category: "all", count_only: "1", feed_filters: "1" });
-  const hasFeed = !["notes", "summaries", "topics", "reports"].includes(state.collection);
-  const scopedDates = state.collection === "feed" && state.category !== "all";
-  if (state.collection === "feed") params.set("category_counts", "1");
-  if (hasFeed && !scopedDates) params.set("date_counts", "1");
+  const params = new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1", include_facets: "1", date_counts: "1" });
+  const hasFeed = needsFeed && !["notes", "summaries", "topics", "reports"].includes(state.collection);
   const updateDates = data => {
     if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || dateScope !== countScope()) return;
     state.dateCounts = data.date_counts || {};
@@ -999,14 +1025,12 @@ async function updateBadges() {
       hasFeed ? api(`/api/${state.query ? "search" : "news"}?${params}`).then(count => {
         if (!countsAreCurrent(snapshot) || feedSequence !== state.sequence || scope !== filterCountScope()) return;
         totalScope = scope;
-        state.total = count.total;
+        state.total = count.filter_total ?? count.total;
         state.categoryCounts = count.category_counts || null;
         state.categoryCountsScope = scope;
-        if (!scopedDates) updateDates(count);
-        else renderCategories();
+        updateDates(count);
         renderFilters();
       }) : null,
-      scopedDates ? api(`/api/${state.query ? "search" : "news"}?${new URLSearchParams({ ...feedParams(), count_only: "1", feed_filters: "1", date_counts: "1" })}`).then(updateDates) : null,
     ]);
   } finally {
     badgesRunning = false;
@@ -1015,6 +1039,7 @@ async function updateBadges() {
   }
 }
 let sourcesSequence = 0;
+let sourceGroups = [];
 const sourceCountsByCollection = new Map();
 const sourceCatalogByCollection = new Map();
 async function loadSources() {
@@ -1025,14 +1050,13 @@ async function loadSources() {
   const snapshot = countSnapshot();
   try {
     // Source availability covers the whole collection; badges still count unread items.
-    const [data, catalog] = await Promise.all([
-      api(`/api/sources?collection=${collection}&read_filter=${readFilter}`),
-      readFilter === "unread" && !sourceCatalogByCollection.has(currentCollection) ? api(`/api/sources?collection=${collection}&read_filter=all`) : null,
-    ]);
+    const includeCatalog = readFilter === "unread" && !sourceCatalogByCollection.has(currentCollection);
+    const data = await api(`/api/sources?collection=${collection}&read_filter=${readFilter}${includeCatalog ? "&include_catalog=1" : ""}${sourceGroups.length ? "" : "&source_groups=1"}`);
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
+    if (data.groups && countsAreCurrent(snapshot)) sourceGroups = data.groups;
     if (countsAreCurrent(snapshot)) sourceCountsByCollection.set(currentCollection, data.sources);
-    if (catalog || readFilter === "all" || !sourceCatalogByCollection.has(currentCollection))
-      sourceCatalogByCollection.set(currentCollection, (catalog || data).sources);
+    if (data.catalog || readFilter === "all" || !sourceCatalogByCollection.has(currentCollection))
+      sourceCatalogByCollection.set(currentCollection, data.catalog || data.sources);
     renderSources();
   } catch (error) {
     if (sequence !== sourcesSequence || currentCollection !== state.collection) return;
@@ -1041,7 +1065,7 @@ async function loadSources() {
 }
 function renderSources() {
   $("#sourceFilters").closest(".nav-section").hidden = ["topics", "reports", "summaries"].includes(state.collection);
-  const groups = settings.saved?.feed_source_subkeys?.groups || [];
+  const groups = sourceGroups.length ? sourceGroups : settings.saved?.feed_source_subkeys?.groups || [];
   const sourceCounts = sourceCountsByCollection.get(state.collection) || [];
   const showCount = ["feed", "read_later", "favorites"].includes(state.collection) && sourceCountsByCollection.has(state.collection);
   const badge = count => showCount && count > 0 ? `<span class="nav-badge">${count}</span>` : "";
@@ -1066,6 +1090,9 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   summaries.reading = false;
   state.collectionSequence++;
   state.ideaSequence++;
+  ideasController?.abort();
+  clearTimeout(ideasSearchTimer);
+  state.ideasLoading = false;
   settings.close({ restoreFocus: false });
   rememberReader();
   clearTimeout(detailTimer);
@@ -1076,7 +1103,6 @@ function switchCollection(collection, { restoreReader = true } = {}) {
   feedEndTimer = null;
   state.collection = collection;
   renderSources();
-  loadSources();
   state.filter = ["feed", "read_later"].includes(collection) ? "unread" : "all";
   state.sortOrder = "default";
   state.query = "";
@@ -1502,7 +1528,7 @@ function markReadIds(ids) {
   }
 }
 function trackFeedReading() {
-  if (!feedVisible()) { clearTimeout(feedEndTimer); feedEndTimer = null; return; }
+  if (!feedVisible() || state.previewing) { clearTimeout(feedEndTimer); feedEndTimer = null; return; }
   const list = $("#feedCardList"), bounds = list.getBoundingClientRect();
   const down = list.scrollTop > lastFeedScroll;
   const ids = [];
@@ -1540,6 +1566,10 @@ async function markAllRead() {
   let items = [...state.items], failed = 0, marked = 0, previewId;
   // Earlier button saves must finish before the bulk operation supersedes them.
   await stateWrites.settle();
+  if (later && params.q) {
+    items = (await searchNews(sequence, undefined, params)).items;
+    if (sequence !== state.sequence || scope !== countScope()) return toast("新闻范围已变化，请重新点击全部看完");
+  }
   if (!later) {
     params.read_filter = "unread";
     // Freeze the exact IDs shown by the confirmation, including unloaded pages.
@@ -1575,42 +1605,85 @@ async function markAllRead() {
   refreshBadges();
   toast(failed ? `有 ${failed} 篇未能标为已看完，请重试` : later ? "当前范围已全部看完" : `${sourceName}：已将 ${marked} 条新闻标为已读`);
 }
-async function loadIdeas({ quiet = false } = {}) {
+let ideasController, ideasSearchTimer;
+// Keep acknowledgements for this paging session so an older in-flight page
+// cannot overwrite a save or resurrect a deleted card.
+const ideaChanges = new Map();
+const articleIdeaChanges = new Map();
+function recordIdeaChange(id, idea) {
+  ideaChanges.set(id, idea);
+  const index = state.ideas.findIndex(row => row.idea_id === id);
+  if (!idea) state.ideas = state.ideas.filter(row => row.idea_id !== id);
+  else if (index >= 0) state.ideas[index] = idea;
+  else state.ideas.unshift(idea);
+}
+function ideaScope() {
+  return JSON.stringify([state.ideaType, $("#ideasSearchInput").value.trim()]);
+}
+async function loadIdeas({ append = false } = {}) {
+  if (state.collection !== "notes" || append &&
+      (state.ideasLoading || !state.ideasMore || state.ideasScope !== ideaScope())) return;
+  ideasController?.abort();
+  ideasController = new AbortController();
   const sequence = ++state.ideaSequence;
-  if (!quiet) $("#ideasCardList").innerHTML =
-    '<li class="list-message" role="status">正在读取想法…</li>';
+  if (!append) {
+    ideaChanges.clear();
+    articleIdeaChanges.clear();
+    state.ideas = [];
+    state.ideasPage = 0;
+    state.ideasCursor = null;
+    state.ideasMore = false;
+    state.ideasScope = ideaScope();
+  }
+  state.ideasLoading = true;
+  state.ideasError = null;
+  const page = append ? state.ideasPage + 1 : 1;
+  if (append) renderIdeasFooter();
+  else {
+    $("#ideasCardList").innerHTML = '<li class="list-message" role="status">正在读取想法…</li>';
+    $("#ideasCardList").scrollTop = 0;
+  }
   try {
-    // Load only the retained idea types. Backend pagination remains unchanged.
-    const types =
-      state.ideaType === "all" ? ["article", "standalone"] : [state.ideaType];
-    const arrays = await Promise.all(
-      types.map(async (type) => {
-        let page = 1,
-          more = true,
-          rows = [];
-        while (more && sequence === state.ideaSequence) {
-          const data = await api(
-            `/api/ideas?type=${type}&page=${page}&per=100`,
-          );
-          rows.push(...data.items);
-          more = data.has_more;
-          page++;
-        }
-        return rows;
-      }),
-    );
+    const params = new URLSearchParams({type: state.ideaType, reading_only: "1", cursor_mode: "1", page: String(page), per: "30", q: $("#ideasSearchInput").value.trim()});
+    if (append && state.ideasCursor) {
+      params.set("cursor_id", state.ideasCursor.idea_id);
+      params.set("cursor_updated_at", state.ideasCursor.updated_at);
+    }
+    const data = await api(`/api/ideas?${params}`, { signal: ideasController.signal });
     if (sequence !== state.ideaSequence || state.collection !== "notes") return;
-    state.ideas = arrays
-      .flat()
-      .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+    const known = new Set(state.ideas.map(idea => idea.idea_id));
+    for (const row of data.items) {
+      let idea = ideaChanges.has(row.idea_id) ? ideaChanges.get(row.idea_id) : row;
+      const noteKey = articleIdeaChanges.has(row.idea_id) ? row.idea_id : row.url;
+      if (idea?.idea_type === "article_note" && articleIdeaChanges.has(noteKey)) {
+        const patch = articleIdeaChanges.get(noteKey);
+        idea = patch && { ...idea, ...patch };
+      }
+      if (idea && !known.has(idea.idea_id)) {
+        state.ideas.push(idea);
+        known.add(idea.idea_id);
+      }
+    }
+    state.ideasPage = data.page;
+    state.ideasCursor = data.next_cursor;
+    state.ideasMore = data.has_more;
+    state.ideasLoading = false;
     renderIdeas();
     if (!state.idea && visibleIdeas().length && !singlePane.matches)
       selectIdea(visibleIdeas()[0], false);
     else if (!state.idea) { standaloneIdeas.select(null); syncDetailPanels(); }
+    if (!append) void refreshBadges({ skipFeed: true });
   } catch (error) {
-    if (sequence === state.ideaSequence && state.collection === "notes")
-      $("#ideasCardList").innerHTML =
-        `<li class="list-message error-state">${e(errorText(error))}<button id="retryIdeasBtn" class="btn-secondary" type="button">重试</button></li>`;
+    if (error.name !== "AbortError" && sequence === state.ideaSequence && state.collection === "notes") {
+      state.ideasError = { message: errorText(error), append };
+      renderIdeas();
+    }
+  } finally {
+    if (sequence === state.ideaSequence) {
+      state.ideasLoading = false;
+      renderIdeasFooter();
+      requestAnimationFrame(loadMoreIdeasIfNeeded);
+    }
   }
 }
 function visibleIdeas() {
@@ -1618,16 +1691,47 @@ function visibleIdeas() {
   return state.ideas.filter(idea =>
     (state.ideaType === "all" || idea.idea_type === `${state.ideaType}_note`) &&
     `${idea.title} ${idea.note}`.toLowerCase().includes(q),
-  ).sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+  );
+}
+function renderIdeasFooter() {
+  const list = $("#ideasCardList");
+  let row = $(".load-more-row", list);
+  if (!state.ideasMore) { row?.remove(); return; }
+  if (!row) { row = document.createElement("li"); row.className = "load-more-row"; list.append(row); }
+  row.innerHTML = state.ideasError?.append
+    ? `<span role="status">${e(state.ideasError.message)}</span><button id="loadMoreIdeasBtn" class="btn-secondary" type="button">重试</button>`
+    : `<button id="loadMoreIdeasBtn" class="btn-secondary" type="button" ${state.ideasLoading ? "disabled" : ""}>${state.ideasLoading ? "正在加载…" : "加载更多"}</button>`;
 }
 function renderIdeas() {
   const ideas = visibleIdeas(), list = $("#ideasCardList"), scroll = list.scrollTop;
+  // Keep the visible card at the same offset even if an earlier card changes
+  // height, is deleted, or a newly saved idea is inserted above it.
+  const top = list.getBoundingClientRect().top;
+  const visibleIds = new Set(ideas.map(idea => idea.idea_id));
+  const anchor = [...list.querySelectorAll("[data-idea-id]")].find(card =>
+    card.getBoundingClientRect().bottom > top && visibleIds.has(card.dataset.ideaId));
+  const anchorId = anchor?.dataset.ideaId, offset = anchor?.getBoundingClientRect().top - top;
+  if (state.ideasError && !state.ideasError.append && !ideas.length) {
+    list.innerHTML = `<li class="list-message error-state">${e(state.ideasError.message)}<button id="retryIdeasBtn" class="btn-secondary" type="button">重试</button></li>`;
+    return;
+  }
   list.innerHTML = ideas.map(idea => {
     const article = idea.idea_type === "article_note";
     const latest = article ? idea.latest_note_preview || idea.note_preview : idea.note;
     return `<li class="news-card ${state.idea?.idea_id === idea.idea_id ? "active is-active" : ""}" data-idea-id="${e(idea.idea_id)}" tabindex="0"><div class="news-card-meta"><div class="meta-source-box"><span class="source-icon-badge idea">想</span>${e(idea.idea_context_label)}</div><span>${e(idea.updated_at?.slice(0, 16) || "")}</span></div><h3 class="news-card-title">${e(article ? idea.title : standaloneTitle(idea))}</h3><p class="news-card-snippet">${e(latest)}</p><div class="news-card-footer"><span class="card-tag">${e(idea.source || "独立想法")}</span>${article ? `<span class="note-badge" aria-label="${idea.note_count || 1} 条想法">${icon("note")} ${idea.note_count || 1}</span>` : ""}</div></li>`;
   }).join("") || `<li class="list-message">${$("#ideasSearchInput").value.trim() ? "没有匹配的想法，试试其他关键词。" : "暂无想法。点击“新想法”开始记录。"}</li>`;
+  renderIdeasFooter();
   list.scrollTop = scroll;
+  const restored = anchorId && $(`[data-idea-id="${CSS.escape(anchorId)}"]`, list);
+  if (restored) list.scrollTop += restored.getBoundingClientRect().top - top - offset;
+}
+function nearListEnd(list) {
+  return list.scrollTop + list.clientHeight >= list.scrollHeight - 250;
+}
+function loadMoreIdeasIfNeeded() {
+  const list = $("#ideasCardList");
+  if (state.collection === "notes" && !settings.open && !mobileReaderOpen() &&
+      !state.ideasError && list.clientHeight && nearListEnd(list)) void loadIdeas({ append: true });
 }
 function selectIdea(idea, mobile = true) {
   if (!idea) return;
@@ -1666,6 +1770,7 @@ function exitReader() {
   $("#feedView").classList.remove("mobile-reader-active");
   syncMobileLayers();
   requestAnimationFrame(trackFeedReading);
+  requestAnimationFrame(loadMoreIdeasIfNeeded);
 }
 function mobileReaderOpen() {
   return singlePane.matches && $("#feedView").classList.contains("mobile-reader-active");
@@ -1808,6 +1913,7 @@ document.addEventListener("click", (event) => {
   if (button?.dataset.closeShortcuts !== undefined) shortcutsDialog(false);
   if (button?.id === "loadMoreBtn") loadFeed(true);
   if (button?.id === "retryIdeasBtn") loadIdeas();
+  if (button?.id === "loadMoreIdeasBtn") loadIdeas({append: true});
   if (button?.id === "newIdeaBtn")
     selectIdea({ idea_id: "draft", idea_type: "standalone_note", title: "", note: "" });
   const card = event.target.closest("#feedCardList [data-id]");
@@ -1846,23 +1952,29 @@ $("#feedSearchInput").addEventListener("input", (event) => {
     void loadFeed();
   }, 250);
 });
-$("#ideasSearchInput").addEventListener("input", renderIdeas);
+$("#ideasSearchInput").addEventListener("input", () => {
+  clearTimeout(ideasSearchTimer);
+  ideasController?.abort();
+  state.ideaSequence++;
+  state.ideasLoading = false;
+  ideasSearchTimer = setTimeout(() => loadIdeas(), 250);
+});
 $("#feedCardList").addEventListener("scroll", () => {
   scheduleFeedDateHeaders();
   trackFeedReading();
   const list = $("#feedCardList");
-  if (
-    list.scrollTop + list.clientHeight >= list.scrollHeight - 250 &&
-    list.scrollHeight > list.clientHeight
-  )
+  if (nearListEnd(list) && list.scrollHeight > list.clientHeight)
     loadFeed(true);
 });
+$("#ideasCardList").addEventListener("scroll", loadMoreIdeasIfNeeded, { passive: true });
+new ResizeObserver(loadMoreIdeasIfNeeded).observe($("#ideasCardList"));
 new ResizeObserver(scheduleFeedDateHeaders).observe($("#feedCardList"));
 $("#sortNewsBtn").onclick = () => { state.sortOrder = state.sortOrder === "default" ? "reverse" : "default"; loadFeed(); };
 $("#markAllReadBtn").onclick = event => busy(event.currentTarget, markAllRead);
 document.addEventListener("visibilitychange", trackFeedReading);
 function syncVisibleCounts() {
   if (document.hidden) return;
+  sourceGroups = [];
   sourceCatalogByCollection.clear();
   refreshBadges();
   void refreshClassification();
@@ -1891,11 +2003,6 @@ $$(".mobile-back-btn").forEach((button) => (button.onclick = exitReader));
 $("#shortcutsModal").onclick = (event) => {
   if (event.target.id === "shortcutsModal") shortcutsDialog(false);
 };
-$("#collectNewsBtn").onclick = event => busy(event.currentTarget, async () => {
-  await api("/api/collection", {method:"POST"});
-  toast("采集任务已加入后台队列");
-  await pollCollection();
-});
 
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.isComposing) return;
@@ -2031,12 +2138,9 @@ singlePane.addEventListener("change", () => {
 state.loading = true;
 renderFeed();
 renderReader();
-Promise.allSettled([
-  loadFeed(),
-  pollCollection(),
-  settings.load(false),
-  summaries.load(),
-]).then(() => renderSources());
+// Give the visible page priority. Settings/model catalogs and research lists
+// are loaded by their own panels when opened.
+loadFeed().then(() => pollCollection());
 api("/api/version")
   .then((data) => {
     const version = data.version || data.current_version;

@@ -239,8 +239,8 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     const button = await page.locator('#upstreamErrorsBtn').boundingBox();
     await expect(page.locator('#pipelineStatus')).toBeHidden();
     await expect(page.locator('.upstream-pulse-dot')).toBeVisible();
-    const refresh = await page.locator('#collectNewsBtn').boundingBox();
-    expect(button.x + button.width).toBeLessThanOrEqual(refresh.x);
+    const font = await page.locator('#fontSizeSelect').boundingBox();
+    expect(button.x + button.width).toBeLessThanOrEqual(font.x);
     const theme = await page.locator('#themeSelect').boundingBox();
     expect(theme.x + theme.width).toBeLessThanOrEqual(width);
     await page.locator('#upstreamErrorsBtn').click();

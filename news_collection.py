@@ -137,14 +137,19 @@ def batch_boundary(conn):
     return conn.execute("SELECT COALESCE(MAX(seq),0) FROM topic_ingestions").fetchone()[0]
 
 
-def batch_clause(value, *, newer=False):
+def batch_clause(value, *, newer=False, item_lookup=False):
     try:
         number = int(value)
         if not 0 <= number <= 9223372036854775807 or str(number) != str(value):
             raise ValueError()
     except (ValueError, TypeError):
         raise ValueError("invalid_news_batch") from None
-    return f" AND items.id IN (SELECT item_id FROM topic_ingestions WHERE seq {'>' if newer else '<='} ?)", [number]
+    comparison = '>' if newer else '<='
+    if item_lookup:
+        # Saved collections start with their sparse state index, then check
+        # each ID's horizon instead of building a list of the whole library.
+        return f" AND EXISTS (SELECT 1 FROM topic_ingestions ti WHERE ti.item_id=items.id AND ti.seq {comparison} ?)", [number]
+    return f" AND items.id IN (SELECT item_id FROM topic_ingestions WHERE seq {comparison} ?)", [number]
 
 
 def acquire_source(source):

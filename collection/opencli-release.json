@@ -1,14 +1,14 @@
 {
-  "checked_at": "2026-11-11T16:10:53.362350+00:00",
-  "fingerprint": "c9b860f0c2fe423e4caa726892ed30275f68e6fc35b09ee407192d1fd5c06f90",
-  "newsreader_version": "0.5.4",
+  "checked_at": "2026-11-12T01:34:03.283729+00:00",
+  "fingerprint": "3d6646d0bb4103522662c31740a4d9e57abfe4bf83f1f49f3b900f5d7ddd18a2",
+  "newsreader_version": "0.5.5",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.15,
+      "seconds": 17.25,
       "error": "",
       "samples": [
         {
@@ -18,9 +18,9 @@
           "source_name": "Reuters"
         },
         {
-          "title": "War, conflict must not distract from climate action, leaders warn COP31",
-          "url": "https://www.reuters.com/sustainability/cop/world-leaders-address-cop31-turkey-pushes-new-climate-deal-2026-11-11/",
-          "time": "2026-11-11 11:02:53",
+          "title": "Saudi Arabia says debris from intercepted missiles falls in Mecca region",
+          "url": "https://www.reuters.com/world/middle-east/saudi-arabia-says-debris-intercepted-missiles-falls-mecca-region-2026-11-12/",
+          "time": "2026-11-12 08:21:45",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.3,
+      "seconds": 4.88,
       "error": "",
       "samples": [
         {
-          "title": "Spanish watchdog opens TikTok probe but denies government demand to block app",
-          "url": "https://www.reuters.com/legal/government/spanish-watchdog-opens-tiktok-probe-denies-government-demand-block-app-2026-11-11/",
-          "time": "2026-11-12 00:09:59",
+          "title": "South Korea's President Lee to visit Philippines, attend APEC summit in China",
+          "url": "https://www.reuters.com/world/china/south-koreas-president-lee-visit-philippines-attend-apec-summit-china-2026-11-12/",
+          "time": "2026-11-12 09:04:09",
           "source_name": "Reuters"
         },
         {
-          "title": "Baird downgrades Nvidia on China curbs, AI demand worries",
-          "url": "https://www.reuters.com/world/china/baird-downgrades-nvidia-china-curbs-ai-demand-worries-2026-11-11/",
-          "time": "2026-11-11 22:29:02",
+          "title": "Instant View: Nvidia board meets to decide CEO Huang's future, source says",
+          "url": "https://www.reuters.com/world/china/view-nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
+          "time": "2026-11-12 07:19:16",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.7,
+      "seconds": 3.97,
       "error": "",
       "samples": [
         {
-          "title": "Russia says military-to-military contacts with Britain are possible if London reaches out",
-          "url": "https://www.reuters.com/world/uk/russia-says-military-to-military-contacts-with-britain-are-possible-if-london-2026-11-11/",
-          "time": "2026-11-11 22:47:51",
+          "title": "Russia, Ukraine reach deal on prisoner swap as US says lack of trust holds back talks",
+          "url": "https://www.reuters.com/world/europe/us-russia-ukraine-start-second-day-abu-dhabi-peace-talks-2026-11-11/",
+          "time": "2026-11-11 18:12:24",
           "source_name": "Reuters"
         },
         {
-          "title": "Russia and Ukraine say some progress made at talks, US cites a lack of trust",
-          "url": "https://www.reuters.com/world/europe/us-russia-ukraine-start-second-day-abu-dhabi-peace-talks-2026-11-11/",
-          "time": "2026-11-11 18:12:24",
+          "title": "Democrat Colom wins Mississippi Senate seat, becomes state's first Black senator since 1874",
+          "url": "https://www.reuters.com/world/us/democrat-scott-colom-defeats-incumbent-cindy-hyde-smith-cnn-projects-2026-11-11/",
+          "time": "2026-11-12 06:09:17",
           "source_name": "Reuters"
         }
       ]
@@ -74,13 +74,35 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.7,
+      "seconds": 3.77,
       "error": "",
       "samples": [
         {
-          "title": "S&P 500, Nasdaq rise as CoreWeave results ease AI spending worries",
-          "url": "https://www.reuters.com/business/sp-500-nasdaq-futures-rise-after-coreweave-soothes-ai-spending-fears-2026-11-11/",
-          "time": "2026-11-11 18:43:04",
+          "title": "Nvidia board meets to decide CEO Huang's future, source says",
+          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
+          "time": "2026-11-12 06:34:14",
+          "source_name": "Reuters"
+        },
+        {
+          "title": "Chinese university bought Nvidia H200 chips despite US blacklist",
+          "url": "https://www.reuters.com/world/pla-linked-chinese-university-bought-nvidia-h200-chips-despite-us-blacklist-2026-11-11/",
+          "time": "2026-11-11 13:13:22",
+          "source_name": "Reuters"
+        }
+      ]
+    },
+    {
+      "section": "technology",
+      "ok": true,
+      "raw_count": 10,
+      "valid_count": 10,
+      "seconds": 4.47,
+      "error": "",
+      "samples": [
+        {
+          "title": "Nvidia board meets to decide CEO Huang's future, source says",
+          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
+          "time": "2026-11-12 06:34:14",
           "source_name": "Reuters"
         },
         {
@@ -92,45 +114,23 @@
       ]
     },
     {
-      "section": "technology",
-      "ok": true,
-      "raw_count": 10,
-      "valid_count": 10,
-      "seconds": 4.11,
-      "error": "",
-      "samples": [
-        {
-          "title": "Spanish watchdog opens TikTok probe but denies government demand to block app",
-          "url": "https://www.reuters.com/legal/government/spanish-watchdog-opens-tiktok-probe-denies-government-demand-block-app-2026-11-11/",
-          "time": "2026-11-12 00:09:59",
-          "source_name": "Reuters"
-        },
-        {
-          "title": "Romanian intelligence agency says it identified Russian-linked cyber attack",
-          "url": "https://www.reuters.com/technology/romanian-intelligence-agency-says-it-identified-russian-linked-cyber-attack-2026-11-11/",
-          "time": "2026-11-11 22:02:21",
-          "source_name": "Reuters"
-        }
-      ]
-    },
-    {
       "section": "bloomberg_tech",
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.88,
+      "seconds": 2.67,
       "error": "",
       "samples": [
         {
-          "title": "Meta’s Head of Infrastructure, Engineering to Step Down in 2027",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-11/meta-s-head-of-infrastructure-engineering-to-step-down-in-2027",
-          "time": "2026-11-12 00:02:10",
+          "title": "Anthropic IPO Risks Causing AI Correction, Selby Says",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-11/anthropic-ipo-lockup-risks-triggering-ai-correction-selby-says",
+          "time": "2026-11-11 14:13:06",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Nvidia Is Playing Out Like a Greek Tragedy, Says Seaport's Goldberg",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-11/nvidia-is-playing-out-like-a-greek-tragedy-goldberg-video",
-          "time": "2026-11-12 00:01:34",
+          "title": "Alleged Chinese Spy at Center of Nvidia Firestorm Is in Beijing",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-12/alleged-chinese-spy-at-center-of-nvidia-firestorm-is-in-beijing",
+          "time": "2026-11-12 09:19:42",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.39,
+      "seconds": 1.46,
       "error": "",
       "samples": [
         {
-          "title": "Siri co-founder backs Helix for its voice ID tech",
-          "url": "https://techcrunch.com/2026/11/11/siri-co-founder-backs-helix-for-its-voice-id-tech/",
-          "time": "2026-11-11 23:02:47",
+          "title": "The unfolding Jensen Huang scandal: a timeline",
+          "url": "https://techcrunch.com/2026/11/11/nvidia-ceo-jensen-huangs-affair-with-alleged-chinese-spy-a-timeline/",
+          "time": "2026-11-12 07:50:00",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Databricks’ new AI agent tells CEO Ali Ghodsi the unvarnished truth",
-          "url": "https://techcrunch.com/2026/11/11/databricks-new-ai-agent-tells-ceo-ali-ghodsi-the-unvarnished-truth/",
-          "time": "2026-11-11 23:00:00",
+          "title": "Nvidia’s stock drops as board reportedly preps to oust CEO Jensen Huang",
+          "url": "https://techcrunch.com/2026/11/11/nvidias-stock-drops-as-board-reportedly-preps-to-oust-ceo-jensen-huang/",
+          "time": "2026-11-12 07:28:45",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.72,
+      "seconds": 2.02,
       "error": "",
       "samples": [
         {
-          "title": "Trump wanted little Kei trucks for America, Toyota makes it happen",
-          "url": "https://arstechnica.com/cars/2026/11/toyota-resurrects-scion-with-right-hand-drive-kei-trucks/",
-          "time": "2026-11-11 23:25:44",
+          "title": "CEO Jensen Huang's job is suddenly on the line at Nvidia",
+          "url": "https://arstechnica.com/gadgets/2026/11/ceo-jensen-huangs-job-is-suddenly-on-the-line-at-nvidia/",
+          "time": "2026-11-12 07:10:17",
           "source_name": "Ars Technica"
         },
         {
-          "title": "Google DeepMind just mathematically verified key parts of Signal",
-          "url": "https://arstechnica.com/ai/2026/11/signals-encryption-just-passed-an-ai-powered-mathematical-checkup/",
-          "time": "2026-11-11 22:08:57",
+          "title": "T-Mobile illegally imposed 50GB cap on low-income home Internet plan, NY says",
+          "url": "https://arstechnica.com/tech-policy/2026/11/t-mobile-illegally-imposed-50-gb-cap-on-low-income-home-internet-plan-ny-says/",
+          "time": "2026-11-12 04:32:21",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.66,
+      "seconds": 1.68,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.61,
+      "seconds": 1.87,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 8,
-      "seconds": 1.53,
+      "seconds": 1.42,
       "error": "",
       "samples": [
         {
-          "title": "中共中央政治局委员、外交部长王毅11日同美国国务卿鲁比奥通电话。双方就中美关系及两国元首互动深入交换意见，通话是积极和建设性的。 王毅表示，中美关系稳定势头来之不易，是两个大国从各自和共同利益出发作出的理性选择。中国对美政策保持稳定性和连续性，愿同美方加强沟通合作，妥善处理分歧和敏感问题，相互支持办好2026年亚太经合组织领导人非正式会议和二十国集团领导人峰会，推动中美建设性战略稳定关系落地见效。（新华社）",
-          "url": "https://x.com/fxtrader/status/2120533658817732647?s=20",
-          "time": "2026-11-11 23:06",
+          "title": "预测市场看好“CUDA之父”Ian Buck成为英伟达下一任CEO。对黄仁勋留任的概率降至9%。 https://t.co/1GlGwr8nEW",
+          "url": "https://x.com/fxtrader/status/2120688539285569712?s=20",
+          "time": "2026-11-12 09:22",
           "source_name": "外汇交易员"
         },
         {
-          "title": "俄罗斯谈判代表团团长、俄总统助理梅金斯基公布了本轮俄美乌三方会谈的部分成果。 梅金斯基表示，俄乌原则同意进行新一轮大规模在押人员交换。他还表示，俄方代表团在阿布扎比没有和欧洲代表进行接触。",
-          "url": "https://x.com/fxtrader/status/2120486037759856869?s=20",
-          "time": "2026-11-11 19:57",
+          "title": "华盛顿邮报：白宫并未干预英伟达董事会的决策。 https://t.co/ipHI6Kv01w",
+          "url": "https://x.com/fxtrader/status/2120681923781792251?s=20",
+          "time": "2026-11-12 08:55",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.06,
+      "seconds": 1.62,
       "error": "",
       "samples": [
         {
@@ -275,59 +275,59 @@
       "url": "https://www.reuters.com/world/middle-east/iran-will-not-allow-enriched-nuclear-material-leave-country-security-chief-says-2026-11-11/",
       "ok": true,
       "title": "Iran will not allow enriched nuclear material to leave the country, security chief says",
-      "length": 2145,
-      "seconds": 15.9,
+      "length": 2254,
+      "seconds": 2.89,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "79c4975709770b1f8e06c365c5879022f16dd2dfc8471a41a336fee22b40e6f1",
+      "content_sha256": "7527333ef8ed08726509bcfb81f462d2811c8f41aa46070b1a693b37e34ffaef",
       "preview": "DUBAI, Nov 11 (Reuters) - Iran will not allow even a single particle of enriched nuclear material to leave the country and there will be consequences in the eve"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-11/meta-s-head-of-infrastructure-engineering-to-step-down-in-2027",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-11/anthropic-ipo-lockup-risks-triggering-ai-correction-selby-says",
       "ok": true,
-      "title": "Meta’s Head of Infrastructure, Engineering to Step Down in 2027",
-      "length": 4613,
-      "seconds": 32.36,
+      "title": "Anthropic IPO Risks Causing AI Correction, Selby Says",
+      "length": 3064,
+      "seconds": 31.07,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "c07f549325244eb6455c01a2b859d9d35faa8a191f6d7f6e6f31a62916081459",
-      "preview": "Meta Platforms Inc.’s longtime infrastructure chief will leave the company in early 2027, a major leadership change as it continues to invest hundreds of billio"
+      "content_sha256": "e311242cbcbbd3071ccae21627fa7e94150b37265df602138f5d04f4f9570745",
+      "preview": "Anthropic PBC’s blockbuster initial public offering may become the catalyst for major reversal in the artificial intelligence trade, according to Jack Selby, wh"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/11/siri-co-founder-backs-helix-for-its-voice-id-tech/",
+      "url": "https://techcrunch.com/2026/11/11/nvidia-ceo-jensen-huangs-affair-with-alleged-chinese-spy-a-timeline/",
       "ok": true,
-      "title": "Siri co-founder backs Helix for its voice ID tech",
-      "length": 4204,
-      "seconds": 2.04,
+      "title": "The unfolding Jensen Huang scandal: a timeline",
+      "length": 10121,
+      "seconds": 1.92,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "3ab0d3b0dc3b442d538337bacbf7448f6f41b31edb65aa4575ec504e5e452c6f",
-      "preview": "For years, websites have relied on technology like CAPTCHA to prove that the user on the other end is human. More recently, social media platforms have turned t"
+      "content_sha256": "2082c2c19144202b5b9951105b62296417c6e4faaaee3a0109b0defb669c2d4c",
+      "preview": "Nvidia co-founder CEO Jensen Huang has never been as flashy or controversy-prone as AI leaders like OpenAI's Sam Altman or SpaceXAI's Elon Musk. Now, the 63-yea"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/cars/2026/11/toyota-resurrects-scion-with-right-hand-drive-kei-trucks/",
+      "url": "https://arstechnica.com/gadgets/2026/11/ceo-jensen-huangs-job-is-suddenly-on-the-line-at-nvidia/",
       "ok": true,
-      "title": "Trump wanted little Kei trucks for America, Toyota makes it happen",
-      "length": 3888,
-      "seconds": 16.13,
+      "title": "CEO Jensen Huang’s job is suddenly on the line at Nvidia",
+      "length": 1962,
+      "seconds": 15.82,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "4f7579a12ff2329de0c0800e0530b3c999b0cebbb0d8443fe0cb737f862b1487",
-      "preview": "The idea that Americans should be offered a greater choice of smaller cars has support from strange bedfellows indeed. After all, who could forget President Tru"
+      "content_sha256": "88f822888aa709b39d882bfa9ef2dcb6a81368727a4ac16cbd1359fa8202e6d3",
+      "preview": "Nvidia’s board is set to hold urgent talks about the future of its founder Jensen Huang after revelations that he had an affair with a top executive at the comp"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 5.0,
+      "seconds": 7.35,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 16.17,
+      "seconds": 15.88,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 680,
-      "seconds": 18.97,
+      "seconds": 11.01,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 8.58,
+      "seconds": 9.01,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.68,
+      "seconds": 9.0,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-11T16:10:55.754557+00:00"
+    "checked_at": "2026-11-12T01:34:05.683579+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-11T16:11:03.245832+00:00"
+    "checked_at": "2026-11-12T01:34:11.505329+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-11T16:16:36.819761+00:00",
+    "checked_at": "2026-11-12T01:37:11.266269+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

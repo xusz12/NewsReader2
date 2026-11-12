@@ -43,7 +43,14 @@ test.describe('news sorting', () => {
       await filter(page, 'all').click();
       await expectOrder(page, '旧到新', 'ui-064');
       if (width <= 920) await page.locator('#feedSearchToggleBtn').click();
-      await page.locator('#feedSearchInput').fill('isolated interface test fixture');
+      await Promise.all([
+        page.waitForResponse(response => response.url().includes('/api/search?') && response.url().includes('page=1') && response.status() === 200),
+        page.locator('#feedSearchInput').fill('isolated interface test fixture'),
+      ]);
+      await expect(page.locator('#feedCardList .news-card')).toHaveCount(30);
+      await page.locator('#loadMoreBtn').evaluate(button => button.click());
+      await expect(page.locator('#feedCardList .news-card')).toHaveCount(60);
+      await page.locator('#loadMoreBtn').evaluate(button => button.click());
       await expect(page.locator('#feedCardList .news-card')).toHaveCount(65);
       await expectOrder(page, '旧到新', 'ui-064');
       await page.locator('#sortNewsBtn').click();

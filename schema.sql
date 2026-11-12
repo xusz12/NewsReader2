@@ -423,6 +423,8 @@ CREATE TABLE IF NOT EXISTS item_classifications (
 );
 CREATE INDEX IF NOT EXISTS idx_classification_queue ON item_classifications(status,next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_classification_category ON item_classifications(category,status);
+CREATE INDEX IF NOT EXISTS idx_classification_status_revision
+  ON item_classifications(status,updated_at DESC);
 
 -- Only the current classification batch is retained; successful library history
 -- stays in item_classifications and is not part of the next batch's progress.

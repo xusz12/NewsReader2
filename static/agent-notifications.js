@@ -116,7 +116,7 @@ export class AgentNotifications {
     // A disabled dismiss/read-all button temporarily moves focus to the document body.
     const lostPanelFocus = !this.panel.hidden && document.activeElement === document.body;
     if (this.button.parentElement.contains(document.activeElement) || lostPanelFocus)
-      ($("#collectNewsBtn:not(:disabled)") || $("#upstreamErrorsBtn")).focus({ preventScroll: true });
+      $("#upstreamErrorsBtn").focus({ preventScroll: true });
     this.close();
   }
   render() {

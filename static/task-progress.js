@@ -161,6 +161,6 @@ export class TaskProgress {
     arc.style.strokeDashoffset=String(determinate?100-percent:0);
     arc.style.opacity=determinate&&!done?"0":"1";
     if(this.root.hidden)this.close();
-    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?($("#collectNewsBtn:not(:disabled)") || $("#upstreamErrorsBtn")):this.indicator);
+    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?$("#upstreamErrorsBtn"):this.indicator);
   }
 }

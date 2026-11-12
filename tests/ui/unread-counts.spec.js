@@ -120,7 +120,7 @@ test('old nav, list-total and source responses cannot undo a newer read', async 
   };
   await page.route('**/api/nav-summary', intercept(0));
   await page.route('**/api/news?*count_only=1*', intercept(1));
-  await page.route('**/api/sources?collection=feed&read_filter=unread', intercept(2));
+  await page.route('**/api/sources?collection=feed&read_filter=unread*', intercept(2));
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await Promise.all(reached.map(item => item.promise));
@@ -135,7 +135,7 @@ test('old nav, list-total and source responses cannot undo a newer read', async 
 test('slow source statistics do not block the nav or header count', async ({ page, request }) => {
   await start(page);
   const held = gate(), reached = gate();
-  await page.route('**/api/sources?collection=feed&read_filter=unread', async route => {
+  await page.route('**/api/sources?collection=feed&read_filter=unread*', async route => {
     reached.release();
     await held.promise;
     await route.continue();

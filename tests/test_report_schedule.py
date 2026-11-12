@@ -18,6 +18,23 @@ def revised(previous=None, at="2026-10-30T16:00:00+08:00", **times):
             "report_schedule_history": rs.changed_history(previous, times, pr.local(at))}
 
 
+def test_fractional_scheduler_ticks_wait_without_missing_exact_slots(db):
+    service = pr.Service(db, lambda: SETTINGS)
+    assert service.schedule_once(pr.local("2026-10-30T10:00:01.123456+08:00")) == 30
+    assert service.schedule_once(pr.local("2026-10-30T14:29:59.500000+08:00")) == 0.5
+    assert service.schedule_once(pr.local("2026-10-30T14:30:00.100000+08:00")) == 30
+    with closing(db()) as conn:
+        rows = conn.execute("SELECT scheduled_at FROM periodic_reports WHERE kind='noon'").fetchall()
+        assert [r[0] for r in rows] == ["2026-10-30T14:30:00+08:00"]
+
+
+def test_fractional_ticks_still_catch_up_a_durable_backlog(db):
+    service = pr.Service(db, lambda: SETTINGS)
+    at = pr.local("2027-02-01T01:00:00.123456+08:00")
+    assert service.schedule_once(at) == 0
+    assert service.schedule_once(at) == 30
+
+
 def test_launch_times_change_without_changing_news_windows():
     schedule = rs.Schedule({"report_schedule": rs.normalize({"morning": "09:15", "noon": "15:10", "evening": "22:05", "weekly": "09:00", "monthly": "10:15"})})
     rows = {kind: (pr.stamp(scheduled), pr.stamp(start), pr.stamp(end))

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from urllib.parse import urlparse
 
 SOURCE_LABELS = {
@@ -19,6 +20,7 @@ def _source_prefix(source: str | None) -> str:
     return source.split("·", 1)[0].strip()
 
 
+@lru_cache(maxsize=65536)
 def derive_source_key(url: str | None, source_type: str | None, source: str | None) -> str:
     st = (source_type or "").strip().lower()
     if st == "twitter":
@@ -56,6 +58,7 @@ def derive_source_key(url: str | None, source_type: str | None, source: str | No
     return "unknown"
 
 
+@lru_cache(maxsize=65536)
 def is_bloomberg_video_url(url: str | None) -> bool:
     """Identify Bloomberg's dedicated video pages without title/slug guessing."""
     if not url:

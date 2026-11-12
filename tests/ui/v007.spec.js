@@ -1,10 +1,12 @@
 import {test,expect} from '@playwright/test';
+import {openSettings} from './helpers.js';
 
 test('opening the page reads the library without collecting', async({page})=>{
   const actions=[];
   page.on('request',request=>{if(request.method()==='POST' && /\/api\/(collection|reindex)$/.test(request.url())) actions.push(request.url());});
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
+  await expect(page.locator('.topbar button[aria-label="立即采集"]')).toHaveCount(0);
   expect(actions).toEqual([]);
 });
 
@@ -13,7 +15,10 @@ test('collection request failure leaves existing news and scroll intact',async({
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
   await page.evaluate(()=>{window.row=document.querySelector('#feedCardList .news-card');});
   await page.route('**/api/collection',route=>route.request().method()==='POST' ? route.fulfill({status:503,json:{error:'采集暂不可用'}}) : route.continue());
-  await page.locator('#collectNewsBtn').click();
+  await openSettings(page);
+  await page.locator('[data-settings-tab="pipeline"]').click();
+  await page.locator('#settingsCollectBtn').click();
   await expect(page.locator('#toast')).toContainText('采集暂不可用');
+  await page.keyboard.press('Escape');
   expect(await page.evaluate(()=>window.row===document.querySelector('#feedCardList .news-card'))).toBe(true);
 });

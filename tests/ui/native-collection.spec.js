@@ -14,8 +14,12 @@ test('collection only queues work and arrivals preserve rows, scroll and paginat
   const errors=[]; page.on('pageerror', error => errors.push(error.message));
   await start(page);
   await page.evaluate(() => {window.firstCard=document.querySelector('#feedCardList .news-card');});
-  await page.locator('#collectNewsBtn').click();
-  await expect(page.locator('#pipelineStatus')).toContainText('正在采集');
+  await openSettings(page);
+  await page.locator('[data-settings-tab="pipeline"]').click();
+  await page.locator('#settingsCollectBtn').click();
+  await expect(page.locator('#settingsCollectBtn')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#pipelineStatus')).toContainText('正在采集', {timeout:12000});
   await request.post('/__test/new-news',{data:{published_at:'2026-10-01 01:00:00'}});
   await expect(page.locator('#newNewsNotice')).toBeVisible({timeout:12000});
   await expect(page.locator('#newNewsCount')).toHaveText('有 1 条新新闻');

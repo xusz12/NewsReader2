@@ -108,13 +108,12 @@ test(`任务完成后焦点返回可用顶栏入口 ${width} collecting=${collec
     await route.fulfill({json:{...data,running:collecting}});
   });
   const state=await start(page);await indicator(page).focus();
-  if(collecting)await expect(page.locator('#collectNewsBtn')).toBeDisabled();
-  else await expect(page.locator('#collectNewsBtn')).toBeEnabled();
+  await expect(page.locator('#upstreamErrorsBtn')).toBeEnabled();
   await page.locator('[data-task-id="report-evening"]').focus();
   state.data=empty();
   await page.evaluate(()=>document.dispatchEvent(new Event('tasks:changed')));
   await expect(page.locator('#classificationProgress')).toBeHidden();
-  await expect(page.locator(collecting?'#upstreamErrorsBtn':'#collectNewsBtn')).toBeFocused();
+  await expect(page.locator('#upstreamErrorsBtn')).toBeFocused();
   expect(errors).toEqual([]);
 });
 

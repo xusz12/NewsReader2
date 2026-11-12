@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.4</title>
+    <title>News Reader v0.5.5</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.4" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.4" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.5" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.5" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.4"
+      href="/static/style.css?v=0.5.5"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.4</span>
+            <span class="brand-version">v0.5.5</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -146,23 +146,6 @@
               <ul id="agentNotificationsList" class="agent-notifications-list"></ul>
             </section>
           </div>
-          <button
-            aria-label="立即采集"
-            class="topbar-tool-btn topbar-ghost-btn"
-            id="collectNewsBtn"
-            title="立即采集"
-            type="button"
-          >
-            <svg
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M20 7v5h-5M4 17v-5h5"></path>
-              <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"></path>
-            </svg>
-          </button>
           <select aria-label="阅读字号" class="font-size-select" id="fontSizeSelect">
             <option value="small">小（90%）</option>
             <option value="standard" selected>标准（100%）</option>
@@ -1024,9 +1007,9 @@
         引用提问 Agent
       </button>
     </div>
-    <script src="/static/error_ui.js?v=0.5.4"></script>
+    <script src="/static/error_ui.js?v=0.5.5"></script>
     <script
-      src="/static/app.js?v=0.5.4"
+      src="/static/app.js?v=0.5.5"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

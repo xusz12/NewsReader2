@@ -47,6 +47,9 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
         conn.execute("ALTER TABLE item_state ADD COLUMN read_later_done_at TEXT")
     if "favorite_at" not in cols:
         conn.execute("ALTER TABLE item_state ADD COLUMN favorite_at TEXT")
+    # Install after legacy columns have been migrated, including on old databases.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_state_favorites ON item_state(item_id) WHERE favorite_at IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_state_important ON item_state(item_id) WHERE important_at IS NOT NULL")
     if "bookmarked" in cols:
         conn.execute(
             """
