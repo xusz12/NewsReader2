@@ -87,7 +87,7 @@ test('preview and deletion errors leave a retryable source and do not change its
   await expect(button(page)).toBeEnabled();
   failPreview = false;
   await button(page).click(); await answerConfirm(page);
-  await expect(page.locator('#settingsStatus')).toContainText('重新确认');
+  await expect(page.locator('#settingsStatus')).toContainText('请重新查看统计并确认操作');
   await expect(button(page)).toBeEnabled(); await expect(checkbox(page)).toBeChecked();
   failDelete = false;
   await button(page).click(); await answerConfirm(page);

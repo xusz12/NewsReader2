@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 import topic_tracking
 import news_versions
+import x_accounts
 
 def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     conn.executescript(schema_path.read_text(encoding="utf-8"))
@@ -24,7 +25,7 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
         AND topic_id IN (SELECT id FROM event_topics WHERE timeline_mode='events' AND archived_at IS NULL)""")
     topic_tracking.seed_ingestions(conn)
     detail_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(detail_jobs)")}
-    for name, kind in (("next_attempt_at", "TEXT"), ("worker_pid", "INTEGER")):
+    for name, kind in (("next_attempt_at", "TEXT"), ("worker_pid", "INTEGER"), ("auto_translate", "INTEGER NOT NULL DEFAULT 0")):
         if name not in detail_job_cols:
             conn.execute(f"ALTER TABLE detail_jobs ADD COLUMN {name} {kind}")
     source_file_cols = {
@@ -72,4 +73,15 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     if "rules_json" not in tracked_topic_cols:
         conn.execute("ALTER TABLE tracked_topics ADD COLUMN rules_json TEXT NOT NULL DEFAULT ''")
     news_versions.install_schema(conn)
+    x_accounts.initialize(conn)
+    # Preserve the queue users saw before cache preparation became independent.
+    # Run once, before automatic prefetch can create any new cached articles.
+    if not conn.execute("SELECT 1 FROM news_version_migrations WHERE name='explicit_read_later'").fetchone():
+        conn.execute("""INSERT INTO item_state(item_id,read_later_at,updated_at)
+            SELECT ad.item_id,COALESCE(ad.fetched_at,ad.updated_at,datetime('now')),
+                COALESCE(ad.updated_at,ad.fetched_at,datetime('now')) FROM news_item_details ad
+            LEFT JOIN item_state st ON st.item_id=ad.item_id
+            WHERE st.read_later_at IS NULL AND st.read_later_done_at IS NULL
+            ON CONFLICT(item_id) DO UPDATE SET read_later_at=excluded.read_later_at""")
+        conn.execute("INSERT INTO news_version_migrations VALUES ('explicit_read_later')")
     conn.commit()

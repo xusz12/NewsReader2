@@ -68,7 +68,7 @@ def _within(root, relative):
 
 
 class Plan:
-    def __init__(self, conn, key, *, database_path, agent_schema, scope, media_root, runtime_root):
+    def __init__(self, conn, key, *, database_path, agent_schema, scope, media_root, runtime_root, empty_source=None):
         self.conn, self.key = conn, key
         self.targets = {}
         self.files = []
@@ -79,9 +79,9 @@ class Plan:
         conn.execute("CREATE TEMP TABLE source_delete_items AS SELECT * FROM items WHERE feed_source_subkey(url,source_type,source,source_name)=?", (key,))
         conn.execute("CREATE UNIQUE INDEX temp.source_delete_item_id ON source_delete_items(id)")
         first = conn.execute("SELECT * FROM source_delete_items LIMIT 1").fetchone()
-        if not first:
+        if not first and not empty_source:
             raise SourceDeletionError("source_not_found", 404)
-        source = derive_source_subkey(first["url"], first["source_type"], first["source"], first["source_name"])
+        source = derive_source_subkey(first["url"], first["source_type"], first["source"], first["source_name"]) if first else empty_source
         ids = "SELECT id FROM source_delete_items"
         # URL-owned content is shared across dates, and sometimes across sources.
         conn.execute(f"""CREATE TEMP TABLE source_delete_urls AS SELECT url FROM source_delete_items

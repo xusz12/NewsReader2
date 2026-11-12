@@ -66,7 +66,8 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
 test('accordion keyboard controls take priority over settings navigation and custom space shortcut', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('newsreader_workbench_shortcuts', JSON.stringify({ bindings: { next: ['Space'] } })));
   await start(page);
-  const first = page.locator('#help-collection-source'), second = page.locator('#help-collection-dedup'), last = page.locator('#help-collection-translation');
+  const questions = page.locator('[aria-labelledby="help-collection-title"] .accordion-trigger');
+  const first = questions.first(), second = questions.nth(1), last = questions.last();
   await first.focus();
   await page.keyboard.press('ArrowDown');
   await expect(second).toBeFocused();

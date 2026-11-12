@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.6";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.7";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.4";
 import { TopicPanel } from "./topic-panel.js?v=0.5.4";
 import { ReportPanel } from "./report-panel.js?v=0.5.6";
@@ -117,7 +117,7 @@ const stateWrites = new ItemStateQueue({
   onSaved: (id, saved) => {
     for (const [flag, { value, silent, complete }] of Object.entries(saved)) {
       const item = state.items.find(row => row.id === id) || (state.selected?.id === id ? state.selected : null) || topics.data?.items.find(row => row.id === id) || reports.findSourceItem(id) || summaries.findSourceItem(id);
-      const removed = item?.detail_ready ? "正文已就绪，已进入全文待看" : item?.detail_status === "running" ? "抓取已开始，完成后会进入全文待看" : "已取消排队";
+      const removed = item?.read_later_at && item?.detail_status === "running" ? "抓取已开始，完成后会进入全文待看" : "已移出稍后再看";
       if (!silent) toast(flag === "read_later" ? (value ? "已加入稍后再看" : complete ? "已看完" : removed) : `${value ? "已标记" : "已取消"}${stateLabels[flag]}`);
     }
     refreshBadges();
@@ -787,7 +787,7 @@ async function searchNews(sequence, signal, params = feedParams()) {
       if (params.read_filter === "unread") return readLaterPending(item);
       if (params.read_filter === "read")
         return !!item.read_later_done_at && !item.read_later_at;
-      return !!item.read_later_at || !!item.read_later_done_at || !!item.detail_ready;
+      return !!item.read_later_at || !!item.read_later_done_at;
     }
     return (
       params.read_filter === "all" ||

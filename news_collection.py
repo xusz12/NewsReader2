@@ -24,6 +24,7 @@ from report_schedule import TZ
 from source_deletion import item_fingerprint
 import topic_tracking
 import news_versions
+import x_accounts
 from news_identity import canonical_url, identity_key
 
 ROOT = Path(__file__).resolve().parent
@@ -89,6 +90,7 @@ def published_time(value):
 
 def initialize(conn):
     conn.executescript(SCHEMA)
+    x_accounts.initialize(conn)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}
     for name, definition in (("publication_status", "TEXT NOT NULL DEFAULT 'pending'"),
                              ("publication_error", "TEXT NOT NULL DEFAULT ''"), ("published_at", "TEXT")):
@@ -176,10 +178,12 @@ def source_error(result):
 
 
 class Service:
-    def __init__(self, connect, settings, collector=acquire_source, translator=collection_translation.translate, sources=None):
+    def __init__(self, connect, settings, collector=acquire_source, translator=collection_translation.translate, sources=None, enqueue_detail=None):
         self.connect, self.settings = connect, settings
         self.collector, self.translator = collector, translator
-        self.sources = sources if sources is not None else adapters.load_config(ROOT / "collection/sources.json")
+        self.fixed_sources = sources if sources is not None else [s for s in adapters.load_config(ROOT / "collection/sources.json") if s["source_type"] != "twitter"]
+        self.dynamic_accounts = sources is None
+        self.enqueue_detail = enqueue_detail
         self.stopped = threading.Event()
         self.wake = threading.Event()
         self.lock = threading.Lock()
@@ -187,6 +191,18 @@ class Service:
         self.schedule_error = ""
         self.last_check = None
         self.calendar_wait_since = None
+
+    def sources_for(self, conn):
+        return self.fixed_sources + (x_accounts.sources(conn) if self.dynamic_accounts else [])
+
+    @property
+    def sources(self):
+        with closing(self.connect()) as conn:
+            return self.sources_for(conn)
+
+    @sources.setter
+    def sources(self, value):
+        self.fixed_sources, self.dynamic_accounts = value, False
 
     def start(self):
         with self.lock:
@@ -269,7 +285,7 @@ class Service:
                             (ident,slot,trigger,stamp())).rowcount:
             return conn.execute("SELECT id FROM collection_runs WHERE slot=?", (slot,)).fetchone()[0]
         conn.executemany("INSERT INTO collection_run_sources(run_id,source_id,config_json,status,duplicate_count,filtered_count) VALUES (?,?,?,'pending',0,0)",
-                         [(ident, s["section"], encoded(s)) for s in self.sources])
+                         [(ident, s["section"], encoded(s)) for s in self.sources_for(conn)])
         return ident
 
     def request(self):
@@ -345,6 +361,9 @@ class Service:
             return "duplicate"
         raw = {**raw, "source": source["display_name"], "source_type": source["source_type"],
                "source_name": source["source_name"], "translation_policy": source["translation_policy"]}
+        if source["source_type"] == "twitter":
+            raw.update(source_handle=source.get("source_handle", ""),
+                       auto_fulltext=source.get("auto_fulltext", False), auto_translate=source.get("auto_translate", False))
         conn.execute("""INSERT INTO collection_items(item_id,run_id,source_id,raw_json,status,collected_at,published_at)
                         VALUES (?,?,?,?,'pending',?,?)""", (ident,run_id,source["section"],encoded(raw),stamp(),published))
         return "added"
@@ -369,7 +388,8 @@ class Service:
                 source = json.loads(source_row["config_json"])
                 with closing(self.connect()) as conn, conn:
                     cooldown = conn.execute("SELECT until FROM collection_source_cooldowns WHERE source_id=?", (source["section"],)).fetchone()
-                    conn.execute("UPDATE collection_run_sources SET status='running',started_at=? WHERE run_id=? AND source_id=?", (stamp(),ident,source["section"]))
+                    if not conn.execute("UPDATE collection_run_sources SET status='running',started_at=? WHERE run_id=? AND source_id=? AND status IN ('pending','running')", (stamp(),ident,source["section"])).rowcount:
+                        continue
                 try:
                     result = ({"ok":False,"error_code":"RETRY_AFTER","retry_at":datetime.fromtimestamp(cooldown[0],TZ).isoformat(),"items":[]}
                               if cooldown and cooldown[0]>time.time() else self.collector(source))
@@ -379,6 +399,8 @@ class Service:
                     conn.execute("BEGIN IMMEDIATE")
                     if not conn.execute("SELECT 1 FROM collection_runs WHERE id=? AND lease=? AND status='running'", (ident,lease)).fetchone():
                         return True
+                    if not conn.execute("SELECT 1 FROM collection_run_sources WHERE run_id=? AND source_id=? AND status='running'", (ident,source["section"])).fetchone():
+                        continue
                     added = duplicates = filtered = 0
                     if result["ok"]:
                         for raw in result.get("items", []):
@@ -425,6 +447,8 @@ class Service:
                       translation["title"],summary,raw["url"],ts,ts)).rowcount
         conn.execute("UPDATE collection_items SET status='done',ingested_at=?,error='',lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
         if inserted:
+            if raw.get("auto_fulltext") and self.enqueue_detail:
+                self.enqueue_detail(conn, ident, raw["url"], raw["source"], auto_translate=bool(raw.get("auto_translate")))
             # Keep the historical total even after source cleanup removes items.
             # This rolls back with the rest of the batch on publication failure.
             conn.execute("""UPDATE collection_run_sources SET ingested_count=ingested_count+?,ingested_at=?

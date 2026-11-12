@@ -6,7 +6,7 @@ function createDialog() {
   dialog.className = 'catchup-dialog app-confirm';
   dialog.setAttribute('aria-labelledby', 'appConfirmTitle');
   dialog.setAttribute('aria-describedby', 'appConfirmMessage');
-  dialog.innerHTML = `<div class="modal-header"><h2 class="modal-title" id="appConfirmTitle"></h2><button type="button" class="modal-close-btn" id="appConfirmClose" aria-label="取消并关闭">✕</button></div><div class="modal-body" id="appConfirmMessage"></div><div class="modal-footer"><button type="button" class="btn-secondary" id="appConfirmCancel" autofocus>取消</button><button type="button" class="btn-primary" id="appConfirmAccept"></button></div>`;
+  dialog.innerHTML = `<div class="modal-header"><h2 class="modal-title" id="appConfirmTitle"></h2><button type="button" class="modal-close-btn" id="appConfirmClose" aria-label="取消并关闭">✕</button></div><div class="modal-body"><div id="appConfirmMessage"></div><div class="section-stack" id="appConfirmChoices" role="radiogroup" aria-label="历史数据处理" hidden></div></div><div class="modal-footer"><button type="button" class="btn-secondary" id="appConfirmCancel" autofocus>取消</button><button type="button" class="btn-primary" id="appConfirmAccept"></button></div>`;
   document.body.append(dialog);
   const close = () => dialog.close();
   dialog.querySelector('#appConfirmClose').onclick = close;
@@ -22,7 +22,7 @@ function createDialog() {
     const current = pending;
     if (!current) return;
     pending = null;
-    current.resolve(current.accepted);
+    current.resolve(current.accepted ? (current.choice ?? true) : false);
     requestAnimationFrame(() => {
       const trigger = current.trigger?.isConnected ? current.trigger : current.triggerId && document.getElementById(current.triggerId);
       if (!pending && !dialog.open && trigger && !trigger.disabled && trigger.getClientRects().length && !trigger.closest('[inert]')) trigger.focus({ preventScroll: true });
@@ -35,12 +35,12 @@ function createDialog() {
   });
   dialog.addEventListener('keydown', event => {
     if (event.key !== 'Tab') return;
-    const buttons = [...dialog.querySelectorAll('button:not(:disabled)')];
+    const buttons = [...dialog.querySelectorAll('button:not(:disabled), input:checked:not(:disabled)')];
     const next = buttons[(buttons.indexOf(document.activeElement) + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length];
     event.preventDefault(); next.focus();
   });
 }
-export function confirmAction({ title, message, action, trigger: source }) {
+export function confirmAction({ title, message, action, trigger: source, choices = [] }) {
   if (pending) return Promise.resolve(false);
   if (!dialog) createDialog();
   const trigger = typeof source === "string" ? document.querySelector(source) : source || document.activeElement;
@@ -50,6 +50,18 @@ export function confirmAction({ title, message, action, trigger: source }) {
     dialog.querySelector('#appConfirmMessage').textContent = message;
     const accept = dialog.querySelector('#appConfirmAccept');
     accept.textContent = action; accept.disabled = false;
+    const options = dialog.querySelector('#appConfirmChoices');
+    options.replaceChildren(); options.hidden = !choices.length;
+    for (const [index, choice] of choices.entries()) {
+      const label = document.createElement('label'); label.className = 'settings-toggle';
+      const input = document.createElement('input'); input.type = 'radio'; input.name = 'appConfirmChoice';
+      input.value = choice.value; input.checked = index === 0;
+      const text = document.createElement('span'); text.textContent = choice.label;
+      label.append(input, text); options.append(label);
+      const select = () => { pending.choice = choice.value; accept.textContent = choice.action || action; };
+      input.onchange = select;
+      if (input.checked) select();
+    }
     document.dispatchEvent(new CustomEvent('topbar:popover-open', { detail: dialog.id }));
     try { dialog.showModal(); dialog.querySelector('#appConfirmCancel').focus({ preventScroll: true }); }
     catch { pending = null; resolve(false); }

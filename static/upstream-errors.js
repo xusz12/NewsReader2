@@ -39,6 +39,7 @@ function recordStatus(record) {
   if (record.kind === "publication") return "跨日入库";
   if (record.status === "pending") return "等待采集";
   if (record.status === "running") return "采集中";
+  if (record.status === "canceled") return "账号已移除 · 已取消采集";
   if (hasSourceError(record)) return `错误 · ${errorBadge(record.error || "")}`;
   if (noticesFrom(record).some(notice => notice.stage === "translation")) return "提示 · 翻译失败";
   if (record.publication_status === "failed") return "提示 · 入库失败";

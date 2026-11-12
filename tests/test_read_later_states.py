@@ -90,7 +90,7 @@ def test_cancel_racing_with_running_fetch_keeps_it_pending_until_explicit_comple
     assert client.get('/api/news?collection=read_later&read_filter=read').json['total'] == 0
 
 
-def test_all_cached_unfinished_articles_are_pending_in_lists_search_counts_and_sources(setup):
+def test_cache_is_independent_of_queue_in_lists_search_counts_and_sources(setup):
     app, client, item, path = setup
     read = '/api/news?collection=read_later&read_filter=read'
     search = '/api/search?q=authoritative&feed_filters=1&collection=read_later&read_filter=read'
@@ -98,13 +98,14 @@ def test_all_cached_unfinished_articles_are_pending_in_lists_search_counts_and_s
     unread = read.replace('read_filter=read', 'read_filter=unread')
     unread_search = search.replace('read_filter=read', 'read_filter=unread')
     for url in (unread, unread + '&count_only=1', unread_search, unread_search + '&count_only=1'):
-        assert client.get(url).json['total'] == 1
-    assert client.get('/api/nav-summary').json['summary']['read_later_unread'] == 1
-    assert sum(source['count'] for source in client.get('/api/sources?collection=read_later&read_filter=unread').json['sources']) == 1
+        assert client.get(url).json['total'] == 0
+    assert client.get('/api/nav-summary').json['summary']['read_later_unread'] == 0
+    assert client.get('/api/sources?collection=read_later&read_filter=unread').json['sources'] == []
     client.patch(path, json={'read_later': True})
+    assert client.get(unread).json['total'] == 1
     removed = client.patch(path, json={'read_later': False}).json
     assert removed['detail_status'] == 'success' and removed['read_later_done_at'] is None
-    assert client.get(unread).json['total'] == 1
+    assert client.get(unread).json['total'] == 0
     for url in (read, read + '&count_only=1', search, search + '&count_only=1'):
         assert client.get(url).json['total'] == 0
     assert client.get('/api/sources?collection=read_later&read_filter=read').json['sources'] == []
@@ -119,14 +120,14 @@ def test_all_cached_unfinished_articles_are_pending_in_lists_search_counts_and_s
     assert client.get(read).json['total'] == 0
 
 
-def test_bulk_completion_includes_cached_articles_without_explicit_queue_flag(setup):
+def test_bulk_completion_excludes_cache_without_explicit_queue_flag(setup):
     app, client, item, path = setup
     result = client.post('/api/news/clear-read-later', json={'read_filter': 'unread'}).json
-    assert result['cleared'] == 1
+    assert result['cleared'] == 0
     detail = client.get(f'/api/news/{item["id"]}/detail').json
-    assert detail['read_later_done_at'] and detail['read_at'] is None
+    assert detail['read_later_done_at'] is None and detail['read_at'] is None
     assert client.get('/api/nav-summary').json['summary']['read_later_unread'] == 0
-    assert client.get('/api/news?collection=read_later&read_filter=read').json['total'] == 1
+    assert client.get('/api/news?collection=read_later&read_filter=read').json['total'] == 0
 
 
 def test_late_cache_arrival_inherits_explicit_completion_instead_of_reopening(setup):
@@ -204,6 +205,7 @@ def test_read_later_paging_does_not_skip_after_rows_leave_current_filter(setup, 
 
 def test_large_bulk_completion_stays_atomic_with_legacy_sqlite_variable_limit(setup, monkeypatch):
     app, client, item, _ = setup
+    client.patch(f'/api/news/{item["id"]}/state', json={'read_later': True})
     with app.db_conn() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         ts = app.now_ts()

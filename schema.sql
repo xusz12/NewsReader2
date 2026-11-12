@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS detail_jobs (
   finished_at TEXT,
   next_attempt_at TEXT,
   worker_pid INTEGER,
+  auto_translate INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
 

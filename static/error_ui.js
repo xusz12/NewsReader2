@@ -58,6 +58,15 @@
   register('input', 'message_too_long', '单条对话超过 20000 字符，无法完整归档，本次未保存。');
   register('input', 'quote_too_long', '引用超过 4000 字符上限。');
   register('input', 'invalid_summary_limits', '总结范围设置无效。');
+  register('input', 'invalid_x_handle', '请输入有效的 X 账号名、@账号或主页链接。');
+  register('input', 'duplicate_x_account', '该 X 账号已经在采集列表中。');
+  register('input', 'invalid_x_accounts invalid_x_account_options invalid_x_removal', 'X 账号配置无效，请检查后重试。');
+  register('preview', 'x_accounts_changed', '账号列表或新闻库已变化，请刷新页面后重新编辑。');
+  register('input', 'x_account_removal_required', '请通过「移除账号」选择如何处理历史数据。');
+  register('missing', 'x_account_not_found', '该 X 账号已被移除，请刷新页面。');
+  register('protocol', 'x_account_empty', '未获取到有效推文，请确认该账号有可访问的内容后重试。');
+  register('missing', 'x_account_unavailable', '无法获取该账号的内容，请确认账号存在且可访问。');
+  register('connection', 'x_account_test_failed', '无法确认该账号能否获取内容，请检查采集环境后重试。');
   register('input', 'invalid_note note_too_long', '想法内容为空或超过长度限制。');
   register('input', 'invalid_model invalid_codex_model', '模型名称格式无效。');
   register('config', 'invalid_agent_runtime invalid_codex_provider invalid_codex_profile invalid_codex_settings invalid_codex_sandbox', '模型运行配置无效。');
@@ -92,7 +101,7 @@
   register('context', 'detail_not_ready', '新闻正文尚未就绪。');
   register('context', 'read_state_irreversible', '新闻已浏览状态不可撤销，请刷新页面后重试。');
   register('input', 'invalid_source_key source_not_found', '该信源不存在或已删除，请刷新设置。');
-  register('preview', 'source_data_changed', '信源数据或新闻库已变化，请再次点击删除，查看最新统计并重新确认。');
+  register('preview', 'source_data_changed', '信源数据或新闻库已变化，请重新查看统计并确认操作。');
   register('preview', 'source_confirmation_required', '请先查看信源数据统计并确认删除。');
   register('save', 'source_delete_failed', '信源删除失败，数据未清除。请检查存储权限或稍后重试。');
   register('context', 'empty_archive_source', '没有可归档的内容。');

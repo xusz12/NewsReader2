@@ -1,8 +1,9 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.6";
+import { settingsHelpHTML } from "./settings-help.js?v=0.5.7";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.5.6";
+import { XAccountSettings } from "./x-account-settings.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
@@ -48,6 +49,7 @@ export class SettingsPanel {
     this.section = "system";
     this.helpAccordion = new Accordion($("#settingsContent"));
     this.collectionEnvironment = new CollectionEnvironment();
+    this.xAccounts = new XAccountSettings(this);
     this.schedules = new ScheduleObserver({
       isVisible: () => this.open && this.section === "schedules" && (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active")),
       selects,
@@ -308,6 +310,7 @@ export class SettingsPanel {
   resetDraft() {
     if (!this.saved) return;
     this.draft = clone(this.saved);
+    this.xAccounts.reset();
     this.dirty = false;
     this.schedules.editing = false;
     this.apiStates.clear();
@@ -317,6 +320,7 @@ export class SettingsPanel {
   }
   payload(d = this.draft) {
     return {
+      ...(d.x_accounts ? {x_accounts:clone(d.x_accounts), x_accounts_revision:d.x_accounts_revision} : {}),
       collection: clone(d.collection),
       llm: clone(d.llm),
       api_models: clone(d.api_models || { jev: { model: "" } }),
@@ -515,6 +519,7 @@ export class SettingsPanel {
     this.selects.close(false);
     $("#settingsContent").innerHTML =
       `<div class="settings-sheet" data-section="models" id="modelSettings"></div>
+      <div class="settings-sheet section-stack" data-section="x" id="xAccountSettings"></div>
       <div class="settings-sheet" data-section="schedules" id="scheduleSettings"></div>
       ${this.helpHTML()}
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
@@ -557,11 +562,11 @@ export class SettingsPanel {
       ${field("A 股交易日增加", "collection.trading", (d.collection?.trading || []).join("、"), 'placeholder="09:00、10:00、14:30"')}
       <p class="muted">使用 24 小时格式 HH:MM，以顿号、逗号或空格分隔；同一时间只执行一次。</p>
       ${field("新闻翻译并发上限", "collection.translation_concurrency", d.collection?.translation_concurrency ?? 4, 'type="number" min="1" max="32" step="1" required')}
-      <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。同一轮采集结束且全部翻译成功后统一入库。</p>
+      <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。同一轮采集结束且所需翻译成功后统一入库。</p>
       <p id="settingsCollectionStatus" role="status"></p>
       <div class="button-row"><button class="btn-secondary" id="settingsCollectBtn" type="button">立即采集</button></div></section>
-      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>固定采集来源</span></div>
-      <p class="muted">当前版本使用以下固定栏目与账号，通过本机 opencli 采集。采集与翻译均在后台运行；整批完成翻译后统一进入新闻库。</p><ul id="settingsCollectionSources"></ul></section>
+      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>采集来源</span></div>
+      <p class="muted">媒体栏目与已保存的 X 账号通过本机 opencli 采集。X 账号在设置「X」中管理；整批内容准备好后统一进入新闻库。</p><ul id="settingsCollectionSources"></ul></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>新闻流显示与数据清理</span></div><p class="muted">勾选只控制新闻流显示，不启停采集。删除会清除该来源当前数据，后续新新闻仍会采集。</p><div id="settingsSources">${this.sourceHTML()}</div></section>
       <section class="settings-section-card" data-section="storage"><div class="section-card-title"><span>本地 SQLite 数据库与存储路径</span></div>
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
@@ -569,6 +574,7 @@ export class SettingsPanel {
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
       <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" hidden role="status" aria-live="polite" aria-atomic="true"><strong id="updateConclusion"></strong><p id="updateExplanation"></p><time id="updateCheckedAt"></time></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
+    this.xAccounts.render();
     this.renderTranslation();
     this.renderShortcuts();
     this.updater.render();
@@ -836,7 +842,7 @@ export class SettingsPanel {
     node.textContent = `${data.running ? "采集中" : data.schedule.enabled ? "定时采集已启用" : "定时采集已暂停"} · 下次：${time(data.next_run_at)}${data.schedule_error ? " · 交易日历未就绪，常规采集正常" : ""}`;
     const button = $("#settingsCollectBtn");
     if (button) button.disabled = data.running;
-    const statuses = {none:"尚未执行",pending:"待采集",running:"采集中",done:"成功",failed:"失败"};
+    const statuses = {none:"尚未执行",pending:"待采集",running:"采集中",done:"成功",failed:"失败",canceled:"已取消"};
     $("#settingsCollectionSources").innerHTML = data.sources.map(source => `<li>${e(source.label)} · ${e(statuses[source.status] || source.status)}${source.status === "done" ? `，新增 ${source.added} 条` : ""}${source.error ? `（${e(source.error)}）` : ""}</li>`).join("");
   }
   renderCollectionServices() {
@@ -1042,7 +1048,8 @@ export class SettingsPanel {
     } else if (actions[button.id]) busy(button, actions[button.id]);
   }
   async save() {
-    if (!this.draft) return;
+    if (!this.draft || this.saving) return;
+    if (this.xAccounts.pending) { this.status('请先完成账号移除操作', true); return; }
     const times = this.draft.report_schedule;
     if (times && !(times.morning < times.noon && times.noon < times.evening)) {
       this.selectSection("schedules");
@@ -1090,6 +1097,7 @@ export class SettingsPanel {
     const fingerprint = JSON.stringify([payload, this.draft.keyboard]);
     const keyboardUnchanged = JSON.stringify(keyboardDraft) === JSON.stringify(keyboard.snapshot());
     this.status("正在保存…");
+    this.saving = true;
     try {
       // Browser-only preferences do not need an unrelated model/database write.
       const serverUnchanged = !keyboardUnchanged && JSON.stringify(payload) === JSON.stringify(this.payload(this.saved));
@@ -1104,6 +1112,9 @@ export class SettingsPanel {
         this.draft = clone(data);
         this.dirty = false;
         this.schedules.setEditing(false);
+        this.xAccounts.render();
+      } else if (data.x_accounts_revision) {
+        this.draft.x_accounts_revision = data.x_accounts_revision;
       }
       this.syncDirty();
       this.updateTranslationRoute();
@@ -1117,7 +1128,7 @@ export class SettingsPanel {
     } catch (error) {
       this.status(errorText(error), true);
       throw error;
-    }
+    } finally { this.saving = false; }
   }
   async refreshModels({ feature = "chat", automatic = false } = {}) {
     const draft = this.modelDraft(feature), state = this.modelState(feature);

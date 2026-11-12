@@ -66,6 +66,7 @@ import trading_calendar
 import report_reader
 import reader_sources
 import source_deletion
+import x_accounts
 from feed_sources import (SOURCE_LABELS, derive_source_key, derive_source_subkey,
     feed_source_subkey_sql, normalize_hidden_source_subkeys, normalize_source_subkey_key,
     source_label_for_key, is_bloomberg_video_url, visible_news_sql)
@@ -396,9 +397,8 @@ def build_source_filter_clause(source_filter: str) -> tuple[str, list[str]]:
     return "", []
 
 
-# A cached article stays pending until explicitly completed, regardless of how
-# its body was fetched or whether an older client removed its queue flag.
-READ_LATER_PENDING_SQL = "(st.read_later_at IS NOT NULL OR (ad.url IS NOT NULL AND st.read_later_done_at IS NULL))"
+# Preparing a body is independent of the user's reading queue.
+READ_LATER_PENDING_SQL = "st.read_later_at IS NOT NULL"
 
 
 def count_news_items(
@@ -474,7 +474,7 @@ def _build_news_where_clause(
         elif read_filter == "read":
             where.append("(st.read_later_done_at IS NOT NULL AND st.read_later_at IS NULL)")
         else:
-            where.append("(st.read_later_at IS NOT NULL OR st.read_later_done_at IS NOT NULL OR ad.url IS NOT NULL)")
+            where.append("(st.read_later_at IS NOT NULL OR st.read_later_done_at IS NOT NULL)")
     else:
         if read_filter == "unread":
             where.append("st.read_at IS NULL")
@@ -2089,13 +2089,49 @@ def build_feed_source_settings_snapshot(hidden_keys: list[str], conn=None) -> di
     return {"hidden_source_subkeys": visible_hidden_keys, "groups": ordered_groups}
 
 
+@app.post("/api/settings/x-accounts/test")
+def api_settings_x_account_test():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_x_handle"), 400
+    try:
+        handle = x_accounts.normalize_handle(body.get("handle"))
+        revision = body.get("x_accounts_revision")
+        def check_context():
+            with closing(db_conn()) as conn:
+                x_accounts.check_revision(conn, revision)
+                if conn.execute("SELECT 1 FROM x_accounts WHERE handle=?", (handle,)).fetchone():
+                    raise ValueError("duplicate_x_account")
+        check_context()
+        # Do not hold a database transaction while waiting on the browser.
+        result = x_accounts.test_account(handle, news_collection.acquire_source)
+        check_context()
+        return jsonify(ok=True, **result)
+    except ValueError as exc:
+        code = str(exc)
+        status = 409 if code == "x_accounts_changed" else 400 if code in {"invalid_x_handle", "duplicate_x_account"} else 422
+        return jsonify(ok=False, error=code), status
+    except Exception:
+        app.logger.exception("X account content test failed")
+        return jsonify(ok=False, error="x_account_test_failed"), 500
+
+
 @app.route("/api/settings/sources/<path:source_key>", methods=["GET", "DELETE"])
-def api_settings_source(source_key):
+@app.route("/api/settings/x-accounts/<x_handle>", methods=["GET", "DELETE"])
+def api_settings_source(source_key=None, x_handle=None):
+    if x_handle is not None:
+        try:
+            x_handle = x_accounts.normalize_handle(x_handle)
+        except ValueError:
+            return jsonify(ok=False, error="invalid_x_handle"), 400
+        source_key = "x/" + x_handle
     key = normalize_source_subkey_key(source_key)
     if not key or key != source_key:
         return jsonify(ok=False, error="invalid_source_key"), 400
     deleting = request.method == "DELETE"
     body = request.get_json(silent=True) if deleting else None
+    if deleting and x_handle and (not isinstance(body, dict) or type(body.get("delete_history")) is not bool):
+        return jsonify(ok=False, error="invalid_x_removal"), 400
     if deleting and (not isinstance(body, dict) or not isinstance(body.get("confirmation_token"), str)
                      or not re.fullmatch(r"[0-9a-f]{64}", body["confirmation_token"])):
         return jsonify(ok=False, error="source_confirmation_required"), 400
@@ -2106,15 +2142,28 @@ def api_settings_source(source_key):
             agent_schema = source_deletion.attach_agent(conn, AGENT_DB_PATH, DB_PATH)
             conn.execute("BEGIN IMMEDIATE" if deleting else "BEGIN")
             try:
+                empty_source = None
+                if x_handle:
+                    account = conn.execute("SELECT * FROM x_accounts WHERE handle=?", (x_handle,)).fetchone()
+                    if not account:
+                        return jsonify(ok=False, error="x_account_not_found"), 404
+                    empty_source = {"label": account["name"] + " (@" + x_handle + ")", "source_label": "X"}
+                    if deleting:
+                        x_accounts.check_revision(conn, body.get("x_accounts_revision"))
                 plan = source_deletion.Plan(conn, key, database_path=DB_PATH, agent_schema=agent_schema,
-                    scope=agent_library_scope(), media_root=MEDIA_CACHE_DIR, runtime_root=AGENT_RUNTIME_DIR)
+                    scope=agent_library_scope(), media_root=MEDIA_CACHE_DIR, runtime_root=AGENT_RUNTIME_DIR, empty_source=empty_source)
                 if not deleting:
-                    return jsonify(ok=True, source=plan.preview)
+                    return jsonify(ok=True, source=plan.preview, **(x_accounts.snapshot(conn) if x_handle else {}))
                 if body["confirmation_token"] != plan.preview["confirmation_token"]:
                     raise source_deletion.SourceDeletionError("source_data_changed")
-                staged = source_deletion.StagedFiles(plan)
-                staged.stage()
-                plan.delete_rows()
+                delete_history = not x_handle or body["delete_history"]
+                if delete_history:
+                    staged = source_deletion.StagedFiles(plan)
+                    staged.stage()
+                    plan.delete_rows()
+                if x_handle:
+                    x_accounts.remove(conn, x_handle, delete_history=delete_history)
+                accounts = x_accounts.snapshot(conn) if x_handle else {}
                 remaining_sources = build_feed_source_settings_snapshot(
                     current_runtime_settings()["feed"].get("hidden_source_subkeys") or [], conn=conn)
                 conn.commit()
@@ -2122,16 +2171,21 @@ def api_settings_source(source_key):
             except Exception:
                 conn.rollback()
                 raise
-        for job_id in plan.process_ids:
+        for job_id in (plan.process_ids if delete_history else []):
             _terminate_agent_process(job_id)
         warning = ""
         try:
-            staged.cleanup()
+            if staged:
+                staged.cleanup()
         except OSError:
             app.logger.exception("Source data deleted but staged cache cleanup failed")
             warning = "新闻数据已删除，部分隔离缓存未能清理，请检查缓存目录的写入权限。"
-        return jsonify(ok=True, deleted=plan.preview, deleted_item_ids=plan.item_ids, warning=warning,
-                       feed_source_subkeys=remaining_sources)
+        COLLECTION_SERVICE.wake.set()
+        return jsonify(ok=True, deleted=plan.preview if delete_history else None,
+                       deleted_item_ids=plan.item_ids if delete_history else [], warning=warning,
+                       feed_source_subkeys=remaining_sources, **accounts)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 409
     except source_deletion.SourceDeletionError as exc:
         return jsonify(ok=False, error=exc.code), exc.status
     except (OSError, sqlite3.Error):
@@ -2287,6 +2341,8 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
 
 def serialize_runtime_settings() -> dict:
     settings = current_runtime_settings()
+    with closing(db_conn()) as conn:
+        accounts = x_accounts.snapshot(conn)
     translation_model = (settings["llm"]["translation"].get("model") or "").strip()
     pi_chat_model = (settings["llm"]["pi_chat"].get("model") or "").strip()
     pi_chat_provider = (settings["llm"]["pi_chat"].get("provider") or "").strip()
@@ -2298,6 +2354,7 @@ def serialize_runtime_settings() -> dict:
     pi_snapshot = pi_chat_settings_snapshot(pi_chat_model, pi_chat_provider)
     feed_source_snapshot = build_feed_source_settings_snapshot(settings["feed"].get("hidden_source_subkeys") or [])
     return {
+        **accounts,
         "api_status": {
             "deepseek": deepseek_snapshot["service"],
             **{provider: snapshot["service"] for provider, snapshot in api_snapshots.items()},
@@ -5998,12 +6055,14 @@ def resolve_detail_route(url: str) -> dict | None:
     return DETAIL_COMMAND_ROUTES.get(host)
 
 
-def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source: str, *, refresh: bool = False) -> bool:
+def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source: str, *, refresh: bool = False, auto_translate: bool | None = None) -> bool:
     ts = now_ts()
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
     if news_versions.archived(conn, item_id):
         return False
+    if auto_translate is None:
+        auto_translate = x_accounts.item_auto_translate(conn, item_id) if _is_twitter_url(url) else False
     row = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (url,)).fetchone()
     # Duplicate requests must not reset a running attempt or its retry budget.
     if row and row["status"] in ("pending", "running"):
@@ -6017,6 +6076,8 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
         (url,),
     ).fetchone()
     if existing_detail and not refresh:
+        if auto_translate:
+            enqueue_ai_job(conn, url)
         conn.execute(
             """
             INSERT INTO detail_jobs(url, item_id, source, status, attempts, queued_at, updated_at)
@@ -6036,11 +6097,12 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
 
     conn.execute(
         """
-        INSERT INTO detail_jobs(url, item_id, source, status, attempts, queued_at, updated_at)
-        VALUES (?, ?, ?, 'pending', 0, ?, ?)
+        INSERT INTO detail_jobs(url, item_id, source, status, attempts, queued_at, updated_at, auto_translate)
+        VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
           item_id=excluded.item_id,
           source=excluded.source,
+          auto_translate=excluded.auto_translate,
           status='pending',
           attempts=0,
           last_error=NULL,
@@ -6051,7 +6113,7 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
           queued_at=excluded.queued_at,
           updated_at=excluded.updated_at
         """,
-        (url, item_id, source, ts, ts),
+        (url, item_id, source, ts, ts, int(auto_translate)),
     )
     return True
 
@@ -6716,7 +6778,7 @@ def process_pending_jobs_once() -> bool:
             conn.execute("BEGIN IMMEDIATE")
             started = now_ts()
             row = conn.execute(
-                """SELECT url, item_id, source, attempts FROM detail_jobs
+                """SELECT url, item_id, source, attempts, auto_translate FROM detail_jobs
                    WHERE status='pending' AND (next_attempt_at IS NULL OR next_attempt_at<=?)
                    ORDER BY queued_at ASC LIMIT 1""", (started,),
             ).fetchone()
@@ -6792,7 +6854,7 @@ def process_pending_jobs_once() -> bool:
                     """,
                     (finished, finished, job["url"]),
                 )
-                if detail["source"] != "Twitter/X":
+                if detail["source"] != "Twitter/X" or job["auto_translate"]:
                     enqueue_ai_job(conn, job["url"])
         except Exception as exc:
             app.logger.exception("Detail job failed for %s", job["url"])
@@ -7744,7 +7806,7 @@ def api_sources():
     if include_catalog and read_filter in {"unread", "read"}:
         if collection == "read_later":
             if read_filter == "unread":
-                matched = [r for r in rows if r["read_later_at"] is not None or (r["detail_ready"] and r["read_later_done_at"] is None)]
+                matched = [r for r in rows if r["read_later_at"] is not None]
             else:
                 matched = [r for r in rows if r["read_later_done_at"] is not None and r["read_later_at"] is None]
         else:
@@ -8112,10 +8174,17 @@ def api_settings_update():
         normalized = validate_runtime_settings(body)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    # Serialize routing changes with summary commit: the first action wins cleanly.
-    with NEWS_SUMMARY_SERVICE.lock:
-        save_app_settings(normalized)
-        CLASSIFICATION_SERVICE.configure(**normalized["classification"])
+    # Account revisions protect drafts from concurrent edits/removals and bind
+    # them to the library. The legacy settings file never owns subscriptions.
+    try:
+        with NEWS_SUMMARY_SERVICE.lock, REPORT_SNAPSHOT_LOCK, closing(db_conn()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if "x_accounts" in body:
+                x_accounts.save(conn, body["x_accounts"], body.get("x_accounts_revision"))
+            save_app_settings(normalized)
+            CLASSIFICATION_SERVICE.configure(**normalized["classification"])
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "x_accounts_changed" else 400
     REPORT_SERVICE.schedule_wake.set()
     COLLECTION_SERVICE.wake.set()
     refresh_agent_session_expiries()
@@ -9257,7 +9326,7 @@ def api_update_item_state(item_id: str):
             read_later_done_at = ts if not body["read_later"] and body.get("read_later_done") else None
             job = conn.execute("SELECT status FROM news_item_detail_jobs WHERE item_id=?", (item_id,)).fetchone()
             # A cancel racing with the worker's claim cannot remove running work.
-            if not body["read_later"] and not body.get("read_later_done") and job and job["status"] == "running":
+            if not body["read_later"] and not body.get("read_later_done") and old_state and old_state["read_later_at"] and job and job["status"] == "running":
                 read_later_at = (old_state["read_later_at"] if old_state else None) or ts
             job_states["detail_ready"] = conn.execute("SELECT 1 FROM news_item_details WHERE item_id=?", (item_id,)).fetchone() is not None
         if "favorite" in body:
@@ -12126,7 +12195,7 @@ def classification_config() -> tuple[str, str]:
 TOPIC_SERVICE = topic_tracking.Service(db_conn, current_runtime_settings)
 
 
-COLLECTION_SERVICE = news_collection.Service(db_conn, current_runtime_settings)
+COLLECTION_SERVICE = news_collection.Service(db_conn, current_runtime_settings, enqueue_detail=enqueue_detail_job)
 REPORT_SERVICE = periodic_reports.Service(db_conn, current_runtime_settings, index_lock=REPORT_SNAPSHOT_LOCK)
 
 

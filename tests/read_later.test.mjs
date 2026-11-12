@@ -2,14 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readLaterPending, readLaterState } from '../static/read-later.js';
 
-test('cached full text has one state regardless of the legacy queue flag', () => {
-  for (const read_later_at of [null, 'queued']) {
-    const item = { detail_ready: true, read_later_at };
+test('only explicitly queued full text is ready for later reading', () => {
+  {
+    const item = { detail_ready: true, read_later_at:'queued' };
     assert.equal(readLaterPending(item), true);
     assert.equal(readLaterState(item).phase, 'ready');
     assert.equal(readLaterState(item).active, true);
     assert.equal(readLaterState(item).hint, '点击标记为已看完');
   }
+  const prefetched = {detail_ready:true, read_later_at:null};
+  assert.equal(readLaterPending(prefetched), false);
+  assert.equal(readLaterState(prefetched).phase, 'idle');
+  assert.equal(readLaterState(prefetched).active, false);
 });
 test('explicit completion stays done even if a fetch returns later', () => {
   const item = { detail_ready: true, read_later_done_at: 'done', detail_status: 'running' };
@@ -21,13 +25,15 @@ test('queued cancellation is immediately idle while saving; running work stays r
   assert.equal(readLaterState({ read_later_at: 'queued', detail_status: 'pending' }).phase, 'pending');
   assert.equal(readLaterState({ read_later_at: null, detail_status: 'pending' }, true).phase, 'idle');
   assert.equal(readLaterState({ read_later_at: null, detail_status: 'canceled' }).label, '稍后再看');
-  assert.equal(readLaterState({ read_later_at: null, detail_status: 'running' }, true).phase, 'running');
+  assert.equal(readLaterState({ read_later_at: null, detail_status: 'running' }, true).phase, 'idle');
+  assert.equal(readLaterState({ read_later_at: 'queued', detail_status: 'running' }, true).phase, 'running');
 });
-test('failure always offers retry, whether or not an old queue flag exists', () => {
-  for (const read_later_at of [null, 'queued']) {
+test('queued failures offer retry; prefetch failures do not activate the queue', () => {
+  for (const read_later_at of ['queued']) {
     assert.equal(readLaterState({ read_later_at, detail_status: 'failed' }).phase, 'failed');
     assert.equal(readLaterState({ read_later_at, detail_status: 'failed' }).hint, '点击重新抓取');
   }
+  assert.equal(readLaterState({read_later_at:null, detail_status:'failed'}).phase, 'idle');
 });
 
 test('missing or stopped historical jobs never pretend to be queued', () => {

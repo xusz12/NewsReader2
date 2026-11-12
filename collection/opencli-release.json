@@ -1,20 +1,20 @@
 {
-  "checked_at": "2026-11-12T03:03:36.215193+00:00",
-  "fingerprint": "7f9554761c90fc517261c77affffdd61cbe2a444e2524f0c3402a6cefa2a7833",
-  "newsreader_version": "0.5.6",
+  "checked_at": "2026-11-12T06:15:22.617379+00:00",
+  "fingerprint": "cc6a3ede9d48d5192d288d8ab4eae1027dd9bf7ea78cbfefd9b4c40d3c589ca7",
+  "newsreader_version": "0.5.7",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 16.35,
+      "seconds": 8.25,
       "error": "",
       "samples": [
         {
-          "title": "Iran will not allow enriched nuclear material to leave the country, security chief says",
-          "url": "https://www.reuters.com/world/middle-east/iran-will-not-allow-enriched-nuclear-material-leave-country-security-chief-says-2026-11-11/",
-          "time": "2026-11-11 18:26:23",
+          "title": "Israeli strike on southern Gaza hospital kills six, Gaza civil defence says",
+          "url": "https://www.reuters.com/world/middle-east/israeli-strike-southern-gaza-hospital-kills-four-gaza-civil-defence-says-2026-11-11/",
+          "time": "2026-11-12 07:26:09",
           "source_name": "Reuters"
         },
         {
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.64,
+      "seconds": 4.38,
       "error": "",
       "samples": [
         {
-          "title": "G7 foreign ministers say China's actions east of Taiwan threaten stability",
-          "url": "https://www.reuters.com/world/china/g7-foreign-ministers-say-chinas-actions-east-taiwan-threaten-stability-2026-11-12/",
-          "time": "2026-11-12 10:17:43",
+          "title": "Switzerland's Sonova raises full-year forecasts on market-share gains, product launches",
+          "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/switzerlands-sonova-raises-full-year-forecasts-market-share-gains-product-2026-11-12/",
+          "time": "2026-11-12 14:12:31",
           "source_name": "Reuters"
         },
         {
-          "title": "South Korea sees little prospect of US-North Korea contact around APEC",
-          "url": "https://www.reuters.com/world/china/south-korea-sees-little-prospect-us-north-korea-contact-around-apec-2026-11-12/",
-          "time": "2026-11-12 10:01:00",
+          "title": "Public funds ploughing cash into AI will 'own' megatrends shaping economy",
+          "url": "https://www.reuters.com/business/finance/public-funds-ploughing-cash-into-ai-will-own-megatrends-shaping-economy-2026-11-12/",
+          "time": "2026-11-12 14:06:51",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.57,
+      "seconds": 4.42,
       "error": "",
       "samples": [
         {
-          "title": "Democrat Colom is Mississippi's first Black senator since 1874",
-          "url": "https://www.reuters.com/world/us/democrat-scott-colom-defeats-incumbent-cindy-hyde-smith-cnn-projects-2026-11-11/",
-          "time": "2026-11-12 06:09:17",
+          "title": "Explainer: What is ASEAN and why does the bloc matter?",
+          "url": "https://www.reuters.com/world/asia-pacific/what-is-asean-why-does-bloc-matter-2026-11-12/",
+          "time": "2026-11-12 14:11:53",
           "source_name": "Reuters"
         },
         {
-          "title": "Russia, Ukraine reach deal on prisoner swap as US says lack of trust holds back talks",
-          "url": "https://www.reuters.com/world/europe/us-russia-ukraine-start-second-day-abu-dhabi-peace-talks-2026-11-11/",
-          "time": "2026-11-11 18:12:24",
+          "title": "Democrat Colom wins Mississippi Senate seat",
+          "url": "https://www.reuters.com/world/us/democrat-scott-colom-defeats-incumbent-cindy-hyde-smith-cnn-projects-2026-11-11/",
+          "time": "2026-11-12 06:09:17",
           "source_name": "Reuters"
         }
       ]
@@ -74,13 +74,13 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.58,
+      "seconds": 4.4,
       "error": "",
       "samples": [
         {
-          "title": "Alphabet sets initial price guidance for Hong Kong, Singapore bond sales, term sheet shows",
-          "url": "https://www.reuters.com/world/asia-pacific/alphabet-sets-initial-price-guidance-hong-kong-singapore-bond-sales-term-sheet-2026-11-12/",
-          "time": "2026-11-12 10:57:39",
+          "title": "Chinese AI firms rush to secure Nvidia chip capacity as spy scandal stirs fear of US curbs",
+          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
+          "time": "2026-11-12 13:31:18",
           "source_name": "Reuters"
         },
         {
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.56,
+      "seconds": 4.84,
       "error": "",
       "samples": [
         {
-          "title": "Alphabet sets initial price guidance for Hong Kong, Singapore bond sales, term sheet shows",
-          "url": "https://www.reuters.com/world/asia-pacific/alphabet-sets-initial-price-guidance-hong-kong-singapore-bond-sales-term-sheet-2026-11-12/",
-          "time": "2026-11-12 10:57:39",
+          "title": "Public funds ploughing cash into AI will 'own' megatrends shaping economy",
+          "url": "https://www.reuters.com/business/finance/public-funds-ploughing-cash-into-ai-will-own-megatrends-shaping-economy-2026-11-12/",
+          "time": "2026-11-12 14:06:51",
           "source_name": "Reuters"
         },
         {
-          "title": "Leadership crisis deepens at world's dominant supplier of AI chips",
-          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
-          "time": "2026-11-12 06:34:14",
+          "title": "Chinese AI firms rush to secure Nvidia chip capacity as spy scandal stirs fear of US curbs",
+          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
+          "time": "2026-11-12 13:31:18",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.75,
+      "seconds": 2.96,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia to Decide on Jensen Huang’s Fate",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-12/nvidia-to-decide-on-jensen-huang-s-fate-video",
-          "time": "2026-11-12 10:31:20",
+          "title": "Nvidia Faces More Risks in Deal Pace Than Huang Exit, BI Says",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-faces-more-risks-in-deal-pace-than-huang-exit-bi-says",
+          "time": "2026-11-12 13:08:42",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Chinese Robotics Platform Amicro Surges 83% in Hong Kong Debut",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-11/hosin-amicro-set-to-trade-in-hong-kong-as-ipos-gather-pace",
-          "time": "2026-11-12 07:00:00",
+          "title": "Nvidia Drama Triggers Difficult Search for Huang’s Successor",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-drama-triggers-difficult-search-for-huang-s-successor",
+          "time": "2026-11-12 13:04:55",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.49,
+      "seconds": 1.56,
       "error": "",
       "samples": [
+        {
+          "title": "Who could replace Jensen Huang? A highly unscientific list of possible successors",
+          "url": "https://techcrunch.com/2026/11/11/who-could-replace-jensen-huang-a-highly-unscientific-list-of-possible-successors/",
+          "time": "2026-11-12 11:13:10",
+          "source_name": "TechCrunch"
+        },
         {
           "title": "The unfolding Jensen Huang scandal: a timeline",
           "url": "https://techcrunch.com/2026/11/11/nvidia-ceo-jensen-huangs-affair-with-alleged-chinese-spy-a-timeline/",
           "time": "2026-11-12 07:50:00",
-          "source_name": "TechCrunch"
-        },
-        {
-          "title": "Nvidia’s stock drops as board reportedly preps to oust CEO Jensen Huang",
-          "url": "https://techcrunch.com/2026/11/11/nvidias-stock-drops-as-board-reportedly-preps-to-oust-ceo-jensen-huang/",
-          "time": "2026-11-12 07:28:45",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,7 +162,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.09,
+      "seconds": 2.19,
       "error": "",
       "samples": [
         {
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.67,
+      "seconds": 1.69,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.56,
+      "seconds": 1.77,
       "error": "",
       "samples": [
         {
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 9,
-      "seconds": 1.62,
+      "valid_count": 10,
+      "seconds": 1.57,
       "error": "",
       "samples": [
         {
-          "title": "Yorkville Ives：如果没有黄仁勋，将英伟达的目标价从目前的300美元下调约25%至225美元。",
-          "url": "https://x.com/fxtrader/status/2120713004811747806?s=20",
-          "time": "2026-11-12 10:59",
+          "title": "摩根士丹利将英伟达移出TopPick首选名单。因为认为黄仁勋的领导力对公司的战略方向至关重要，尽管近期不确定性仍存在，但保持“增持”观点，维持十二个月的目标价不变。 就在风波升级前的11月9日，摩根士丹利半导体团队仍将英伟达保留在首选名单中，并将当时的板块抛售定性为“似乎过度”。几天后，黄仁勋出轨事件的发酵让大摩迅速改变立场。",
+          "url": "https://x.com/fxtrader/status/2120758386371527104?s=20",
+          "time": "2026-11-12 13:59",
           "source_name": "外汇交易员"
         },
         {
-          "title": "伯恩斯坦研究公司将英伟达目标价从400美元下调至200美元，指出更换CEO人选可能会“非常困难”，能够接替黄仁勋的人选并不清晰。 https://t.co/MZJikWKsEa",
-          "url": "https://x.com/fxtrader/status/2120712606096994783?s=20",
-          "time": "2026-11-12 10:57",
+          "title": "FT：欧盟与英国将推迟对电动汽车征收10%关税。",
+          "url": "https://x.com/fxtrader/status/2120744998450958371?s=20",
+          "time": "2026-11-12 13:06",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.88,
+      "seconds": 1.66,
       "error": "",
       "samples": [
         {
@@ -272,47 +272,47 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/middle-east/iran-will-not-allow-enriched-nuclear-material-leave-country-security-chief-says-2026-11-11/",
+      "url": "https://www.reuters.com/world/middle-east/israeli-strike-southern-gaza-hospital-kills-four-gaza-civil-defence-says-2026-11-11/",
       "ok": true,
-      "title": "Iran will not allow enriched nuclear material to leave the country, security chief says",
-      "length": 2254,
-      "seconds": 2.93,
+      "title": "Israeli strike on southern Gaza hospital kills six, Gaza civil defence says",
+      "length": 2208,
+      "seconds": 3.19,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "7527333ef8ed08726509bcfb81f462d2811c8f41aa46070b1a693b37e34ffaef",
-      "preview": "DUBAI, Nov 11 (Reuters) - Iran will not allow even a single particle of enriched nuclear material to leave the country and there will be consequences in the eve"
+      "content_sha256": "336962b2554b8123122ff97bcf0cbdde980bfcbd6b845593e6ce6b0482db60d5",
+      "preview": "CAIRO, Nov 12 (Reuters) - An Israeli airstrike on a building at Nasser Hospital in southern Gaza killed at least six people, including a surgeon, and wounded 20"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-11/hosin-amicro-set-to-trade-in-hong-kong-as-ipos-gather-pace",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-12/nvidia-faces-more-risks-in-deal-pace-than-huang-exit-bi-says",
       "ok": true,
-      "title": "Chinese Robotics Platform Amicro Surges 83% in Hong Kong Debut",
-      "length": 2568,
-      "seconds": 31.63,
+      "title": "Nvidia Faces More Risks in Deal Pace Than Huang Exit, BI Says",
+      "length": 1034,
+      "seconds": 31.37,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "13e047d66dc8dd5b0e286080b1298e48d93962bf22601c09f7526ae4fa56f644",
-      "preview": "Chinese robotics platform Amicro Technology Co.’s shares surged in their Hong Kong debut after the company raised HK$709.7 million ($90 million) in an initial p"
+      "content_sha256": "dc4b9940d4647a8efc4c5a351c1fe8db46422d0fd315bef4049bddea228c4c4e",
+      "preview": "Nvidia Corp. faces more risk from slower new agreements and tighter China scrutiny than from the leadership uncertainty around Chief Executive Officer Jensen Hu"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/11/nvidia-ceo-jensen-huangs-affair-with-alleged-chinese-spy-a-timeline/",
+      "url": "https://techcrunch.com/2026/11/11/who-could-replace-jensen-huang-a-highly-unscientific-list-of-possible-successors/",
       "ok": true,
-      "title": "The unfolding Jensen Huang scandal: a timeline",
-      "length": 10121,
-      "seconds": 1.87,
+      "title": "Who could replace Jensen Huang? A highly unscientific list of possible successors",
+      "length": 5060,
+      "seconds": 2.06,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "2082c2c19144202b5b9951105b62296417c6e4faaaee3a0109b0defb669c2d4c",
-      "preview": "Nvidia co-founder CEO Jensen Huang has never been as flashy or controversy-prone as AI leaders like OpenAI's Sam Altman or SpaceXAI's Elon Musk. Now, the 63-yea"
+      "content_sha256": "75c20c31a7c742b606a731fa58d9f967a4952d3398741ce476cb8f8366f9812e",
+      "preview": "It’s almost inconceivable that Nvidia would fire its rock star CEO. Yet here we are, on the precipice of this happening. Over at Kalshi, Jensen Huang’s odds of "
     },
     {
       "name": "Ars Technica",
@@ -320,14 +320,14 @@
       "url": "https://arstechnica.com/gadgets/2026/11/ceo-jensen-huangs-job-is-suddenly-on-the-line-at-nvidia/",
       "ok": true,
       "title": "CEO Jensen Huang’s job is suddenly on the line at Nvidia",
-      "length": 1962,
-      "seconds": 15.85,
+      "length": 3626,
+      "seconds": 16.32,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "88f822888aa709b39d882bfa9ef2dcb6a81368727a4ac16cbd1359fa8202e6d3",
-      "preview": "Nvidia’s board is set to hold urgent talks about the future of its founder Jensen Huang after revelations that he had an affair with a top executive at the comp"
+      "content_sha256": "d85a38e8db125c814e912c562e3ac16387c75997980861dd438d756853959d70",
+      "preview": "Nvidia’s board is set to decide the future of its founder Jensen Huang after revelations that he had a romantic relationship with a company executive, days afte"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 16.33,
+      "seconds": 3.64,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 11.29,
+      "seconds": 3.4,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -365,13 +365,13 @@
       "url": "https://x.com/ilyasut/status/2094881278621253755?s=20",
       "ok": true,
       "title": "ilyasut",
-      "length": 680,
-      "seconds": 12.95,
+      "length": 639,
+      "seconds": 10.05,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "5843a44d282783401198cc80107247668de2cde6d6b602a660faf8a379f65dfa",
+      "content_sha256": "0a038a76a263d2b3730c11b0e6a359efef0c2eff9e199b4c343cb68ebb5e6d26",
       "preview": "【主推文】\nNeoclouds have limited cybersecurity.   Next time agents successfully go rouge, they'll try taking over a neocloud to run more copies.  This is bad.\n\nThus"
     },
     {
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 8.94,
+      "seconds": 6.48,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 8.29,
+      "seconds": 7.45,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-12T03:03:38.196698+00:00"
+    "checked_at": "2026-11-12T06:15:25.317196+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-12T03:03:45.023404+00:00"
+    "checked_at": "2026-11-12T06:15:31.757034+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-12T03:06:35.496314+00:00",
+    "checked_at": "2026-11-12T06:18:17.799766+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

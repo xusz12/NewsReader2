@@ -2385,6 +2385,7 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
   color: var(--status-success);
 }
 .status-text[data-status="success"] { color: color-mix(in oklab, var(--status-success) 60%, var(--fg)); }
+.status-text[data-status="running"] { color: color-mix(in oklab, var(--status-info) 60%, var(--fg)); }
 .status-text:is([data-status="failed"], [data-status="unknown"]) { color: color-mix(in oklab, var(--status-danger) 60%, var(--fg)); }
 .status-dot { background: var(--muted); vertical-align: middle; }
 .status-dot[data-status="success"] { background: var(--status-success); }

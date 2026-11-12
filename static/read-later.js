@@ -1,13 +1,14 @@
-// Cached, unfinished articles belong to the same queue as explicitly added ones.
+// Cache preparation never expresses the user's intention to read later.
 export function readLaterPending(item) {
-  return !!item.read_later_at || (!!item.detail_ready && !item.read_later_done_at);
+  return !!item.read_later_at;
 }
 
 export function readLaterState(item, saving = false) {
   let phase;
   if (item.read_later_done_at && !item.read_later_at) phase = "done";
+  else if (item.archived_version && !item.detail_ready) phase = "unavailable";
+  else if (!item.read_later_at) phase = "idle";
   else if (item.detail_ready) phase = "ready";
-  else if (item.archived_version) phase = "unavailable";
   else if (item.detail_status === "running") phase = "running";
   else if (saving) phase = item.read_later_at ? "pending" : "idle";
   else if (item.detail_status === "pending") phase = "pending";

@@ -61,50 +61,47 @@ test('adding from unread feed updates the card and counts without completing sav
   await expect(later(page)).toHaveText('全文待看');
 });
 
-for (const explicit of [false, true]) {
-  for (const action of ['button', 'card', 'enter', 's']) {
-    test(`cached article completes via ${action} in read later (explicit flag: ${explicit})`, async ({ page, request }) => {
-      await request.patch('/api/news/ui-064/state', { data: { read_later: explicit } });
-      await start(page);
-      // Opening in the news feed, and merely switching collections, leave it pending.
-      await card(page).locator('.news-card-title').click();
-      await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
-      await expect(later(page)).toHaveText('全文待看');
-      await expect(later(page)).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.locator('#readLaterNavBadge')).toHaveText('1');
-      await page.locator('#navReadLaterBtn').click();
-      await expect(card(page)).toBeVisible();
-      await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('待阅读 (1)');
-      await expect(later(page)).toHaveText('全文待看');
-      expect((await detail(request, 'ui-064')).read_later_done_at).toBeNull();
-      if (action === 'button') await later(page).click();
-      else if (action === 'card') await card(page).locator('.news-card-title').click();
-      else if (action === 'enter') await card(page).press('Enter');
-      else await page.keyboard.press(action);
-      await expect(later(page)).toHaveText('已看完');
-      await expect(later(page)).toHaveAttribute('aria-busy', 'false');
-      const completed = await detail(request, 'ui-064');
-      expect(completed.read_later_done_at).toBeTruthy();
-      if (explicit) expect(completed.read_at).toBeTruthy();
-      else expect(completed.read_at).toBeNull();
-      await expect(page.locator('#readLaterNavBadge')).toBeHidden();
-      await page.locator('#feedColFeed [data-filter="read"]').click();
-      await showOldestFirst(page);
-      await expect(card(page)).toBeVisible();
-      await start(page);
-      await expect(later(page)).toHaveText('已看完');
-      await later(page).click();
-      await expect(later(page)).toHaveText('全文待看');
-      await expect(later(page)).toHaveAttribute('aria-busy', 'false');
-      await expect(page.locator('#readLaterNavBadge')).toHaveText('1');
-      await page.locator('#navReadLaterBtn').click();
-      await expect(card(page)).toBeVisible();
-    });
-  }
+for (const action of ['button', 'card', 'enter', 's']) {
+  test(`cached article completes via ${action} in read later`, async ({ page, request }) => {
+    await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
+    await start(page);
+    // Opening in the news feed, and merely switching collections, leave it pending.
+    await card(page).locator('.news-card-title').click();
+    await expect(page.locator('#articleBodyContent')).not.toBeEmpty();
+    await expect(later(page)).toHaveText('全文待看');
+    await expect(later(page)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#readLaterNavBadge')).toHaveText('1');
+    await page.locator('#navReadLaterBtn').click();
+    await expect(card(page)).toBeVisible();
+    await expect(page.locator('#feedColFeed [data-filter="unread"]')).toHaveText('待阅读 (1)');
+    await expect(later(page)).toHaveText('全文待看');
+    expect((await detail(request, 'ui-064')).read_later_done_at).toBeNull();
+    if (action === 'button') await later(page).click();
+    else if (action === 'card') await card(page).locator('.news-card-title').click();
+    else if (action === 'enter') await card(page).press('Enter');
+    else await page.keyboard.press(action);
+    await expect(later(page)).toHaveText('已看完');
+    await expect(later(page)).toHaveAttribute('aria-busy', 'false');
+    const completed = await detail(request, 'ui-064');
+    expect(completed.read_later_done_at).toBeTruthy();
+    expect(completed.read_at).toBeTruthy();
+    await expect(page.locator('#readLaterNavBadge')).toBeHidden();
+    await page.locator('#feedColFeed [data-filter="read"]').click();
+    await showOldestFirst(page);
+    await expect(card(page)).toBeVisible();
+    await start(page);
+    await expect(later(page)).toHaveText('已看完');
+    await later(page).click();
+    await expect(later(page)).toHaveText('全文待看');
+    await expect(later(page)).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('#readLaterNavBadge')).toHaveText('1');
+    await page.locator('#navReadLaterBtn').click();
+    await expect(card(page)).toBeVisible();
+  });
 }
 
 test('opening only completes after the body loads successfully; retry preserves the opening intent', async ({ page, request }) => {
-  await request.patch('/api/news/ui-064/state', { data: { read_later: false } });
+  await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.route('**/api/news/ui-064/detail', route => route.fulfill({ status: 500, json: { error: '正文读取失败' } }));
@@ -198,11 +195,11 @@ test('running fetch cannot be toggled out and becomes ready even when its articl
 });
 
 for (const explicit of [false, true]) {
-  test(`failed fetch always retries instead of toggling membership (explicit flag: ${explicit})`, async ({ page, request }) => {
+  test(`failed fetch can be queued or retried (explicit flag: ${explicit})`, async ({ page, request }) => {
     await request.patch('/api/news/ui-064/state', { data: { read_later: explicit } });
     const flow = await pipeline(page, 'failed');
     await start(page);
-    await expect(later(page)).toHaveText('抓取失败');
+    await expect(later(page)).toHaveText(explicit ? '抓取失败' : '稍后再看');
     await later(page).click();
     await expect(later(page)).toHaveText('排队中');
     await expect(later(page)).toHaveAttribute('aria-busy', 'false');
@@ -213,7 +210,7 @@ for (const explicit of [false, true]) {
 }
 
 test('failed completion restores ready state and retry persists it', async ({ page, request }) => {
-  await request.patch('/api/news/ui-064/state', { data: { read_later: false } });
+  await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.route('**/api/news/ui-064/state', route => route.fulfill({ status: 500, json: { error: '保存失败' } }));
@@ -229,8 +226,8 @@ test('failed completion restores ready state and retry persists it', async ({ pa
   expect((await detail(request, 'ui-064')).read_later_done_at).toBeTruthy();
 });
 
-test('search and bulk completion include cached articles without a queue flag', async ({ page, request }) => {
-  await request.patch('/api/news/ui-064/state', { data: { read_later: false } });
+test('search and bulk completion include explicitly queued cached articles', async ({ page, request }) => {
+  await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.locator('#feedSearchInput').fill('历史 64');
@@ -280,7 +277,7 @@ for (const leave of ['settings', 'hidden', 'mobile back', 'leave and return']) {
 }
 
 test('failed search bulk completion reports failure and keeps unfinished articles', async ({ page, request }) => {
-  await request.patch('/api/news/ui-064/state', { data: { read_later: false } });
+  await request.patch('/api/news/ui-064/state', { data: { read_later: true } });
   await start(page);
   await page.locator('#navReadLaterBtn').click();
   await page.locator('#feedSearchInput').fill('历史 64');

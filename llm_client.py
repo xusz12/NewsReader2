@@ -312,6 +312,7 @@ def _build_body_translation_only_messages(*, title: str, source: str, content: s
         "你是专业翻译。"
         "你必须调用给定函数并严格提供结构化参数。"
         "任务：把正文完整翻译成中文。"
+        "已有中文原样保留，不润色、不转换简繁；中外文混合内容只翻译外文部分。"
         "不要生成要点，不要生成结论，只返回完整中文正文。" + PARAGRAPH_TRANSLATION_RULE
     )
     user = (
@@ -894,6 +895,7 @@ def generate_pi_fallback_translation(
 
     prompt = (
         "你是专业新闻编辑与翻译。请基于英文新闻正文返回一个 JSON 对象，不要输出 JSON 以外的任何内容。\n"
+        "已有中文原样保留，不润色、不转换简繁；中外文混合内容只翻译外文部分。\n"
         "JSON 字段要求：\n"
         '- "key_points_zh": 3 到 5 条中文要点数组，每条一句话\n'
         '- "conclusion_zh": 一句中文结论\n'

@@ -103,6 +103,10 @@ with module.db_conn() as conn:
         if index == 4:
             conn.execute('INSERT INTO item_state(item_id,favorite_at,updated_at) VALUES (?,?,?)',(ident,published,published))
 with module.db_conn() as conn:
+    # Existing fixture bodies represent the pre-upgrade reading queue. Exercise
+    # its one-time migration; new prefetched fixtures below remain independent.
+    conn.execute("DELETE FROM news_version_migrations WHERE name='explicit_read_later'")
+    module.apply_schema(conn, module.SCHEMA_PATH)
     module.news_classification.enqueue(conn)
     for index in range(65):
         category = 'economy' if index < 40 else ['china', 'ai', 'politics', 'business', 'science', 'other'][(index - 40) % 6]
@@ -145,6 +149,27 @@ def reset_collection():
             conn.execute(f'DELETE FROM {table}')
         conn.execute('UPDATE item_state SET read_at=NULL')
     return {"ok": True}
+
+
+@module.app.post('/__test/x-fixture')
+def x_fixture():
+    body = module.request.get_json(silent=True) or {}
+    handle, ident, url = 'uixtestcache', 'ui-x-prefetch', 'https://x.com/uixtestcache/status/99001'
+    with module.db_conn() as conn:
+        for table in ('article_details', 'article_ai', 'detail_jobs', 'ai_jobs', 'article_notes'):
+            conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
+        conn.execute('DELETE FROM items WHERE id=?', (ident,))
+        conn.execute('DELETE FROM item_state WHERE item_id=?', (ident,))
+        conn.execute('DELETE FROM topic_ingestions WHERE item_id=?', (ident,))
+        conn.execute('DELETE FROM x_accounts WHERE handle=?', (handle,))
+        if not body.get('clear'):
+            conn.execute('INSERT INTO x_accounts(handle,name,section) VALUES (?,?,?)', (handle, handle, 'x/' + handle))
+            conn.execute("""INSERT INTO items VALUES (?,'',0,'2026-10-01 08:00:00','2026-10-01','08:00',?,'twitter',?,
+                'X 自动预取测试新闻','原始推文内容',?,'now','now')""", (ident, handle, handle, url))
+            conn.execute("INSERT INTO article_details(url,title,content,fetched_at,updated_at) VALUES (?,'推文','自动预取的完整推文正文','now','now')", (url,))
+            conn.execute("INSERT INTO article_notes VALUES (?,'测试历史想法','now','now')", (url,))
+        module.x_accounts.changed(conn)
+    return {'ok': True, 'item_id': ident, 'handle': handle}
 
 @module.app.post('/__test/reset-summaries')
 def reset_summaries():
