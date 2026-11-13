@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-12T08:36:20.602492+00:00",
-  "fingerprint": "865b1382541ca3de66af90399ec2b5316c615ded1c36c047380f46ebbf172a5e",
-  "newsreader_version": "0.5.8",
+  "checked_at": "2026-11-13T09:52:17.267104+00:00",
+  "fingerprint": "34c2e86b7bbdadc2a659f729cc17b98a260a6616359b296a0eb0ca4bf1a64ad5",
+  "newsreader_version": "0.5.9",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.46,
+      "seconds": 17.37,
       "error": "",
       "samples": [
         {
-          "title": "Israeli strike on southern Gaza hospital kills six",
-          "url": "https://www.reuters.com/world/middle-east/israeli-strike-southern-gaza-hospital-kills-four-gaza-civil-defence-says-2026-11-11/",
-          "time": "2026-11-12 07:26:09",
+          "title": "Iran's Guards say they targeted a US early-warning radar in Bahrain",
+          "url": "https://www.reuters.com/world/middle-east/irans-guards-say-they-targeted-us-early-warning-radar-bahrain-2026-11-13/",
+          "time": "2026-11-13 10:51:16",
           "source_name": "Reuters"
         },
         {
-          "title": "Saudi Arabia says debris from intercepted missiles falls in Mecca region",
-          "url": "https://www.reuters.com/world/middle-east/saudi-arabia-says-debris-intercepted-missiles-falls-mecca-region-2026-11-12/",
-          "time": "2026-11-12 08:21:45",
+          "title": "Six-year-old Gaza burn victim caught in Israeli dispute over aid",
+          "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/six-year-old-gaza-burn-victim-caught-israeli-dispute-over-aid-2026-11-13/",
+          "time": "2026-11-13 17:11:51",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.55,
+      "seconds": 17.94,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia's Asian supply chain prepares for life after Huang",
-          "url": "https://www.reuters.com/business/media-telecom/nvidias-asian-supply-chain-prepares-life-after-huang-2026-11-12/",
-          "time": "2026-11-12 16:25:48",
+          "title": "FACTBOX China's $3 billion-plus pipeline of Nvidia-powered AI data centres",
+          "url": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/",
+          "time": "2026-11-13 17:28:12",
           "source_name": "Reuters"
         },
         {
-          "title": "Citi turns to China Inc.'s global expansion, yuan to grow cross-border business",
-          "url": "https://www.reuters.com/business/finance/citi-turns-china-incs-global-expansion-yuan-grow-cross-border-business-2026-11-12/",
-          "time": "2026-11-12 16:18:11",
+          "title": "IAEA increasingly concerned about Iranian enrichment plant, its report says",
+          "url": "https://www.reuters.com/world/china/iaea-increasingly-concerned-about-iranian-enrichment-plant-its-report-says-2026-11-13/",
+          "time": "2026-11-13 17:23:51",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.69,
+      "seconds": 4.74,
       "error": "",
       "samples": [
         {
-          "title": "Russia says it launched a massive overnight strike on Ukrainian military factories",
-          "url": "https://www.reuters.com/world/europe/russia-ukraine-exchange-attacks-capitals-us-envoys-head-moscow-2026-11-12/",
-          "time": "2026-11-12 10:14:29",
+          "title": "As election nears, Spain's Sanchez struggles to rally disillusioned left",
+          "url": "https://www.reuters.com/world/election-nears-spains-sanchez-struggles-rally-disillusioned-left-2026-11-13/",
+          "time": "2026-11-13 13:03:50",
           "source_name": "Reuters"
         },
         {
-          "title": "Democrat Colom wins Mississippi Senate seat",
-          "url": "https://www.reuters.com/world/us/democrat-scott-colom-defeats-incumbent-cindy-hyde-smith-cnn-projects-2026-11-11/",
-          "time": "2026-11-12 06:09:17",
+          "title": "Indonesia's reluctant vice president was symbol of powerful alliance",
+          "url": "https://www.reuters.com/world/asia-pacific/indonesias-reluctant-vice-president-was-symbol-powerful-alliance-2026-11-13/",
+          "time": "2026-11-13 14:54:01",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.42,
+      "seconds": 4.5,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia board meets to decide CEO Huang's future as leadership crisis deepens",
-          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
-          "time": "2026-11-12 06:34:14",
+          "title": "Microsoft outage hits Outlook, Teams and Copilot worldwide",
+          "url": "https://www.reuters.com/technology/microsoft-365-outlook-down-thousands-us-users-downdetector-shows-2026-11-12/",
+          "time": "2026-11-13 02:32:55",
           "source_name": "Reuters"
         },
         {
-          "title": "Chinese AI firms rush to secure Nvidia chip capacity on fears of US curbs",
-          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
-          "time": "2026-11-12 13:31:18",
+          "title": "Huang exit and US scrutiny imperil $3 billion in Chinese AI projects",
+          "url": "https://www.reuters.com/world/china/huang-exit-us-scrutiny-imperil-3-billion-chinese-ai-projects-reliant-nvidia-2026-11-13/",
+          "time": "2026-11-13 16:31:27",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.34,
+      "seconds": 4.23,
       "error": "",
       "samples": [
         {
-          "title": "Chinese AI firms rush to secure Nvidia chip capacity on fears of US curbs",
-          "url": "https://www.reuters.com/world/china/chinese-ai-firms-rush-secure-nvidia-chip-capacity-spy-scandal-stirs-fear-us-2026-11-12/",
-          "time": "2026-11-12 13:31:18",
+          "title": "Microsoft outage hits Outlook, Teams and Copilot worldwide",
+          "url": "https://www.reuters.com/technology/microsoft-365-outlook-down-thousands-us-users-downdetector-shows-2026-11-12/",
+          "time": "2026-11-13 02:32:55",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia board meets to decide CEO Huang's future as leadership crisis deepens",
-          "url": "https://www.reuters.com/technology/nvidia-is-preparing-oust-ceo-jensen-huang-wsj-reports-2026-11-11/",
-          "time": "2026-11-12 06:34:14",
+          "title": "Huang exit and US scrutiny imperil $3 billion in Chinese AI projects",
+          "url": "https://www.reuters.com/world/china/huang-exit-us-scrutiny-imperil-3-billion-chinese-ai-projects-reliant-nvidia-2026-11-13/",
+          "time": "2026-11-13 16:31:27",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 20.94,
+      "seconds": 3.08,
       "error": "",
       "samples": [
         {
-          "title": "Drone Startup Uforce Valued at $6 Billion With UK Wealth Fund Backing",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-12/drone-startup-uforce-valued-at-6-billion-with-uk-wealth-fund-backing",
-          "time": "2026-11-12 16:30:00",
+          "title": "Microsoft Outage Sends Traders Back to Phones and Fax",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-13/microsoft-outage-gums-up-markets-forces-traders-to-use-phones",
+          "time": "2026-11-13 15:00:08",
           "source_name": "Bloomberg"
         },
         {
-          "title": "The Case For India in a World Obsessed With the AI Trade",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-12/the-case-for-india-in-a-world-obsessed-with-the-ai-trade",
-          "time": "2026-11-12 16:18:05",
+          "title": "Singapore Charges Fifth Person as Nvidia Case Expands",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-13/singapore-charges-5th-person-linked-to-nvidia-chip-case-st-says",
+          "time": "2026-11-13 10:24:21",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.5,
+      "seconds": 1.54,
       "error": "",
       "samples": [
         {
-          "title": "Who could replace Jensen Huang? A highly unscientific list of possible successors",
-          "url": "https://techcrunch.com/2026/11/11/who-could-replace-jensen-huang-a-highly-unscientific-list-of-possible-successors/",
-          "time": "2026-11-12 11:13:10",
+          "title": "Democrats launch Nvidia investigation, write scathing letter on Huang’s ‘scheme’ with Trump",
+          "url": "https://techcrunch.com/2026/11/12/democrats-launch-nvidia-investigation-write-scathing-letter-on-huangs-scheme-with-trump/",
+          "time": "2026-11-13 06:42:51",
           "source_name": "TechCrunch"
         },
         {
-          "title": "The unfolding Jensen Huang scandal: a timeline",
-          "url": "https://techcrunch.com/2026/11/11/nvidia-ceo-jensen-huangs-affair-with-alleged-chinese-spy-a-timeline/",
-          "time": "2026-11-12 07:50:00",
+          "title": "Muse can now place calls to US businesses — if you pay",
+          "url": "https://techcrunch.com/2026/11/12/muse-can-now-place-calls-to-u-s-businesses-if-you-pay/",
+          "time": "2026-11-13 06:22:28",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.07,
+      "seconds": 2.2,
       "error": "",
       "samples": [
         {
-          "title": "CEO Jensen Huang's job is suddenly on the line at Nvidia",
-          "url": "https://arstechnica.com/gadgets/2026/11/ceo-jensen-huangs-job-is-suddenly-on-the-line-at-nvidia/",
-          "time": "2026-11-12 07:10:17",
+          "title": "In reversal, American Cancer Society urges routine prostate cancer screening",
+          "url": "https://arstechnica.com/health/2026/11/in-reversal-american-cancer-society-urges-prostate-cancer-tests-for-all-men/",
+          "time": "2026-11-13 06:59:51",
           "source_name": "Ars Technica"
         },
         {
-          "title": "T-Mobile illegally imposed 50GB cap on low-income home Internet plan, NY says",
-          "url": "https://arstechnica.com/tech-policy/2026/11/t-mobile-illegally-imposed-50-gb-cap-on-low-income-home-internet-plan-ny-says/",
-          "time": "2026-11-12 04:32:21",
+          "title": "FAA expands AI advice to manage air traffic congestion across entire US airspace",
+          "url": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace/",
+          "time": "2026-11-13 06:28:47",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.74,
+      "seconds": 1.69,
       "error": "",
       "samples": [
         {
@@ -206,19 +206,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.6,
+      "seconds": 1.57,
       "error": "",
       "samples": [
         {
-          "title": "Jensen Huang matters to Nvidia because he can take technologies his engineers believe are possible and turn them into products the whole company commits resources to, takes risks on, and has to deliver. That's why the supply chain gets such strong order visibility and is willing to keep up with aggressive spec upgrades. It also forces competitors to follow, which drives technology upgrades and supply chain investment across the entire AI industry. Between the two, deciding on aggressive spec upgrades and making them happen is the harder part, compared with giving the supply chain order visibility. Huang doesn't need to be the person at Nvidia who knows the most about new technologies like HVDC, CPO/NPO, or CCL/PTFE. His value is that he weighs strategy, organization, technology, and supply chain all at once, then makes the call quickly and puts resources behind it. Based on what's public so far, it looks hard for Huang to come out of this unscathed. If so, the practical move may be to gradually reduce Nvidia's reliance on Huang's personal decision-making while preparing a succession plan. Along the way, two things are worth watching to gauge where AI technology and investment are heading: whether Nvidia can keep developing new products and technologies as efficiently as before, and how competitors respond. Supply chain research will be an important basis for that judgment.",
-          "url": "https://x.com/mingchikuo/status/2120694846327517212?s=20",
-          "time": "2026-11-12 09:47",
+          "title": "Trump says Tim Cook is the best person to take Jensen Huang’s place as Nvidia CEO, but I think where Cook’s strengths would shine most is cost management. Having watched Apple’s supply chain management from the sidelines for more than 10 years, and comparing that with what I’ve learned tracking and researching Nvidia in recent years, I think Nvidia still has clear room for improvement in supply chain and cost management. As for everything else, especially the most important part, planning and developing new technologies, this isn’t just about Cook. So far, the only CEO who has clearly proven he can do this well, bringing humanity’s most cutting-edge technologies from across fields into AI chips and rack solutions while keeping up a fast pace of commercial iteration, is Jensen Huang. (Of course, others will likely prove they can do this well in the future too.)",
+          "url": "https://x.com/mingchikuo/status/2120927470614704291?s=20",
+          "time": "2026-11-13 01:11",
           "source_name": "郭明錤"
         },
         {
-          "title": "黃仁勳對 Nvidia 的重要性，在於他能把工程團隊認為可能實現的技術，轉化成全公司願意投入資源、承擔風險，而且必須交付的產品。正因如此，供應鏈才能有極高的訂單能見度，並配合激進的規格升級。而這也帶動了競爭對手的跟進，進一步推動整體 AI 產業的技術升級與供應鏈投資。 如果硬要比較，做出並落實激進規格升級的決策，比提供供應鏈訂單能見度更困難。黃仁勳不必是 Nvidia 內部最懂 HVDC、CPO/NPO 與 CCL/PTFE 等新技術的人，但他的價值，在於同時考慮到策略、組織、技術與供應鏈，並迅速拍板定案與投入資源執行。 就目前公開資訊，黃仁勳似乎很難全身而退。在這前提下，比較務實的做法，可能是階段性降低 Nvidia 對黃仁勳個人的決策依賴，同時布局接班計畫。而在這過程中，Nvidia 能否延續高效的新產品與新技術研發，以及競爭對手如何因應，將是觀察整體 AI 產業技術發展與投資趨勢的重點，而供應鏈研究則能提供重要的判斷依據。",
-          "url": "https://x.com/mingchikuo/status/2120694831257456936?s=20",
-          "time": "2026-11-12 09:47",
+          "title": "雖然 Trump 說 Tim Cook 是最適合接任黃仁勳 Nvidia CEO 位置的人選，但我覺得最能發揮 Cook 所長的應該只有成本管理。根據我側面觀察 Apple 供應鏈管理超過 10 年以上的經驗，來對比這幾年追蹤與研究 Nvidia 的心得，我覺得 Nvidia 在供應鏈成本管理上，還有明顯的改善空間。 其他方面，特別是最重要的新技術規劃與開發，不要說 Cook 了，目前已經證明能在維持快速商業化迭代更新下，把人類最先端的各領域技術導入 AI 晶片與機櫃方案的 CEO，這件事做得明顯好的只有黃仁勳（當然未來應該還會有其他人也能證明可以把這件事做很好）。",
+          "url": "https://x.com/mingchikuo/status/2120927426553495817?s=20",
+          "time": "2026-11-13 01:11",
           "source_name": "郭明錤"
         }
       ]
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 10,
-      "seconds": 1.56,
+      "valid_count": 9,
+      "seconds": 2.0,
       "error": "",
       "samples": [
         {
-          "title": "#观察 腾讯在28周年当天全量上线了“元宝搜索”，替代了腾讯搜索。 不过这个AI模式的等待UI，应该是像素级“致敬”了Google吧。 https://t.co/upkfgXdqKT",
-          "url": "https://x.com/fxtrader/status/2120795763030819187?s=20",
-          "time": "2026-11-12 16:28",
+          "title": "#观察 纽约时报再发评论文章，特意挑选了一张角度瘆人的老黄大头照做头图，角度也是非常清奇。 https://t.co/jfQB0QaTV3",
+          "url": "https://x.com/fxtrader/status/2121167806553264298?s=20",
+          "time": "2026-11-13 17:06",
           "source_name": "外汇交易员"
         },
         {
-          "title": "今日网传腾讯要裁员50%，有同事圈截图称马化腾要推动组织变革，内部人心惶惶。 对此，腾讯公关总监张军回应表示，这是“误会和谣言”。腾讯管理层在腾讯28周年的Linktime线上直播中，主动表达了要加快组织变革的决心，同时特别提到，这一次是面向AI时代的主动出击，更偏“增效”。 https://t.co/l7cbUe2sVL",
-          "url": "https://x.com/fxtrader/status/2120787958362153401?s=20",
-          "time": "2026-11-12 15:57",
+          "title": "段永平：目前不会卖出英伟达，还卖了不少看跌期权。 英伟达可能邀请黄仁勋担任顾问，成为类似“影子CEO”的角色，保留影响力，只是不再拥有签字决策权。要等到听证会结束之后才有可能出现明确结论。 英伟达需要有很好的管理团队，否则3-5年后可能就没那么厉害。 库克接任英伟达CEO可能性为零。 https://t.co/dqElHSuEjK",
+          "url": "https://x.com/fxtrader/status/2121150123745161628?s=20",
+          "time": "2026-11-13 15:56",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,19 +250,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.56,
+      "seconds": 1.71,
       "error": "",
       "samples": [
+        {
+          "title": "未来anthropic的优势是各类场景数据的搜集。因为它目前领先的高质量用户每天都在产生大量样本，只要他们内部能够高效抽取过滤，那么世界各领域正在发生的、没有其他渠道可获取的、隐含高质量的使用样本可以指导下一代训练样本合成放大以及RL训练边界。 这些能力不再是fable5.2里面的视频制作或者生物知识那些。而是可能的各个行业的专业知识。——在互联网和书籍中不具备的——如工作流中遇到错误如何纠正、如何逐步迭代工序等等。 这就像头部虹吸效应，除了OAI和XAI之外其他平台没有这个优势。开源模型更像交出了身体缺什么也拿不回来。 从前人类历史上有过类似的事件就是封建时期，知识会被高度集中在皇帝那里。焚书坑儒之后就断了很长阶段的思维链。 GPT-4后预训练就像Ilya说的一样到头了，因为没有更多免费互联网样本。之后到现在为止的RL并不没有重大创新，本质上就看谁的样本更好更丰富。暴力计算（GPU、HBM）、对数压缩（Inference、存储、网络、光通信、散热、电力）。 自蒸馏漏洞堵住加上严格封号之后，中美模型差距就是用户数量的差距（不算豆包上那种当搜索引擎或者看AI剧用的），而且会越来越明显。因为如果你是一个合格的AI Researcher你就得承认transformer之后AI架构压根没有真正创新（工程优化除外）。用户感受到的能力跃迁可以概括为：把无限多的真实世界思考样本压缩进不断放大的流形几何网络，稳定不动点和边界条件。 一家公司持续虹吸发展，封锁开源，这个如何能破局？ 我的一个不是答案的答案：时间。 时间让新架构诞生颠覆； 时间让问题从内部爆发； 时间让其行为发生扭曲； 时间让现物理逻辑反转； 接受差距，搭个顺风车，静待转变。 我对AI科学的本质看法： https://t.co/HZMzYxZfC3",
+          "url": "https://x.com/WaylandZhang/status/2121150815507493176?s=20",
+          "time": "2026-11-13 15:58",
+          "source_name": "WaylandZhang"
+        },
         {
           "title": "anthropic的路演看完，本质上是一个长期算力期权 + AI行业应用层期权的双期权投资策略。你在买（aka“赌”）的是未来算力成本波动和软件（生物/办公）渗透率的波动。 跟底层大模型指标已经关系不大了。",
           "url": "https://x.com/WaylandZhang/status/2120370041950740732?s=20",
           "time": "2026-11-11 12:16",
-          "source_name": "WaylandZhang"
-        },
-        {
-          "title": "Makes sense.",
-          "url": "https://x.com/WaylandZhang/status/2118495916470812793?s=20",
-          "time": "2026-11-06 08:09",
           "source_name": "WaylandZhang"
         }
       ]
@@ -272,62 +272,62 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/middle-east/israeli-strike-southern-gaza-hospital-kills-four-gaza-civil-defence-says-2026-11-11/",
+      "url": "https://www.reuters.com/world/middle-east/irans-guards-say-they-targeted-us-early-warning-radar-bahrain-2026-11-13/",
       "ok": true,
-      "title": "Israeli strike on southern Gaza hospital kills six, Gaza civil defence says",
-      "length": 2208,
-      "seconds": 16.32,
+      "title": "Iran's Guards say they targeted a US early-warning radar in Bahrain",
+      "length": 986,
+      "seconds": 2.74,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "336962b2554b8123122ff97bcf0cbdde980bfcbd6b845593e6ce6b0482db60d5",
-      "preview": "CAIRO, Nov 12 (Reuters) - An Israeli airstrike on a building at Nasser Hospital in southern Gaza killed at least six people, including a surgeon, and wounded 20"
+      "content_sha256": "657d877b4fba08b4e7e0712f6f8c1d177da9c71f888e0275566e54b864bd9744",
+      "preview": "Nov 13 (Reuters) - Iran's Revolutionary Guards said on Friday they targeted a US early-warning radar in Bahrain, the first such claim of an attack on American m"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-12/drone-startup-uforce-valued-at-6-billion-with-uk-wealth-fund-backing",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-13/microsoft-outage-gums-up-markets-forces-traders-to-use-phones",
       "ok": true,
-      "title": "Drone Startup Uforce Valued at $6 Billion With UK Wealth Fund Backing",
-      "length": 3524,
-      "seconds": 31.44,
+      "title": "Microsoft Outage Sends Traders Back to Phones and Fax",
+      "length": 3309,
+      "seconds": 31.23,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "774281170537e4fe4643c40a7481585dfe5260601833ddcc9ddcade0f7ed833a",
-      "preview": "The UK National Wealth Fund made its largest defense investment as part of a $700 million financing round for Uforce, a drone startup initially formed in Ukrain"
+      "content_sha256": "8ff3a5c8753d2d862d0f6d92ae654bf1ac4575d7524819f1e7da0bd6639c8cbc",
+      "preview": "Traders were forced to do business by phone and Whatsapp, and even fire up their fax machines, as a worldwide outage of Microsoft software crippled communicatio"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/11/who-could-replace-jensen-huang-a-highly-unscientific-list-of-possible-successors/",
+      "url": "https://techcrunch.com/2026/11/12/democrats-launch-nvidia-investigation-write-scathing-letter-on-huangs-scheme-with-trump/",
       "ok": true,
-      "title": "Who could replace Jensen Huang? A highly unscientific list of possible successors",
-      "length": 5060,
-      "seconds": 2.18,
+      "title": "Democrats launch Nvidia investigation, write scathing letter on Huang's 'scheme' with Trump",
+      "length": 3445,
+      "seconds": 2.94,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "75c20c31a7c742b606a731fa58d9f967a4952d3398741ce476cb8f8366f9812e",
-      "preview": "It’s almost inconceivable that Nvidia would fire its rock star CEO. Yet here we are, on the precipice of this happening. Over at Kalshi, Jensen Huang’s odds of "
+      "content_sha256": "7d3c669ad268c878beda763fba443f4c9fff29fdcb262e7a74f8a227b1b25d92",
+      "preview": "Democrats on Thursday opened an inquiry into how the Trump administration handled Nvidia's chip sales to China. Earlier on Thursday, the company ousted its CEO "
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/gadgets/2026/11/ceo-jensen-huangs-job-is-suddenly-on-the-line-at-nvidia/",
+      "url": "https://arstechnica.com/health/2026/11/in-reversal-american-cancer-society-urges-prostate-cancer-tests-for-all-men/",
       "ok": true,
-      "title": "CEO Jensen Huang’s job is suddenly on the line at Nvidia",
-      "length": 3626,
-      "seconds": 16.06,
+      "title": "In reversal, American Cancer Society urges routine prostate cancer screening",
+      "length": 3680,
+      "seconds": 15.96,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "d85a38e8db125c814e912c562e3ac16387c75997980861dd438d756853959d70",
-      "preview": "Nvidia’s board is set to decide the future of its founder Jensen Huang after revelations that he had a romantic relationship with a company executive, days afte"
+      "content_sha256": "1a8bbab246cea738be3ca77c38bf6654fc38f1defccb40c1e68971c1fa1de626",
+      "preview": "In a significant update to its guidelines for prostate cancer screening, the American Cancer Society is now recommending that men get routinely screened for pro"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 16.37,
+      "seconds": 15.85,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.08,
+      "seconds": 15.85,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -365,13 +365,13 @@
       "url": "https://x.com/ilyasut/status/2094881278621253755?s=20",
       "ok": true,
       "title": "ilyasut",
-      "length": 639,
-      "seconds": 13.11,
+      "length": 617,
+      "seconds": 10.62,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "0a038a76a263d2b3730c11b0e6a359efef0c2eff9e199b4c343cb68ebb5e6d26",
+      "content_sha256": "6a9671fe30c54332d03397bb01ff37826947527398f1793898894783fe2587db",
       "preview": "【主推文】\nNeoclouds have limited cybersecurity.   Next time agents successfully go rouge, they'll try taking over a neocloud to run more copies.  This is bad.\n\nThus"
     },
     {
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 8.9,
+      "seconds": 7.64,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 9.07,
+      "seconds": 7.72,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-12T08:36:22.962862+00:00"
+    "checked_at": "2026-11-13T09:52:19.542652+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-12T08:36:28.673967+00:00"
+    "checked_at": "2026-11-13T09:52:30.043261+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-12T08:40:10.459548+00:00",
+    "checked_at": "2026-11-13T09:55:49.292373+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

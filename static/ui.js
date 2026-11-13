@@ -157,6 +157,7 @@ const paths = {
   spark: '<path d="m12 2 2.7 7.3L22 12l-7.3 2.7L12 22l-2.7-7.3L2 12l7.3-2.7Z" fill="currentColor" stroke="none"/>',
   lightbulb: '<path d="M9 18h6m-6 3h6M8 15c0-2-3-3-3-7a7 7 0 0 1 14 0c0 4-3 5-3 7v1H8z"/>',
   comment: '<path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="m9 3 .6 2.4a7 7 0 0 1 4.8 0L15 3l3 1.7-1.8 1.8a7 7 0 0 1 2.4 4.1l2.4.4v3l-2.4.4a7 7 0 0 1-2.4 4.1l1.8 1.8-3 1.7-.6-2.4a7 7 0 0 1-4.8 0L9 22l-3-1.7 1.8-1.8a7 7 0 0 1-2.4-4.1L3 14v-3l2.4-.4a7 7 0 0 1 2.4-4.1L6 4.7Z"/>',
   sortAsc: '<path d="M4 4v16m-3-3 3 3 3-3M11 5h4m-4 7h7m-7 7h10"/>',
   sortDesc: '<path d="M4 20V4M1 7l3-3 3 3M11 5h10m-10 7h7m-7 7h4"/>',
   checkAll: '<path d="m2 12 4 4L16 6m-6 10 4 4L24 10"/>',
@@ -277,8 +278,9 @@ export function resizeAutoFields(root) {
     Object.assign(copy.style, {position:'absolute', visibility:'hidden', pointerEvents:'none',
       width:field.getBoundingClientRect().width+'px', height:'0px', minHeight:'0', maxHeight:'none'});
     field.parentElement.append(copy);
-    heights.set(field, Math.ceil(Math.max(line * 2 + padding + border,
-      Math.min(line * 7 + padding + border, copy.scrollHeight + border))));
+    const minRows = Number(field.dataset.autoMinRows) || 2, maxRows = Number(field.dataset.autoMaxRows) || 7;
+    heights.set(field, Math.ceil(Math.max(line * minRows + padding + border,
+      Math.min(line * maxRows + padding + border, copy.scrollHeight + border))));
     copy.remove();
   }
   for (const field of fields) {

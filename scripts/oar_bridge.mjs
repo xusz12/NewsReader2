@@ -156,7 +156,17 @@ export function validateRequest(request) {
        (typeof request.legacy_native_id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(request.legacy_native_id)))) throw new Error('oar_invalid_request');
   if (request.research_budget_ms !== undefined && (!Number.isInteger(request.research_budget_ms) || request.research_budget_ms < 1 || request.research_budget_ms > 180000)) throw new Error('oar_invalid_request');
   if (request.max_tool_calls !== undefined && (!Number.isInteger(request.max_tool_calls) || request.max_tool_calls < 1 || request.max_tool_calls > 20)) throw new Error('oar_invalid_request');
+  if (request.nr_tools !== undefined && (!request.nr_tools ||
+      typeof request.nr_tools.command !== 'string' || !path.isAbsolute(request.nr_tools.command) ||
+      !Array.isArray(request.nr_tools.args) || request.nr_tools.args.some(arg => typeof arg !== 'string'))) throw new Error('oar_invalid_request');
   return request;
+}
+
+// Application-owned tool registration lives only in this invocation's private
+// config copy. It never edits the user's Pi config or trusts a project directory.
+export async function installNrTools(agentDir, config) {
+  const file = path.join(agentDir, 'mcp.json');
+  await fs.writeFile(file, JSON.stringify({mcpServers:{nr_assistant:{...config, exposure:'direct', enabled:true}}}), {mode:0o600});
 }
 
 /** Bound repeated research without aborting a valid final answer or changing tool permissions. */
@@ -312,6 +322,7 @@ export async function executeCli(request, emit, signal, spawnProcess = spawn) {
   const cliFile = fileURLToPath(new URL('bundle/cli.js', import.meta.resolve('@earendil-works/pi-coding-agent')));
   const args = [cliFile, '-p', '--mode', 'json', '--session-dir', sessionDir,
     ...sessionArgs];
+  if (request.nr_tools) args.push('--no-extensions', '-e', 'builtin:mcp', '--no-skills', '--tools', 'mcp__nr_assistant__*');
   if (request.reasoning_effort) args.push('--thinking', request.reasoning_effort);
   if (!saved) {
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
@@ -399,11 +410,12 @@ async function main() {
     request.cwd = await fs.realpath(request.cwd);
     const source = process.env.NEWS_READER_PI_AGENT_DIR || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
     agentDir = await prepareConfig(source, request.state_dir, request.config_id);
+    if (request.nr_tools) await installNrTools(agentDir, request.nr_tools);
     delete process.env.PI_PACKAGE_DIR;
     process.env.OAR_PI_AGENT_DIR = agentDir;
     process.env.PI_CODING_AGENT_DIR = agentDir;
     request.agentDir = agentDir;
-    const route = await selectRoute(request);
+    const route = request.nr_tools ? {runtime:'cli', reason:'nr_tools'} : await selectRoute(request);
     await importLegacySession(request, source);
     if (route.runtime === 'cli') {
       process.exitCode = await executeCli(request, emit, abort.signal) ? 0 : 1;

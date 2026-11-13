@@ -59,6 +59,7 @@ from updater import github_tags_url, local_health_url, request_supervisor
 import codex_client
 import news_summaries
 import agent_notifications
+import personal_assistant
 import news_classification
 import topic_tracking
 import periodic_reports
@@ -134,6 +135,7 @@ AGENT_RUNTIME_DIR = resolve_agent_runtime_dir()
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
 app.after_request(compress_static_response)
+PERSONAL_ASSISTANT_SERVICE = personal_assistant.register(app, lambda: DB_PATH, load_app_settings)
 
 DETAIL_LOCK = threading.Lock()
 CHAT_LOCKS: dict[str, threading.Lock] = {}

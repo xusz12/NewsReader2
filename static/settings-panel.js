@@ -4,6 +4,7 @@ import { Accordion } from "./accordion.js";
 import { settingsHelpHTML } from "./settings-help.js?v=0.5.7";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.5.6";
 import { XAccountSettings } from "./x-account-settings.js";
+import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.5.9";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
@@ -47,6 +48,7 @@ export class SettingsPanel {
     this.open = false;
     this.dirty = false;
     this.section = "system";
+    this.personalAssistant = new PersonalAssistantSettings(selects);
     this.helpAccordion = new Accordion($("#settingsContent"));
     this.collectionEnvironment = new CollectionEnvironment();
     this.xAccounts = new XAccountSettings(this);
@@ -78,7 +80,7 @@ export class SettingsPanel {
     document.addEventListener("visibilitychange", refreshPi);
     this.apiStates = new Map();
     this.selects = selects;
-    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || [...this.apiStates.values()].some(s => !!s.secretDraft), contextStamp: () => JSON.stringify([this.draft, [...this.apiStates], this.open]) });
+    this.updater = new UpdatePanel({ hasUnsavedChanges: () => this.dirty || this.personalAssistant.dirty || [...this.personalAssistant.editors.values()].some(s => s.draft !== s.content) || [...this.apiStates.values()].some(s => !!s.secretDraft), contextStamp: () => JSON.stringify([this.draft, this.personalAssistant.draft, [...this.personalAssistant.editors], [...this.apiStates], this.open]) });
     $("#closeSettingsBtn").onclick = () => this.close();
     $("#settingsResetBtn").onclick = () => this.resetDraft();
     $("#settingsCategoryBackBtn").onclick = () => this.showCategories();
@@ -260,6 +262,7 @@ export class SettingsPanel {
     const changed = this.section !== section;
     if (changed) this.selects.close(false);
     this.section = section;
+    if (section === "personal-assistant" && this.personalAssistant.host) void this.personalAssistant.load();
     // Help remains available even when reading configuration fails.
     if (section === "help" && !$("#settingsHelp")) {
       $("#settingsContent").insertAdjacentHTML("beforeend", this.helpHTML());
@@ -359,6 +362,7 @@ export class SettingsPanel {
   }
   updateDraft(event) {
     const input = event.target;
+    if (input.closest("#personalAssistantSettings")) return;
     if (input.name?.startsWith("collection.")) {
       set(this.draft, input.name, input.type === "checkbox" ? input.checked : input.type === "number"
         ? input.valueAsNumber : input.value.split(/[，,、\s]+/).filter(Boolean));
@@ -519,6 +523,7 @@ export class SettingsPanel {
     this.selects.close(false);
     $("#settingsContent").innerHTML =
       `<div class="settings-sheet" data-section="models" id="modelSettings"></div>
+      <div class="settings-sheet section-stack" data-section="personal-assistant" id="personalAssistantSettings"></div>
       <div class="settings-sheet section-stack" data-section="x" id="xAccountSettings"></div>
       <div class="settings-sheet" data-section="schedules" id="scheduleSettings"></div>
       ${this.helpHTML()}
@@ -574,6 +579,7 @@ export class SettingsPanel {
       <button class="btn-secondary" id="pickDatabaseBtn" type="button" ${d.database.environment_override || !d.database.native_picker_available ? "disabled" : ""}>选择文件…</button><p class="muted">${e(d.database.notice)}</p></section>
       <section class="settings-section-card" data-section="system"><div class="section-card-title"><span>系统状态与版本升级</span></div><div><strong id="updateCurrent"></strong><p class="muted">从本项目仓库获取稳定版本，更新后自动重启；启动检查失败时尝试恢复旧版本。</p><div class="field-item"><span class="field-label">更新源</span><code id="updateRepository" class="storage-path"></code></div></div><div class="button-row"><button class="btn-secondary" id="checkUpdateBtn" type="button">检查更新</button><button class="btn-primary" id="applyUpdateBtn" type="button" hidden>确认更新</button><button class="btn-primary" id="refreshUpdateBtn" type="button" hidden>刷新使用新版本</button><button class="btn-secondary" id="resumeUpdateBtn" type="button" hidden>继续查看进度</button></div><div id="updateResult" hidden role="status" aria-live="polite" aria-atomic="true"><strong id="updateConclusion"></strong><p id="updateExplanation"></p><time id="updateCheckedAt"></time></div><details><summary>版本记录</summary><div id="releaseNotes" class="muted">展开后读取</div></details></section>`;
     this.renderModels();
+    this.personalAssistant.mount($("#personalAssistantSettings"));
     this.xAccounts.render();
     this.renderTranslation();
     this.renderShortcuts();

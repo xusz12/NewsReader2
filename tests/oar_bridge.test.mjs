@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execute, prepareConfig, validateRequest } from '../scripts/oar_bridge.mjs';
+import { execute, prepareConfig, validateRequest, installNrTools } from '../scripts/oar_bridge.mjs';
 
 async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'newsreader-oar-unit-'));
@@ -247,6 +247,48 @@ test('CLI adapter streams, waits for native completion, resumes same native id w
   assert.equal(await executeCli(request,()=>{},undefined,wrapped),true);
   assert.equal(args.includes('--session'),true);
   assert.equal(args.includes('--session-id'),false);
+});
+
+test('personal assistant uses only its MCP tools without changing global Pi configuration', async t => {
+  const {executeCli}=await import('../scripts/oar_bridge.mjs');
+  const request=await fixture(t), source=path.join(request.cwd,'source');
+  await fs.mkdir(source);
+  const original=JSON.stringify({mcpServers:{unrelated:{command:'/bin/false'}}});
+  await fs.writeFile(path.join(source,'mcp.json'),original);
+  const copy=await prepareConfig(source,request.state_dir);
+  request.nr_tools={command:'/usr/bin/python3',args:['/local/nr-tools.py']};
+  await installNrTools(copy,request.nr_tools);
+  assert.equal(await fs.readFile(path.join(source,'mcp.json'),'utf8'),original);
+  const installed=JSON.parse(await fs.readFile(path.join(copy,'mcp.json'),'utf8'));
+  assert.deepEqual(Object.keys(installed.mcpServers),['nr_assistant']);
+  assert.equal(installed.mcpServers.nr_assistant.exposure,'direct');
+  assert.throws(()=>validateRequest({...request,nr_tools:{command:'relative',args:[]}}),/invalid_request/);
+  let args;
+  const runner=await fakeCli(t,cliEvents);
+  await executeCli(request,()=>{},undefined,(node,argv,options)=>{args=argv;return runner(node,argv,options);});
+  assert.equal(args[args.indexOf('--tools')+1],'mcp__nr_assistant__*');
+  assert.equal(args.includes('--no-extensions'),true);
+  assert.equal(args.includes('builtin:mcp'),true);
+});
+
+test('installed Pi MCP client connects to the NR server and executes library and memory tools', async t => {
+  const {McpClient,StdioTransport}=await import('@earendil-works/pi-mcp');
+  const {execFileSync}=await import('node:child_process');
+  const {fileURLToPath}=await import('node:url');
+  const request=await fixture(t), root=fileURLToPath(new URL('..',import.meta.url));
+  const python=process.env.NEWS_READER_PYTHON || 'python3';
+  execFileSync(python,['-c',`import sys,sqlite3\nfrom pathlib import Path\nfrom personal_assistant import Service\nfrom settings import default_app_settings\np=Path(sys.argv[1])\ndb=p/'news.sqlite3'\nc=sqlite3.connect(db)\nc.execute('CREATE TABLE sample(title TEXT)')\nc.execute("INSERT INTO sample VALUES('政策新闻')")\nc.commit()\nc.close()\ns=Service(p/'assistant',lambda:db,default_app_settings)\ns.ensure()`,request.cwd],{cwd:root});
+  const client=new McpClient({name:'nr-integration-test',version:'1',requestTimeoutMs:5000});
+  t.after(()=>client.close());
+  await client.connect(new StdioTransport({command:python,args:[path.join(root,'personal_assistant_tools.py'),
+    '--db',path.join(request.cwd,'news.sqlite3'),'--workspace',path.join(request.cwd,'assistant/workspace'),'--state-db',path.join(request.cwd,'assistant/assistant.sqlite3')]}));
+  assert.equal((await client.listTools()).length,6);
+  const result=await client.callTool('nr_query',{sql:'SELECT title FROM sample'});
+  assert.deepEqual(JSON.parse(result.content[0].text).rows,[['政策新闻']]);
+  const memory=await client.callTool('memory_read',{path:'MEMORY.md'});
+  assert.match(JSON.parse(memory.content[0].text).content,/长期记忆/);
+  const denied=await client.callTool('nr_query',{sql:'DELETE FROM sample'});
+  assert.equal(denied.isError,true);
 });
 
 test('Pi OAR receives the selected effort for new, resumed, and rebuilt sessions', async t => {

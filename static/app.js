@@ -21,12 +21,13 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.7";
+import { SettingsPanel } from "./settings-panel.js?v=0.5.9";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.4";
 import { TopicPanel } from "./topic-panel.js?v=0.5.4";
 import { ReportPanel } from "./report-panel.js?v=0.5.8";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";
+import { PersonalAssistant } from "./personal-assistant.js?v=0.5.9";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
 import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
 import { TaskProgress } from "./task-progress.js?v=0.5.5";
@@ -270,6 +271,10 @@ function updateResearchNotes(id, result) {
   renderFeed();
   refreshBadges();
 }
+const personalAssistant = new PersonalAssistant({selects, onSettings:async () => {
+  if (!settings.open) await settings.toggle();
+  settings.selectSection("personal-assistant");
+}});
 const agent = new AgentPanel({
   selects,
   onArchive: (id, result) => {
@@ -2018,7 +2023,7 @@ $("#shortcutsModal").onclick = (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.isComposing) return;
-  if (reports.popover.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
+  if (personalAssistant.popover.open || reports.popover.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));

@@ -185,6 +185,7 @@ test("independent ideas create, edit, search and delete", async ({ page }) => {
   await page.locator("#saveIdeaBtn").click();
   await expect(page.locator("#ideasCardList")).toContainText("独立测试想法");
   await page.locator("#ideasSearchInput").fill("独立测试想法");
+  await expect(page.locator("#ideasCardList .news-card")).toHaveCount(1);
   await page.locator("#ideasCardList .news-card").click();
   await page.locator("#ideaNote").fill("独立测试想法：补充核心证据");
   await page.locator("#saveIdeaBtn").click();
@@ -538,7 +539,7 @@ test("full-text search includes cached article body", async ({ page }) => {
   await page
     .locator("#feedSearchInput")
     .fill("isolated interface test fixture");
-  await expect(page.locator("#feedCardList .news-card")).toHaveCount(65);
+  await expect(page.locator("#feedCardList .news-card")).toHaveCount(30);
   await expect(page.locator('#feedColFeed [data-filter="all"]')).toContainText(
     "65",
   );
@@ -737,7 +738,8 @@ test("settings is an inline three-column workspace with compact categories", asy
     "page",
   );
   await expect(page.locator("#settingsSearchInput, .settings-category-meta, .settings-category-description, .settings-list-footer")).toHaveCount(0);
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(10);
+  await expect(page.locator(".settings-category-card:visible")).toHaveCount(12);
+  await expect(page.locator('[data-settings-tab="personal-assistant"]')).toBeVisible();
   await expect(page.locator("[data-settings-tab]").first()).toHaveAttribute("data-settings-tab", "system");
   await page.locator('[data-settings-tab="storage"]').click();
   await expect(page.locator("#settingsDetailTitle")).toHaveText("数据库与存储");
@@ -745,7 +747,7 @@ test("settings is an inline three-column workspace with compact categories", asy
   for (const category of ["deepseek", "pipeline", "system", "models"]) {
     await page.locator(`[data-settings-tab="${category}"]`).click();
     const cards = page.locator(`#settingsContent > [data-section="${category}"]`);
-    const count = category === "pipeline" ? 3 : 1;
+    const count = category === "pipeline" ? 5 : 1;
     await expect(cards).toHaveCount(count);
     for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(

@@ -29,6 +29,47 @@ for name, path in {
 (RUNTIME / 'settings.json').write_text(json.dumps({'llm': {'pi_chat': {'provider': 'test', 'model': 'test-model'}}}))
 import app as module
 module.ensure_db()
+# Personal assistant fixtures keep the real persistence/tool APIs, replacing
+# only model generation. No CLI, credentials or live library are touched.
+personal_mode = {"value": "success"}
+def fixture_personal(**kwargs):
+    mode = personal_mode["value"]
+    until = time.monotonic() + (30 if mode == "wait" else .2)
+    kwargs["emit"]({"type":"text_delta", "delta":"正在查阅 NR…"})
+    while time.monotonic() < until:
+        if kwargs["stopped"]():
+            raise RuntimeError("assistant_stopped")
+        time.sleep(.02)
+    if mode == "fail":
+        raise RuntimeError("assistant_failed")
+    from personal_assistant_tools import ToolServer
+    tools = ToolServer(kwargs["db"], kwargs["workspace"], kwargs["state_db"])
+    count = tools.call("nr_query", {"sql":"SELECT count(*) FROM items"})["rows"][0][0]
+    with module.PERSONAL_ASSISTANT_SERVICE.connect() as conn:
+        message = conn.execute("SELECT id,content FROM messages WHERE role='user' ORDER BY id DESC LIMIT 1").fetchone()
+    if "记住" in message["content"]:
+        memory = tools.call("memory_read", {"path":"notes/关注方向.md"})
+        tools.call("memory_write", {"path":"notes/关注方向.md", "revision":memory["revision"],
+            "content":"用户关注政策的长期影响；依据 → 传导过程 → 预判。", "source_message_ids":[message["id"]]})
+    return f"已查询 NR 库内 {count} 条新闻。\n\n你的关注方向会保存在独立工作区，讨论可以随时继续。"
+module.PERSONAL_ASSISTANT_SERVICE.runner = fixture_personal
+
+@module.app.post('/__test/personal-assistant')
+def configure_personal_fixture():
+    value = module.request.get_json() or {}
+    personal_mode["value"] = value.get("mode", "success")
+    if value.get("reset"):
+        service = module.PERSONAL_ASSISTANT_SERVICE
+        service.ensure()
+        with service.connect() as conn:
+            conn.execute("UPDATE jobs SET stop_requested=1 WHERE status IN ('queued','running')")
+        until = time.monotonic() + 3
+        while service.list_threads()["active_job"] and time.monotonic() < until:
+            time.sleep(.02)
+        import shutil
+        shutil.rmtree(service.root)
+        service.initialized = False
+    return module.jsonify(ok=True)
 # Summary UI exercises real preview/transaction APIs against this temporary DB.
 # Only model execution is replaced; never invoke a user's CLI from this server.
 summary_mode = {"value": "success"}

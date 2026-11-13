@@ -4432,6 +4432,13 @@ button:disabled {
 }
 /* Shared anchored form surface; its contents use the existing form controls. */
 .anchored-popover { position: fixed; z-index: 300; width: 360px; display: flex; flex-direction: column; gap: var(--space-4); overflow: auto; overscroll-behavior: contain; padding: var(--space-4); background: var(--surface-raised); color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
+/* Conversation variant of the shared anchored overlay. Message, composer and
+   header styling comes from the existing Agent components in every theme. */
+.anchored-popover.agent-conversation { width: var(--agent-dock-width); height: var(--agent-dock-height); padding: 0; gap: 0; overflow: hidden; }
+.agent-conversation .agent-header { cursor: default; }
+.agent-conversation .agent-context { flex-shrink: 0; }
+.agent-conversation .agent-title-line strong { overflow: hidden; text-overflow: ellipsis; }
+.form-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .popover-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .popover-heading .reader-section-heading { font-size: var(--fs-h3); }
 .popover-form { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }

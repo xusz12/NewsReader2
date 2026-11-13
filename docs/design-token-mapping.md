@@ -27,6 +27,14 @@
 - 返回已访问的阅读范围时可先显示短期首屏预览，同时保留共享加载状态；取得响应后替换为最新结果。预览期间不自动标读，本地状态版本变化后不显示旧预览；失败反馈及重试继续使用现有列表组件。
 - 独立想法编辑器在打开时加载，等待及失败重试使用共享状态、按钮样式；切换条目时丢弃过期加载结果，保留各自草稿。不增加页面专属字号、间距或主题规则。
 
+## 个人助手（2026-11-12）
+
+- 顶栏入口复用 `.topbar-tool-btn`；独立面板使用 `AnchoredPopover` 和共享 `.anchored-popover.agent-conversation` 变体，尺寸来自 `--agent-dock-width/height`。内部直接复用 `.agent-header / .agent-context / .agent-chat-stream / .agent-msg / .agent-bubble / .agent-input-row`，消息继承全局阅读字号；窄屏仍锚定顶栏，受 visualViewport 限制，不触发文章 Agent 的 Bottom Sheet 规则。
+- 输入器复用 `resizeAutoFields`，新增可选 `data-auto-min-rows/max-rows`，既有调用默认仍为 2–7 行。个人助手默认一行，按面板可用高度增长至最多五行，键盘缩小视口时保留发送按钮与消息空间；手机打开面板不自动唤起键盘。
+- 设置「个人助手」复用分类卡片、`.settings-sheet / .settings-section-card / .section-stack`、表单和共享 SelectControls。`.form-fieldset` 仅重置原生 fieldset 边距／边框用于成组禁用。身份与记忆各自保存，保留导航草稿，不修改原模型配置。
+- 不预设助手名字。未命名时用功能标题「个人助手」，空态复用 `.agent-empty-caption / .section-stack / .btn-secondary` 提供「为助手命名」入口；输入与发送暂不可用。设置的名字字段初始留空，由用户填写；保存后面板显示该名字并可开始讨论。
+- 明暗／系统明暗／墨水屏沿用现有 Token；错误和停止用共享状态文字，关闭浮层恢复入口焦点，讨论菜单拥有独立键盘焦点。
+
 ## 映射表
 
 | 规范 | 生产组件 | 实际值与行为 |
