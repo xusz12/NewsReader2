@@ -17,7 +17,7 @@ def fixture(tmp_path, monkeypatch):
 
 def configure(settings, runtime, suffix):
     settings['agent']['runtime'] = runtime
-    settings['agent']['codex'].update(model=f'codex-{suffix}', profile=f'profile-{suffix}', reasoning_effort='high')
+    settings['agent']['codex'].update(model=f'codex-{suffix}', reasoning_effort='high')
     settings['llm']['pi_chat'].update(provider=f'provider-{suffix}', model=f'pi-{suffix}')
 
 
@@ -36,7 +36,7 @@ def test_unused_session_adopts_current_settings_before_first_question(fixture, o
     assert session['provider'] == new_runtime
     assert session['model'] == f'{new_runtime}-saved'
     if new_runtime == 'codex':
-        assert session['executor_config']['profile'] == 'profile-saved'
+        assert 'profile' not in session['executor_config']
         assert session['executor_config']['reasoning_effort'] == 'high'
     else:
         assert session['executor_provider'] == 'provider-saved'

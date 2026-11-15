@@ -128,7 +128,9 @@ class Service:
         self.ensure()
         with self.connect() as connection:
             row = connection.execute("SELECT data,epoch FROM profile WHERE id=1").fetchone()
-        return json.loads(row["data"]) | {"epoch": row["epoch"], "workspace": str(self.workspace)}
+        value = json.loads(row["data"])
+        value["codex"] = codex_client.saved_preferences(value.get("codex", {}))
+        return value | {"epoch": row["epoch"], "workspace": str(self.workspace)}
 
     def save_profile(self, payload):
         self.ensure()
@@ -137,6 +139,8 @@ class Service:
             if payload.get("epoch") != previous["epoch"]:
                 raise ValueError("配置已更新，请重新打开设置后修改")
             value = normalize_profile(payload, previous)
+            if value["codex"] != previous["codex"]:
+                value["codex"] = model_catalogs.validate_effort(value["codex"])
             value.pop("epoch", None)
             value.pop("workspace", None)
             connection.execute("UPDATE profile SET data=?,epoch=epoch+1 WHERE id=1", (json.dumps(value, ensure_ascii=False),))

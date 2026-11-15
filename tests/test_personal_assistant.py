@@ -70,6 +70,31 @@ def test_first_use_requires_user_name_and_preserves_identity(service, tmp_path, 
     assert wait_done(restarted, thread)["job"]["status"] == "done"
 
 
+@pytest.mark.parametrize('field', ['profile', 'provider'])
+def test_personal_settings_reject_retired_codex_overrides(service, field):
+    original = service.profile()
+    with pytest.raises(ValueError, match='codex_advanced_config_removed'):
+        service.save_profile(original | {'codex': {**original['codex'], field: 'old'}})
+    assert service.profile() == original
+
+
+def test_personal_settings_allow_only_catalog_models_and_migrate_old_defaults(service, monkeypatch, tmp_path):
+    monkeypatch.setenv('NEWS_READER_APP_SETTINGS_PATH', str(tmp_path / 'settings.json'))
+    monkeypatch.setattr('personal_assistant.model_catalogs.safe_catalog', lambda _: {
+        'options': [{'value': 'known', 'reasoning_efforts': ['high']}]})
+    original = service.profile()
+    with pytest.raises(ValueError, match='codex_model_not_in_catalog'):
+        service.save_profile(original | {'codex': {'model': 'manual'}})
+    assert service.profile() == original
+    updated = service.save_profile(original | {'codex': {'model': 'known', 'reasoning_effort': 'high'}})
+    assert updated['codex']['model'] == 'known'
+    with service.connect() as conn:
+        legacy = json.loads(conn.execute('SELECT data FROM profile WHERE id=1').fetchone()[0])
+        legacy['codex'].update(profile='retired', provider='retired')
+        conn.execute('UPDATE profile SET data=? WHERE id=1', (json.dumps(legacy),))
+    assert service.profile()['codex'] == updated['codex']
+
+
 def test_read_only_full_library_and_limits(service, tmp_path):
     db = service.db_path()
     assert any(t["name"] == "standalone_ideas" for t in schema(db)["tables"])

@@ -113,6 +113,10 @@ module.model_catalogs.codex_catalog = lambda config: {
     'options': [
         {'value': 'ui-catalog-a', 'label': 'ui-catalog-a', 'reasoning_efforts': ['low', 'high']},
         {'value': 'ui-catalog-b', 'label': 'ui-catalog-b', 'reasoning_efforts': ['medium']},
+        *[{'value': name, 'label': name, 'reasoning_efforts': ['low', 'high']} for name in (
+            'ui-running', 'ui-failed', 'ui-success', 'report-model', 'chat-model',
+            'daily-default', 'periodic-default', 'daily-edited', 'periodic-edited',
+        )],
     ],
 }
 # Deterministic archive generation; the real archive API still persists and tags the card.

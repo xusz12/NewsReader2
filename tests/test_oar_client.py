@@ -120,3 +120,119 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
     with pytest.raises(RuntimeError,match='oar_dependency_missing'):
         oar_client.run_once([node,str(bridge)],request,{**os.environ,'NEWS_READER_PI_AGENT_DIR':str(source)},10)
     assert not list(state.glob('config-*'))
+
+
+@pytest.mark.parametrize('route,tool_source', [('oar', 'builtin'), ('cli', 'builtin'), ('cli', 'nr_tools'),
+    ('news', 'builtin'), ('migrate_cli', 'builtin'), ('import_cli', 'builtin')])
+def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, route, tool_source):
+    """Exercise the installed OAR/SDK and native CLI against a local provider."""
+    import shutil
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    node = shutil.which('node')
+    if not node or not (oar_client.ROOT / 'node_modules/@botiverse/oar').exists():
+        pytest.skip('Installed OAR and Pi require npm ci')
+    source, cwd, state = (tmp_path / name for name in ('source', 'project', 'state'))
+    for directory in (source, cwd, state):
+        directory.mkdir()
+    sample = cwd / 'sample.txt'
+    sample.write_text('local-tool-evidence', encoding='utf-8')
+    tool_name, tool_args = 'read', {'path': str(sample)}
+    nr_tools = None
+    if tool_source == 'nr_tools':
+        import sqlite3
+        from personal_assistant import Service
+        from settings import default_app_settings
+        database = tmp_path / 'news.sqlite3'
+        with sqlite3.connect(database) as connection:
+            connection.execute('CREATE TABLE sample (value TEXT)')
+            connection.execute("INSERT INTO sample VALUES ('local-tool-evidence')")
+        assistant = tmp_path / 'assistant'
+        Service(assistant, lambda: database, default_app_settings).ensure()
+        tool_name, tool_args = 'mcp__nr_assistant__nr_query', {'sql': 'SELECT value FROM sample'}
+        nr_tools = {'command': sys.executable, 'args': [str(oar_client.ROOT / 'personal_assistant_tools.py'),
+            '--db', str(database), '--workspace', str(assistant / 'workspace'),
+            '--state-db', str(assistant / 'assistant.sqlite3')]}
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
+            first = len(requests) == 1
+            delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': 'read-sample',
+                'type': 'function', 'function': {'name': tool_name,
+                    'arguments': json.dumps(tool_args)}}]} if first else {
+                'role': 'assistant', 'content': 'first-answer' if len(requests) == 2 else 'resumed-answer'}
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.end_headers()
+            for value, finish in [(delta, None), ({}, 'tool_calls' if first else 'stop')]:
+                chunk = {'id': 'fixture', 'object': 'chat.completion.chunk', 'model': 'fixture',
+                         'choices': [{'index': 0, 'delta': value, 'finish_reason': finish}]}
+                self.wfile.write(('data: ' + json.dumps(chunk) + '\n\n').encode())
+            self.wfile.write(b'data: [DONE]\n\n')
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    (source / 'auth.json').write_text('{}')
+    (source / 'settings.json').write_text(json.dumps({'defaultTools': ['read']}))
+    (source / 'models.json').write_text(json.dumps({'providers': {'nr-upgrade-test': {
+        'baseUrl': f'http://127.0.0.1:{server.server_port}/v1', 'api': 'openai-completions',
+        'apiKey': 'fixture-key', 'models': [{'id': 'fixture', 'name': 'Fixture',
+            'reasoning': False, 'input': ['text'], 'contextWindow': 32768, 'maxTokens': 4096,
+            'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}}}))
+    if route in ('cli', 'news', 'migrate_cli', 'import_cli') and tool_source == 'builtin':
+        # Native MCP configuration deliberately keeps this session on the CLI route.
+        (source / 'mcp.json').write_text('{"mcpServers":{}}')
+    original_config = {file.name: file.read_bytes() for file in source.iterdir()}
+    env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'PI_OFFLINE': '1',
+           'NEWS_READER_PI_AGENT_DIR': str(source)}
+    request = {'cwd': str(cwd), 'state_dir': str(state), 'provider': 'nr-upgrade-test',
+               'model': 'fixture', 'prompt': 'Read the sample and retain this first question.',
+               'resume_prompt': 'Continue the same conversation.', 'reasoning_effort': 'off'}
+    if nr_tools:
+        request['nr_tools'] = nr_tools
+    if route == 'news':
+        request['task'] = 'news_chat'
+    command = [node, str(oar_client.ROOT / 'scripts/oar_bridge.mjs')]
+    try:
+        assert oar_client.run_once(command, request, env, 20) == 'first-answer'
+        saved = json.loads((state / 'session.json').read_text())
+        assert saved['runtime'] == ('oar' if route == 'news' else 'cli' if route in ('migrate_cli', 'import_cli') else route)
+        if route == 'migrate_cli':
+            request['task'] = 'news_chat'
+        if route == 'import_cli':
+            shutil.copytree(state / 'sessions', source / 'sessions')
+            original_history = {str(f.relative_to(source)): f.read_bytes() for f in (source / 'sessions').rglob('*.jsonl')}
+            state = tmp_path / 'imported-state'
+            request.update(task='news_chat', legacy_native_id=saved['id'], state_dir=str(state))
+        assert oar_client.run_once(command, request, env, 20) == 'resumed-answer'
+        assert json.loads((state / 'session.json').read_text())['id'] == saved['id']
+        if route in ('news', 'migrate_cli', 'import_cli'):
+            assert json.loads((state / 'session.json').read_text())['runtime'] == 'oar'
+            assert not (state / 'route.json').exists()
+        assert len(requests) == 3
+        tools = [tool['function']['name'] for tool in requests[0]['tools']]
+        assert tool_name in tools
+        if nr_tools:
+            assert all(name.startswith('mcp__nr_assistant__') for name in tools)
+        assert any(message['role'] == 'tool' and 'local-tool-evidence' in str(message['content'])
+                   for message in requests[1]['messages'])
+        resumed = requests[2]['messages']
+        assert any(message['role'] == 'assistant' and 'first-answer' in str(message['content'])
+                   for message in resumed)
+        assert sum(request['prompt'] in str(message['content']) for message in resumed) == 1
+        assert request['resume_prompt'] in str(resumed[-1]['content'])
+        assert not list(state.glob('config-*'))
+        assert original_config == {file.name: file.read_bytes() for file in source.iterdir() if file.is_file()}
+        if route == 'import_cli':
+            assert original_history == {str(f.relative_to(source)): f.read_bytes() for f in (source / 'sessions').rglob('*.jsonl')}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

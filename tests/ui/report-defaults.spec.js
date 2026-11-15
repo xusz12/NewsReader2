@@ -1,10 +1,10 @@
 import {test,expect} from '@playwright/test';
-import {choosePicker,openSettings,openNavigation,openModelAdvanced} from './helpers.js';
+import {choosePicker,openSettings,openNavigation} from './helpers.js';
 
 const kinds={morning:'早报',noon:'午报',evening:'晚报',weekly:'周报',monthly:'月报'};
 const group=kind=>['weekly','monthly'].includes(kind)?'periodic':'daily';
 const feature=kind=>group(kind)==='periodic'?'reports_periodic':'reports';
-const config=kind=>({runtime:'codex',codex:{model:`${kind}-default`,profile:`${kind}-profile`,provider:'',sandbox:'read-only'},
+const config=kind=>({runtime:'codex',codex:{model:`${kind}-default`,sandbox:'read-only'},
   pi:{provider:'test',model:'test-model',reasoning_effort:''}});
 let original;
 test.beforeEach(async({request})=>{
@@ -30,17 +30,16 @@ for(const width of [390,1440]) test('日报与周月报只有两组配置，独�
   await expect(page.locator('[data-model-feature="reports"] .section-card-title')).toHaveText('日报（早／午／晚）');
   await expect(page.locator('[data-model-feature="reports_periodic"] .section-card-title')).toHaveText('周报／月报');
   for(const kind of ['morning','weekly']) {
-    await openModelAdvanced(page,feature(kind));
-    await page.locator(`input[name="feature_models.${feature(kind)}.codex.model"]`).fill(`${group(kind)}-edited`);
+    await choosePicker(page,'模型',`${group(kind)}-edited`,feature(kind));
   }
-  await choosePicker(page,'Runtime','Pi SDK / OAR',feature('noon'));
+  await choosePicker(page,'Runtime','Pi',feature('noon'));
   await choosePicker(page,'推理强度','high',feature('noon'));
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
   const saved=await (await request.get('/api/settings')).json();
   for(const kind of ['morning','weekly']) {
     expect(saved.feature_models[feature(kind)].codex.model).toBe(`${group(kind)}-edited`);
-    expect(saved.feature_models[feature(kind)].codex.profile).toBe(`${group(kind)}-profile`);
+    expect(saved.feature_models[feature(kind)].codex.profile).toBeUndefined();
   }
   expect(saved.feature_models.reports.pi.reasoning_effort).toBe('high');
   expect(saved.feature_models.reports.runtime).toBe('pi');
@@ -49,8 +48,7 @@ for(const width of [390,1440]) test('日报与周月报只有两组配置，独�
   await page.reload();await openSettings(page);await page.locator('[data-settings-tab="models"]').click();
   await expect(page.locator('[data-model-feature="reports"]').getByRole('combobox',{name:'模型',exact:true})).toHaveText('Test model');
   await expect(page.locator('[data-model-feature="reports_periodic"]').getByRole('combobox',{name:'模型',exact:true})).toHaveText('periodic-edited');
-  await openModelAdvanced(page,feature('weekly'));
-  await page.locator('input[name="feature_models.reports_periodic.codex.model"]').fill('discard-me');
+  await choosePicker(page,'模型','ui-catalog-a',feature('weekly'));
   await page.locator('#settingsResetBtn').click();
   await expect(page.locator('[data-model-feature="reports_periodic"]').getByRole('combobox',{name:'模型',exact:true})).toHaveText('periodic-edited');
   await expect(page.locator('#settingsSaveBtn')).toBeHidden();
@@ -134,12 +132,12 @@ test('重新打开保留两个 Runtime 的临时草稿',async({page})=>{
   await expect(page.getByRole('combobox',{name:'模型',exact:true})).toBeEnabled();
   await choosePicker(page,'模型','ui-catalog-b');
   await choosePicker(page,'推理程度','medium');
-  await choosePicker(page,'Runtime','Pi SDK / OAR');
+  await choosePicker(page,'Runtime','Pi');
   await expect(page.getByRole('combobox',{name:'模型',exact:true})).toBeEnabled();
   await choosePicker(page,'模型','comparison-model · test');
   await page.keyboard.press('Escape');await page.locator('#createReportBtn').click();
   await expect(page.locator('#reportCreationModel')).toContainText('Pi · comparison-model');
-  await choosePicker(page,'Runtime','Codex CLI');
+  await choosePicker(page,'Runtime','Codex');
   await expect(page.getByRole('combobox',{name:'模型',exact:true})).toHaveText('ui-catalog-b');
   await expect(page.getByRole('combobox',{name:'推理程度',exact:true})).toHaveText('medium');
 });

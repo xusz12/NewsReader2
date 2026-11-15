@@ -103,7 +103,7 @@
 - `report_monthly.py` 定义月报角色与补充规则。`periodic_report_snapshots.monthly_snapshot_json` 首次由月报在写事务及租约校验下建立；同窗口月报的重试、重启及不同模型对比复用同一份补充快照。之后新增新闻或改变重要标记不会改变这组材料，材料清理后再生成才重新取材。旧独立快照使用该报告自己的 `periodic_reports.monthly_snapshot_json`，保留其原始材料不变。
 - 补充快照与原快照一起计入存储用量并沿用清理保护和7天保留规则。只增加可空字段，幂等升级；已完成报告不重写。月报步骤使用 `title-first-v1:monthly-important-v1:` 前缀，工作区身份同样加入 `monthly-important-v1`，防止未完成旧任务复用不含必收保障的选稿结果；其他报告类型流程版本不变。
 
-容量来自Codex解析后的本机配置（含profile）及模型目录，或Pi模型注册表。Codex优先使用解析后的 `model_context_window`；否则读取 `model_catalog_json` 指定的目录，支持自定义provider／profile。仅在未指定目录且使用默认OpenAI provider时读取 `models_cache.json`；指定目录缺失、无效或不含所选模型时不回退到无关缓存。不会把所有模型都假定为1M。输入预算扣除输出空间、模型有效上下文比例和10%的安全余量。Codex预留最多32768 token；Pi推理模型预留最多65536 token（思考与JSON输出共用 `maxTokens`），关闭推理时预留32768，均不超过注册表输出上限或上下文的1/4。已有Pi任务的旧容量元数据在执行前升级，不修改其模型和推理档位。
+容量来自Codex解析后的本机默认配置及模型目录，或Pi模型注册表。Codex优先使用解析后的 `model_context_window`；否则读取 `model_catalog_json` 指定的目录，保留本机原生配置中的服务商及容量信息，NR不再提供服务商／Profile覆盖。仅在未指定目录且使用默认OpenAI provider时读取 `models_cache.json`；指定目录缺失、无效或不含所选模型时不回退到无关缓存。不会把所有模型都假定为1M。输入预算扣除输出空间、模型有效上下文比例和10%的安全余量。Codex预留最多32768 token；Pi推理模型预留最多65536 token（思考与JSON输出共用 `maxTokens`），关闭推理时预留32768，均不超过注册表输出上限或上下文的1/4。已有Pi任务的旧容量元数据在执行前升级，不修改其模型和推理档位。
 
 Pi明确返回 `length` 时报告输出截断及实际用量，禁止保存部分JSON；长报告仅对该请求扩大一次输出预算，最多131072 token且仍受模型/上下文限制，相应扣减输入预算。不能扩大或仍截断则明确失败，不自动降低推理、切换模型或反复提交相同请求。实测 Flash/max 一次32K请求的25773 token用于推理，只剩约6K供正文，因此旧的统一32K限制不能当成纯正文额度。`tiktoken`的本地估计不是各provider精确用量，无法使用时退回更保守的UTF-8字节估计。无法确定模型容量会明确失败。安装依赖使用 `python3 -m pip install -r requirements.txt`；首次使用分词器可能需要下载编码数据，失败后本进程使用保守估计。
 
@@ -143,11 +143,11 @@ Pi 报告桥接在锁定版本的 SDK 中仅加载 `core/model-runtime.js`，避
 
 `GET /api/reports/manual-options` 返回五类日期报告的默认窗口、日期／月份选择值、当前北京时间、`windows`、按五类返回、映射到两组配置的 `model_defaults`（含 `model_label` 与不含凭据的 `model_settings`）和数据库令牌；顶层同名模型字段继续表示日报组配置，供旧客户端兼容。`schedule_times`、`window_times` 仅为旧客户端保留。日窗口默认选择当前北京时间日期；模型信息来自对应报告类型配置，不运行模型或查询容量。`POST /api/reports/manual` 接收 `kind`、UUID `request_id`、`database_token`；日期报告提交 `selection`（YYYY-MM-DD，月报为YYYY-MM）及表单打开时绑定的单类 `window`。服务端校验完整字段与窗口有效性，计算范围并验证已结束。打开表单期间修改启动排期或窗口设置均不改变该表单所见范围；重新打开后使用新窗口，包括手动生成历史日期。周月边界不是00:00时，表单显示精确起止时间。旧表单不带 `window` 且当前规则已变化，或提交的旧 `schedule_times` 与默认窗口不符时，返回 `report_window_changed` 要求刷新。新建请求仅接受五类日期报告，`kind=custom` 返回 `report_window_invalid`；五类报告的旧起止时间请求仍兼容。历史自定义报告的阅读、删除和重试保留；手动报告使用 `manual:` 期次键，API返回 `is_manual`。
 
-新增日报的「临时模型设置」默认收起，未更改时使用当前报告类型已保存的配置。展开后通过三个 Picker 选择 Runtime、模型、推理程度，可恢复当前类型默认模型；切换类型保留已选临时模型，未选临时模型则立即使用新类型默认值；临时关闭保留草稿，取消或创建成功后清空。`POST /api/reports/model-options` 接收 `kind` 与 `runtime`，按报告类型和 Runtime 返回公开模型目录和可用推理程度：Codex 复用该类型 Profile／服务商的本地缓存目录，缺失时读取 CLI；Pi 使用本机 SDK 注册表。仅展开时读取目录，不运行推理，也不修改全局配置。
+新增日报的「临时模型设置」默认收起，未更改时使用当前报告类型已保存的配置。展开后通过三个 Picker 选择 Runtime、模型、推理程度，可恢复当前类型默认模型；切换类型保留已选临时模型，未选临时模型则立即使用新类型默认值；临时关闭保留草稿，取消或创建成功后清空。`POST /api/reports/model-options` 接收 `kind` 与 `runtime`，按报告类型和 Runtime 返回公开模型目录和可用推理程度：Codex 复用本机默认配置环境的缓存目录，缺失时读取原生 app-server；Pi 使用本机 SDK 注册表。仅展开时读取目录，不运行推理，也不修改全局配置。
 
 Pi 直接调用模型时传入由报告 ID 派生的 `sessionId`，同一报告的选材、成文、修复及重试共用，不同报告隔离。SDK 据此附加 OpenCode 所需的 `x-opencode-session` 请求头，避免 Go 返回缺少会话标识的 HTTP 400；独立传输调用没有报告 ID 时生成临时 UUID。此标识仅用于请求路由，不创建 Chat 会话，不改变已保存的模型配置。
 
-创建请求可附带 `model_override`（`runtime`、`model`、`reasoning_effort`，Pi 另含 `provider`）。服务端只允许这些字段，校验推理能力，继承 Codex 的已保存 Profile／服务商和只读沙箱限制，创建时写入该报告的不可变配置；Pi 的推理程度实际传入 `completeSimple`，`off` 使用关闭推理的 SDK 语义。Codex 执行统一固定 `service_tier="default"` 并关闭 `features.fast_mode`，不继承本机 Fast；已创建报告及重试同样适用，推理程度不变。目录校验在 SQLite 写事务外完成。同一 UUID 的重放直接保留原绑定，不重新查询模型能力；五类日期报告均支持覆盖，快照共享规则不变。
+创建请求可附带 `model_override`（`runtime`、`model`、`reasoning_effort`，Pi 另含 `provider`）。服务端只允许这些字段，校验目录模型及推理能力，保留 Codex 的只读沙箱限制，拒绝 NR Profile／服务商覆盖，创建时写入该报告的不可变配置；Pi 的推理程度实际传入 `completeSimple`，`off` 使用关闭推理的 SDK 语义。Codex 执行统一固定 `service_tier="default"` 并关闭 `features.fast_mode`，不继承本机 Fast；已创建报告及重试同样适用，推理程度不变。目录校验在 SQLite 写事务外完成。同一 UUID 的重放直接保留原绑定，不重新查询模型能力；五类日期报告均支持覆盖，快照共享规则不变。
 
 `DELETE /api/reports/<id>` 接收数据库令牌，事务内验证运行状态、写入删除标识、删除报告与步骤。旧 `preview-options / previews / <id>/preview` 接口保留兼容旧前端；旧试生成仍使用 `trial:` 与 `is_preview`，新入口不再创建试生成。旧 `/api/daily-briefings` 仅保留兼容，不为新入口供稿。
 

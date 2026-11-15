@@ -74,7 +74,7 @@ def test_title_first_and_native_resume_prompts_notify_and_use_server_title(fixtu
         assert '背景如何' in calls[1]['prompt']  # Fallback history also carries the scope.
         assert '尚未提供全文' in calls[1]['prompt']
     else:
-        assert 'resume' in calls[1]['args']
+        assert calls[1]['transport'] == 'oar' and calls[1]['resume']
     notices = client.get('/api/agent/notifications').json
     assert len(notices['notifications']) == 2
     row = notices['notifications'][0]

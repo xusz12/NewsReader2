@@ -430,7 +430,7 @@ def model_label(config):
         return ""
     if config.get("runtime") == "codex":
         selected = config.get("codex", {})
-        return " · ".join(filter(None, ("Codex", selected.get("model") or selected.get("profile") or "默认模型", selected.get("reasoning_effort"))))
+        return " · ".join(filter(None, ("Codex", selected.get("model") or "默认模型", selected.get("reasoning_effort"))))
     return " · ".join(filter(None, ("Pi", config.get("model") or "未配置模型", config.get("reasoning_effort"))))
 
 

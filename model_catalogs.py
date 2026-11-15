@@ -16,8 +16,8 @@ MAX_BYTES = 2 * 1024 * 1024
 
 
 def _cache_path(config):
-    c = codex_client.normalize_config(config)
-    context = [c.get('provider', ''), c['profile'],
+    codex_client.normalize_config(config)
+    context = ['', '',  # Preserve the cache key for the native default context.
                str(Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve()),
                os.environ.get('NEWS_READER_CODEX') or 'codex']
     key = hashlib.sha256(json.dumps(context).encode()).hexdigest()
@@ -102,10 +102,8 @@ class Rpc:
         raise RuntimeError('catalog_timeout')
 
 def codex_catalog(config):
-    c = codex_client.normalize_config(config)
-    command = [codex_client.executable(),'app-server','--stdio']
-    if c['profile']: command[1:1] = ['--profile', c['profile']]
-    if c.get('provider'): command += ['-c','model_provider='+json.dumps(c['provider'])]
+    codex_client.normalize_config(config)
+    command = [codex_client.executable(),'app-server','--listen','stdio://']
     rpc = Rpc(command)
     try:
         rpc.call('initialize',{'clientInfo':{'name':'newsreader-models','version':'1'}})
@@ -150,10 +148,14 @@ def safe_catalog(config):
 
 def validate_effort(config):
     c = codex_client.normalize_config(config)
-    if not c.get('reasoning_effort'): return c
-    # Unknown models (including inherited native selection) cannot claim known capabilities.
-    catalog = safe_catalog(c)
+    if not c['model'] and not c.get('reasoning_effort'): return c
+    # NR only selects catalog models; the empty choice inherits native defaults.
+    catalog = cached_catalog(c)
+    if not catalog['cached']:
+        catalog = safe_catalog(c)
     model = next((m for m in catalog['options'] if m['value']==c['model']),None)
-    if not model or c['reasoning_effort'] not in model['reasoning_efforts']:
+    if not model:
+        raise ValueError('codex_model_not_in_catalog')
+    if c.get('reasoning_effort') and c['reasoning_effort'] not in model['reasoning_efforts']:
         raise ValueError('unsupported_reasoning_effort')
     return c

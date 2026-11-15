@@ -70,6 +70,8 @@
   register('input', 'invalid_note note_too_long', '想法内容为空或超过长度限制。');
   register('input', 'invalid_model invalid_codex_model', '模型名称格式无效。');
   register('config', 'invalid_agent_runtime invalid_codex_provider invalid_codex_profile invalid_codex_settings invalid_codex_sandbox', '模型运行配置无效。');
+  register('config', 'codex_advanced_config_removed', 'Codex 自定义服务商和 Profile 已停用，请重新选择模型；旧会话请开启新对话。');
+  register('config', 'codex_model_not_in_catalog', '所选 Codex 模型不在列表中，请刷新模型列表或重新选择。');
   register('config', 'invalid_payload invalid_request_id', '请求参数无效。');
   register('config', 'invalid_codex_reasoning_effort unsupported_reasoning_effort', '当前模型不支持所选推理强度。');
   register('config', 'invalid_database_path database_not_found database_path_not_found database_path_must_exist', '数据库路径无效或文件不存在。');
@@ -80,6 +82,7 @@
   register('config', 'update_repository_not_configured', '尚未配置更新仓库。');
   register('missing', 'codex_missing cli_missing oar_node_missing oar_dependency_missing', '缺少所需的本机程序或依赖。');
   register('missing', 'oar_node_version cli_incompatible', '本机程序版本不兼容。');
+  register('missing', 'oar_compatibility_mismatch', '归档组件版本不兼容，请更新应用后重试。');
   register('missing', 'codex_probe_failed', '本机程序检测失败。');
   register('protocol', 'codex_protocol_error oar_protocol_error INVALID_JSON invalid_answer', '返回结果格式无效。');
   register('protocol', 'EMPTY_RESULT empty_model_response codex_empty_answer oar_empty_answer', '返回内容为空。');

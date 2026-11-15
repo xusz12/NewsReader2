@@ -9388,7 +9388,7 @@ def test_oar_sync_legacy_id_is_imported_not_discarded(tmp_path, monkeypatch):
         app_module.run_pi_chat(question='unsafe', session_id='../../unsafe', **args)
 
 
-def test_pi_archive_keeps_cli_label_before_private_state_cleanup(tmp_path, monkeypatch):
+def test_pi_archive_uses_oar_and_cleans_private_state(tmp_path, monkeypatch):
     import app as app_module
     monkeypatch.setattr(app_module, 'AGENT_RUNTIME_DIR', tmp_path / 'runtime')
     states = []
@@ -9401,12 +9401,12 @@ def test_pi_archive_keeps_cli_label_before_private_state_cleanup(tmp_path, monke
     result = app_module.run_pi_chat_archive(title='Fixture', source='Fixture', published_at='2026-10-10',
         messages=[{'role': 'user', 'content': '归档'}, {'role': 'assistant', 'content': '结论'}],
         pi_provider='fixture', pi_model='fixture')
-    assert result['runtime'] == 'pi-cli'
-    assert '兼容模式' in result['runtime_compatibility']
+    assert result['runtime'] == 'oar-pi'
+    assert result['runtime_compatibility'] == ''
     assert all(not state.exists() for state in states)
 
 
-def test_legacy_background_session_uses_new_route_for_compatibility_label(tmp_path, monkeypatch):
+def test_legacy_background_session_always_reports_oar(tmp_path, monkeypatch):
     import app as app_module
     monkeypatch.setattr(app_module, 'AGENT_RUNTIME_DIR', tmp_path / 'runtime')
     session_id = 'fixture-legacy-label'
@@ -9415,8 +9415,8 @@ def test_legacy_background_session_uses_new_route_for_compatibility_label(tmp_pa
     (state / 'route.json').write_text(json.dumps({'runtime': 'cli'}))
     result = app_module._serialize_agent_session({'id': session_id, 'executor_session_id': 'legacy-native-fixture',
         'executor_provider': 'fixture', 'context_json': '{}'})
-    assert result['runtime'] == 'pi-cli'
-    assert '兼容模式' in result['runtime_compatibility']
+    assert result['runtime'] == 'oar-pi'
+    assert result['runtime_compatibility'] == ''
     assert '旧对话' in result['history_compatibility']
     assert 'executor_session_id' not in result and 'context_json' not in result
 

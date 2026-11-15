@@ -11,7 +11,7 @@ from test_periodic_reports import db, runner
 
 
 def choices(model, runtime="codex"):
-    return {"runtime": runtime, "codex": {"model": model, "profile": model + "-profile"},
+    return {"runtime": runtime, "codex": {"model": model},
             "pi": {"provider": "test", "model": model, "reasoning_effort": "high"}}
 
 
@@ -38,11 +38,13 @@ def assert_choice(config, kind):
     else:
         assert config["runtime"] == "codex"
         assert config["codex"]["model"] == "daily"
-        assert config["codex"]["profile"] == "daily-profile"
+        assert "profile" not in config["codex"]
 
 
 def test_old_reports_migrate_once_and_partial_clients_preserve_each_group(tmp_path, monkeypatch):
     import app
+    monkeypatch.setattr(app.model_catalogs, "safe_catalog", lambda _: {"options": [
+        {"value": "new-periodic", "reasoning_efforts": []}]})
     path = tmp_path / "settings.json"
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(path))
     monkeypatch.setattr(settings.pi_models, "metadata", lambda request: {"reasoning_efforts": ["high"]})
@@ -132,7 +134,7 @@ def test_legacy_unbound_jobs_resolve_their_own_kind(configured, db, kind, action
     assert_choice(config_for(db, report["id"]), kind)
 
 
-def test_kind_catalog_and_temporary_override_use_its_profile(configured, db, monkeypatch):
+def test_kind_catalog_and_temporary_override_use_its_model(configured, db, monkeypatch):
     import app
     service, value = configured
     original = deepcopy(value)
@@ -147,7 +149,7 @@ def test_kind_catalog_and_temporary_override_use_its_profile(configured, db, mon
     for kind in pr.KINDS:
         response = client.post("/api/reports/model-options", json={"kind": kind, "runtime": "codex"})
         group = "periodic" if kind in {"weekly", "monthly"} else "daily"
-        assert response.status_code == 200 and seen[-1]["profile"] == group + "-profile"
+        assert response.status_code == 200 and seen[-1]["model"] == group
     for kind in ["daily", "custom", "unknown", [], None]:
         response = client.post("/api/reports/model-options", json={"kind": kind, "runtime": "codex"})
         assert response.status_code == 409 and response.json["error"] == "report_model_selection_invalid"
@@ -156,9 +158,9 @@ def test_kind_catalog_and_temporary_override_use_its_profile(configured, db, mon
         "request_id": uuid.uuid4().hex, "database_token": token,
         "model_override": {"runtime": "codex", "model": "temporary", "reasoning_effort": "high"}})
     assert response.status_code == 202
-    assert seen[-1]["profile"] == "periodic-profile"
+    assert seen[-1]["model"] == "periodic"
     bound = config_for(db, response.json["report"]["id"])["codex"]
-    assert (bound["model"], bound["profile"], bound["reasoning_effort"]) == ("temporary", "periodic-profile", "high")
+    assert (bound["model"], bound["reasoning_effort"]) == ("temporary", "high")
     assert value == original
 
 

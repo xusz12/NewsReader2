@@ -36,11 +36,6 @@ export async function choosePicker(page, name, label, feature) {
   await scope.getByRole('combobox', {name, exact:true}).click();
   await page.getByRole('option', {name:label, exact:true}).click();
 }
-export async function openModelAdvanced(page, feature = "chat") {
-  const advanced = page.locator(feature === "chat" ? "#modelAdvanced" : `#modelAdvanced-${feature}`);
-  if (!await advanced.evaluate(node=>node.open)) await advanced.locator('summary').click();
-}
-
 export async function contrast(button) {
   return button.evaluate(node => {
     const style = getComputedStyle(node);

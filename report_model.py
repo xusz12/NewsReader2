@@ -81,23 +81,20 @@ def capacity(config):
             raise RuntimeError("report_model_capacity_unknown") from None
         except (ValueError, KeyError, TypeError):
             raise RuntimeError("report_model_capacity_unknown") from None
-    selected = config["codex"]
+    selected = codex_client.normalize_config(config["codex"])
     native = {}
     rpc = None
     try:
-        command = [codex_client.executable(), "app-server", "--stdio"]
-        if selected.get("profile"):
-            command += ["--profile", selected["profile"]]
-        for name, key in (("model", "model"), ("provider", "model_provider")):
-            if selected.get(name):
-                command += ["-c", key + "=" + json.dumps(selected[name])]
+        command = [codex_client.executable(), "app-server", "--listen", "stdio://"]
+        if selected.get("model"):
+            command += ["-c", "model=" + json.dumps(selected["model"])]
         rpc = model_catalogs.Rpc(command, timeout=10)
         rpc.call("initialize", {"clientInfo": {"name": "newsreader-reports", "version": "2"}})
         rpc.send({"method": "initialized"})
         native = rpc.call("config/read", {"includeLayers": False}).get("config", {})
     except Exception:
         # An explicit default-provider model may still be resolved from the
-        # CLI's public model cache; never guess a profile's inherited model.
+        # CLI's public model cache; never guess an inherited model.
         pass
     finally:
         if rpc:
@@ -113,16 +110,16 @@ def capacity(config):
     override = native.get("model_context_window")
     if override:
         return resolved(limits(override, source="codex-resolved-config"))
-    provider = selected.get("provider") or native.get("model_provider") or "openai"
+    provider = native.get("model_provider") or "openai"
     try:
-        # The CLI's resolved catalog also applies to custom providers/profiles.
+        # The CLI's resolved catalog also applies to its own provider settings.
         # An explicit catalog replaces the default cache, so a missing entry
         # must not inherit a capacity from an unrelated cached model.
         catalog_path = native.get("model_catalog_json")
         if catalog_path:
             path = Path(catalog_path).expanduser()
         else:
-            if provider != "openai" or (selected.get("profile") and not native):
+            if provider != "openai":
                 raise ValueError()
             root = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
             path = root / "models_cache.json"
@@ -151,10 +148,8 @@ def toml_value(value):
 def codex_restrictions(config: dict, bridge=None) -> list[str]:
     # TOML table overrides merge, so mcp_servers={} does not disable saved servers.
     # Discover names without exposing server URLs, environment values or credentials.
-    command = [codex_client.executable()]
-    if config.get("profile"):
-        command += ["--profile", config["profile"]]
-    command += ["mcp", "list", "--json"]
+    config = codex_client.normalize_config(config)
+    command = [codex_client.executable(), "mcp", "list", "--json"]
     try:
         response = subprocess.run(command, capture_output=True, timeout=20, check=True)
         servers = json.loads(response.stdout)
@@ -232,12 +227,14 @@ def configuration(settings: dict, *, resolve=True, override=None, feature="repor
                     "model": override.get("model", ""), "reasoning_effort": effort})
             except ValueError:
                 raise ValueError("report_model_selection_invalid") from None
-            if effort:
+            if agent["codex"]["model"] or effort:
                 available = catalog(settings, runtime) if feature == "reports" else catalog(settings, runtime, feature)
                 if available.get("error") and not available.get("options"):
                     raise RuntimeError("report_model_catalog_failed")
                 entry = next((m for m in available["options"] if m["value"] == agent["codex"]["model"]), {})
-                if effort not in entry.get("reasoning_efforts", []):
+                if not entry:
+                    raise ValueError("report_model_selection_invalid")
+                if effort and effort not in entry.get("reasoning_efforts", []):
                     raise ValueError("report_reasoning_unsupported")
         else:
             agent["pi"] = {key: override.get(key, "") for key in ("provider", "model")}

@@ -74,7 +74,7 @@ export class SettingsPanel {
       },
     });
     this.catalogs = new Map();
-    this.modelStates = new Map(); this.modelAdvanced = new Map();
+    this.modelStates = new Map();
     const refreshPi = () => { if (!document.hidden) this.refreshPiCatalog(); };
     window.addEventListener("focus", refreshPi);
     document.addEventListener("visibilitychange", refreshPi);
@@ -109,9 +109,6 @@ export class SettingsPanel {
     $("#settingsContent").addEventListener("change", (event) =>
       this.updateDraft(event),
     );
-    $("#settingsContent").addEventListener("toggle", event => {
-      if (event.target.matches("[data-model-advanced]")) this.modelAdvanced.set(event.target.dataset.feature,event.target.open);
-    }, true);
     $("#settingsContent").addEventListener("click", (event) =>
       this.click(event),
     );
@@ -400,7 +397,6 @@ export class SettingsPanel {
     }
     if (apiConfig || input.name.startsWith("llm.translation.")) this.updateTranslationRoute();
     if (input.name === paths.codex+".model") {
-      this.syncModelFields(input, this.codexOptions(feature));
       if (!unchanged) {
         config.codex.reasoning_effort = "";
         this.renderReasoning(feature);
@@ -408,12 +404,6 @@ export class SettingsPanel {
     }
     if (input.name.startsWith("news_summary.")) this.loadCatchupScope(250);
     if (feature) this.invalidateModelTest(feature);
-    if ([paths.codex+".provider", paths.codex+".profile"].includes(input.name)) {
-      state.catalogNotice = "";
-      state.catalogSequence++;
-      config.codex.reasoning_effort = "";
-      this.renderCodexSelection(feature);
-    }
     if (input.name === paths.pi+".provider" && event.type === "change") {
       config.pi.model = "";
       delete config.pi.reasoning_effort;
@@ -423,14 +413,13 @@ export class SettingsPanel {
     if (input.name === paths.pi+".model" && !unchanged) {
       delete config.pi.reasoning_effort;
       this.renderReasoning(feature);
-      this.renderModelNotice(feature);
     }
-    if (input.name === paths.pi+".reasoning_effort") this.renderModelNotice(feature);
     if (input.name === paths.runtime) {
       state.catalogNotice = ""; state.catalogSequence++; this.renderModels(feature);
       $(`[data-select-trigger="${paths.runtime}"]`)?.focus({preventScroll:true});
       this.refreshPiCatalog();
     }
+    if (feature) this.renderModelNotice(feature);
     this.status("有未保存的更改");
   }
   syncModelFields(input, options) {
@@ -450,7 +439,7 @@ export class SettingsPanel {
     this.selects.refresh();
   }
   catalogKey(runtime, config, feature = "chat") {
-    return JSON.stringify(runtime === "codex" ? [feature, runtime, config.provider || "", config.profile || ""] : [feature, runtime]);
+    return JSON.stringify([feature, runtime]);
   }
   rememberModelCatalogs(data) {
     for (const feature of Object.keys(modelFeatures)) {
@@ -470,17 +459,21 @@ export class SettingsPanel {
   codexOptions(feature) { return this.modelCatalog(feature, "codex").options?.filter(option => option.source !== "saved") || []; }
   piOptions(feature) { return this.modelCatalog(feature, "pi").model_options_by_provider?.[this.modelConfig(feature).pi.provider] || []; }
   canTestModel(feature) {
-    const config = this.modelConfig(feature), model = this.piOptions(feature).find(option => option.value === config.pi.model);
-    return !this.modelState(feature).testing && (config.runtime === "codex" || !!model && (!config.pi.reasoning_effort || model.reasoning_efforts?.includes(config.pi.reasoning_effort)));
+    const config = this.modelConfig(feature), selected = config[config.runtime];
+    const model = (config.runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
+    return !this.modelState(feature).testing && (config.runtime === "codex" && !selected.model && !selected.reasoning_effort || !!model && (!selected.reasoning_effort || model.reasoning_efforts?.includes(selected.reasoning_effort)));
   }
   modelNotice(feature) {
     const config = this.modelConfig(feature), catalog = this.modelCatalog(feature);
-    const model = this.piOptions(feature).find(option => option.value === config.pi.model);
+    const selected = config[config.runtime];
+    const model = (config.runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
     const missing = config.runtime === "pi" && config.pi.provider && !model;
-    const unsupported = config.runtime === "pi" && model && config.pi.reasoning_effort && !model.reasoning_efforts?.includes(config.pi.reasoning_effort);
+    const unsupported = model && selected.reasoning_effort && !model.reasoning_efforts?.includes(selected.reasoning_effort);
     return [this.modelState(feature).catalogNotice || catalog.error || catalog.notice,
+      config.runtime === "codex" && config.codex.model && !this.codexOptions(feature).some(option => option.value === config.codex.model)
+        ? `已保存的 ${config.codex.model} 当前不在模型列表中，请刷新列表或重新选择。` : "",
       missing ? `已保存或选择的 ${config.pi.provider} / ${config.pi.model || "未选模型"} 当前不在可用目录中，请重新登录或选择模型。` : "",
-      unsupported ? `当前模型已不支持保存的推理强度 ${config.pi.reasoning_effort}，请重新选择。` : ""].filter(Boolean).join(" ");
+      unsupported ? `当前模型已不支持保存的推理强度 ${selected.reasoning_effort}，请重新选择。` : ""].filter(Boolean).join(" ");
   }
   renderModelNotice(feature) {
     const notice = this.modelElement(feature, "modelsNotice");
@@ -500,9 +493,8 @@ export class SettingsPanel {
     if (!current) return;
     const options = this.codexOptions(feature), value = this.modelConfig(feature).codex.model;
     const container = document.createElement("div");
-    container.innerHTML = select("模型", path+".model", value, options, "沿用本机默认");
+    container.innerHTML = select("模型", path+".model", value, options, "沿用本机默认", {preserveUnknown:false});
     current.closest(".field-item").replaceWith(container.firstElementChild);
-    $(`input[name="${path}.model"]`).value = options.some(option => option.value === value) ? "" : value;
     this.renderModelNotice(feature);
     this.renderReasoning(feature);
   }
@@ -512,8 +504,8 @@ export class SettingsPanel {
     const config = this.modelConfig(feature)[runtime];
     const efforts = (runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === config.model)?.reasoning_efforts || [];
     const container = document.createElement("div");
-    container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort || "", efforts, "沿用默认", {preserveUnknown:runtime !== "pi"});
-    if (runtime === "pi") container.querySelector("select").disabled = !efforts.length;
+    container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort || "", efforts, "沿用默认", {preserveUnknown:false});
+    container.querySelector("select").disabled = !efforts.length;
     current.closest(".field-item").replaceWith(container.firstElementChild);
     this.selects.refresh();
   }
@@ -719,7 +711,7 @@ export class SettingsPanel {
       <p class="muted">正文翻译按上方设置调用；Jev 在「新闻分类」管理。以下为其他功能已保存的模型配置，修改并保存后更新。</p>
       <div class="section-stack">${features.map(([key, label, fallback]) => {
         const config = key === "chat" ? legacy : saved.feature_models?.[key] || legacy;
-        const model = config.runtime === "codex" ? `Codex CLI · ${config.codex?.model || "本机默认模型"}${config.codex?.provider ? `（${config.codex.provider}）` : ""}`
+        const model = config.runtime === "codex" ? `Codex · ${config.codex?.model || "本机默认模型"}`
           : `Pi · ${config.pi?.provider && config.pi?.model ? `${config.pi.provider} / ${config.pi.model}` : "尚未选择服务商与模型"}`;
         return `<div class="field-item" data-api-usage="${key}"><span class="field-label">${label}</span><span>${e(model)}</span>${fallback ? `<p class="muted">${fallback}</p>` : ""}</div>`;
       }).join("")}</div>
@@ -825,19 +817,18 @@ export class SettingsPanel {
     if (!panel) return;
     const d = this.modelConfig(feature), paths = this.modelPaths(feature), codex = d.runtime === "codex", state = this.modelState(feature);
     const catalog = this.modelCatalog(feature), options = this.codexOptions(feature);
-    const model = options.find(x=>x.value === d.codex.model), custom = model ? "" : d.codex.model;
+    const model = options.find(x=>x.value === d.codex.model);
     const notice = this.modelNotice(feature), piModel = this.piOptions(feature).find(option => option.value === d.pi.model);
     const id = control => this.modelId(feature, control);
     const action = control => `id="${id(control)}" data-model-action="${control}"`;
     panel.innerHTML = `<div class="section-card-title"><span>${modelFeatures[feature]}</span></div><div class="form-group-grid">
-      ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}], null)}</div>
-      ${codex ? `<div class="form-group-grid">${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认")}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认")}</div>
-      <details id="${id("modelAdvanced")}" data-model-advanced data-feature="${feature}" ${this.modelAdvanced.get(feature)?'open':''}><summary class="reader-tool-btn">高级设置</summary><div class="section-stack">${field("自定义模型",paths.codex+".model",custom,'maxlength="120"')}<div class="form-group-grid">${field("服务商覆盖",paths.codex+".provider",d.codex.provider)}${field("Profile",paths.codex+".profile",d.codex.profile)}</div></div></details>`
+      ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex"},{value:"pi",label:"Pi"}], null)}</div>
+      ${codex ? `<div class="form-group-grid">${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认",{preserveUnknown:false})}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div>`
       : `<div class="form-group-grid">${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(feature),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}</div><p class="muted">Pi 使用自身的登录或环境配置。使用 Go 订阅时，请在 Pi 中登录 opencode-go；API 管理中的密钥仅用于正文翻译。</p>`}
       <div class="button-row"><button class="btn-secondary" ${action("refreshModelsBtn")} type="button" ${state.pendingCatalog?'disabled':''}>刷新模型目录</button><button class="btn-primary" ${action("testConnectionBtn")} type="button" ${this.canTestModel(feature)?'':'disabled'}>${state.testing?'测试中…':'运行连接测试'}</button></div>
       <p class="muted" id="${id("modelsNotice")}" role="status" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="${id("connTestTerminal")}" data-status="${testResultStatus(state.connectionResult)}" role="status" ${state.connectionResult?'':'hidden'}>${e(state.connectionResult || "")}</div>
       ${feature === "chat" ? `<div class="form-group-grid">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div><button class="reader-action-btn danger" id="clearSessionsBtn" type="button">清空全部临时 Agent 会话</button>` : ""}`;
-    if (!codex) $(`select[name="${paths.pi}.reasoning_effort"]`, panel).disabled = !piModel?.reasoning_efforts?.length;
+    $(`select[name="${codex ? paths.codex : paths.pi}.reasoning_effort"]`, panel).disabled = !(codex ? model : piModel)?.reasoning_efforts?.length;
     this.selects.refresh(panel);
   }
   updateCollectionStatus(data) {

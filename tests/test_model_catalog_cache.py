@@ -45,7 +45,7 @@ def test_catalog_survives_new_process_without_changing_settings(monkeypatch):
 
 
 @pytest.mark.parametrize('override', [{'provider': 'other'}, {'profile': 'research'}])
-def test_catalog_is_partitioned_by_provider_and_profile(monkeypatch, override):
+def test_retired_overrides_cannot_read_default_catalog(monkeypatch, override):
     monkeypatch.setattr(catalogs, 'codex_catalog', lambda config: deepcopy(CATALOG))
     catalogs.safe_catalog(CONFIG)
     assert catalogs.cached_catalog({**CONFIG, **override})['options'] == []

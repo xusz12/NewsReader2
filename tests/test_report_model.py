@@ -130,8 +130,8 @@ def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatc
         ]).encode())
     monkeypatch.setattr(model.subprocess, "run", probe)
     monkeypatch.setattr(model.codex_client, "executable", lambda:"codex")
-    args = model.codex_restrictions({"profile":"saved"})
-    assert calls == [["codex", "--profile", "saved", "mcp", "list", "--json"]]
+    args = model.codex_restrictions({})
+    assert calls == [["codex", "mcp", "list", "--json"]]
     config = tomllib.loads(next(arg for arg in args if arg.startswith("mcp_servers=")))
     assert set(config["mcp_servers"]) == {"http-service", "local-service"}
     assert all(entry == {"enabled":False, "command":"false"} for entry in config["mcp_servers"].values())
@@ -242,29 +242,29 @@ def test_codex_uses_selected_model_metadata_and_reserves_output(tmp_path, monkey
     assert result["source"] == "codex-model-catalog"
 
 
-def test_codex_profile_context_override_is_authoritative(tmp_path, monkeypatch):
+def test_codex_native_context_override_is_authoritative(tmp_path, monkeypatch):
     commands = codex_metadata(tmp_path, monkeypatch, {"model": "custom", "model_provider": "custom-provider",
         "model_context_window": 1000000, "model_catalog_json": str(tmp_path / "missing.json")})
-    result = model.capacity({"runtime": "codex", "codex": {"profile": "work"}})
+    result = model.capacity({"runtime": "codex", "codex": {}})
     assert result["context_window"] == 1000000 and result["source"] == "codex-resolved-config"
-    assert commands[0][3:5] == ["--profile", "work"]
+    assert "--profile" not in commands[0]
 
 
 @pytest.mark.parametrize("provider,selected", [
     ("openai", {"model": "fixture"}),
     ("custom", {"model": "fixture"}),
-    ("custom", {"profile": "work"}),
+    ("custom", {}),
 ])
 def test_codex_uses_resolved_custom_catalog_before_default_cache(tmp_path, monkeypatch, provider, selected):
     catalog = tmp_path / "custom-models.json"
     catalog.write_text(json.dumps({"models": [{"slug": "fixture", "context_window": 1048576,
         "max_output_tokens": 16000, "effective_context_window_percent": 95}]}))
-    codex_metadata(tmp_path, monkeypatch, {"model": "fixture" if selected.get("profile") else "other-model",
+    codex_metadata(tmp_path, monkeypatch, {"model": "fixture" if not selected.get("model") else "other-model",
         "model_provider": provider, "model_catalog_json": str(catalog)})
     result = model.capacity({"runtime": "codex", "codex": selected})
     assert result == {"context_window": 1048576, "input_tokens": 875290,
                       "output_tokens": 16000, "source": "codex-model-catalog",
-                      **({"resolved_model": "fixture"} if selected.get("profile") else {})}
+                      **({"resolved_model": "fixture"} if not selected.get("model") else {})}
 
 
 @pytest.mark.parametrize("contents", [None, "invalid json", "[]", '{"models": [null]}',
@@ -303,8 +303,8 @@ def test_pi_missing_dependencies_are_not_reported_as_unknown_capacity(tmp_path, 
 
 @pytest.mark.parametrize("selected,native,unavailable", [
     ({"model": "missing"}, {}, False),
-    ({"model": "fixture", "provider": "custom"}, {}, False),
-    ({"model": "fixture", "profile": "work"}, {}, True),
+    ({"model": "fixture"}, {"model_provider": "custom"}, False),
+    ({}, {}, True),
 ])
 def test_unknown_capacity_is_not_assumed_to_be_one_million(tmp_path, monkeypatch, selected, native, unavailable):
     codex_metadata(tmp_path, monkeypatch, native, unavailable=unavailable)

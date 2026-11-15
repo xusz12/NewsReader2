@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { answerConfirm, chooseTheme, openSettings, openModelAdvanced } from './helpers.js';
+import { answerConfirm, choosePicker, chooseTheme, openSettings } from './helpers.js';
 
 const card = (page, provider) => page.locator(`[data-api-provider="${provider}"]`);
 const action = (page, provider, name) => card(page, provider).locator(`[data-api-action="${name}"]`);
@@ -226,18 +226,18 @@ test('usage describes saved feature selections and fallback limits', async ({ pa
   await expect(card(page, 'opencode-go')).toContainText('使用 Go 订阅完成新闻正文翻译与精读');
   await expect(page.locator('[data-api-provider="opencode"]')).toHaveCount(0);
   await expect(page.getByRole('radio',{name:'OpenCode',exact:true})).toHaveCount(0);
-  await expect(page.locator('[data-api-usage="chat"]')).toContainText('Codex CLI · chat-model');
+  await expect(page.locator('[data-api-usage="chat"]')).toContainText('Codex · chat-model');
   await expect(page.locator('[data-api-usage="reports"]')).toContainText('Pi · opencode-go / report-model');
   await expect(page.locator('#apiUsageTitle').locator('..').locator('..')).toContainText('最多尝试 3 次');
   await page.locator('#apiFeatureSettingsBtn').click();
   await expect(page.locator('#settingsDetailTitle')).toHaveText('模型与 Agent');
-  await openModelAdvanced(page);
-  await page.locator('input[name="agent.codex.model"]').fill('new-chat-model');
+  await page.locator('#refreshModelsBtn').click();
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(page.locator('[data-api-usage="chat"]')).toContainText('chat-model');
-  await expect(page.locator('[data-api-usage="chat"]')).not.toContainText('new-chat-model');
+  await expect(page.locator('[data-api-usage="chat"]')).not.toContainText('ui-catalog-b');
   await page.locator('#settingsSaveBtn').click();
-  await expect(page.locator('[data-api-usage="chat"]')).toContainText('new-chat-model');
+  await expect(page.locator('[data-api-usage="chat"]')).toContainText('ui-catalog-b');
 });
 
 for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-light', 'system-dark', 'eink']) {
@@ -270,11 +270,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-l
     const fontSize = await card(page, 'opencode-go').locator('.field-input').evaluate(node => getComputedStyle(node).fontSize);
     await page.evaluate(() => document.documentElement.dataset.fontSize = 'extra-large');
     await expect(card(page, 'opencode-go').locator('.field-input')).toHaveCSS('font-size', fontSize);
-    // Same shared form styles as the existing model settings page.
+    // Same shared text-field styles as the collection settings section.
     const styles = await card(page, 'opencode-go').locator('.field-input').evaluate(node => {
       const s = getComputedStyle(node); return {fontSize:s.fontSize, borderRadius:s.borderRadius, padding:s.padding, color:s.color};
     });
-    const existing = await page.locator('#modelSettings .field-input').first().evaluate(node => {
+    const existing = await page.locator('input[name="collection.daily"]').evaluate(node => {
       const s = getComputedStyle(node); return {fontSize:s.fontSize, borderRadius:s.borderRadius, padding:s.padding, color:s.color};
     });
     expect(styles).toEqual(existing);

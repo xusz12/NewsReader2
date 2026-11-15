@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import uuid
 
@@ -11,7 +12,7 @@ import codex_client as codex
 from test_api import _setup_agent_api_fixture, _install_fake_oar
 
 THREAD = '0199a213-81c0-7800-8aa1-bbab2a035a53'
-CONFIG = {'model': 'test-model', 'profile': 'test-profile', 'sandbox': 'read-only'}
+CONFIG = {'model': 'test-model', 'sandbox': 'read-only'}
 
 
 def fake_codex(tmp_path, monkeypatch):
@@ -63,10 +64,23 @@ if mode=='nonzero': sys.exit(1)
     monkeypatch.setenv('NEWS_READER_CODEX', str(script))
     monkeypatch.setenv('CODEX_TEST_LOG', str(log))
     monkeypatch.setenv('CODEX_TEST_MODE', 'success')
+    # Keep application tests at NR's stable JSONL boundary. Separate integration
+    # tests run the installed OAR adapter against app-server and real Codex.
+    import app
+    import oar_client
+    native_bridge, app_bridge = oar_client.bridge_command, app.bridge_command
+    fixture = Path(__file__).parent / 'fixtures/fake_oar_codex.py'
+    def bridge(session_id, original):
+        if session_id.startswith('newsreader-codex-'):
+            return [sys.executable, str(fixture), '--session-id', session_id]
+        return original(session_id)
+    monkeypatch.setattr(oar_client, 'bridge_command', lambda session_id: bridge(session_id, native_bridge))
+    monkeypatch.setattr(app, 'bridge_command', lambda session_id: bridge(session_id, app_bridge))
     return log
 
 
-def select_codex(app, monkeypatch, config=CONFIG):
+def select_codex(app, monkeypatch, config=None):
+    config = CONFIG if config is None else config
     settings = app.default_app_settings()
     settings['agent'].update(runtime='codex', codex=dict(config))
     monkeypatch.setattr(app, 'load_app_settings', lambda: settings)
@@ -105,7 +119,7 @@ def test_all_execution_modes_force_standard_without_changing_model_binding(monke
     assert overrides['features.fast_mode'] == 'false'
     assert overrides['model_reasoning_effort'] == '"max"'
     assert args[args.index('--model')+1] == CONFIG['model']
-    assert args[args.index('--profile')+1] == CONFIG['profile']
+    assert '--profile' not in args and not any(arg.startswith('model_provider=') for arg in args)
     assert config['service_tier'] == inherited_tier
     assert codex.normalize_config(config) == {**CONFIG, 'reasoning_effort': 'max'}
 
@@ -217,9 +231,10 @@ def test_background_resume_settings_sticky_archive_and_new_session(tmp_path,monk
         'messages':[{'role':'user','content':'question'},{'role':'assistant','content':'answer'}]})
     assert archive.status_code==200 and archive.get_json()['provider']=='codex'
     rows=[json.loads(line) for line in log.read_text().splitlines()]
-    assert rows[1]['args'][-3:]==['resume',THREAD,'-']
-    assert rows[1]['args'][rows[1]['args'].index('--model')+1]=='test-model'
-    assert '--ephemeral' in rows[2]['args'] and 'resume' not in rows[2]['args']
+    assert rows[1]['transport'] == 'oar' and rows[1]['resume'] == THREAD
+    assert rows[1]['codex']['model'] == 'test-model'
+    assert rows[2]['transport'] == 'oar' and rows[2]['task'] == 'chat_archive'
+    assert rows[2]['resume'] == '' and rows[2]['web_search'] == 'disabled'
     assert app.load_agent_payload(item['id'])['session']['id']==first['session']['id']
     fresh=client.post(f"/api/news/{item['id']}/agent/session",json={'new_session':True})
     assert fresh.status_code==200 and fresh.get_json()['session']['provider']=='pi'
@@ -240,7 +255,7 @@ def test_codex_stop_during_launch_or_cleanup_blocks_retry_until_reaped(tmp_path,
         original=app.subprocess.Popen
         def held(*a,**kw):
             proc=original(*a,**kw)
-            if len(a[0])>2 and a[0][1]=='exec' and '--help' not in a[0]:
+            if len(a[0])>1 and a[0][1].endswith('fake_oar_codex.py'):
                 entered.set();assert release.wait(8)
             return proc
         monkeypatch.setattr(app.subprocess,'Popen',held)
@@ -281,12 +296,34 @@ def test_sync_api_dispatch_resume_and_foreign_namespace(tmp_path, monkeypatch):
     second = client.post(url, json={'question': 'next', 'session_id': first['session_id']}).get_json()
     assert second['ok'] and second['session_id'] == first['session_id']
     rows = [json.loads(line) for line in log.read_text().splitlines()]
-    assert rows[1]['args'][-3:] == ['resume', THREAD, '-']
-    assert rows[1]['args'][rows[1]['args'].index('--model') + 1] == 'test-model'
+    assert rows[1]['transport'] == 'oar' and rows[1]['resume'] == THREAD
+    assert rows[1]['codex']['model'] == 'test-model'
     for invalid in ('newsreader-codex-agent-' + str(uuid.uuid4()), 'newsreader-codex-chat-../../escape'):
         bad = client.post(url, json={'question': 'next', 'session_id': invalid})
         assert not bad.get_json()['ok']
     assert len(log.read_text().splitlines()) == 2
+
+
+@pytest.mark.parametrize('field', ['profile', 'provider'])
+def test_retired_overrides_cannot_run_or_resume_via_any_adapter(tmp_path, monkeypatch, field):
+    log = fake_codex(tmp_path, monkeypatch)
+    retired = {**CONFIG, field: 'saved'}
+    for call in (lambda: codex.command(retired),
+                 lambda: codex.run_chat(retired, 'question', state_dir=tmp_path),
+                 lambda: codex.oar_request(retired, 'question', state_dir=tmp_path)):
+        with pytest.raises(ValueError, match='codex_advanced_config_removed'):
+            call()
+    (tmp_path / 'codex-session.json').write_text(json.dumps({'runtime': 'codex', 'config': retired, 'thread_id': THREAD}))
+    with pytest.raises(RuntimeError, match='codex_session_invalid'):
+        codex.read_thread(tmp_path, CONFIG)
+    assert not log.exists()
+
+
+def test_old_empty_overrides_keep_existing_native_session(tmp_path):
+    (tmp_path / 'codex-session.json').write_text(json.dumps({'runtime': 'codex',
+        'config': {**CONFIG, 'profile': '', 'provider': ''}, 'thread_id': THREAD}))
+    assert codex.read_thread(tmp_path, CONFIG) == THREAD
+    assert codex.saved_config(tmp_path) == CONFIG
 
 
 def test_pi_saved_session_and_archive_remain_pi_after_runtime_change(tmp_path, monkeypatch):
@@ -429,8 +466,9 @@ def test_sync_archive_keeps_saved_codex_config_after_default_changes(tmp_path, m
         'messages': [{'role': 'assistant', 'content': first['answer']}]})
     assert result.status_code == 200 and result.get_json()['provider'] == 'codex'
     rows = [json.loads(line) for line in log.read_text().splitlines()]
-    assert '--ephemeral' in rows[-1]['args'] and 'resume' not in rows[-1]['args']
-    assert rows[-1]['args'][rows[-1]['args'].index('--model') + 1] == 'test-model'
+    assert rows[-1]['transport'] == 'oar' and rows[-1]['task'] == 'chat_archive'
+    assert rows[-1]['resume'] == '' and rows[-1]['web_search'] == 'disabled'
+    assert rows[-1]['codex']['model'] == 'test-model'
 
 
 def test_sync_pi_archive_does_not_change_family_after_default_changes(tmp_path, monkeypatch):
@@ -565,27 +603,27 @@ def test_login_hint_does_not_block_successful_custom_provider(tmp_path, monkeypa
     snapshot = codex.status_snapshot()
     assert snapshot['login_status'] == login_status
     assert snapshot['error'] != 'codex_auth_required'
-    answer, native_id = codex.run_once({**CONFIG, 'provider': 'custom'}, 'hello')
+    answer, native_id = codex.run_once(CONFIG, 'hello')
     assert answer == '有效最终结论' and native_id == THREAD
     invocation = json.loads(log.read_text().splitlines()[0])
-    assert 'model_provider="custom"' in invocation['args']
+    assert not any(arg.startswith('model_provider=') for arg in invocation['args'])
     assert 'DO_NOT_EXPOSE' not in json.dumps(snapshot)
 
 
-def test_provider_is_safe_optional_and_persisted_without_changing_old_sessions(tmp_path, monkeypatch):
+def test_retired_preferences_are_removed_without_changing_default_session(tmp_path, monkeypatch):
     import settings
     monkeypatch.setenv('NEWS_READER_APP_SETTINGS_PATH', str(tmp_path / 'settings.json'))
     fake_codex(tmp_path, monkeypatch)
     assert codex.normalize_config(CONFIG) == CONFIG
     codex.write_thread(tmp_path, CONFIG, THREAD)
     assert codex.read_thread(tmp_path, {**CONFIG, 'provider': ''}) == THREAD
-    configured = {**CONFIG, 'provider': 'custom'}
+    configured = {**CONFIG, 'provider': 'old-service', 'profile': 'old-profile'}
     value = settings.default_app_settings()
     original_pi = dict(value['llm']['pi_chat'])
     value['agent'].update(runtime='codex', codex=configured)
     settings.save_app_settings(value)
     loaded = settings.load_app_settings()
-    assert loaded['agent']['codex'] == configured
+    assert loaded['agent']['codex'] == CONFIG
     assert loaded['llm']['pi_chat'] == original_pi
     with pytest.raises(RuntimeError, match='codex_session_invalid'):
         codex.read_thread(tmp_path, configured)
@@ -618,7 +656,7 @@ def test_background_execution_not_gated_by_openai_login(tmp_path, monkeypatch, m
     import time
     app, client, item, _, _ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     fake_codex(tmp_path, monkeypatch)
-    select_codex(app, monkeypatch, {**CONFIG, 'provider': 'custom'})
+    select_codex(app, monkeypatch, CONFIG)
     monkeypatch.setenv('CODEX_TEST_MODE', mode)
     response = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'hello'})
     assert response.status_code == 202

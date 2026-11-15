@@ -89,6 +89,7 @@ test("名字与 runtime 独立保存，原有模型设置不被改动", async ({
   await page.locator('[data-personal-field="name"]').fill("望远");
   await page.getByRole("combobox",{name:"Runtime",exact:true}).click();
   await page.getByRole("option",{name:"Codex",exact:true}).click();
+  await expect(page.locator('[data-personal-field="codex.profile"], [data-personal-field="codex.provider"], input[name="personal.codex.model"]')).toHaveCount(0);
   await page.getByRole("button",{name:"保存个人助手",exact:true}).click();
   await expect(page.locator("#personalSettingsStatus")).toHaveText("个人助手已保存");
   await page.locator("#personalAssistantBtn").click();

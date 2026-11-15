@@ -52,7 +52,6 @@ export class PersonalAssistantSettings {
     const focused = this.host.contains(document.activeElement) ? document.activeElement : null;
     const focusKey = focused?.dataset.personalField, memoryFocus = focused?.hasAttribute("data-personal-memory");
     const selection = focused && "selectionStart" in focused ? [focused.selectionStart, focused.selectionEnd] : null;
-    this.advancedOpen = this.host.querySelector("details")?.open ?? this.advancedOpen;
     if (!this.draft) {
       this.host.innerHTML = `<div class="list-message" role="status">${e(this.notice || "正在读取个人助手…")}</div><button type="button" class="btn-secondary" data-personal-action="refresh">重新读取</button>`;
       return;
@@ -72,9 +71,9 @@ export class PersonalAssistantSettings {
       <div class="section-card-title"><span>个人助手模型</span></div>
       <div class="form-group-grid">${selectField("Runtime", "personal.runtime", runtime, [{value:"pi",label:"Pi"},{value:"codex",label:"Codex"}], null)}
       ${runtime === "pi" ? selectField("服务商", "personal.pi.provider", c.provider, providers, "请选择") : ""}
-      ${selectField("模型", `personal.${runtime}.model`, c.model, models, runtime === "pi" ? "请选择模型" : "沿用本机默认")}
-      ${selectField("推理强度", `personal.${runtime}.reasoning_effort`, c.reasoning_effort || "", efforts.map(x=>typeof x === "string" ? x : {value:x.reasoning_effort || x.value,label:x.description || x.label || x.reasoning_effort}), "沿用默认")}</div>
-      ${runtime === "codex" ? `<details ${this.advancedOpen ? "open" : ""}><summary>高级配置</summary><div class="form-group-grid">${field("Profile（可选）", "codex.profile", c.profile, 'autocomplete="off"')}${field("服务商（可选）", "codex.provider", c.provider || "", 'autocomplete="off"')}</div></details>` : ""}
+      ${selectField("模型", `personal.${runtime}.model`, c.model, models, runtime === "pi" ? "请选择模型" : "沿用本机默认", {preserveUnknown:false})}
+      ${selectField("推理强度", `personal.${runtime}.reasoning_effort`, c.reasoning_effort || "", efforts.map(x=>typeof x === "string" ? x : {value:x.reasoning_effort || x.value,label:x.description || x.label || x.reasoning_effort}), "沿用默认", {preserveUnknown:false})}</div>
+      ${c.model && !selected ? `<p class="muted">已保存的 ${e(c.model)} 当前不在模型列表中，请刷新列表或重新选择。</p>` : ""}
       <div class="button-row"><button type="button" class="btn-secondary" data-personal-action="catalog" ${this.catalogLoading ? "disabled" : ""}>刷新模型</button><span class="muted" role="status">${e(this.catalogNotice || "")}</span></div>
       <p class="muted">切换模型会重新建立运行上下文，名字、讨论记录和长期记忆继续保留。此处只设置个人助手。</p>
       <div class="button-row"><button type="button" class="btn-primary" data-personal-action="save">${this.saving ? "正在保存…" : "保存个人助手"}</button><button type="button" class="btn-secondary" data-personal-action="reset">撤销更改</button></div></fieldset>
@@ -125,7 +124,6 @@ export class PersonalAssistantSettings {
       this.render(); this.host.querySelector(`[data-select-trigger="${input.name}"]`)?.focus({preventScroll:true});
       if (key === "runtime") { this.catalog = null; void this.loadCatalog(); }
     }
-    if (["codex.profile", "codex.provider"].includes(key)) { ++this.sequence; this.catalog = null; this.catalogLoading = false; this.catalogNotice = "配置已变化，请刷新模型"; }
   }
   async save() {
     if (this.saving || !this.dirty) return;

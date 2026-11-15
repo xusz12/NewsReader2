@@ -25,7 +25,6 @@ def add(service, override=None, ident=None):
 
 def test_override_is_bound_without_mutating_saved_settings_and_replay_skips_validation(service, db, monkeypatch):
     saved = service.settings()
-    saved['feature_models']['reports']['codex'].update(profile='research', provider='local')
     before = deepcopy(saved)
     service.settings = lambda: saved
     ident = uuid.uuid4().hex
@@ -33,7 +32,7 @@ def test_override_is_bound_without_mutating_saved_settings_and_replay_skips_vali
     b = add(service, {'runtime': 'pi', 'provider': 'test', 'model': 'gemini', 'reasoning_effort': 'low'})
     assert saved == before
     configs = {r['id']: json.loads(r['config_json']) for r in rows(db)}
-    assert configs[a['id']]['codex'] == {'model': 'astra', 'profile': 'research', 'provider': 'local', 'sandbox': 'read-only', 'reasoning_effort': 'high'}
+    assert configs[a['id']]['codex'] == {'model': 'astra', 'sandbox': 'read-only', 'reasoning_effort': 'high'}
     assert configs[b['id']] == {'runtime': 'pi', 'provider': 'test', 'model': 'gemini', 'reasoning_effort': 'low'}
     assert a['model_label'] == 'Codex · astra · high'
     assert b['model_label'] == 'Pi · gemini · low'

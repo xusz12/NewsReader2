@@ -20,6 +20,7 @@ ERROR_MESSAGES = {
     "oar_node_missing": "未发现 Node.js，请安装 Node.js 24 或更高版本。",
     "oar_node_version": "OAR 需要 Node.js 24 或更高版本。",
     "oar_dependency_missing": "OAR 依赖缺失，请在项目目录执行 npm ci --ignore-scripts。",
+    "oar_compatibility_mismatch": "OAR 版本与归档适配不匹配，请更新并验证适配后重试；归档尚未写入。",
     "oar_auth_required": "当前 Pi 模型未登录或没有可用凭据，请在 Pi 中检查登录，或选择已可用的模型。",
     "oar_runtime_failed": "OAR 运行失败，请检查本机 Pi 模型与扩展配置。",
     "oar_turn_failed": "Agent 未完整完成本轮请求，请检查模型可用性后重试。",
@@ -37,10 +38,11 @@ def bridge_command(session_id: str) -> list[str]:
     return [node, str(ROOT / "scripts/oar_bridge.mjs"), "--session-id", session_id]
 
 
-def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "") -> dict:
+def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "", task: str = "") -> dict:
     return {"prompt": prompt, "resume_prompt": resume_prompt, "state_dir": str(state_dir),
             "cwd": str(ROOT), "provider": provider, "model": model,
             **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
+            **({"task": task} if task else {}),
             "config_id": uuid.uuid4().hex}
 
 
@@ -114,6 +116,14 @@ def terminate_group(proc) -> None:
 
 
 def run_once(command: list[str], request: dict, env: dict, timeout: int) -> str:
+    return run_result(command, request, env, timeout)["answer"]
+
+
+def run_result(command: list[str], request: dict, env: dict, timeout: int, *,
+               parser=parse_event, errors=None, timeout_error="pi_timeout", protocol_error="oar_protocol_error",
+               failure_error="oar_turn_failed") -> dict:
+    """One shared JSONL transport; runtime adapters provide only their contract."""
+    errors = ERROR_MESSAGES if errors is None else errors
     proc = None
     # Never share cleanup ownership, even if callers reuse the request object.
     request = {**request, "config_id": uuid.uuid4().hex}
@@ -123,7 +133,7 @@ def run_once(command: list[str], request: dict, env: dict, timeout: int) -> str:
                                 cwd=str(ROOT), env=env, start_new_session=True, bufsize=0)
         pending_input = json.dumps(request, ensure_ascii=False).encode("utf-8")
         if len(pending_input) > 2 * 1024 * 1024:
-            raise RuntimeError("oar_protocol_error")
+            raise RuntimeError(protocol_error)
         os.set_blocking(proc.stdin.fileno(), False)
         selector.register(proc.stdin, selectors.EVENT_WRITE, "stdin")
         selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
@@ -132,7 +142,7 @@ def run_once(command: list[str], request: dict, env: dict, timeout: int) -> str:
         output = bytearray()
         while selector.get_map():
             if time.monotonic() >= deadline:
-                raise RuntimeError("pi_timeout")
+                raise RuntimeError(timeout_error)
             for key, _ in selector.select(min(0.1, max(0, deadline - time.monotonic()))):
                 if key.data == "stdin":
                     try:
@@ -150,25 +160,25 @@ def run_once(command: list[str], request: dict, env: dict, timeout: int) -> str:
                 elif key.data == "stdout":
                     output.extend(chunk)
                     if len(output) > 2 * 1024 * 1024:
-                        raise RuntimeError("oar_protocol_error")
+                        raise RuntimeError(protocol_error)
         try:
             proc.wait(timeout=max(0.01, deadline - time.monotonic()))
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("pi_timeout") from exc
+            raise RuntimeError(timeout_error) from exc
         try:
-            events = [parse_event(line) for line in output.decode("utf-8").splitlines() if line.strip()]
+            events = [parser(line) for line in output.decode("utf-8").splitlines() if line.strip()]
         except UnicodeError as exc:
-            raise RuntimeError("oar_protocol_error") from exc
+            raise RuntimeError(protocol_error) from exc
         results = [event for event in events if event["type"] == "oar_result"]
         if len(results) != 1 or events[-1] is not results[0]:
-            raise RuntimeError("oar_protocol_error")
+            raise RuntimeError(protocol_error)
         terminal = results[0]
         if terminal["outcome"] != "completed":
             code = terminal.get("error")
-            raise RuntimeError(code if code in ERROR_MESSAGES else "oar_turn_failed")
+            raise RuntimeError(code if code in errors else failure_error)
         if proc.returncode != 0 or not terminal["answer"].strip():
-            raise RuntimeError("oar_protocol_error")
-        return terminal["answer"]
+            raise RuntimeError(protocol_error)
+        return terminal
     finally:
         selector.close()
         if proc:

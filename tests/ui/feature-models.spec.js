@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {choosePicker,chooseTheme,openSettings,openModelAdvanced,contrast} from './helpers.js';
+import {choosePicker,chooseTheme,openSettings,contrast} from './helpers.js';
 
 async function openModels(page) {
   await page.goto('/'); await openSettings(page);
@@ -75,15 +75,13 @@ test('各功能及报告类型同时展开、独立编辑保存和连接测试',
     await page.locator('#refreshModelsBtn').click();
     await expect(page.locator('#modelsNotice')).toContainText('刷新');
     await pick(page,'chat','模型','ui-catalog-b');
-    await pick(page,'topics','Runtime','Pi SDK / OAR');
+    await pick(page,'topics','Runtime','Pi');
     await pick(page,'topics','服务商','Test provider');
     await pick(page,'topics','模型','Test model');
     await page.locator('#refreshModelsBtn-summaries').click();
     await expect(page.locator('#modelsNotice-summaries')).toContainText('刷新');
     await pick(page,'summaries','推理强度','high');
-    await openModelAdvanced(page,'reports');
-    await page.locator('input[name="feature_models.reports.codex.profile"]').fill('report-profile');
-    await page.locator('input[name="feature_models.reports.codex.model"]').fill('report-only');
+    await pick(page,'reports','模型','ui-catalog-b');
     let tested;
     await page.route('**/api/settings/connection-test',route=>{
       tested=route.request().postDataJSON();
@@ -92,13 +90,15 @@ test('各功能及报告类型同时展开、独立编辑保存和连接测试',
     await page.locator('#testConnectionBtn-reports').click();
     await expect(page.locator('#connTestTerminal-reports')).toContainText('[SUCCESS]');
     await expect(page.locator('#connTestTerminal-reports')).toHaveAttribute('data-status','success');
-    expect(tested.codex).toMatchObject({model:'report-only',profile:'report-profile'});
+    expect(tested.codex).toMatchObject({model:'ui-catalog-b'});
+    expect(tested.codex.profile).toBeUndefined();
+    expect(tested.codex.provider).toBeUndefined();
     await expect(page.locator('#connTestTerminal')).toBeHidden();
     await expect(page.locator('#connTestTerminal')).toHaveAttribute('data-status','ready');
     await expect(box(page,'chat','模型')).toHaveText('ui-catalog-b');
     await page.locator('[data-settings-tab="system"]').click();
     await page.locator('[data-settings-tab="models"]').click();
-    await expect(box(page,'reports','模型')).toHaveText('report-only');
+    await expect(box(page,'reports','模型')).toHaveText('ui-catalog-b');
     await page.locator('#settingsSaveBtn').click();
     await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
     const saved=await (await request.get('/api/settings')).json();
@@ -106,10 +106,10 @@ test('各功能及报告类型同时展开、独立编辑保存和连接测试',
     expect(saved.feature_models.topics.runtime).toBe('pi');
     expect(saved.feature_models.topics.pi).toEqual({provider:'test',model:'test-model'});
     expect(saved.feature_models.summaries.codex.reasoning_effort).toBe('high');
-    expect(saved.feature_models.reports.codex.model).toBe('report-only');
+    expect(saved.feature_models.reports.codex.model).toBe('ui-catalog-b');
     await openModels(page);
-    for(const [feature,runtime,model] of [['chat','Codex CLI','ui-catalog-b'],['topics','Pi SDK / OAR','Test model'],
-      ['summaries','Codex CLI','ui-catalog-a'],['reports','Codex CLI','report-only']]) {
+    for(const [feature,runtime,model] of [['chat','Codex','ui-catalog-b'],['topics','Pi','Test model'],
+      ['summaries','Codex','ui-catalog-a'],['reports','Codex','ui-catalog-b']]) {
       await expect(box(page,feature,'Runtime')).toHaveText(runtime);
       await expect(box(page,feature,'模型')).toHaveText(model);
     }
@@ -129,15 +129,19 @@ test('并行连接测试和迟到目录只更新对应功能，编辑后的旧�
     if(chat) await testGate;
     await route.fulfill({json:{status:'success',message:chat?'旧功能结果':'日报连接成功'}});
   });
-  await page.route('**/api/settings/models',async route=>{await catalogGate;await route.fulfill({status:503,json:{error:'旧目录失败'}});});
+  await page.route('**/api/settings/models',async route=>{
+    if(route.request().postDataJSON().runtime==='pi') return route.continue();
+    await catalogGate;await route.fulfill({status:503,json:{error:'旧目录失败'}});
+  });
   try {
     await openModels(page);
     await page.locator('#testConnectionBtn').click();
     await page.locator('#refreshModelsBtn').click();
     await page.locator('#testConnectionBtn-reports').click();
     await expect(page.locator('#connTestTerminal-reports')).toContainText('日报连接成功');
-    await openModelAdvanced(page);
-    await page.locator('input[name="agent.codex.profile"]').fill('new-profile');
+    await pick(page,'chat','Runtime','Pi');
+    await pick(page,'chat','服务商','Test provider');
+    await pick(page,'chat','模型','Test model');
     releaseTest();releaseCatalog();
     await expect(page.locator('#testConnectionBtn')).toBeEnabled();
     await expect(page.locator('#refreshModelsBtn')).toBeEnabled();
@@ -151,7 +155,7 @@ test('并行连接测试和迟到目录只更新对应功能，编辑后的旧�
 
 for (const width of [390,1440]) test('各功能分区复用设置样式，适配主题及窄屏 '+width,async({page})=>{
   await page.setViewportSize({width,height:900});await openModels(page);
-  await pick(page,'reports','Runtime','Codex CLI');
+  await pick(page,'reports','Runtime','Codex');
   for(const [theme,scheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
     await page.emulateMedia({colorScheme:scheme});await chooseTheme(page,theme);
     for(const feature of allFeatures) {
@@ -171,7 +175,7 @@ for (const width of [390,1440]) test('各功能分区复用设置样式，适配
     const rect=await menu.boundingBox();expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(width);
     await page.keyboard.press('Escape');
     await page.screenshot({path:`.ui-artifacts/model-sections-${width}-${theme}-${scheme}.png`});
-    await pick(page,'reports','Runtime','Pi SDK / OAR');
+    await pick(page,'reports','Runtime','Pi');
     await pick(page,'reports','服务商','Test provider');
     await pick(page,'reports','模型','Test model');
     await box(page,'reports','推理强度').click();
@@ -181,7 +185,7 @@ for (const width of [390,1440]) test('各功能分区复用设置样式，适配
     await expect(box(page,'reports','推理强度')).toBeFocused();
     expect(await section(page,'reports').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
     await page.screenshot({path:`.ui-artifacts/model-sections-pi-${width}-${theme}-${scheme}.png`});
-    await pick(page,'reports','Runtime','Codex CLI');
+    await pick(page,'reports','Runtime','Codex');
   }
 });
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { openModelAdvanced } from './helpers.js';
+import { choosePicker } from './helpers.js';
 
 const path = '/api/news/ui-064';
 async function ready(page) {
@@ -172,7 +172,7 @@ for (const entry of ['toggle', 'quote']) {
       // Settings can change after article detail has already cached the empty session.
       const changed = await request.put('/api/settings', { data: {
         llm: { ...saved.llm, pi_chat: { provider: 'test', model: 'saved-pi-model' } },
-        agent: { ...saved.agent, runtime, codex: { ...saved.agent.codex, model: 'saved-codex-model', reasoning_effort: '' } },
+        agent: { ...saved.agent, runtime, codex: { ...saved.agent.codex, model: 'ui-catalog-a', reasoning_effort: '' } },
       } });
       expect(changed.ok()).toBe(true);
       let release;
@@ -193,18 +193,19 @@ for (const entry of ['toggle', 'quote']) {
       release();
       await expect(page.locator('#agentSendBtn')).toBeEnabled();
       await expect(page.locator('#agentPromptInput')).toHaveValue('解释这条判断');
-      await expect(page.locator('#agentRuntimeBadge')).toContainText(`saved-${runtime}-model`);
+      const selectedModel = runtime === 'codex' ? 'ui-catalog-a' : 'saved-pi-model';
+      await expect(page.locator('#agentRuntimeBadge')).toContainText(selectedModel);
       const prepared = (await (await request.get(path + '/agent/session')).json()).session;
       expect(prepared.id).toBe(original.id);
       expect(prepared.provider).toBe(runtime);
-      expect(prepared.model).toBe(`saved-${runtime}-model`);
+      expect(prepared.model).toBe(selectedModel);
       const submitted = page.waitForResponse(r => r.url().endsWith('/agent/jobs') && r.request().method() === 'POST');
       await page.locator('#agentSendBtn').click();
       const response = await submitted;
       expect(response.status()).toBe(202);
       const data = await response.json();
       expect(data.job.provider).toBe(runtime);
-      expect(data.job.model).toBe(`saved-${runtime}-model`);
+      expect(data.job.model).toBe(selectedModel);
       expect(data.job.quote_text.length > 0).toBe(entry === 'quote');
     });
   }
@@ -222,15 +223,15 @@ test('saving settings updates the model of an already expanded unused Agent', as
   // Keyboard navigation leaves the Agent expanded while settings are saved.
   await page.locator('#leftNavSettingsBtn').press('Enter');
   await page.locator('[data-settings-tab="models"]').click();
-  await openModelAdvanced(page);
-  await page.locator('input[name="agent.codex.model"]').fill('saved-through-settings');
+  await page.locator('#refreshModelsBtn').click();
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.locator('#settingsSaveBtn').click();
-  await expect(page.locator('#agentRuntimeBadge')).toContainText('saved-through-settings');
+  await expect(page.locator('#agentRuntimeBadge')).toContainText('ui-catalog-b');
   await page.locator('#closeSettingsBtn').click();
   await expect(page.locator('#agentPromptInput')).toBeEnabled();
   const data = await (await request.get(path + '/agent/session')).json();
   expect(data.session.id).toBe(original);
-  expect(data.session.model).toBe('saved-through-settings');
+  expect(data.session.model).toBe('ui-catalog-b');
   expect(data.messages).toEqual([]);
 });
 
@@ -259,11 +260,15 @@ test('sidebar counts follow the collection and ignore late responses from the pr
   await expect(page.locator('#sourceFilters .nav-badge')).toHaveCount(0);
   let release;
   const gate = new Promise(resolve => { release = resolve; });
-  await page.route('**/api/sources?collection=read_later&read_filter=unread', async route => {
+  const delayedSource = url => {
+    const parsed = new URL(url);
+    return parsed.pathname === '/api/sources' && parsed.searchParams.get('collection') === 'read_later' && parsed.searchParams.get('read_filter') === 'unread';
+  };
+  await page.route(delayedSource, async route => {
     await gate;
     await route.fulfill({ json: { ok: true, sources: [{ key: 'x', label: 'X', count: 9999 }] } });
   });
-  const delayed = page.waitForResponse(r => r.url().endsWith('/api/sources?collection=read_later&read_filter=unread'));
+  const delayed = page.waitForResponse(r => delayedSource(r.url()));
   await page.locator('#navReadLaterBtn').click();
   await page.locator('#navFavoritesBtn').click();
   await counts('favorites', 'all');

@@ -146,7 +146,7 @@ DEFAULT_APP_SETTINGS = {
     "agent": {
         "session_ttl_hours": 72,
         "runtime": "pi",
-        "codex": {"model": "", "profile": "", "sandbox": "read-only"},
+        "codex": {"model": "", "sandbox": "read-only"},
     },
     "database": {
         "path": "",
@@ -261,12 +261,12 @@ def load_app_settings() -> dict:
 
     agent = payload.get("agent") if isinstance(payload, dict) else None
     if isinstance(agent, dict):
-        from codex_client import normalize_config
+        from codex_client import saved_preferences
         if agent.get("runtime") in ("pi", "codex"):
             base["agent"]["runtime"] = agent["runtime"]
         if isinstance(agent.get("codex"), dict):
             try:
-                base["agent"]["codex"] = normalize_config(agent["codex"])
+                base["agent"]["codex"] = saved_preferences(agent["codex"])
             except ValueError:
                 pass
         ttl = agent.get("session_ttl_hours")
@@ -285,7 +285,13 @@ def load_app_settings() -> dict:
     except ValueError:
         pass
     try:
-        base["feature_models"] = normalize_feature_models(payload.get("feature_models", {}) if isinstance(payload, dict) else {}, base)
+        features = deepcopy(payload.get("feature_models", {}) if isinstance(payload, dict) else {})
+        if isinstance(features, dict):
+            from codex_client import saved_preferences
+            for selected in features.values():
+                if isinstance(selected, dict) and "codex" in selected:
+                    selected["codex"] = saved_preferences(selected["codex"])
+        base["feature_models"] = normalize_feature_models(features, base)
     except ValueError:
         base["feature_models"] = normalize_feature_models({}, base)
     if isinstance(payload, dict):

@@ -552,14 +552,14 @@ export class ReportPanel {
     node.textContent = draft.modelLoading ? "正在读取 Runtime 和模型…" : draft.modelFailed ? "Runtime 和模型读取失败" : draft.modelLabel || "模型尚未配置";
     if (draft.modelOverride && !draft.modelLoading && !draft.modelFailed) {
       const c = draft.modelChoices, selected = c[c.runtime];
-      node.textContent = [c.runtime === "codex" ? "Codex" : "Pi", selected.model || selected.profile || "默认模型", selected.reasoning_effort, "临时"].filter(Boolean).join(" · ");
+      node.textContent = [c.runtime === "codex" ? "Codex" : "Pi", selected.model || "默认模型", selected.reasoning_effort, "临时"].filter(Boolean).join(" · ");
     }
     this.creationHost.querySelector("[data-creation-model-reload]").hidden = !draft.modelFailed;
     this.creationHost.querySelector('[type="submit"]').disabled = !!(draft.submitting || draft.modelLoading || draft.modelFailed || !draft.kind || this.invalidModelChoice());
   }
   creationCatalogKey() {
     const c = this.creation.modelChoices;
-    return JSON.stringify([this.creation.kind, c.runtime, ...(c.runtime === "codex" ? [c.codex.provider || "", c.codex.profile || ""] : [])]);
+    return JSON.stringify([this.creation.kind, c.runtime]);
   }
   invalidModelChoice() {
     const d = this.creation, c = d.modelChoices;
@@ -576,7 +576,7 @@ export class ReportPanel {
     if (modelValue && !options.some(m=>m.value === modelValue)) options.push({value:modelValue,label:selected.model});
     const model = models.find(m=>m.value === selected.model && (codex || m.provider === selected.provider));
     const next = document.createElement("div");
-    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,[{value:"codex",label:"Codex CLI"},{value:"pi",label:"Pi SDK / OAR"}],null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复默认模型</button></div>`;
+    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,[{value:"codex",label:"Codex"},{value:"pi",label:"Pi"}],null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复默认模型</button></div>`;
     next.querySelector('[name="reportModel"]').disabled = !catalog.options || !!catalog.loading || d.submitting;
     next.querySelector('[name="reportEffort"]').disabled = !!catalog.loading || d.submitting || !model?.reasoning_efforts?.length;
     next.querySelector('[name="reportRuntime"]').disabled = d.submitting;

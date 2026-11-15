@@ -66,7 +66,7 @@ test('临时 Pi 使用独立模型和推理程度，窗口不变并共用取材'
   await open(page);
   const first=(await submit(page)).report;
   await page.locator('#createReportBtn').click();await page.locator('#reportSelection').fill('2026-10-28');await expand(page);
-  await choosePicker(page,'Runtime','Pi SDK / OAR');
+  await choosePicker(page,'Runtime','Pi');
   await expect(page.getByRole('combobox',{name:'模型',exact:true})).toBeEnabled();
   await choosePicker(page,'模型','comparison-model · test');await choosePicker(page,'推理程度','high');
   const {body,report}=await submit(page);
@@ -97,10 +97,10 @@ test('切换 Runtime 后迟到的目录不会覆盖当前选项，键盘选择�
     await route.continue();
   });
   await open(page);await page.locator('#reportTemporaryModel summary').click();
-  await choosePicker(page,'Runtime','Pi SDK / OAR');
+  await choosePicker(page,'Runtime','Pi');
   await expect(page.getByRole('combobox',{name:'模型',exact:true})).toBeEnabled();
   release();
-  await expect(page.getByRole('combobox',{name:'Runtime',exact:true})).toHaveText('Pi SDK / OAR');
+  await expect(page.getByRole('combobox',{name:'Runtime',exact:true})).toHaveText('Pi');
   const effort=page.getByRole('combobox',{name:'推理程度',exact:true});await effort.focus();
   await page.keyboard.press('Enter');await page.keyboard.press('End');await page.keyboard.press('Enter');
   await expect(effort).toHaveText('high');await expect(effort).toBeFocused();

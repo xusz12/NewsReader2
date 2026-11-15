@@ -10,7 +10,7 @@ import connection_tests as checks
 import model_catalogs as catalogs
 import settings
 
-CONFIG={'model':'m','profile':'','sandbox':'read-only'}
+CONFIG={'model':'m','sandbox':'read-only'}
 
 @pytest.fixture(autouse=True)
 def isolate_catalog_cache(tmp_path, monkeypatch):
@@ -52,6 +52,8 @@ def test_feature_models_migrate_once_and_do_not_share_mutable_settings(monkeypat
 
 
 def test_feature_settings_reach_each_executor_and_preserve_chat(monkeypatch, tmp_path):
+    monkeypatch.setattr(catalogs, 'safe_catalog', lambda _: {'options': [
+        {'value': 'summary-model', 'reasoning_efforts': []}]})
     import news_summaries, report_model
     from test_api import _setup_agent_api_fixture
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
@@ -98,7 +100,7 @@ def test_invalid_feature_models_rejected(invalid):
         settings.normalize_feature_models(invalid, settings.default_app_settings())
 
 
-def test_feature_effort_validated_for_selected_provider_and_profile(monkeypatch):
+def test_feature_effort_validated_for_selected_model(monkeypatch):
     import app
     value = settings.default_app_settings()
     monkeypatch.setattr(app, 'load_app_settings', lambda:value)
@@ -107,7 +109,7 @@ def test_feature_effort_validated_for_selected_provider_and_profile(monkeypatch)
         calls.append(config)
         raise ValueError('invalid_codex_reasoning_effort')
     monkeypatch.setattr(app.model_catalogs, 'validate_effort', validate)
-    chosen = {**CONFIG, 'provider':'feature-provider', 'profile':'feature-profile','reasoning_effort':'high'}
+    chosen = {**CONFIG, 'reasoning_effort':'high'}
     with pytest.raises(ValueError, match='reasoning_effort'):
         app.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'reports':{'codex':chosen}}})
     assert calls == [chosen]
@@ -154,14 +156,65 @@ def test_unknown_model_and_invalid_effort_rejected(monkeypatch):
     assert catalogs.validate_effort({**CONFIG,'reasoning_effort':'high'})['reasoning_effort']=='high'
     with pytest.raises(ValueError):catalogs.validate_effort({**CONFIG,'reasoning_effort':'max'})
     with pytest.raises(ValueError):catalogs.validate_effort({**CONFIG,'model':'manual','reasoning_effort':'high'})
-    assert catalogs.validate_effort({**CONFIG,'model':'manual'})['model']=='manual'
+    with pytest.raises(ValueError, match='codex_model_not_in_catalog'):
+        catalogs.validate_effort({**CONFIG,'model':'manual'})
+
+
+@pytest.mark.parametrize('field', ['profile', 'provider'])
+@pytest.mark.parametrize('feature', ['chat', 'reports', 'reports_periodic', 'summaries', 'topics'])
+def test_retired_codex_overrides_rejected_by_settings_and_probe_apis(tmp_path, monkeypatch, field, feature):
+    from test_api import _setup_agent_api_fixture
+    app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    value = settings.default_app_settings()
+    monkeypatch.setattr(app, 'load_app_settings', lambda: value)
+    chosen = {'model': '', field: 'retired'}
+    payload = {'llm': value['llm']}
+    if feature == 'chat':
+        payload['agent'] = {'runtime': 'codex', 'codex': chosen}
+    else:
+        payload['feature_models'] = {feature: {'runtime': 'codex', 'codex': chosen}}
+    response = client.put('/api/settings', json=payload)
+    assert response.status_code == 400
+    assert response.json['error'] == 'codex_advanced_config_removed'
+    for endpoint in ('/api/settings/models', '/api/settings/connection-test'):
+        response = client.post(endpoint, json={'runtime': 'codex', 'codex': chosen})
+        assert response.status_code == 400
+        assert response.json['error'] == 'codex_advanced_config_removed'
+
+
+def test_settings_and_probe_reject_custom_model_even_without_effort(tmp_path, monkeypatch):
+    from test_api import _setup_agent_api_fixture
+    app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    value = settings.default_app_settings()
+    monkeypatch.setattr(app, 'load_app_settings', lambda: value)
+    monkeypatch.setattr(catalogs, 'safe_catalog', lambda _: {'options': [
+        {'value': 'known', 'reasoning_efforts': ['high']}]})
+    chosen = {'runtime': 'codex', 'codex': {'model': 'manual'}}
+    response = client.put('/api/settings', json={'llm': value['llm'], 'agent': chosen})
+    assert response.status_code == 400 and response.json['error'] == 'codex_model_not_in_catalog'
+    response = client.post('/api/settings/connection-test', json=chosen)
+    assert response.status_code == 400 and response.json['error'] == 'codex_model_not_in_catalog'
+    response = client.put('/api/settings', json={'llm': value['llm'],
+        'agent': {'runtime': 'codex', 'codex': {'model': 'known'}}})
+    assert response.status_code == 200
+
+
+def test_saved_feature_preferences_remove_retired_fields_without_resetting_other_features(tmp_path):
+    value = settings.default_app_settings()
+    value['feature_models'] = settings.normalize_feature_models({}, value)
+    for feature in settings.MODEL_FEATURES:
+        value['feature_models'][feature]['codex'] = {'model': feature, 'provider': 'old-service', 'profile': 'old-profile'}
+    settings.save_app_settings(value)
+    loaded = settings.load_app_settings()
+    for feature in settings.MODEL_FEATURES:
+        assert loaded['feature_models'][feature]['codex'] == {'model': feature, 'sandbox': 'read-only'}
 
 def test_codex_hi_independent_selected_config(monkeypatch):
     calls=[]
     def run(config,prompt,**kwargs):
         calls.append((config,prompt,kwargs));return ('Hello', 'unused-thread')
     monkeypatch.setattr(codex_client,'run_once',run)
-    chosen={**CONFIG,'provider':'custom','reasoning_effort':'high'}
+    chosen={**CONFIG,'reasoning_effort':'high'}
     result=checks.test_connection({'runtime':'codex','codex':chosen})
     assert result['status']=='success'
     assert result['message']=='本次模型请求成功。'

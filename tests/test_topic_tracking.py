@@ -375,8 +375,7 @@ def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtim
         if runtime == "pi":
             pi.update(provider="global-provider", model=name)
         else:
-            chosen["codex"].update(provider="global-provider", model=name,
-                profile="global-profile", reasoning_effort="high")
+            chosen["codex"].update(model=name, reasoning_effort="high")
 
     def runner(config, *args, **kwargs):
         recorded.append(copy.deepcopy(config))
@@ -401,8 +400,8 @@ def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtim
         if runtime == "pi":
             assert (config["pi_provider"], config["pi_model"]) == ("global-provider", model)
         else:
-            assert config["codex"] == {"model": model, "provider": "global-provider",
-                "profile": "global-profile", "reasoning_effort": "high", "sandbox": "read-only"}
+            assert config["codex"] == {"model": model,
+                "reasoning_effort": "high", "sandbox": "read-only"}
 
 
 def test_creation_boundary_no_backfill_and_idempotence(env):

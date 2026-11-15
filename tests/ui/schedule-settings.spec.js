@@ -1,4 +1,4 @@
-import { choosePicker, openModelAdvanced } from "./helpers.js";
+import { choosePicker } from "./helpers.js";
 import {test,expect} from '@playwright/test';
 import {openSettings,openNavigation,chooseTheme} from './helpers.js';
 
@@ -201,9 +201,8 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   await expect(cleanup).toContainText('每 7 天');
   await expect(cleanup).toContainText('11/06 10:00');
   await section(page,'models');
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
-  await page.locator('input[name="agent.codex.model"]').fill('retain-this-model-draft');
+  await choosePicker(page,'Runtime','Codex','chat');
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await section(page,'schedules');
   await page.locator('[data-schedule-edit]').click();
   await expect(page.locator('[data-schedule-rules] [role="combobox"]:visible')).toHaveCount(33);
@@ -213,7 +212,7 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   await expect(page.locator('[data-schedule-kind="evening"] [data-schedule-rule]')).toHaveText('晚报 · 每天 21:30');
   await expect(page.locator('[data-schedule-rules] [role="combobox"]:visible')).toHaveCount(0);
   await section(page,'models');
-  await expect(page.locator('input[name="agent.codex.model"]')).toHaveValue('retain-this-model-draft');
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue('ui-catalog-b');
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   await section(page,'schedules');
   const row=state.data.schedules.find(row=>row.kind==='snapshot_cleanup');
@@ -391,9 +390,8 @@ test('同日窗口起止顺序与生成截止校验，窗口 Picker 刷新保留
 test('自动刷新保留设置草稿，离开分类后停止，失败保留最后成功状态',async({page})=>{
   const state=await observe(page);
   await section(page,'models');
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
-  await page.locator('input[name="agent.codex.model"]').fill('unsaved-test-model');
+  await choosePicker(page,'Runtime','Codex','chat');
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await section(page,'schedules');
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('2');
   state.data.queue.pending=4;
@@ -405,7 +403,7 @@ test('自动刷新保留设置草稿，离开分类后停止，失败保留最�
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('4');
   await expect(page.locator('[data-schedule-updated]')).toContainText('21:32');
   await section(page,'models');
-  await expect(page.locator('input[name="agent.codex.model"]')).toHaveValue('unsaved-test-model');
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue('ui-catalog-b');
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
   state.failed=false;await section(page,'schedules');
@@ -466,7 +464,7 @@ for(const width of [320,390,921,1440]) test('排期与快照管理沿用设置�
   if(width<=920) {
     await page.locator('#settingsCategoryBackBtn').click();
     const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
+    await expect(page.locator('.settings-category-card:visible')).toHaveCount(12);
     await section(page,'schedules');
   }
   await page.locator('[data-snapshot-clear]').scrollIntoViewIfNeeded();

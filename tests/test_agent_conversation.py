@@ -46,10 +46,11 @@ def test_native_followups_keep_session_and_only_add_new_user_input(tmp_path, mon
         '本轮用户问题：这段话与刚才的讨论有什么联系？'
     )
     if runtime == 'codex':
-        assert 'resume' not in calls[0]['args']
-        assert all(call['args'][-3:] == ['resume', THREAD, '-'] for call in calls[1:])
-        assert all('web_search="live"' in call['args'] for call in calls)
+        assert calls[0]['resume'] == ''
+        assert all(call['resume'] == THREAD for call in calls[1:])
+        assert all(call['transport'] == 'oar' and call['web_search'] == 'live' for call in calls)
     else:
+        assert all(call['task'] == 'news_chat' for call in calls)
         assert len({call['state_dir'] for call in calls}) == 1
         assert all('research_budget_ms' not in call and 'max_tool_calls' not in call for call in calls)
         # The bridge still receives the full fallback in case a native session must be rebuilt.

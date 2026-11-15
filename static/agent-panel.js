@@ -22,6 +22,7 @@ export class AgentPanel {
     this.drafts = new Map();
     this.draftVersions = new Map();
     this.pendingSends = new Set();
+    this.archives = new Map();
     this.initializing = new Map();
     this.sequence = 0;
     $("#agentHeader").addEventListener("click", (event) => {
@@ -39,8 +40,7 @@ export class AgentPanel {
     };
     $("#agentNewBtn").onclick = (event) =>
       busy(event.currentTarget, () => this.newSession());
-    $("#archiveAgentBtn").onclick = (event) =>
-      busy(event.currentTarget, () => this.archive());
+    $("#archiveAgentBtn").onclick = () => this.archive();
     $("#archiveAgentBtn").setAttribute("aria-label", "提炼结论追加到想法");
     $("#agentSendBtn").onclick = () => this.active() ? this.stop() : this.send();
     $("#agentPromptInput").addEventListener("keydown", (event) => {
@@ -108,6 +108,13 @@ export class AgentPanel {
   }
   get sending() {
     return this.pendingSends.has(this.item?.id);
+  }
+  get archiveState() {
+    const state = this.archives.get(this.item?.id);
+    return state?.sessionId === (this.payload.session?.id || "") ? state : null;
+  }
+  get archiving() {
+    return !!this.archiveState?.pending;
   }
   draftChanged() {
     if (this.item) this.draftVersions.set(this.item.id, (this.draftVersions.get(this.item.id) || 0) + 1);
@@ -328,15 +335,16 @@ export class AgentPanel {
     const initializing = this.initializing.has(this.item?.id) || this.preparing === this.sequence;
     const choosingModel = this.modelPicker?.saving || this.modelPicker?.blocked;
     const stopping = active?.status === "stopping" || this.stopping;
-    $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || initializing || choosingModel));
+    $("#agentSendBtn").disabled = stopping || (!active && (!available || this.sending || this.archiving || initializing || choosingModel));
     $("#agentSendBtn").innerHTML = icon(active ? "stop" : "send");
     $("#agentSendBtn").setAttribute("aria-label", active ? "停止研究" : "发送");
     $("#agentSendBtn").title = active ? "停止研究" : "发送";
     $("#agentPromptInput").placeholder = available
       ? titleOnly ? "围绕新闻标题提问…" : "围绕本文研究与追问…"
       : "请先选择新闻，或稍后重试";
-    $("#agentNewBtn").disabled = !available || !!active || this.sending || initializing || choosingModel;
+    $("#agentNewBtn").disabled = !available || !!active || this.sending || this.archiving || initializing || choosingModel;
     $("#archiveAgentBtn").hidden = !!this.item?.report_id;
+    $("#archiveAgentBtn").setAttribute("aria-busy", String(this.archiving));
     $("#archiveAgentBtn").disabled =
       !!active ||
       this.sending ||
@@ -345,7 +353,7 @@ export class AgentPanel {
         (message) => message.role === "assistant" && message.content,
       );
     $("#agentStatus").textContent =
-      (initializing ? "正在准备会话…" : this.message) ||
+      (initializing ? "正在准备会话…" : this.archiveState?.message || this.message) ||
       (active
         ? (active.status === "stopping" ? "正在停止…" : ({ thinking: "正在分析原文…", searching: "正在检索来源…", fetching: "正在读取来源…", tool: "正在核查资料…", retrying: "服务暂未响应，正在重试…", summarizing: "正在汇总已有证据…", writing: "正在生成回答…" })[active.progress] || ({ queued: "等待执行…", pending: "等待执行…", running: "正在研究…", streaming: "正在生成回答…" })[active.status])
         : this.payload.context_updated
@@ -444,7 +452,7 @@ export class AgentPanel {
     };
   }
   async send() {
-    if (!this.item || this.modelPicker?.saving || this.modelPicker?.blocked || this.sending || this.active() || this.initializing.has(this.item.id) || this.preparing === this.sequence) return;
+    if (!this.item || this.modelPicker?.saving || this.modelPicker?.blocked || this.sending || this.archiving || this.active() || this.initializing.has(this.item.id) || this.preparing === this.sequence) return;
     if (this.payload.context_available !== true && !this.payload.session) return;
     const prompt = $("#agentPromptInput").value;
     const question = prompt.trim();
@@ -454,6 +462,7 @@ export class AgentPanel {
       quote = this.quoteText || "",
       draftVersion = this.draftVersions.get(id) || 0;
     this.pendingSends.add(id);
+    this.archives.delete(id);
     $("#agentPromptInput").value = "";
     this.quoteText = "";
     this.drafts.delete(id);
@@ -507,11 +516,11 @@ export class AgentPanel {
     return this.expand();
   }
   async newSession() {
-    if (!this.item || this.active()) return;
+    if (!this.item || this.active() || this.archiving) return;
     const id = this.item.id, sequence = this.sequence, sessionId = this.payload.session?.id;
     const stamp = JSON.stringify([this.payload.messages, this.payload.jobs]);
     if (this.payload.messages?.length && !await confirmAction({ title: "新建 Agent 会话", trigger: "#agentNewBtn", message: "新建会话会删除当前内容的旧临时对话与任务。正文和已保存的想法不受影响。", action: "删除旧对话并新建" })) return;
-    if (this.item?.id !== id || sequence !== this.sequence || this.payload.session?.id !== sessionId || stamp !== JSON.stringify([this.payload.messages, this.payload.jobs]) || this.active() || this.sending)
+    if (this.item?.id !== id || sequence !== this.sequence || this.payload.session?.id !== sessionId || stamp !== JSON.stringify([this.payload.messages, this.payload.jobs]) || this.active() || this.sending || this.archiving)
       return toast("新闻或会话已变化，请重新操作");
     const data = await api(
       `/api/news/${encodeURIComponent(id)}/agent/session`,
@@ -519,6 +528,7 @@ export class AgentPanel {
     );
     if (sequence !== this.sequence) return;
     this.pinnedSessionId = "";
+    this.archives.delete(id);
     this.payload = data.agent || data;
     this.quoteText = "";
     this.message = "新会话已准备好，使用设置中的默认模型";
@@ -543,13 +553,14 @@ export class AgentPanel {
     }
   }
   async retry(jobId) {
-    if (this.active()) return;
+    if (this.active() || this.archiving) return;
     const sequence = this.sequence;
     const data = await api(
       `/api/news/${encodeURIComponent(this.item.id)}/agent/jobs/${encodeURIComponent(jobId)}/retry`,
       { method: "POST" },
     );
     if (sequence !== this.sequence) return;
+    this.archives.delete(this.item.id);
     this.payload = data.agent || data;
     this.message = "";
     this.render();
@@ -558,7 +569,7 @@ export class AgentPanel {
   async archive() {
     if (this.item?.report_id) return;
     const id = this.item?.id;
-    if (!id || this.active() || this.archiving) return;
+    if (!id || this.active() || this.sending || this.archiving || this.modelPicker?.saving) return;
     const messages = (this.payload.messages || [])
       .filter(
         (x) => ["user", "assistant"].includes(x.role) && x.content?.trim(),
@@ -570,9 +581,11 @@ export class AgentPanel {
           ? { quote_text: x.quote_text }
           : {}),
       }));
-    this.archiving = true;
-    this.message = "正在提炼结论并追加到想法…";
+    const state = { sessionId: this.payload.session?.id || "", pending: true,
+      message: "正在提炼结论并追加到想法…" };
+    this.archives.set(id, state);
     this.render();
+    let saved = false;
     try {
       const result = await api(
         `/api/news/${encodeURIComponent(id)}/chat/archive`,
@@ -580,16 +593,20 @@ export class AgentPanel {
           method: "POST",
           body: {
             messages,
-            agent_session_id: this.payload.session?.id || "",
+            agent_session_id: state.sessionId,
             model: this.payload.session?.model || "",
           },
         },
       );
+      saved = true;
       this.onArchive(id, result);
+      state.message = "结论已追加到本篇想法";
       toast("结论已追加到本篇想法");
+    } catch (error) {
+      state.message = saved ? "结论已保存，页面更新失败，请刷新查看。" : `归档失败 · ${errorText(error)}`;
+      toast(state.message);
     } finally {
-      this.archiving = false;
-      this.message = "";
+      state.pending = false;
       this.render();
     }
   }

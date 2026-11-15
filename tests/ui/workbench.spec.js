@@ -1,4 +1,4 @@
-import { choosePicker, openModelAdvanced } from "./helpers.js";
+import { choosePicker } from "./helpers.js";
 import { answerConfirm } from "./helpers.js";
 import { chooseTheme, openSettings } from "./helpers.js";
 import { test, expect } from "@playwright/test";
@@ -205,10 +205,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).toBeVisible();
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
-  await page.locator('[name="agent.codex.provider"]').fill("fixture-provider");
-  await page.locator('[name="agent.codex.profile"]').fill("test-profile");
+  await choosePicker(page,'Runtime','Codex','chat');
   await page.route("**/api/settings/models", (route) =>
     route.fulfill({
       json: {
@@ -216,7 +213,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
         catalog: {
           options: [
             {
-              value: "model-a",
+              value: "ui-catalog-a",
               label: "Model A",
               reasoning_efforts: ["low", "high"],
             },
@@ -232,6 +229,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await expect(
     page.locator('select[name="agent.codex.reasoning_effort"] option'),
   ).toHaveCount(3);
+  await choosePicker(page,'推理强度','high','chat');
   let tested;
   await page.route("**/api/settings/connection-test", (route) => {
     tested = route.request().postDataJSON();
@@ -247,17 +245,16 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   });
   await page.locator("#testConnectionBtn").click();
   await expect(page.locator("#connTestTerminal")).toContainText("[SUCCESS]");
-  expect(tested.codex.provider).toBe("fixture-provider");
-  expect(tested.codex.model).toBe("model-a");
+  expect(tested.codex.provider).toBeUndefined();
+  expect(tested.codex.profile).toBeUndefined();
+  expect(tested.codex.model).toBe("ui-catalog-a");
   await page.keyboard.press("Escape");
   await page.keyboard.press(",");
-  await expect(page.locator('[name="agent.codex.profile"]')).toHaveValue(
-    "test-profile",
-  );
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-a");
   await page.locator("#settingsSaveBtn").click();
   await expect(page.locator("#settingsStatus")).toHaveText("设置已保存");
   const saved = await (await request.get("/api/settings")).json();
-  expect(saved.agent.codex.model).toBe("model-a");
+  expect(saved.agent.codex.model).toBe("ui-catalog-a");
   expect(saved.agent.runtime).toBe("codex");
 });
 test("sidebar source filters have no toggles", async ({ page }) => {
@@ -550,11 +547,11 @@ test("late catalog and connection results cannot replace a changed draft", async
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
+  await choosePicker(page,'Runtime','Codex','chat');
   let releaseCatalog;
   const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
   await page.route("**/api/settings/models", async (route) => {
+    if (route.request().postDataJSON().runtime === "pi") return route.continue();
     await catalogGate;
     await route.fulfill({
       json: {
@@ -564,13 +561,17 @@ test("late catalog and connection results cannot replace a changed draft", async
     });
   });
   await page.locator("#refreshModelsBtn").click();
-  await page.locator('[name="agent.codex.profile"]').fill("new-profile");
+  await choosePicker(page,'Runtime','Pi','chat');
   releaseCatalog();
   await expect(
     page.locator(
       'select[name="agent.codex.model"] option[value="stale-model"]',
     ),
   ).toHaveCount(0);
+  await page.unroute("**/api/settings/models");
+  await choosePicker(page,'Runtime','Codex','chat');
+  await page.locator("#refreshModelsBtn").click();
+  await choosePicker(page,'模型','ui-catalog-a','chat');
   let releaseTest;
   const testGate = new Promise((resolve) => (releaseTest = resolve));
   await page.route("**/api/settings/connection-test", async (route) => {
@@ -585,15 +586,13 @@ test("late catalog and connection results cannot replace a changed draft", async
     });
   });
   await page.locator("#testConnectionBtn").click();
-  await page.locator('[name="agent.codex.profile"]').fill("latest-profile");
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   releaseTest();
   await expect(page.locator("#testConnectionBtn")).toBeEnabled();
   await expect(page.locator("#connTestTerminal")).not.toContainText(
     "STALE_SUCCESS",
   );
-  await expect(page.locator('[name="agent.codex.profile"]')).toHaveValue(
-    "latest-profile",
-  );
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
 });
 test("database picker draft survives redraw and is submitted unchanged", async ({
   page,
@@ -647,13 +646,16 @@ test("database picker draft survives redraw and is submitted unchanged", async (
   );
   await expect(page.locator("#settingsStatus")).toHaveText("设置已保存");
 });
-test("failed settings save keeps draft and allows retry", async ({ page }) => {
+test("failed settings save keeps draft and allows retry", async ({ page, request }) => {
+  const current = await (await request.get('/api/settings')).json();
+  const baseline = await request.put('/api/settings', {data:{llm:current.llm,
+    agent:{...current.agent,runtime:'codex',codex:{model:'ui-catalog-a',sandbox:'read-only'}}}});
+  expect(baseline.ok()).toBe(true);
   await ready(page);
   await page.keyboard.press(",");
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
-  await page.locator('[name="agent.codex.profile"]').fill("unsaved-draft");
+  await choosePicker(page,'Runtime','Codex','chat');
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.route("**/api/settings", (route) =>
     route.request().method() === "PUT"
       ? route.fulfill({
@@ -664,9 +666,7 @@ test("failed settings save keeps draft and allows retry", async ({ page }) => {
   );
   await page.locator("#settingsSaveBtn").click();
   await expect(page.locator("#settingsStatus")).toHaveClass(/error-state/);
-  await expect(page.locator('[name="agent.codex.profile"]')).toHaveValue(
-    "unsaved-draft",
-  );
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
   await expect(page.locator("#settingsSaveBtn")).toBeEnabled();
 });
 test("unsafe article markup and links remain inert text", async ({ page }) => {
@@ -781,17 +781,14 @@ test("settings navigation preserves unsaved fields and the reading position", as
     .evaluate((node) => node.scrollTop);
   await page.locator("#leftNavSettingsBtn").click();
   await page.locator('[data-settings-tab="models"]').click();
-  await choosePicker(page,'Runtime','Codex CLI','chat');
-  await openModelAdvanced(page);
-  await page.locator('[name="agent.codex.profile"]').fill("three-column-draft");
+  await choosePicker(page,'Runtime','Codex','chat');
+  await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.locator('[data-settings-tab="deepseek"]').click();
   await page
     .locator('input[name="llm.translation.model"]')
     .fill("translation-draft");
   await page.locator('[data-settings-tab="models"]').click();
-  await expect(page.locator('[name="agent.codex.profile"]')).toHaveValue(
-    "three-column-draft",
-  );
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
   await page.keyboard.press(",");
   await expect(page.locator("#feedColSettings")).not.toBeVisible();
   await expect(page.locator("#articleBodyContent")).toBeVisible();
@@ -799,9 +796,7 @@ test("settings navigation preserves unsaved fields and the reading position", as
     await page.locator("#detailScrollArea").evaluate((node) => node.scrollTop),
   ).toBe(position);
   await page.keyboard.press(",");
-  await expect(page.locator('[name="agent.codex.profile"]')).toHaveValue(
-    "three-column-draft",
-  );
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(page.locator('input[name="llm.translation.model"]')).toHaveValue(
     "translation-draft",

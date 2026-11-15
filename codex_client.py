@@ -1,4 +1,4 @@
-"""Codex exec adapter. CLI owns authentication; credentials never enter app state.
+"""Codex OAR adapter and remaining task-specific native execution.
 
 Normalized events match the existing Agent transport, not Pi session identifiers.
 Commands always pin cwd, read-only sandbox and noninteractive approvals, including
@@ -14,9 +14,11 @@ import re
 import selectors
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 
+import oar_client
 from oar_client import terminate_group
 
 ROOT = Path(__file__).resolve().parent
@@ -24,7 +26,8 @@ REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max",
 MAX_BYTES = 2 * 1024 * 1024
 ERROR_MESSAGES = {
     "codex_missing": "未找到 Codex CLI，请先安装 Codex。",
-    "codex_auth_required": "Codex 请求被所选服务拒绝认证，请检查对应 provider / profile 的配置；应用不收集凭据。",
+    "codex_auth_required": "Codex 请求认证失败，请检查本机 Codex 登录和配置；应用不收集凭据。",
+    "codex_advanced_config_removed": "Codex 自定义服务商和 Profile 已停用，请从模型列表重新选择；旧会话请开启新对话。",
     "codex_probe_failed": "Codex 状态探测或命令能力检查失败；这不代表未登录，请检查可执行文件和配置。",
     "codex_protocol_error": "Codex 返回不完整或格式异常，本轮未成功，请重试。",
     "codex_empty_answer": "Codex 未返回有效最终答案，请重试。",
@@ -33,30 +36,106 @@ ERROR_MESSAGES = {
     "codex_session_invalid": "Codex 会话不可用或与当前运行方式不匹配，请明确开启新会话。",
     "codex_timeout": "Codex 请求超时，请重试。",
 }
+ERROR_MESSAGES.update({key: value for key, value in oar_client.ERROR_MESSAGES.items()
+                       if key in {"oar_node_missing", "oar_node_version", "oar_dependency_missing", "oar_compatibility_mismatch"}})
+
+
+def oar_environment() -> dict:
+    # Keep Codex's own HOME/config/auth. Only the selected executable is pinned.
+    return {**os.environ, "NEWS_READER_CODEX": executable()}
+
+
+def oar_request(config: dict, prompt: str, *, state_dir: Path, thread_id="", resume_prompt=None,
+                cwd: Path = ROOT, live_search=False) -> dict:
+    config = normalize_config(config)
+    if thread_id and not valid_thread_id(thread_id):
+        raise RuntimeError("codex_session_invalid")
+    return {"runtime": "codex", "codex": config, "cwd": str(cwd.resolve()), "state_dir": str(state_dir),
+            "prompt": prompt, "resume_prompt": prompt if resume_prompt is None else resume_prompt,
+            "resume": thread_id, "config_id": uuid.uuid4().hex,
+            **({"web_search": "live"} if live_search else {})}
+
+
+class OarEventParser:
+    """Validate native identity without parsing Codex's vendor-specific stream."""
+    def __init__(self, expected_thread=""):
+        self.expected_thread = expected_thread
+        self.thread_id = ""
+        self.terminal = False
+
+    def parse(self, raw):
+        try:
+            event = oar_client.parse_event(raw)
+        except RuntimeError:
+            raise RuntimeError("codex_protocol_error") from None
+        if self.terminal:
+            raise RuntimeError("codex_protocol_error")
+        if event["type"] == "oar_session":
+            native = event.get("id", "")
+            if (self.thread_id or event.get("runtime") != "oar-codex" or not valid_thread_id(native)
+                    or (self.expected_thread and native != self.expected_thread)):
+                raise RuntimeError("codex_session_invalid")
+            self.thread_id = native
+        if event["type"] == "oar_result":
+            self.terminal = True
+            if event["outcome"] == "completed" and (not self.thread_id or event.get("native_id") != self.thread_id):
+                raise RuntimeError("codex_protocol_error")
+        return event
+
+
+def run_chat(config: dict, prompt: str, *, state_dir: Path, thread_id="", timeout=90) -> tuple[str, str]:
+    request = oar_request(config, prompt, state_dir=state_dir, thread_id=thread_id, live_search=True)
+    return _run_oar(request, state_dir, timeout, thread_id)
+
+
+def run_archive(config: dict, prompt: str, *, timeout=300, max_length=300) -> tuple[str, str]:
+    """Independent OAR turn; never resumes or persists a native chat thread."""
+    with tempfile.TemporaryDirectory(prefix="newsreader-codex-archive-") as directory:
+        state_dir = Path(directory)
+        request = oar_request(config, prompt, state_dir=state_dir)
+        request.update(task="chat_archive", web_search="disabled", archive_max_length=max_length)
+        return _run_oar(request, state_dir, timeout)
+
+
+def _run_oar(request: dict, state_dir: Path, timeout: int, thread_id="") -> tuple[str, str]:
+    parser = OarEventParser(thread_id)
+    result = oar_client.run_result(oar_client.bridge_command(state_dir.name), request, oar_environment(), timeout,
+        parser=parser.parse, errors=ERROR_MESSAGES, timeout_error="codex_timeout", protocol_error="codex_protocol_error",
+        failure_error="codex_turn_failed")
+    return result["answer"], parser.thread_id
 
 
 def normalize_config(value: object) -> dict:
     if not isinstance(value, dict):
         raise ValueError("invalid_codex_settings")
+    # Accept old empty fields when reading saved sessions; never execute a
+    # formerly selected provider/profile under a different native configuration.
+    if any(value.get(key, "") != "" for key in ("provider", "profile")):
+        raise ValueError("codex_advanced_config_removed")
     result = {}
-    for key, limit in (("model", 120), ("profile", 80), ("provider", 80)):
+    for key, limit in (("model", 120),):
         raw = value.get(key, "")
         if not isinstance(raw, str) or len(raw) > limit or (raw and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", raw)):
             raise ValueError(f"invalid_codex_{key}")
-        # Keep legacy session mappings byte-compatible when provider is inherited.
-        if key != "provider" or raw:
-            result[key] = raw
+        result[key] = raw
     effort = value.get("reasoning_effort", "")
     if not isinstance(effort, str) or (effort and effort not in REASONING_EFFORTS):
         raise ValueError("invalid_codex_reasoning_effort")
     # Do not add empty fields to old session mappings: their byte compatibility matters.
     if effort:
         result["reasoning_effort"] = effort
-    # News Chat does not need write access. Profiles cannot escalate this policy.
+    # News Chat does not need write access.
     if value.get("sandbox", "read-only") != "read-only":
         raise ValueError("invalid_codex_sandbox")
     result["sandbox"] = "read-only"
     return result
+
+
+def saved_preferences(value: object) -> dict:
+    """Remove retired options from editable defaults, never from bound tasks."""
+    if not isinstance(value, dict):
+        raise ValueError("invalid_codex_settings")
+    return normalize_config({key: item for key, item in value.items() if key not in ("provider", "profile")})
 
 
 def executable() -> str:
@@ -90,7 +169,7 @@ def status_snapshot() -> dict:
 
 
 def require_ready() -> None:
-    # Login status only covers OpenAI auth, not the selected provider/profile.
+    # Login status only covers OpenAI auth, not native custom provider credentials.
     # Only absence/incompatible CLI blocks launch; real request errors decide auth.
     try:
         probe = subprocess.run([executable(), "exec", "--help"], stdout=subprocess.PIPE,
@@ -117,10 +196,6 @@ def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: b
             "--json", "--color", "never"]
     if config["model"]:
         args += ["--model", config["model"]]
-    if config["profile"]:
-        args += ["--profile", config["profile"]]
-    if config.get("provider"):
-        args += ["-c", "model_provider=" + json.dumps(config["provider"])]
     if config.get("reasoning_effort"):
         args += ["-c", "model_reasoning_effort=" + json.dumps(config["reasoning_effort"])]
     # Apply at execution, including resumed sessions and already queued jobs.
@@ -154,7 +229,7 @@ def read_thread(state_dir: Path, config: dict) -> str:
         return ""
     try:
         record = json.loads(path.read_text())
-        if record["runtime"] != "codex" or record["config"] != normalize_config(config) or not valid_thread_id(record["thread_id"]):
+        if record["runtime"] != "codex" or normalize_config(record["config"]) != normalize_config(config) or not valid_thread_id(record["thread_id"]):
             raise ValueError()
         return record["thread_id"]
     except (ValueError, KeyError, TypeError, OSError):

@@ -47,6 +47,44 @@ test('completed turn has explicit terminal and private native mapping; subsequen
   assert.equal(second.at(-1).answer, `answer:${request.resume_prompt}`);
 });
 
+test('news chat migrates a CLI mapping only after a successful OAR turn', async t => {
+  const request = {...await fixture(t), task: 'news_chat'}, runtime = fakeRuntime();
+  const mapping = path.join(request.state_dir, 'session.json'), route = path.join(request.state_dir, 'route.json');
+  const before = JSON.stringify({id: 'old-cli', runtime: 'cli', history_replayed: true});
+  await fs.writeFile(mapping, before);
+  await fs.writeFile(route, JSON.stringify({runtime: 'cli'}));
+  assert.equal(await execute(request, runtime, {}, () => {}, undefined,
+    async () => ({kind: 'ended', outcome: {kind: 'failed'}, text: 'partial'})), false);
+  assert.equal(await fs.readFile(mapping, 'utf8'), before);
+  await fs.access(route);
+  assert.equal(await execute(request, runtime, {}, () => {}, undefined, completed), true);
+  assert.equal(runtime.calls[0].resume, 'old-cli');
+  assert.equal(runtime.calls[1].resume, 'old-cli');
+  assert.equal(JSON.parse(await fs.readFile(mapping)).runtime, 'oar');
+  await assert.rejects(fs.access(route));
+});
+
+test('each Pi archive attempt is fresh and cannot replace a conversation mapping', async t => {
+  const request = {...await fixture(t), task: 'chat_archive'}, runtime = fakeRuntime();
+  const mapping = path.join(request.state_dir, 'session.json');
+  const before = JSON.stringify({id: 'original-chat', runtime: 'oar'});
+  await fs.writeFile(mapping, before);
+  for (let i = 0; i < 2; i++) await execute(request, runtime, {}, () => {}, undefined, completed);
+  assert.ok(runtime.calls.every(options => options.resume === undefined));
+  assert.ok(runtime.calls.every(options => options.disallowedTools.join() === '*'));
+  assert.equal(await fs.readFile(mapping, 'utf8'), before);
+  assert.throws(() => validateRequest({...request, nr_tools: {command: '/fixture', args: []}}), /oar_invalid_request/);
+});
+
+test('corrupt news mappings cannot silently start another conversation', async t => {
+  const request = {...await fixture(t), task: 'news_chat'}, runtime = fakeRuntime();
+  for (const saved of [null, {}, {id: '../other'}, {id: 'native', runtime: 'other'}]) {
+    await fs.writeFile(path.join(request.state_dir, 'session.json'), JSON.stringify(saved));
+    await assert.rejects(execute(request, runtime, {}, () => {}, undefined, completed), /oar_invalid_session/);
+  }
+  assert.equal(runtime.calls.length, 0);
+});
+
 test('missing native session replays saved history, but unrelated runtime errors do not', async t => {
   const request = await fixture(t);
   await fs.writeFile(path.join(request.state_dir, 'session.json'), JSON.stringify({ id: 'old' }));
@@ -80,9 +118,14 @@ test('config/resource copy isolates account writes and keeps sessions, credentia
   await fs.mkdir(path.join(source, 'extensions'), { recursive: true });
   await fs.mkdir(path.join(source, 'skills'));
   await fs.writeFile(path.join(source, 'auth.json'), '{"fixture":"private"}');
+  await fs.writeFile(path.join(source, 'mcp-auth.json'), '{"synthetic-oauth":"private"}');
   await fs.writeFile(path.join(source, 'extensions/test.ts'), 'test extension');
   await fs.symlink(path.join(source, 'extensions'), path.join(source, 'skills/shared'));
   const agentDir = await prepareConfig(source, path.join(request.cwd, 'state'));
+  assert.equal(await fs.readFile(path.join(agentDir, 'mcp-auth.json'), 'utf8'), '{"synthetic-oauth":"private"}');
+  assert.equal((await fs.stat(path.join(agentDir, 'mcp-auth.json'))).mode & 0o777, 0o600);
+  await fs.writeFile(path.join(agentDir, 'mcp-auth.json'), '{}');
+  assert.equal(await fs.readFile(path.join(source, 'mcp-auth.json'), 'utf8'), '{"synthetic-oauth":"private"}');
   await fs.writeFile(path.join(agentDir, 'auth.json'), '{}');
   assert.equal(await fs.readFile(path.join(source, 'auth.json'), 'utf8'), '{"fixture":"private"}');
   assert.equal(await fs.readFile(path.join(agentDir, 'skills/shared/test.ts'), 'utf8'), 'test extension');
@@ -134,6 +177,8 @@ for (const decision of [false, null]) test(`original trust ${decision} prevents 
   await fs.writeFile(path.join(request.source, 'trust.json'), JSON.stringify({ [await fs.realpath(request.cwd)]: decision }));
   const agentDir = await prepareConfig(request.source, request.state_dir);
   await assert.rejects(checkResources(request.cwd, agentDir), /oar_project_untrusted/);
+  const decisionForRpc = await checkResources(request.cwd, agentDir, {allowUntrusted: true});
+  assert.equal(decisionForRpc.projectTrusted, false);
   await assert.rejects(fs.access(request.marker));
 });
 
