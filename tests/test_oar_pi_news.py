@@ -126,10 +126,11 @@ def test_project_resources_follow_native_trust_without_cli_fallback(pi_runtime, 
     assert not (state / 'route.json').exists()
 
 
-def test_pi_archive_has_no_tools_or_history_and_each_attempt_is_independent(pi_runtime):
+@pytest.mark.parametrize("task", ["chat_archive", "material_summary"])
+def test_pi_archive_has_no_tools_or_history_and_each_attempt_is_independent(pi_runtime, task):
     source, cwd, state, request, calls, responses, run = pi_runtime
     (source / 'mcp.json').write_text(json.dumps(search_config()))
-    request['task'] = 'chat_archive'
+    request['task'] = task
     responses.extend(['first-summary', 'shorter-summary'])
     assert run() == 'first-summary'
     assert run() == 'shorter-summary'
@@ -154,3 +155,34 @@ def test_pi_timeout_reaps_rpc_search_process_and_detached_tool(pi_runtime, tmp_p
             os.kill(pid, 0)
     assert not (state / 'session.json').exists()
     assert not list(state.glob('config-*'))
+
+
+def test_pi_research_is_ephemeral_and_uses_native_search(pi_runtime):
+    source, cwd, state, request, calls, responses, run = pi_runtime
+    (source / 'mcp.json').write_text(json.dumps(search_config('deferred')))
+    request['task'] = 'web_research'
+    responses.extend([('tool_search', {'query': 'web_search'}),
+                      ('mcp__search__web_search', {'query': 'fixture'}), 'researched'])
+    assert run() == 'researched'
+    assert 'synthetic-search-evidence' in json.dumps(calls[-1]['messages'])
+    assert not (state / 'session.json').exists()
+    assert not list(state.rglob('*.jsonl'))
+    assert not list(state.glob('config-*'))
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_summary_runner_counts_only_completed_successful_pi_search(pi_runtime, monkeypatch, failed):
+    import news_summaries
+    source, cwd, state, request, calls, responses, run = pi_runtime
+    (source / 'mcp.json').write_text(json.dumps(search_config(extra_args=['--fail'] if failed else [])))
+    monkeypatch.setattr(news_summaries, '_pi_subprocess_env', lambda: {
+        'PATH': os.environ['PATH'], 'HOME': str(source.parent), 'PI_OFFLINE': '1',
+        'NEWS_READER_PI_AGENT_DIR': str(source)})
+    responses.extend([('mcp__search__web_search', {'query': 'fixture'}), 'researched'])
+    config = {'runtime': 'pi', 'pi_provider': 'nr-fixture', 'pi_model': 'fixture', 'pi_reasoning_effort': 'off'}
+    diagnostics = []
+    assert news_summaries.run_oar(config, 'research', lambda: False, diagnostics, allow_research=True) == 'researched'
+    assert diagnostics[0]['research_tools'] == (0 if failed else 1)
+    assert diagnostics[0]['tools'] == ['mcp__search__web_search']
+    for call in calls:
+        assert not {'read', 'bash', 'write', 'edit'} & {t['function']['name'] for t in call.get('tools', [])}

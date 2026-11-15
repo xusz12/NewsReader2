@@ -133,7 +133,7 @@ export class PersonalAssistant {
     for(const message of messages) {
       let node=host.querySelector(`[data-message-id="${message.id}"]`);
       if(!node) {node=document.createElement("article");node.className=`agent-msg ${message.role}`;node.dataset.messageId=message.id;host.append(node);}
-      const text=message.content || (active(this.snapshot.job) && message.role === "assistant" ? "正在整理资料…" : "本轮没有生成回复");
+      const text=message.content || (active(message) && message.role === "assistant" ? "正在整理资料…" : "本轮没有生成回复");
       const signature=JSON.stringify([text,message.status,this.profile?.name]);
       if(node.signature !== signature) {
         node.innerHTML=`<span class="agent-caption">${message.role === "user" ? "你" : e(this.profile?.name || "个人助手")}${["failed","stopped"].includes(message.status) ? " · 未完成" : ""}</span><div class="agent-bubble">${markdown(text)}</div>`;

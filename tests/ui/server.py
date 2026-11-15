@@ -34,8 +34,9 @@ module.ensure_db()
 personal_mode = {"value": "success"}
 def fixture_personal(**kwargs):
     mode = personal_mode["value"]
-    until = time.monotonic() + (30 if mode == "wait" else .2)
-    kwargs["emit"]({"type":"text_delta", "delta":"正在查阅 NR…"})
+    until = time.monotonic() + (30 if mode in ("wait", "wait_empty") else .2)
+    if mode != "wait_empty":
+        kwargs["emit"]({"type":"text_delta", "delta":"正在查阅 NR…"})
     while time.monotonic() < until:
         if kwargs["stopped"]():
             raise RuntimeError("assistant_stopped")

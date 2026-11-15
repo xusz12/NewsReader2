@@ -1054,30 +1054,28 @@ def test_topic_api_validation_and_delete_preserve_news(env,api,monkeypatch):
         assert conn.execute('SELECT COUNT(*) FROM topic_ingestions').fetchone()[0]==1
 
 
-@pytest.mark.parametrize('runtime,tool,success',[('codex','web_search',True),('codex','command_execution',False),
+@pytest.mark.parametrize('runtime,tool,success',[('codex','webSearch',True),('codex','commandExecution',False),
                                                ('pi','mcp__tavily__web_search',True),('pi','bash',False)])
 def test_research_requires_web_tool_and_reports_it(tmp_path,monkeypatch,runtime,tool,success):
     import sys
-    if runtime=='codex':
-        events=[{'type':'thread.started','thread_id':'11111111-1111-4111-8111-111111111111'},
-                {'type':'turn.started'}, {'type':'item.completed','item':{'id':'tool','type':tool}},
-                {'type':'item.completed','item':{'id':'answer','type':'agent_message','text':'answer'}},
-                {'type':'turn.completed'}]
-    else:
-        events=[{'type':'oar_tool','tool':tool},{'type':'oar_result','outcome':'completed','answer':'answer'}]
+    ident = '11111111-1111-4111-8111-111111111111'
+    events = [{'type':'oar_session','id':ident,'runtime':'oar-'+runtime,'resumed':False},
+              {'type':'oar_tool','tool':tool},
+              {'type':'oar_tool','tool':tool,'phase':'completed','success':True},
+              {'type':'oar_result','outcome':'completed','answer':'answer','native_id':ident}]
     path=tmp_path/'model.py'
     path.write_text('import sys,json\nsys.stdin.read()\nfor event in '+repr(events)+': print(json.dumps(event),flush=True)')
     monkeypatch.setattr(news_summaries.codex_client,'require_ready',lambda:None)
-    monkeypatch.setattr(news_summaries.codex_client,'command',lambda *a,**k:[sys.executable,str(path)])
+    monkeypatch.setattr(news_summaries,'bridge_command',lambda *a,**k:[sys.executable,str(path)])
     monkeypatch.setattr(news_summaries,'bridge_command',lambda *a:[sys.executable,str(path)])
     config={'runtime':runtime,'codex':{'model':'test','profile':'','sandbox':'read-only'},'pi_provider':'test','pi_model':'test'}
     diagnostics=[]
     if success:
-        assert news_summaries.run_native(config,'test',lambda:False,diagnostics,allow_research=True)=='answer'
+        assert news_summaries.run_oar(config,'test',lambda:False,diagnostics,allow_research=True)=='answer'
         assert diagnostics[0]['research_tools']==1
     else:
         with pytest.raises(RuntimeError):
-            news_summaries.run_native(config,'test',lambda:False,diagnostics,allow_research=True)
+            news_summaries.run_oar(config,'test',lambda:False,diagnostics,allow_research=True)
 
 
 def prepare_preview(env):

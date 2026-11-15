@@ -119,6 +119,24 @@ test("停止与失败有明确状态，关窗继续运行，草稿不会丢失",
   await send(page,"继续讨论");
 });
 
+for (const width of [390,1440]) test(`已停止的空回复不会在下一轮重新显示为生成中 ${width}`, async ({page,request}) => {
+  await request.post("/__test/personal-assistant", {data:{mode:"wait_empty"}});
+  await page.setViewportSize({width,height:900});await ready(page);await open(page);
+  await page.locator("#personalAssistantInput").fill("第一轮");
+  await page.locator("#personalAssistantSend").click();
+  await expect(page.locator("#personalAssistantMessages")).toContainText("正在整理资料");
+  await page.getByRole("button",{name:"停止回复",exact:true}).click();
+  await expect(page.locator("#personalAssistantStatus")).toContainText("已停止");
+  await expect(page.locator("#personalAssistantMessages .assistant").first()).toContainText("本轮没有生成回复");
+  await page.locator("#personalAssistantInput").fill("第二轮");
+  await page.locator("#personalAssistantSend").click();
+  await expect(page.getByRole("button",{name:"停止回复",exact:true})).toBeEnabled();
+  await expect(page.locator("#personalAssistantMessages .assistant").first()).toContainText("本轮没有生成回复");
+  await expect(page.locator("#personalAssistantMessages .assistant").last()).toContainText("正在整理资料");
+  await page.getByRole("button",{name:"停止回复",exact:true}).click();
+  await expect(page.locator("#personalAssistantStatus")).toContainText("已停止");
+});
+
 for (const width of [320,390,920,921,1279,1280,1440]) test(`个人助手在主题与屏宽 ${width} 下可操作`,async({page})=>{
   await page.setViewportSize({width,height:900});await ready(page);
   for(const [theme,colorScheme] of [["light","light"],["dark","dark"],["system","light"],["system","dark"],["eink","light"]]) {

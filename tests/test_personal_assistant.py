@@ -234,6 +234,46 @@ def test_interrupted_runtime_cannot_write_memory_after_stop(service):
     assert not (service.workspace / "notes/late.md").exists()
 
 
+def test_stop_waits_for_atomic_memory_commit_and_blocks_later_writes(service, monkeypatch):
+    committing, release, returned = threading.Event(), threading.Event(), threading.Event()
+    original = Memory._write
+    def paused_write(memory, path, content):
+        if path.name == 'in-flight.md':
+            committing.set()
+            assert release.wait(3)
+        original(memory, path, content)
+    monkeypatch.setattr(Memory, '_write', paused_write)
+    def runner(**args):
+        server = ToolServer(args['db'], args['workspace'], args['state_db'], args['job_id'])
+        server.call('memory_write', {'path': 'notes/in-flight.md', 'content': '政策偏好',
+                                    'revision': '', 'source_message_ids': [1]})
+        while not args['stopped']():
+            time.sleep(.01)
+        raise RuntimeError('assistant_stopped')
+    service.runner = runner
+    thread = send(service)
+    assert committing.wait(2)
+    def stop():
+        service.stop(thread)
+        returned.set()
+    worker = threading.Thread(target=stop)
+    worker.start()
+    try:
+        assert not returned.wait(.15)
+    finally:
+        release.set()
+        worker.join(timeout=3)
+    assert returned.is_set()
+    snapshot = wait_done(service, thread)
+    assert snapshot['job']['status'] == 'stopped'
+    assert '政策偏好' in service.memory.read('notes/in-flight.md')['content']
+    server = ToolServer(service.db_path(), service.workspace, service.state_db, snapshot['job']['id'])
+    with pytest.raises(ValueError, match='停止或中断'):
+        server.call('memory_write', {'path': 'notes/late.md', 'content': 'later',
+                                    'revision': '', 'source_message_ids': [1]})
+    assert not (service.workspace / 'notes/late.md').exists()
+
+
 def test_mcp_protocol_and_source_validation(service):
     service.ensure()
     server = ToolServer(service.db_path(), service.workspace, service.state_db)
@@ -251,21 +291,34 @@ def test_mcp_protocol_and_source_validation(service):
 
 
 def test_codex_adapter_registers_tools_and_resumes_in_own_workspace(service, tmp_path, monkeypatch):
-    from test_codex_client import fake_codex
-    log = fake_codex(tmp_path, monkeypatch)
+    script = tmp_path / 'codex'
+    script.write_text(f'#!{sys.executable}\n' + (Path(__file__).parent / 'fixtures/fake_codex_app_server.py').read_text())
+    script.chmod(0o755)
+    log = tmp_path / 'rpc.jsonl'
+    monkeypatch.setenv('NEWS_READER_CODEX', str(script))
+    monkeypatch.setenv('NR_RPC_LOG', str(log))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex-home'))
+    monkeypatch.setattr(runtime.codex_client, 'command', lambda *a, **k: pytest.fail('native CLI fallback'))
     service.runner = runtime.run
     thread = send(service)
-    assert wait_done(service, thread)["job"]["status"] == "done"
-    send(service, "再说说", thread=thread)
-    assert wait_done(service, thread)["job"]["status"] == "done"
+    assert wait_done(service, thread)['job']['status'] == 'done'
+    send(service, '再说说', thread=thread)
+    assert wait_done(service, thread)['job']['status'] == 'done'
     records = [json.loads(line) for line in log.read_text().splitlines()]
-    assert records[0]["cwd"] == str(service.workspace)
-    assert "--sandbox" in records[0]["args"] and "read-only" in records[0]["args"]
-    assert "--skip-git-repo-check" in records[0]["args"]  # persistent workspaces are not code repositories
-    assert any(arg.startswith("mcp_servers.nr_assistant.args=") for arg in records[0]["args"])
-    assert "resume" in records[1]["args"]
-    assert "同一讨论最近消息" not in records[1]["prompt"]
-    assert "再说说" in records[1]["prompt"]
+    opens = [r for r in records if r['method'] in ('thread/start', 'thread/resume')]
+    assert [r['method'] for r in opens] == ['thread/start', 'thread/resume']
+    for record in opens:
+        assert record['params']['cwd'] == str(service.workspace)
+        assert 'sandbox_mode="read-only"' in record['args']
+        assert 'project_doc_max_bytes=0' in record['args']
+        tools = record['params']['config']['mcp_servers']['nr_assistant']
+        assert tools['command'] == str(Path(sys.executable).resolve())
+        assert '--job-id' in tools['args']
+        assert tools['enabled'] is True
+    turns = [r['params']['input'][0]['text'] for r in records if r['method'] == 'turn/start']
+    assert '同一讨论最近消息' not in turns[1]
+    assert '再说说' in turns[1]
 
 
 def test_blueprint_validation_and_independent_configuration(service, monkeypatch):

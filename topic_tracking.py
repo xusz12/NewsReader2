@@ -397,7 +397,7 @@ def parse_json(text):
 
 
 def research_runner(config, prompt, cancel, diagnostics, *, web):
-    return news_summaries.run_native(config, prompt, cancel, diagnostics, allow_research=web)
+    return news_summaries.run_oar(config, prompt, cancel, diagnostics, allow_research=web)
 
 
 CONFIRM_DEFINITION = "是否确认按这一定义继续？你可以继续询问细节或提出修改，达成一致后点击「确认并整理历史」。"

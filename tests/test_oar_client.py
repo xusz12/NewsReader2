@@ -113,6 +113,7 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
     if not node: pytest.skip('Node is optional in Python-only test environments')
     bridge = tmp_path / 'isolated' / 'oar_bridge.mjs'; bridge.parent.mkdir()
     shutil.copy2(oar_client.ROOT / 'scripts/oar_bridge.mjs',bridge)
+    shutil.copy2(oar_client.ROOT / 'scripts/oar_tool_events.mjs', bridge.parent)
     source = tmp_path / 'empty-agent';source.mkdir()
     state = tmp_path / 'state';state.mkdir()
     request = oar_client.bridge_request(prompt='fixture',resume_prompt='fixture',state_dir=state,provider='openai',model='gpt-4.1')
@@ -122,7 +123,7 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
     assert not list(state.glob('config-*'))
 
 
-@pytest.mark.parametrize('route,tool_source', [('oar', 'builtin'), ('cli', 'builtin'), ('cli', 'nr_tools'),
+@pytest.mark.parametrize('route,tool_source', [('oar', 'builtin'), ('cli', 'builtin'), ('assistant', 'nr_tools'),
     ('news', 'builtin'), ('migrate_cli', 'builtin'), ('import_cli', 'builtin')])
 def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, route, tool_source):
     """Exercise the installed OAR/SDK and native CLI against a local provider."""
@@ -196,14 +197,14 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
                'model': 'fixture', 'prompt': 'Read the sample and retain this first question.',
                'resume_prompt': 'Continue the same conversation.', 'reasoning_effort': 'off'}
     if nr_tools:
-        request['nr_tools'] = nr_tools
+        request.update(nr_tools=nr_tools, task='personal_assistant')
     if route == 'news':
         request['task'] = 'news_chat'
     command = [node, str(oar_client.ROOT / 'scripts/oar_bridge.mjs')]
     try:
         assert oar_client.run_once(command, request, env, 20) == 'first-answer'
         saved = json.loads((state / 'session.json').read_text())
-        assert saved['runtime'] == ('oar' if route == 'news' else 'cli' if route in ('migrate_cli', 'import_cli') else route)
+        assert saved['runtime'] == ('oar' if route in ('news', 'assistant') else 'cli' if route in ('migrate_cli', 'import_cli') else route)
         if route == 'migrate_cli':
             request['task'] = 'news_chat'
         if route == 'import_cli':

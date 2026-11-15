@@ -216,7 +216,7 @@ class Service:
 
     def stop(self, thread_id):
         self.ensure()
-        with self.connect() as connection:
+        with self.memory.locked(), self.connect() as connection:
             connection.execute("UPDATE jobs SET stop_requested=1 WHERE thread_id=? AND status IN ('queued','running')", (thread_id,))
         return self.snapshot(thread_id)
 

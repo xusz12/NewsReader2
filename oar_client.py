@@ -57,6 +57,9 @@ def parse_event(raw: str) -> dict:
         raise RuntimeError("oar_protocol_error")
     if event["type"] == "text_delta" and not isinstance(event.get("delta"), str):
         raise RuntimeError("oar_protocol_error")
+    if event["type"] == "oar_tool" and (not isinstance(event.get("tool"), str) or
+            ("phase" in event and (event["phase"] != "completed" or not isinstance(event.get("success"), bool)))):
+        raise RuntimeError("oar_protocol_error")
     if event["type"] == "oar_result" and (event.get("outcome") not in {"completed", "failed"} or
        (event["outcome"] == "completed" and not isinstance(event.get("answer"), str))):
         raise RuntimeError("oar_protocol_error")

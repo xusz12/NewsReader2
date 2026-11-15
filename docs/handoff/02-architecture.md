@@ -13,7 +13,7 @@
 - Pi 新闻任务通过 OAR 管理 RPC 进程。`scripts/pi_rpc_entry.mjs` 只补充原生资源和归档的启动策略，不另行解析事件。聊天保留 MCP、codemode、tool_search、扩展与原项目信任规则；旧 CLI 原生会话成功恢复后才提交 OAR 映射。凭据与资源使用私有副本，包含 MCP OAuth 凭据。
 - Codex 新闻任务由 OAR 管理 app-server，沿用旧原生 ID，固定只读沙箱、不请求审批、标准速度和实时搜索。自定义模型输入、服务商覆盖与 Profile 已停用；旧空字段兼容，非空覆盖的已绑定会话明确拒绝。
 - 归档使用独立临时会话，每次字数重试重新生成；Pi 禁用工具和原生持久会话，Codex 禁用搜索并用原生 ephemeral 线程。OAR 0.106.0 的 ephemeral 缺口由受版本／代码接缝检查的 `scripts/oar_codex_ephemeral.mjs` 内存补丁补齐，升级时必须复验；不修改依赖文件、不退回 CLI。Codex 的“仅材料”仍包含提示词约束，不能宣称其所有内置工具已被统一禁用。
-- 新闻总结／主题的 Pi 暂留共享桥接中的 CLI 兼容分支，个人助手 Pi 固定使用只开放 NR MCP 的原生入口。Codex 总结／主题／报告／个人助手／连接测试仍待后续批次；Pi 连接测试与翻译后备仍用外部 CLI。
+- 新闻总结／主题的 Pi、Codex 统一经 `news_summaries.run_oar()`；材料整理关闭搜索，主题研究按已完成搜索事件检查检索证据，使用独立临时会话。个人助手 Pi、Codex 经 `personal_assistant_runtime.run()` 调用同一 OAR bridge，用 `mcpServers` 显式接入 NR 查询、讨论与记忆工具。报告／连接测试仍待后续批次，Pi 连接测试与翻译后备仍用外部 CLI。
 - Pi 定期报告当前使用 `ModelRuntime.completeSimple`；已确认在报告批次改成 Agent，经 OAR 管理。本次没有迁移报告。模型目录与容量仍分别使用 Pi SDK／Codex app-server；翻译等直接模型 HTTP API 及 Jev 专用判断继续保留，不改成 Agent。
 - 真实依赖与本地模拟模型验证新旧会话、实际搜索工具、过滤、信任、归档不落盘、停止与进程树清理。未调用付费模型或真实公网搜索；验收细目见[统一调用迁移清单](../runtime-migration.md)。
 

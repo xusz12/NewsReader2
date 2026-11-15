@@ -67,6 +67,8 @@ for line in sys.stdin:
                      itemId='answer', delta='尚未定稿的长文本。' * 40)
             note('item/started', threadId=thread_id, turnId='turn-fixture',
                  item={'id': 'search', 'type': 'webSearch', 'query': 'private query'})
+            note('item/completed', threadId=thread_id, turnId='turn-fixture',
+                 item={'id': 'search', 'type': 'webSearch', 'status': 'completed'})
             if mode != 'commentary_only':
                 answer = 'OAR native transport answer'
                 if params.get('outputSchema'):

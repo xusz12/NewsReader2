@@ -21,6 +21,9 @@ for line in sys.stdin:
             'inputSchema': {'type': 'object', 'properties': {'query': {'type': 'string'}}, 'required': ['query']}}
             for name in ['web_search', 'hidden_tool']]}
     elif method == 'tools/call':
+        if '--fail' in sys.argv:
+            print(json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': {'isError': True, 'content': [{'type': 'text', 'text': 'Search quota exhausted'}]}}), flush=True)
+            continue
         if len(sys.argv) > 1:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
             child = subprocess.Popen([sys.executable, '-c',

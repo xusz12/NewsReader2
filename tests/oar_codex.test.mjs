@@ -8,6 +8,21 @@ const id = '0199a213-81c0-7800-8aa1-bbab2a035a53';
 const request = {runtime: 'codex', cwd: os.tmpdir(), prompt: 'first question', resume_prompt: 'follow-up',
   codex: {model: 'chosen', reasoning_effort: 'high', sandbox: 'read-only'}};
 
+test('assistant attaches its NR MCP on every new or resumed OAR session', () => {
+  const nr_tools = {command: '/usr/bin/python3', args: ['/nr/personal_assistant_tools.py', '--job-id', 'current']};
+  for (const resume of ['', id]) {
+    const options = codexOptions({...request, task: 'personal_assistant', nr_tools, resume});
+    assert.deepEqual(options.mcpServers, [{name: 'nr_assistant', ...nr_tools}]);
+    assert.ok(options.launchArgs.includes('project_doc_max_bytes=0'));
+    assert.ok(options.launchArgs.includes('sandbox_mode="read-only"'));
+    assert.equal(options.nrEphemeral, undefined);
+  }
+  for (const tools of [undefined, null, {}, {command: 'relative', args: []}, {command: '/bin/python', args: [1]}]) {
+    assert.throws(() => codexOptions({...request, task: 'personal_assistant', nr_tools: tools}), /codex_session_invalid/);
+  }
+  assert.throws(() => codexOptions({...request, nr_tools}), /codex_session_invalid/);
+});
+
 test('archives are independent ephemeral OAR turns, with web research disabled', () => {
   const archive = {...request, task: 'chat_archive'};
   const options = codexOptions(archive);
@@ -135,4 +150,19 @@ test('Codex missing or foreign native sessions never fall back to a new conversa
   assert.equal(calls.length, 1);
   assert.equal(codexFailure({name: 'SessionNotFoundError', message: 'private'}), 'codex_session_invalid');
   assert.equal(codexFailure(new Error('private token=secret')), 'codex_runtime_failed');
+});
+
+
+test('material summaries and research use isolated OAR turns with distinct search policy', () => {
+  for (const [task, search] of [['material_summary', 'disabled'], ['web_research', 'live']]) {
+    const value = {...request, task, web_search: search};
+    const options = codexOptions(value);
+    assert.equal(options.nrEphemeral, true);
+    assert.equal(options.outputSchema, undefined);
+    assert.equal(options.model, request.codex.model);
+    assert.equal(options.effort, request.codex.reasoning_effort);
+    assert.ok(options.launchArgs.includes(`web_search="${search}"`));
+    assert.throws(() => codexOptions({...value, resume: id}), /codex_session_invalid/);
+    assert.throws(() => codexOptions({...value, web_search: search === 'live' ? 'disabled' : 'live'}), /codex_session_invalid/);
+  }
 });

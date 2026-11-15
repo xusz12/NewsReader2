@@ -22,7 +22,10 @@ def native_runtime(tmp_path):
     node = shutil.which('node')
     if not codex or not node or not (oar_client.ROOT / 'node_modules/@botiverse/oar').exists():
         pytest.skip('Requires installed Codex, Node and npm dependencies')
-    calls = []
+    class Calls(list):
+        pass
+    calls = Calls()
+    calls.responses = []
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -37,6 +40,14 @@ def native_runtime(tmp_path):
             item = {'id': f'msg_{len(calls)}', 'type': 'message', 'role': 'assistant',
                     'status': 'completed', 'phase': 'final_answer',
                     'content': [{'type': 'output_text', 'text': answer, 'annotations': []}]}
+            queued = calls.responses.pop(0) if calls.responses else None
+            if isinstance(queued, tuple):
+                name, arguments = queued
+                item = {'id': f'fc_{len(calls)}', 'type': 'function_call', 'call_id': f'call_{len(calls)}',
+                        'name': name, 'arguments': json.dumps(arguments), 'status': 'completed'}
+                for namespace in body.get('tools', []):
+                    if namespace.get('type') == 'namespace' and name.startswith(namespace['name'] + '__'):
+                        item.update(namespace=namespace['name'], name=name[len(namespace['name']) + 2:])
             response = {'id': f'resp_{len(calls)}', 'object': 'response', 'status': 'completed',
                         'model': 'nr-fixture', 'output': [item],
                         'usage': {'input_tokens': 10, 'output_tokens': 4, 'total_tokens': 14}}
@@ -53,6 +64,15 @@ def native_runtime(tmp_path):
                 {'type': 'response.output_item.done', 'output_index': 0, 'item': item},
                 {'type': 'response.completed', 'response': response},
             ]
+            if isinstance(queued, tuple):
+                events = [events[0],
+                    {'type': 'response.output_item.added', 'output_index': 0,
+                     'item': {**item, 'status': 'in_progress', 'arguments': ''}},
+                    {'type': 'response.function_call_arguments.delta', 'item_id': item['id'],
+                     'output_index': 0, 'delta': item['arguments']},
+                    {'type': 'response.function_call_arguments.done', 'item_id': item['id'],
+                     'output_index': 0, 'arguments': item['arguments']},
+                    events[-2], events[-1]]
             data = ''.join(f'event: {event["type"]}\ndata: {json.dumps(event)}\n\n' for event in events).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
@@ -80,7 +100,7 @@ requires_openai_auth = false
     (native_home / 'config.toml').write_text(config_text)
     env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'CODEX_HOME': str(native_home),
            'NEWS_READER_CODEX': codex}
-    config = {'model': 'nr-fixture', 
+    config = {'model': 'nr-fixture',
               'reasoning_effort': 'high', 'sandbox': 'read-only'}
     request = codex_client.oar_request(config, 'first private question', state_dir=tmp_path / 'nr-state',
         cwd=workspace, resume_prompt='follow-up private question', live_search=True)
@@ -161,3 +181,18 @@ def test_real_codex_archive_is_ephemeral_and_never_resumes_or_searches(native_ru
         }
     assert calls[0]['model'] == config['model']
     assert calls[0]['reasoning']['effort'] == config['reasoning_effort']
+
+
+@pytest.mark.parametrize('task,web', [('material_summary', False), ('web_research', True)])
+def test_real_codex_research_policy_and_temporary_history(native_runtime, task, web):
+    command, request, env, calls, native_home, config = native_runtime
+    request.update(task=task, web_search='live' if web else 'disabled')
+    parser = codex_client.OarEventParser()
+    result = oar_client.run_result(command, request, env, 25, parser=parser.parse,
+        errors=codex_client.ERROR_MESSAGES, protocol_error='codex_protocol_error')
+    assert result['answer'] == 'Local response 1'
+    assert not list((native_home / 'sessions').rglob('*.jsonl'))
+    assert all(any(t['type'].startswith('web_search') for t in c.get('tools', [])) == web for c in calls)
+    assert calls[0]['model'] == config['model']
+    assert calls[0]['reasoning']['effort'] == config['reasoning_effort']
+    assert calls[0].get('text', {}).get('format', {}).get('type') != 'json_schema'

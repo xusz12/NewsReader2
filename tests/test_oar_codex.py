@@ -147,3 +147,24 @@ def test_oar_parser_rejects_a_foreign_identity_and_completion_without_identity()
         parser.parse(json.dumps({'type': 'oar_session', 'runtime': 'oar-codex', 'id': '0199a213-81c0-7800-8aa1-bbab2a035a54'}))
     with pytest.raises(RuntimeError, match='codex_protocol_error'):
         codex_client.OarEventParser().parse(json.dumps({'type': 'oar_result', 'outcome': 'completed', 'answer': 'unowned', 'native_id': THREAD}))
+
+
+@pytest.mark.parametrize('web', [False, True])
+def test_summary_runner_uses_installed_oar_and_checks_native_search(runtime, monkeypatch, web):
+    import news_summaries
+    command, request, env = runtime
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(codex_client, 'command', lambda *a, **k: pytest.fail('native CLI fallback'))
+    diagnostics = []
+    config = {'runtime': 'codex', 'codex': request['codex']}
+    if web:
+        assert news_summaries.run_oar(config, 'research', lambda: False, diagnostics, allow_research=True) == 'OAR native transport answer'
+        assert diagnostics[0]['research_tools'] == 1
+    else:
+        with pytest.raises(RuntimeError, match='summary_tool_used'):
+            news_summaries.run_oar(config, 'materials only', lambda: False, diagnostics)
+    calls = [json.loads(line) for line in Path(env['NR_RPC_LOG']).read_text().splitlines()]
+    opened = next(c for c in calls if c['method'] == 'thread/start')
+    assert opened['params']['ephemeral'] is True
+    assert ('web_search="live"' if web else 'web_search="disabled"') in opened['args']

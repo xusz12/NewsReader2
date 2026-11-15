@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { toolEvents } from './oar_tool_events.mjs';
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const CONFIG_FILES = ['auth.json', 'models.json', 'models-store.json', 'settings.json', 'trust.json',
@@ -162,17 +163,10 @@ export function validateRequest(request) {
   if (request.nr_tools !== undefined && (!request.nr_tools ||
       typeof request.nr_tools.command !== 'string' || !path.isAbsolute(request.nr_tools.command) ||
       !Array.isArray(request.nr_tools.args) || request.nr_tools.args.some(arg => typeof arg !== 'string'))) throw new Error('oar_invalid_request');
-  if (request.task !== undefined && !['news_chat', 'chat_archive'].includes(request.task)) throw new Error('oar_invalid_request');
-  if (request.task && request.nr_tools) throw new Error('oar_invalid_request');
-  if (request.task === 'chat_archive' && request.legacy_native_id) throw new Error('oar_invalid_request');
+  if (request.task !== undefined && !['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant'].includes(request.task)) throw new Error('oar_invalid_request');
+  if (request.task === 'personal_assistant' ? !request.nr_tools : request.nr_tools !== undefined) throw new Error('oar_invalid_request');
+  if (['chat_archive', 'material_summary', 'web_research'].includes(request.task) && request.legacy_native_id) throw new Error('oar_invalid_request');
   return request;
-}
-
-// Application-owned tool registration lives only in this invocation's private
-// config copy. It never edits the user's Pi config or trusts a project directory.
-export async function installNrTools(agentDir, config) {
-  const file = path.join(agentDir, 'mcp.json');
-  await fs.writeFile(file, JSON.stringify({mcpServers:{nr_assistant:{...config, exposure:'direct', enabled:true}}}), {mode:0o600});
 }
 
 /** Bound repeated research without aborting a valid final answer or changing tool permissions. */
@@ -208,19 +202,24 @@ export async function execute(request, runtime, installation, emit, signal, wait
   validateRequest(request);
   const mappingFile = path.join(request.state_dir, 'session.json');
   let nativeId;
-  const archive = request.task === 'chat_archive';
+  const ephemeral = ['chat_archive', 'material_summary', 'web_research'].includes(request.task);
+  const materialOnly = ['chat_archive', 'material_summary'].includes(request.task);
   let historyReplayed = Boolean(request.history_replayed);
-  if (!archive) {
+  if (!ephemeral) {
     try {
       const saved = JSON.parse(await fs.readFile(mappingFile, 'utf8'));
       if (!saved || typeof saved.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(saved.id) ||
-          (saved.runtime && saved.runtime !== 'oar' && !(request.task === 'news_chat' && saved.runtime === 'cli'))) throw new Error('oar_invalid_session');
+          (saved.runtime && saved.runtime !== 'oar' && !(['news_chat', 'personal_assistant'].includes(request.task) && saved.runtime === 'cli'))) throw new Error('oar_invalid_session');
       nativeId = saved.id;
       historyReplayed = Boolean(saved.history_replayed);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   const options = { cwd: request.cwd, ...(request.reasoning_effort ? { effort: request.reasoning_effort } : {}),
-    ...(archive ? { disallowedTools: ['*'] } : {}) };
+    ...(request.task === 'personal_assistant' ? {
+      mcpServers: [{name: 'nr_assistant', ...request.nr_tools}],
+      disallowedTools: ['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls', 'codemode', 'tool_search'],
+    } : materialOnly ? { disallowedTools: ['*'] }
+      : request.task === 'web_research' ? {disallowedTools: ['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls']} : {}) };
   // Resumed sessions own their model; a changed application default must not replace it.
   if (!nativeId) {
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
@@ -247,12 +246,13 @@ export async function execute(request, runtime, installation, emit, signal, wait
     if (signal?.aborted) throw new Error('oar_stopped');
     emit({ type: 'oar_session', id: session.id, resumed, runtime: 'oar-pi' });
     budget = researchBudget(session, request, emit);
+    const forwardTool = toolEvents(emit, request.task === 'web_research');
     session.events(event => {
       // Never forward raw event payloads, tool arguments or provider diagnostics.
       if (event.agentPath?.length) return;
       budget.event(event);
       if (event.kind === 'text_delta') emit({ type: 'text_delta', delta: event.text });
-      if (event.kind === 'tool_call_started') emit({ type: 'oar_tool', tool: event.tool });
+      forwardTool(event);
     });
     const promptAndWait = waitForTurn ?? (await import('@botiverse/oar')).promptAndWait;
     const result = await promptAndWait(session, resumed ? request.resume_prompt : request.prompt, { signal });
@@ -275,11 +275,11 @@ export async function execute(request, runtime, installation, emit, signal, wait
     const id = session.id;
     session = undefined;
     // Atomic mapping only for a completed turn. Failed migrations keep the old history.
-    if (!archive) {
+    if (!ephemeral) {
       const tmp = `${mappingFile}.tmp`;
       await fs.writeFile(tmp, JSON.stringify({ id, runtime: 'oar', history_replayed: historyReplayed }), { mode: 0o600 });
       await fs.rename(tmp, mappingFile);
-      if (request.task === 'news_chat') {
+      if (['news_chat', 'personal_assistant'].includes(request.task)) {
         // This file only selected the old compatibility route. Commit migration
         // after success; failures leave both old mapping and history intact.
         await fs.rm(path.join(request.state_dir, 'route.json'), { force: true });
@@ -342,7 +342,6 @@ export async function executeCli(request, emit, signal, spawnProcess = spawn) {
   const cliFile = fileURLToPath(new URL('bundle/cli.js', import.meta.resolve('@earendil-works/pi-coding-agent')));
   const args = [cliFile, '-p', '--mode', 'json', '--session-dir', sessionDir,
     ...sessionArgs];
-  if (request.nr_tools) args.push('--no-extensions', '-e', 'builtin:mcp', '--no-skills', '--tools', 'mcp__nr_assistant__*');
   if (request.reasoning_effort) args.push('--thinking', request.reasoning_effort);
   if (!saved) {
     if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
@@ -440,14 +439,13 @@ async function main() {
     request.cwd = await fs.realpath(request.cwd);
     const source = process.env.NEWS_READER_PI_AGENT_DIR || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.pi', 'agent');
     agentDir = await prepareConfig(source, request.state_dir, request.config_id);
-    if (request.nr_tools) await installNrTools(agentDir, request.nr_tools);
     delete process.env.PI_PACKAGE_DIR;
     process.env.OAR_PI_AGENT_DIR = agentDir;
     process.env.PI_CODING_AGENT_DIR = agentDir;
     request.agentDir = agentDir;
     if (request.task) {
-      const archive = request.task === 'chat_archive';
-      const { projectTrusted } = archive ? { projectTrusted: false }
+      const materialOnly = ['chat_archive', 'material_summary'].includes(request.task);
+      const { projectTrusted } = materialOnly || request.task === 'personal_assistant' ? { projectTrusted: false }
         : await checkResources(request.cwd, agentDir, { allowUntrusted: true });
       await importLegacySession(request, source);
       const { createPiRuntime } = await import('@botiverse/oar/runtimes/pi');
@@ -460,7 +458,7 @@ async function main() {
       process.exitCode = await execute(request, runtime, installation, emit, abort.signal) ? 0 : 1;
       return;
     }
-    const route = request.nr_tools ? {runtime:'cli', reason:'nr_tools'} : await selectRoute(request);
+    const route = await selectRoute(request);
     await importLegacySession(request, source);
     if (route.runtime === 'cli') {
       process.exitCode = await executeCli(request, emit, abort.signal) ? 0 : 1;

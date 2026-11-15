@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execute, prepareConfig, validateRequest, installNrTools } from '../scripts/oar_bridge.mjs';
+import { execute, prepareConfig, validateRequest } from '../scripts/oar_bridge.mjs';
 
 async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'newsreader-oar-unit-'));
@@ -294,26 +294,19 @@ test('CLI adapter streams, waits for native completion, resumes same native id w
   assert.equal(args.includes('--session-id'),false);
 });
 
-test('personal assistant uses only its MCP tools without changing global Pi configuration', async t => {
-  const {executeCli}=await import('../scripts/oar_bridge.mjs');
-  const request=await fixture(t), source=path.join(request.cwd,'source');
-  await fs.mkdir(source);
-  const original=JSON.stringify({mcpServers:{unrelated:{command:'/bin/false'}}});
-  await fs.writeFile(path.join(source,'mcp.json'),original);
-  const copy=await prepareConfig(source,request.state_dir);
-  request.nr_tools={command:'/usr/bin/python3',args:['/local/nr-tools.py']};
-  await installNrTools(copy,request.nr_tools);
-  assert.equal(await fs.readFile(path.join(source,'mcp.json'),'utf8'),original);
-  const installed=JSON.parse(await fs.readFile(path.join(copy,'mcp.json'),'utf8'));
-  assert.deepEqual(Object.keys(installed.mcpServers),['nr_assistant']);
-  assert.equal(installed.mcpServers.nr_assistant.exposure,'direct');
-  assert.throws(()=>validateRequest({...request,nr_tools:{command:'relative',args:[]}}),/invalid_request/);
-  let args;
-  const runner=await fakeCli(t,cliEvents);
-  await executeCli(request,()=>{},undefined,(node,argv,options)=>{args=argv;return runner(node,argv,options);});
-  assert.equal(args[args.indexOf('--tools')+1],'mcp__nr_assistant__*');
-  assert.equal(args.includes('--no-extensions'),true);
-  assert.equal(args.includes('builtin:mcp'),true);
+test('personal assistant registers its MCP through OAR and migrates an old mapping', async t => {
+  const request = {...await fixture(t), task: 'personal_assistant',
+    nr_tools: {command:'/usr/bin/python3',args:['/local/nr-tools.py']}}, runtime = fakeRuntime();
+  const mapping = path.join(request.state_dir, 'session.json');
+  await fs.writeFile(mapping, JSON.stringify({id: 'old-assistant', runtime: 'cli'}));
+  await fs.writeFile(path.join(request.state_dir, 'route.json'), JSON.stringify({runtime: 'cli'}));
+  await execute(request, runtime, {}, () => {}, undefined, completed);
+  assert.deepEqual(runtime.calls[0].mcpServers, [{name: 'nr_assistant', ...request.nr_tools}]);
+  assert.ok(runtime.calls[0].disallowedTools.includes('bash'));
+  assert.equal(runtime.calls[0].resume, 'old-assistant');
+  assert.equal(JSON.parse(await fs.readFile(mapping)).runtime, 'oar');
+  await assert.rejects(fs.access(path.join(request.state_dir, 'route.json')), {code: 'ENOENT'});
+  assert.throws(() => validateRequest({...request, nr_tools: undefined}), /oar_invalid_request/);
 });
 
 test('installed Pi MCP client connects to the NR server and executes library and memory tools', async t => {
@@ -485,4 +478,36 @@ test('research timer steers a running turn and cleanup prevents a late steer', a
   second.close();
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.equal(count, 1);
+});
+
+
+test('one-shot material and research tasks ignore mappings and do not persist a new one', async t => {
+  for (const task of ['material_summary', 'web_research']) {
+    const request = {...await fixture(t), task}, runtime = fakeRuntime();
+    const mapping = path.join(request.state_dir, 'session.json');
+    const saved = JSON.stringify({id: 'unrelated', runtime: 'cli'});
+    await fs.writeFile(mapping, saved);
+    await execute(request, runtime, {}, () => {}, undefined, completed);
+    assert.equal(runtime.calls[0].resume, undefined);
+    assert.deepEqual(runtime.calls[0].disallowedTools, task === 'material_summary' ? ['*'] : ['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls']);
+    assert.equal(await fs.readFile(mapping, 'utf8'), saved);
+    assert.throws(() => validateRequest({...request, legacy_native_id: 'legacy'}), /oar_invalid_request/);
+  }
+});
+
+
+test('research evidence requires a completed tool and failed calls remain failures', async () => {
+  const {toolEvents} = await import('../scripts/oar_tool_events.mjs');
+  const events = [], forward = toolEvents(e => events.push(e), true);
+  forward({kind: 'tool_call_ended', callId: 'unknown', result: 'ok'});
+  assert.deepEqual(events, []);
+  forward({kind: 'tool_call_started', callId: 'a', tool: 'web_search'});
+  forward({kind: 'tool_call_ended', callId: 'a', result: 'failed'});
+  forward({kind: 'tool_call_ended', callId: 'a', result: 'ok'});
+  forward({kind: 'tool_call_started', callId: 'b', tool: 'web_search'});
+  forward({kind: 'tool_call_ended', callId: 'b', result: 'ok'});
+  assert.deepEqual(events.filter(e => e.phase), [
+    {type: 'oar_tool', tool: 'web_search', phase: 'completed', success: false},
+    {type: 'oar_tool', tool: 'web_search', phase: 'completed', success: true},
+  ]);
 });

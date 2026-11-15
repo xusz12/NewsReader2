@@ -8,6 +8,12 @@ NATIVE_CONFIG_STAMP = ns.native_config_stamp
 from database_schema import apply_schema
 
 
+def bridge_events(answer, runtime="codex"):
+    ident = "11111111-1111-4111-8111-111111111111"
+    return [{"type": "oar_session", "id": ident, "runtime": "oar-" + runtime, "resumed": False},
+            {"type": "oar_result", "outcome": "completed", "answer": answer, "native_id": ident}]
+
+
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     # Unit tests use deterministic metadata; real runtime metadata is exercised separately.
@@ -580,21 +586,7 @@ def test_api_surface(setup, monkeypatch, tmp_path):
 def test_native_owned_child_success(setup, monkeypatch, tmp_path, runtime):
     p, _, _, _, _, _, _, make = setup
     fake = tmp_path / "fake.py"
-    if runtime == "codex":
-        events = [
-            {
-                "type": "thread.started",
-                "thread_id": "11111111-1111-4111-8111-111111111111",
-            },
-            {"type": "turn.started"},
-            {
-                "type": "item.completed",
-                "item": {"id": "x", "type": "agent_message", "text": "完整答案"},
-            },
-            {"type": "turn.completed"},
-        ]
-    else:
-        events = [{"type": "oar_result", "outcome": "completed", "answer": "完整答案"}]
+    events = bridge_events("完整答案", runtime)
     fake.write_text(
         "import sys,json\nsys.stdin.read()\nfor e in "
         + repr(events)
@@ -602,10 +594,10 @@ def test_native_owned_child_success(setup, monkeypatch, tmp_path, runtime):
     )
     command = lambda *a, **k: [sys.executable, str(fake)]
     monkeypatch.setattr(ns.codex_client, "require_ready", lambda: None)
-    monkeypatch.setattr(ns.codex_client, "command", command)
+    monkeypatch.setattr(ns, "bridge_command", command)
     monkeypatch.setattr(ns, "bridge_command", command)
     diag = []
-    answer = ns.run_native(
+    answer = ns.run_oar(
         {
             "runtime": runtime,
             "codex": {"model": "test", "profile": "", "sandbox": "read-only"},
@@ -631,33 +623,13 @@ def test_native_owned_child_success(setup, monkeypatch, tmp_path, runtime):
     ],
 )
 def test_native_failure_is_not_success(monkeypatch, tmp_path, mode):
-    events = [
-        {"type": "thread.started", "thread_id": "11111111-1111-4111-8111-111111111111"},
-        {"type": "turn.started"},
-    ]
+    events = bridge_events("answer")[:1]
     if mode == "empty_answer":
-        events += [
-            {
-                "type": "item.completed",
-                "item": {"id": "x", "type": "agent_message", "text": ""},
-            },
-            {"type": "turn.completed"},
-        ]
+        events = bridge_events("")
     elif mode == "stream_no_final":
-        events += [
-            {
-                "type": "item.updated",
-                "item": {"id": "x", "type": "agent_message", "text": "流式片段"},
-            }
-        ]
+        events += [{"type": "text_delta", "delta": "流式片段"}]
     elif mode in ("nonzero", "post_terminal"):
-        events += [
-            {
-                "type": "item.completed",
-                "item": {"id": "x", "type": "agent_message", "text": "answer"},
-            },
-            {"type": "turn.completed"},
-        ]
+        events = bridge_events("answer")
     code = "import sys,json\nsys.stdin.read()\n"
     if mode == "startup":
         code = 'import sys\nsys.stderr.write("Model provider custom not found API_KEY=secret")\nsys.exit(1)\n'
@@ -673,11 +645,11 @@ def test_native_failure_is_not_success(monkeypatch, tmp_path, mode):
     fake.write_text(code)
     monkeypatch.setattr(ns.codex_client, "require_ready", lambda: None)
     monkeypatch.setattr(
-        ns.codex_client, "command", lambda *a, **k: [sys.executable, str(fake)]
+        ns, "bridge_command", lambda *a, **k: [sys.executable, str(fake)]
     )
     diag = []
     with pytest.raises(RuntimeError):
-        ns.run_native(
+        ns.run_oar(
             {
                 "runtime": "codex",
                 "codex": {"model": "test", "profile": "", "sandbox": "read-only"},
@@ -698,12 +670,12 @@ def test_native_cancel_reaps_owned_process(monkeypatch, tmp_path):
     fake.write_text("import sys,time\nsys.stdin.read()\ntime.sleep(8)")
     monkeypatch.setattr(ns.codex_client, "require_ready", lambda: None)
     monkeypatch.setattr(
-        ns.codex_client, "command", lambda *a, **k: [sys.executable, str(fake)]
+        ns, "bridge_command", lambda *a, **k: [sys.executable, str(fake)]
     )
     start = time.monotonic()
     diag = []
     with pytest.raises(RuntimeError, match="summary_cancelled"):
-        ns.run_native(
+        ns.run_oar(
             {
                 "runtime": "codex",
                 "codex": {"model": "test", "profile": "", "sandbox": "read-only"},
@@ -747,24 +719,7 @@ def test_pid_reuse_does_not_keep_task_running(setup):
 @pytest.mark.parametrize("runtime", ["codex", "pi"])
 def test_tool_events_stop_data_only_summary(monkeypatch, tmp_path, runtime):
     fake = tmp_path / "fake.py"
-    if runtime == "codex":
-        events = [
-            {
-                "type": "thread.started",
-                "thread_id": "11111111-1111-4111-8111-111111111111",
-            },
-            {"type": "turn.started"},
-            {
-                "type": "item.started",
-                "item": {
-                    "id": "tool",
-                    "type": "command_execution",
-                    "command": "fake_tool",
-                },
-            },
-        ]
-    else:
-        events = [{"type": "oar_tool", "tool": "fake_tool"}]
+    events = bridge_events("", runtime)[:1] + [{"type": "oar_tool", "tool": "fake_tool"}]
     fake.write_text(
         "import sys,json,time\nsys.stdin.read()\nfor e in "
         + repr(events)
@@ -772,11 +727,11 @@ def test_tool_events_stop_data_only_summary(monkeypatch, tmp_path, runtime):
     )
     monkeypatch.setattr(ns.codex_client, "require_ready", lambda: None)
     command = lambda *a, **kw: [sys.executable, str(fake)]
-    monkeypatch.setattr(ns.codex_client, "command", command)
+    monkeypatch.setattr(ns, "bridge_command", command)
     monkeypatch.setattr(ns, "bridge_command", command)
     diagnostics = []
     with pytest.raises(RuntimeError, match="summary_tool_used"):
-        ns.run_native(
+        ns.run_oar(
             {
                 "runtime": runtime,
                 "codex": {"model": "test", "profile": "", "sandbox": "read-only"},
@@ -791,15 +746,7 @@ def test_tool_events_stop_data_only_summary(monkeypatch, tmp_path, runtime):
 
 
 def test_complete_final_line_without_newline(monkeypatch, tmp_path):
-    events = [
-        {"type": "thread.started", "thread_id": "11111111-1111-4111-8111-111111111111"},
-        {"type": "turn.started"},
-        {
-            "type": "item.completed",
-            "item": {"id": "x", "type": "agent_message", "text": "完整答案"},
-        },
-        {"type": "turn.completed"},
-    ]
+    events = bridge_events("完整答案")
     fake = tmp_path / "fake.py"
     fake.write_text(
         'import sys,json\nsys.stdin.read()\nsys.stdout.write("\\n".join(json.dumps(e) for e in '
@@ -808,11 +755,11 @@ def test_complete_final_line_without_newline(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(ns.codex_client, "require_ready", lambda: None)
     monkeypatch.setattr(
-        ns.codex_client, "command", lambda *a, **k: [sys.executable, str(fake)]
+        ns, "bridge_command", lambda *a, **k: [sys.executable, str(fake)]
     )
     diag = []
     assert (
-        ns.run_native(
+        ns.run_oar(
             {
                 "runtime": "codex",
                 "codex": {"model": "test", "profile": "", "sandbox": "read-only"},
@@ -1125,21 +1072,13 @@ def test_entire_job_has_one_complete_owned_process(setup,monkeypatch,tmp_path,ru
     marker=tmp_path/"calls.txt"
     fake=tmp_path/"once.py"
     answer=make()["body"]
-    if runtime=="codex":
-        events=[
-            {"type":"thread.started","thread_id":"11111111-1111-4111-8111-111111111111"},
-            {"type":"turn.started"},
-            {"type":"item.completed","item":{"id":"x","type":"agent_message","text":answer}},
-            {"type":"turn.completed"},
-        ]
-    else:
-        events=[{"type":"oar_result","outcome":"completed","answer":answer}]
+    events = bridge_events(answer, runtime)
     fake.write_text("import sys,json\nfrom pathlib import Path\nsys.stdin.read()\nwith Path("+repr(str(marker))+").open('a') as f:f.write('call\\n')\nfor event in "+repr(events)+":print(json.dumps(event),flush=True)")
     monkeypatch.setattr(ns.codex_client,"require_ready",lambda:None)
-    monkeypatch.setattr(ns.codex_client,"command",lambda *a,**k:[sys.executable,str(fake)])
+    monkeypatch.setattr(ns,"bridge_command",lambda *a,**k:[sys.executable,str(fake)])
     monkeypatch.setattr(ns,"bridge_command",lambda *a,**k:[sys.executable,str(fake)])
     service.settings_getter()["agent"]["runtime"]=runtime
-    service.runner=ns.run_native
+    service.runner=ns.run_oar
     job=create(service)
     assert wait(service,job["id"])["status"]=="completed"
     assert marker.read_text().splitlines()==["call"]
@@ -1376,3 +1315,21 @@ def test_draft_scope_handles_empty_unread_and_unconfigured_agent(setup):
     assert data["start_date"] == data["end_date"] == ""
     assert data["excluded_by"] == {"date": 0, "count": 0}
     assert not calls
+
+
+@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('web', [False, True])
+def test_oar_task_request_preserves_model_and_material_policy(runtime, web, tmp_path):
+    config = {'runtime': runtime, 'codex': {'model': 'selected', 'reasoning_effort': 'high', 'sandbox': 'read-only'},
+              'pi_provider': 'provider', 'pi_model': 'selected', 'pi_reasoning_effort': 'high'}
+    payload = ns.runtime_request(config, '材料' * 1000, tmp_path, allow_research=web)
+    assert payload['task'] == ('web_research' if web else 'material_summary')
+    assert payload['prompt'] == '材料' * 1000
+    assert payload['resume_prompt'] == ''
+    assert not payload.get('resume')
+    if runtime == 'codex':
+        assert payload['codex'] == config['codex']
+        assert payload['web_search'] == ('live' if web else 'disabled')
+    else:
+        assert (payload['provider'], payload['model'], payload['reasoning_effort']) == ('provider', 'selected', 'high')
+    assert ns.encoded_input_size(payload['prompt'], config) < 2 * len(payload['prompt'].encode())

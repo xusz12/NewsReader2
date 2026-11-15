@@ -283,21 +283,23 @@ MAX_INPUT_BYTES = 2 * 1024 * 1024
 PREVIEW_TTL = 15 * 60
 
 
-def encoded_input_size(prompt, config):
+def runtime_request(config, prompt, state_dir, *, allow_research=False):
+    task = "web_research" if allow_research else "material_summary"
     if config["runtime"] == "codex":
-        return len(prompt.encode())
-    return len(
-        js(
-            bridge_request(
-                prompt=prompt,
-                resume_prompt=prompt,
-                state_dir=Path("/temporary-summary-preflight/" + "x" * 256),
-                provider=config["pi_provider"],
-                model=config["pi_model"],
-                reasoning_effort=config.get("pi_reasoning_effort", ""),
-            )
-        ).encode()
+        request = codex_client.oar_request(config["codex"], prompt, state_dir=state_dir, resume_prompt="")
+        request.update(task=task, web_search="live" if allow_research else "disabled")
+        return request
+    if config["runtime"] != "pi":
+        raise ValueError("invalid_runtime")
+    return bridge_request(
+        prompt=prompt, resume_prompt="", state_dir=state_dir,
+        provider=config["pi_provider"], model=config["pi_model"],
+        reasoning_effort=config.get("pi_reasoning_effort", ""), task=task,
     )
+
+
+def encoded_input_size(prompt, config):
+    return len(js(runtime_request(config, prompt, Path("/temporary-summary-preflight/" + "x" * 256))).encode())
 
 
 def input_budget(s, config):
@@ -344,8 +346,7 @@ def clean_for_runtime(s, config, today=None):
     return result
 
 
-def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
-    """Cancellable owned child, same existing Codex parser / OAR trust-compatible bridge."""
+def run_oar(config, prompt, cancel, diagnostics, *, allow_research=False):
     if cancel():
         raise RuntimeError("summary_cancelled")
     is_codex = config["runtime"] == "codex"
@@ -358,31 +359,16 @@ def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
     started = time.monotonic()
     raw_count = 0
     research_tools = 0
+    observed_tools = []
     stderr = bytearray()
-    parser = codex_client.EventParser() if is_codex else None
+    parser = codex_client.OarEventParser().parse if is_codex else parse_event
     try:
-        if is_codex:
-            codex_client.require_ready()
-            command = codex_client.command(config["codex"], ephemeral=True, live_search=allow_research)
-            if not allow_research:
-                if command[-1:] == ["-"]:
-                    command[-1:-1] = ["-c", 'web_search="disabled"']
-            pending = prompt.encode()
-            env = dict(os.environ)
-        else:
-            tmp = Path(tempfile.mkdtemp(prefix="newsreader-summary-"))
-            os.chmod(tmp, 0o700)
-            payload = bridge_request(
-                prompt=prompt,
-                resume_prompt=prompt,
-                state_dir=tmp,
-                provider=config["pi_provider"],
-                model=config["pi_model"],
-                reasoning_effort=config.get("pi_reasoning_effort", ""),
-            )
-            command = bridge_command("newsreader-summary-" + uuid.uuid4().hex)
-            pending = js(payload).encode()
-            env = _pi_subprocess_env()
+        tmp = Path(tempfile.mkdtemp(prefix="newsreader-summary-"))
+        os.chmod(tmp, 0o700)
+        payload = runtime_request(config, prompt, tmp, allow_research=allow_research)
+        command = bridge_command("newsreader-summary-" + uuid.uuid4().hex)
+        pending = js(payload).encode()
+        env = codex_client.oar_environment() if is_codex else _pi_subprocess_env()
         if len(pending) > 2 * 1024 * 1024:
             raise RuntimeError("summary_input_limit")
         if cancel():
@@ -410,32 +396,24 @@ def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
             if terminal is not None:
                 raise RuntimeError("summary_runtime_failed")
             raw_count += 1
-            value = json.loads(raw.decode())
-            if is_codex:
-                item = value.get("item") if isinstance(value, dict) else None
-                if isinstance(item, dict) and item.get("type") not in (
-                    "agent_message",
-                    "reasoning",
-                    "error",
-                ):
-                    if not allow_research or item.get("type") != "web_search":
+            evt = parser(raw.decode())
+            if evt["type"] == "oar_tool":
+                tool = evt.get("tool", "")
+                if not evt.get("phase") and isinstance(tool, str) and len(observed_tools) < 20:
+                    observed_tools.append(tool[:200])
+                if not allow_research:
+                    raise RuntimeError("summary_tool_used")
+                if is_codex:
+                    if tool != "webSearch":
                         raise RuntimeError("summary_tool_used")
+                elif tool == "tool_search":
+                    pass
+                elif isinstance(tool, str) and re.search(r"(^|[_./-])(web|web_search|web_fetch|fetch_url|tavily|brave|exa|browser|firecrawl)([_./-]|$)", tool, re.I):
+                    pass
+                else:
+                    raise RuntimeError("topic_search_required")
+                if tool != "tool_search" and evt.get("phase") == "completed" and evt.get("success") is True:
                     research_tools += 1
-                evt = parser.parse(raw.decode())
-            else:
-                evt = parse_event(raw.decode())
-                if evt["type"] == "oar_tool":
-                    if not allow_research:
-                        raise RuntimeError("summary_tool_used")
-                    tool = evt.get("tool", "")
-                    # Discovery alone is not evidence of a web search. Local file or
-                    # shell tools cannot turn a memory-only answer into valid research.
-                    if tool == "tool_search":
-                        pass
-                    elif isinstance(tool, str) and re.search(r"(^|[_./-])(web|web_search|web_fetch|fetch_url|tavily|brave|exa|browser|firecrawl)([_./-]|$)", tool, re.I):
-                        research_tools += 1
-                    else:
-                        raise RuntimeError("topic_search_required")
             if evt["type"] == "oar_result":
                 terminal = evt
 
@@ -509,6 +487,7 @@ def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
                 "terminal": terminal is not None,
                 "seconds": round(time.monotonic() - started, 3),
                 "stderr_present": bool(stderr),
+                "tools": observed_tools,
                 **({"research_tools": research_tools} if allow_research else {}),
                 "launch_hint": (
                     "provider_not_found"
@@ -520,7 +499,7 @@ def run_native(config, prompt, cancel, diagnostics, *, allow_research=False):
 
 
 class Service:
-    def __init__(self, path_getter, settings_getter, route_getter, runner=run_native, scope_getter=None):
+    def __init__(self, path_getter, settings_getter, route_getter, runner=run_oar, scope_getter=None):
         self.path_getter = path_getter
         self.settings_getter = settings_getter
         self.route_getter = route_getter
