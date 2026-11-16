@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-13T09:52:17.267104+00:00",
-  "fingerprint": "34c2e86b7bbdadc2a659f729cc17b98a260a6616359b296a0eb0ca4bf1a64ad5",
-  "newsreader_version": "0.5.9",
+  "checked_at": "2026-11-16T03:57:36.447660+00:00",
+  "fingerprint": "bc2b8ad705cae800701f71e795e4b3028a2620dcbfee353c7084b802ff1dd94f",
+  "newsreader_version": "0.5.14",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.37,
+      "seconds": 17.79,
       "error": "",
       "samples": [
         {
-          "title": "Iran's Guards say they targeted a US early-warning radar in Bahrain",
-          "url": "https://www.reuters.com/world/middle-east/irans-guards-say-they-targeted-us-early-warning-radar-bahrain-2026-11-13/",
-          "time": "2026-11-13 10:51:16",
+          "title": "Oil prices fall on expectations of coming supply surplus",
+          "url": "https://www.reuters.com/business/energy/oil-prices-fall-expectations-coming-supply-surplus-2026-11-16/",
+          "time": "2026-11-16 10:00:51",
           "source_name": "Reuters"
         },
         {
-          "title": "Six-year-old Gaza burn victim caught in Israeli dispute over aid",
-          "url": "https://www.reuters.com/business/healthcare-pharmaceuticals/six-year-old-gaza-burn-victim-caught-israeli-dispute-over-aid-2026-11-13/",
-          "time": "2026-11-13 17:11:51",
+          "title": "Asian shares fall before Nvidia earnings, Anthropic IPO test tech rally",
+          "url": "https://www.reuters.com/world/china/global-markets-global-markets-2026-11-16/",
+          "time": "2026-11-16 09:35:52",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.94,
+      "seconds": 4.33,
       "error": "",
       "samples": [
         {
-          "title": "FACTBOX China's $3 billion-plus pipeline of Nvidia-powered AI data centres",
-          "url": "https://www.reuters.com/world/china/factbox-chinas-3-billion-plus-pipeline-nvidia-powered-ai-data-centres-2026-11-13/",
-          "time": "2026-11-13 17:28:12",
+          "title": "Asian shares fall before Nvidia earnings, Anthropic IPO test tech rally",
+          "url": "https://www.reuters.com/world/china/global-markets-global-markets-2026-11-16/",
+          "time": "2026-11-16 09:35:52",
           "source_name": "Reuters"
         },
         {
-          "title": "IAEA increasingly concerned about Iranian enrichment plant, its report says",
-          "url": "https://www.reuters.com/world/china/iaea-increasingly-concerned-about-iranian-enrichment-plant-its-report-says-2026-11-13/",
-          "time": "2026-11-13 17:23:51",
+          "title": "Inside China's drive to build an AI-native generation",
+          "url": "https://www.reuters.com/world/china/inside-chinas-drive-build-an-ai-native-generation-2026-11-16/",
+          "time": "2026-11-16 08:06:15",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.74,
+      "seconds": 4.4,
       "error": "",
       "samples": [
         {
-          "title": "As election nears, Spain's Sanchez struggles to rally disillusioned left",
-          "url": "https://www.reuters.com/world/election-nears-spains-sanchez-struggles-rally-disillusioned-left-2026-11-13/",
-          "time": "2026-11-13 13:03:50",
+          "title": "After days of flight disruptions, officials see system back to normal by Monday",
+          "url": "https://www.reuters.com/world/us/us-air-travel-disruptions-continue-into-third-day-2026-11-15/",
+          "time": "2026-11-16 00:49:04",
           "source_name": "Reuters"
         },
         {
-          "title": "Indonesia's reluctant vice president was symbol of powerful alliance",
-          "url": "https://www.reuters.com/world/asia-pacific/indonesias-reluctant-vice-president-was-symbol-powerful-alliance-2026-11-13/",
-          "time": "2026-11-13 14:54:01",
+          "title": "Rocket from Boeing-Lockheed firm fails mid-flight, destroys payload of Amazon satellites",
+          "url": "https://www.reuters.com/business/aerospace-defense/us-rocket-fails-after-launch-payload-amazon-internet-satellites-destroyed-2026-11-15/",
+          "time": "2026-11-16 04:26:04",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.5,
+      "seconds": 4.34,
       "error": "",
       "samples": [
         {
-          "title": "Microsoft outage hits Outlook, Teams and Copilot worldwide",
-          "url": "https://www.reuters.com/technology/microsoft-365-outlook-down-thousands-us-users-downdetector-shows-2026-11-12/",
-          "time": "2026-11-13 02:32:55",
+          "title": "Intel sued by shareholders following 29% stock plunge",
+          "url": "https://www.reuters.com/business/intel-sued-by-shareholders-following-29-stock-plunge-2026-11-15/",
+          "time": "2026-11-16 07:05:21",
           "source_name": "Reuters"
         },
         {
-          "title": "Huang exit and US scrutiny imperil $3 billion in Chinese AI projects",
-          "url": "https://www.reuters.com/world/china/huang-exit-us-scrutiny-imperil-3-billion-chinese-ai-projects-reliant-nvidia-2026-11-13/",
-          "time": "2026-11-13 16:31:27",
+          "title": "After days of flight disruptions, officials see system back to normal by Monday",
+          "url": "https://www.reuters.com/world/us/us-air-travel-disruptions-continue-into-third-day-2026-11-15/",
+          "time": "2026-11-16 00:49:04",
           "source_name": "Reuters"
         }
       ]
@@ -100,15 +100,15 @@
       "error": "",
       "samples": [
         {
-          "title": "Microsoft outage hits Outlook, Teams and Copilot worldwide",
-          "url": "https://www.reuters.com/technology/microsoft-365-outlook-down-thousands-us-users-downdetector-shows-2026-11-12/",
-          "time": "2026-11-13 02:32:55",
+          "title": "South Korea to inspect glasses worn by exam candidates after AI cheating scandal",
+          "url": "https://www.reuters.com/world/asia-pacific/south-korea-inspect-glasses-worn-by-exam-candidates-after-ai-cheating-scandal-2026-11-16/",
+          "time": "2026-11-16 11:48:17",
           "source_name": "Reuters"
         },
         {
-          "title": "Huang exit and US scrutiny imperil $3 billion in Chinese AI projects",
-          "url": "https://www.reuters.com/world/china/huang-exit-us-scrutiny-imperil-3-billion-chinese-ai-projects-reliant-nvidia-2026-11-13/",
-          "time": "2026-11-13 16:31:27",
+          "title": "Inside China's drive to build an AI-native generation",
+          "url": "https://www.reuters.com/world/china/inside-chinas-drive-build-an-ai-native-generation-2026-11-16/",
+          "time": "2026-11-16 08:06:15",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 3.08,
+      "seconds": 4.04,
       "error": "",
       "samples": [
         {
-          "title": "Microsoft Outage Sends Traders Back to Phones and Fax",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-13/microsoft-outage-gums-up-markets-forces-traders-to-use-phones",
-          "time": "2026-11-13 15:00:08",
+          "title": "India Stock Market Rebounds as AI Trade Unwinds, Foreign Funds Return",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-15/india-stock-market-rebounds-as-ai-trade-unwinds-foreign-funds-return",
+          "time": "2026-11-15 08:00:00",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Singapore Charges Fifth Person as Nvidia Case Expands",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-13/singapore-charges-5th-person-linked-to-nvidia-chip-case-st-says",
-          "time": "2026-11-13 10:24:21",
+          "title": "Morgan Stanley ‘Max Overweight’ Global Stocks on AI Cycle",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-16/morgan-stanley-max-overweight-global-stocks-on-intact-ai-cycle",
+          "time": "2026-11-16 09:48:39",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.54,
+      "seconds": 1.58,
       "error": "",
       "samples": [
         {
-          "title": "Democrats launch Nvidia investigation, write scathing letter on Huang’s ‘scheme’ with Trump",
-          "url": "https://techcrunch.com/2026/11/12/democrats-launch-nvidia-investigation-write-scathing-letter-on-huangs-scheme-with-trump/",
-          "time": "2026-11-13 06:42:51",
+          "title": "Apple launches new app to study how people use AI for health",
+          "url": "https://techcrunch.com/2026/11/15/apple-launches-new-app-to-study-how-people-use-ai-for-health/",
+          "time": "2026-11-16 09:30:00",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Muse can now place calls to US businesses — if you pay",
-          "url": "https://techcrunch.com/2026/11/12/muse-can-now-place-calls-to-u-s-businesses-if-you-pay/",
-          "time": "2026-11-13 06:22:28",
+          "title": "Indian chip startup Bharat Semi lands $24M seed round as it eyes global AI sensor market",
+          "url": "https://techcrunch.com/2026/11/15/indian-chip-startup-bharat-semi-lands-24m-seed-round-as-it-eyes-global-ai-sensor-market/",
+          "time": "2026-11-16 07:30:00",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.2,
+      "seconds": 2.28,
       "error": "",
       "samples": [
         {
-          "title": "In reversal, American Cancer Society urges routine prostate cancer screening",
-          "url": "https://arstechnica.com/health/2026/11/in-reversal-american-cancer-society-urges-prostate-cancer-tests-for-all-men/",
-          "time": "2026-11-13 06:59:51",
+          "title": "Vulcan rocket fails during launch, dealing major blow to SpaceX competitors",
+          "url": "https://arstechnica.com/space/2026/11/vulcan-rocket-fails-during-launch-dealing-major-blow-to-spacex-competitors/",
+          "time": "2026-11-16 07:11:54",
           "source_name": "Ars Technica"
         },
         {
-          "title": "FAA expands AI advice to manage air traffic congestion across entire US airspace",
-          "url": "https://arstechnica.com/ai/2026/11/faa-expands-ai-advice-to-manage-air-traffic-congestion-across-entire-us-airspace/",
-          "time": "2026-11-13 06:28:47",
+          "title": "How the world’s fires changed while humanity hit pause",
+          "url": "https://arstechnica.com/science/2026/11/how-the-worlds-fires-changed-while-humanity-hit-pause/",
+          "time": "2026-11-15 20:07:34",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.69,
+      "seconds": 1.78,
       "error": "",
       "samples": [
         {
@@ -206,19 +206,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.57,
+      "seconds": 1.76,
       "error": "",
       "samples": [
         {
-          "title": "Trump says Tim Cook is the best person to take Jensen Huang’s place as Nvidia CEO, but I think where Cook’s strengths would shine most is cost management. Having watched Apple’s supply chain management from the sidelines for more than 10 years, and comparing that with what I’ve learned tracking and researching Nvidia in recent years, I think Nvidia still has clear room for improvement in supply chain and cost management. As for everything else, especially the most important part, planning and developing new technologies, this isn’t just about Cook. So far, the only CEO who has clearly proven he can do this well, bringing humanity’s most cutting-edge technologies from across fields into AI chips and rack solutions while keeping up a fast pace of commercial iteration, is Jensen Huang. (Of course, others will likely prove they can do this well in the future too.)",
-          "url": "https://x.com/mingchikuo/status/2120927470614704291?s=20",
-          "time": "2026-11-13 01:11",
+          "title": "Google TPU update: New OpenAI and Anthropic orders extend shipment visibility to 2029; v10 lineup overhauled (now Quillfish); MediaTek and Broadcom lead as the top suppliers to watch Key takeaways from my latest industry survey and research conclusions: 1. Order visibility and shipment plans: Strong new orders from OpenAI and Anthropic have extended Google TPU shipment visibility to 2029, ahead of Nvidia GPUs and other AI ASICs (mostly 4Q27–2Q28). (1) From 2028, v9 will become the mainstay of Google’s own compute buildout, so v8-series orders (8t / 8i or their design variants) can be viewed as coming from OpenAI and Anthropic. (2) Combined 2028–2029 demand: about 12M units for OpenAI (8t, designed by MediaTek) and about 14M for Anthropic (8i, designed by Broadcom), with both growing year over year. OpenAI buys outright, while Anthropic uses a mix of leasing and outright purchases. (3) Given supply chain constraints, more reasonable TPU shipment estimates for 2027–2029 are 8–9M, 14–15M, and 16–18M units, respectively. The market broadly expects AI capex to peak in 2028, yet this plan shows TPU shipments still growing in 2029, driven by direct orders from AI service leaders OpenAI and Anthropic. 2. v10 lineup and supply chain changes: v10 has changed from Icefish and Merope / Bladerunner to Quillfish, with mass production expected in 2029. MediaTek has won the design service order. (1) Icefish is now v11, with mass production expected in 2030 and the design service order also going to MediaTek. Merope has lower visibility: no supplier has been chosen, and it may be canceled. (2) MediaTek will be the sole supplier for v9 (Humufish & Triggerfish) and v10 (Quillfish), accounting for about 45–50%, 50–55%, and 55–60% of total TPU supply in 2027–2029, respectively. TPU’s contribution to its revenue and profit should rise each year. (3) From v9 onward, all new TPUs use Intel’s EMIB-T advanced packaging. Given limited initial production capacity, the v8 series should remain the bulk of TPU shipments through 2029. v8 is expected to be the main source of TPU profit growth for MediaTek and Broadcom over the next few years, thanks to significant accumulated learning-curve benefits and the fact that both handle procurement of key components and materials. 3. Market attention and supplier outlook: Recent events should raise and sustain market attention on Google TPU, with key design service providers MediaTek and Broadcom likely to be the supply chain’s top focus. (1) Uncertainty over Nvidia’s CEO succession helps Google in discussing post-2028 long-term plans with customers. OpenAI and Anthropic are both key TPU customers, so their IPOs should also raise and sustain attention on TPU, and MediaTek and Broadcom are the suppliers the market most readily associates with it. (2) MediaTek is clearly the biggest TPU winner of the next few years. Its position as sole design supplier from v9 onward, together with a supply share that rises each year alongside TPU shipments, will expand its TPU revenue. The high-margin 8t series, with shipment visibility through 2029, is a key profit source. (3) Because Broadcom leads the 8i design, its gross margin is even higher than the 8t’s, supporting Broadcom’s profit growth. Note, however, that Broadcom’s focus over the next few years will be non-TPU XPU and AI networking chip orders, with non-TPU revenue expected to surpass TPU revenue as early as 2027.",
+          "url": "https://x.com/mingchikuo/status/2122133109630194098?s=20",
+          "time": "2026-11-16 09:02",
           "source_name": "郭明錤"
         },
         {
-          "title": "雖然 Trump 說 Tim Cook 是最適合接任黃仁勳 Nvidia CEO 位置的人選，但我覺得最能發揮 Cook 所長的應該只有成本管理。根據我側面觀察 Apple 供應鏈管理超過 10 年以上的經驗，來對比這幾年追蹤與研究 Nvidia 的心得，我覺得 Nvidia 在供應鏈成本管理上，還有明顯的改善空間。 其他方面，特別是最重要的新技術規劃與開發，不要說 Cook 了，目前已經證明能在維持快速商業化迭代更新下，把人類最先端的各領域技術導入 AI 晶片與機櫃方案的 CEO，這件事做得明顯好的只有黃仁勳（當然未來應該還會有其他人也能證明可以把這件事做很好）。",
-          "url": "https://x.com/mingchikuo/status/2120927426553495817?s=20",
-          "time": "2026-11-13 01:11",
+          "title": "Google TPU 重點更新：OpenAI 與 Anthropic 新訂單推升出貨能見度至 2029 年、v10 產品線大幅調整 (改為 Quillfish)、聯發科與 Broadcom 為供應商中之領先關注焦點 我最新的產業調查與研究結論： 1. 訂單能見度與出貨規劃： 受惠於 OpenAI 與 Anthropic 強勁新訂單，Google TPU 出貨能見度已達 2029 年，優於 Nvidia GPU 與其他 AI ASIC（多數為 4Q27–2Q28）。 (1) 自 2028 年起，v9 將成 Google 自建算力的主力方案，v8 系列（8t／8i 或其設計變種）訂單可視為來自 OpenAI 與 Anthropic。 (2) 2028–2029 年合計需求數量：OpenAI 約 12M（聯發科設計的 8t），Anthropic 約 14M（Broadcom 設計的 8i），兩者需求均呈逐年成長趨勢。OpenAI 採買斷，Anthropic 則是租賃與買斷都有。 (3) 考量供應鏈限制，2027–2029 年較合理的 TPU 出貨估算分別為 8–9M、14–15M、16–18M。市場普遍預期 AI 資本支出於 2028 年見頂，但此規劃顯示 TPU 在 2029 年仍具出貨成長動能，關鍵在於 AI 服務龍頭 OpenAI 與 Anthropic 的直接訂單。 2. v10 產品線與供應鏈調整： v10 由原先的 Icefish 與 Merope／Bladerunner 改為 Quillfish，預計 2029 年量產，設計服務訂單由聯發科取得。 (1) Icefish 改為 v11，預計 2030 年量產，設計服務訂單同由聯發科取得。Merope 能見度較低，供應商未定，也可能取消。 (2) 聯發科將是 v9（Humufish & Triggerfish）與 v10（Quillfish）的獨家供應商，2027–2029 年占整體 TPU 供應比重分別約 45–50%、50–55%、55–60%。TPU 對其營收與利潤的貢獻預計逐年增加。 (3) 自 v9 起新款 TPU 均採 Intel EMIB-T 先進封裝。考量初期量產能力，預期至 2029 年仍以 v8 系列為 TPU 出貨主力。v8 預期將是聯發科與 Broadcom 未來數年的 TPU 事業獲利成長的主要來源，因長期累積的學習曲線效益明顯，加上雙方負責關鍵零組件與材料採購。 3/ 市場關注度與供應商展望： 近期事件有助提升並維持 Google TPU 的市場關注度，關鍵設計服務商聯發科與 Broadcom 可望成為供應鏈首要焦點。 (1) Nvidia CEO 接班的不確定性，有利 Google 與客戶洽談 2028 年後的長期規劃。OpenAI 與 Anthropic 均為 TPU 關鍵客戶，其 IPO 也有助提升並維持 TPU 關注度，而聯發科與 Broadcom 是市場最容易聯想到的供應商。 (2) 聯發科無疑是未來數年 TPU 的最大贏家，身為 v9 後的獨家設計供應商，加上供應比重與 TPU 出貨成長同時逐年提升，均有利 TPU 事業營收規模擴大。高毛利率的 8t 系列出貨能見度達 2029 年，為關鍵利潤來源。 (3) 因 Broadcom 主導 8i 設計，故毛利率更高於 8t，有利該公司利潤成長。不過，需注意的是，Broadcom 未來數年的營運重點為非 TPU 的 XPU 與 AI 網路晶片訂單，預計最快 2027 年，非 TPU 營收將超越 TPU。",
+          "url": "https://x.com/mingchikuo/status/2122133089497538862?s=20",
+          "time": "2026-11-16 09:02",
           "source_name": "郭明錤"
         }
       ]
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 9,
-      "seconds": 2.0,
+      "valid_count": 10,
+      "seconds": 1.71,
       "error": "",
       "samples": [
         {
-          "title": "#观察 纽约时报再发评论文章，特意挑选了一张角度瘆人的老黄大头照做头图，角度也是非常清奇。 https://t.co/jfQB0QaTV3",
-          "url": "https://x.com/fxtrader/status/2121167806553264298?s=20",
-          "time": "2026-11-13 17:06",
+          "title": "猪肉价格创10年新低，上海多个市场的部分猪肉价格已低于蔬菜。 需求端消费整体疲弱，供强需弱格局未根本改变。第四季生猪出栏仍处高位，未来6至8个月猪价可能继续反弹乏力，延续亏损。 https://t.co/a2zTC3ON4q",
+          "url": "https://x.com/fxtrader/status/2122169276362788927?s=20",
+          "time": "2026-11-16 11:25",
           "source_name": "外汇交易员"
         },
         {
-          "title": "段永平：目前不会卖出英伟达，还卖了不少看跌期权。 英伟达可能邀请黄仁勋担任顾问，成为类似“影子CEO”的角色，保留影响力，只是不再拥有签字决策权。要等到听证会结束之后才有可能出现明确结论。 英伟达需要有很好的管理团队，否则3-5年后可能就没那么厉害。 库克接任英伟达CEO可能性为零。 https://t.co/dqElHSuEjK",
-          "url": "https://x.com/fxtrader/status/2121150123745161628?s=20",
-          "time": "2026-11-13 15:56",
+          "title": "#数据 中国 10月规模以上工业增加值同比增4.8%，预期5.3%； 10月社会消费品零售总额同比增0.4%，预期0.8%； 10月城镇调查失业率5.1%，前值5.5%； 1-10月城镇固定资产投资同比-8.1%，预期-7.0%。 https://t.co/YxeKrMkGSQ",
+          "url": "https://x.com/fxtrader/status/2122148040123527335?s=20",
+          "time": "2026-11-16 10:01",
           "source_name": "外汇交易员"
         }
       ]
@@ -254,15 +254,15 @@
       "error": "",
       "samples": [
         {
-          "title": "未来anthropic的优势是各类场景数据的搜集。因为它目前领先的高质量用户每天都在产生大量样本，只要他们内部能够高效抽取过滤，那么世界各领域正在发生的、没有其他渠道可获取的、隐含高质量的使用样本可以指导下一代训练样本合成放大以及RL训练边界。 这些能力不再是fable5.2里面的视频制作或者生物知识那些。而是可能的各个行业的专业知识。——在互联网和书籍中不具备的——如工作流中遇到错误如何纠正、如何逐步迭代工序等等。 这就像头部虹吸效应，除了OAI和XAI之外其他平台没有这个优势。开源模型更像交出了身体缺什么也拿不回来。 从前人类历史上有过类似的事件就是封建时期，知识会被高度集中在皇帝那里。焚书坑儒之后就断了很长阶段的思维链。 GPT-4后预训练就像Ilya说的一样到头了，因为没有更多免费互联网样本。之后到现在为止的RL并不没有重大创新，本质上就看谁的样本更好更丰富。暴力计算（GPU、HBM）、对数压缩（Inference、存储、网络、光通信、散热、电力）。 自蒸馏漏洞堵住加上严格封号之后，中美模型差距就是用户数量的差距（不算豆包上那种当搜索引擎或者看AI剧用的），而且会越来越明显。因为如果你是一个合格的AI Researcher你就得承认transformer之后AI架构压根没有真正创新（工程优化除外）。用户感受到的能力跃迁可以概括为：把无限多的真实世界思考样本压缩进不断放大的流形几何网络，稳定不动点和边界条件。 一家公司持续虹吸发展，封锁开源，这个如何能破局？ 我的一个不是答案的答案：时间。 时间让新架构诞生颠覆； 时间让问题从内部爆发； 时间让其行为发生扭曲； 时间让现物理逻辑反转； 接受差距，搭个顺风车，静待转变。 我对AI科学的本质看法： https://t.co/HZMzYxZfC3",
-          "url": "https://x.com/WaylandZhang/status/2121150815507493176?s=20",
-          "time": "2026-11-13 15:58",
+          "title": "从几何来看： 可以把一维空间中的标量（scalar），理解为高维空间中向量（vector）的特殊情况。 一维空间：数字的平方非负 例如： a = 3 a² = 9 ≥ 0 而高维空间：向量的长度平方非负 例如： v = (3, 4) |v|² = 3² + 4² = 25 ≥ 0 本质上，两者遵循相同的数学原理。 回到原题的不等式 我们把每个实数 xᵢ 映射成高维向量 vᵢ，并让两个向量的内积满足： 内积(vᵢ, vⱼ) = √|xᵢ + xⱼ| − √|xᵢ − xⱼ| 然后把所有向量相加： V = v₁ + v₂ + … + vₙ 由于向量长度的平方一定非负 那么： |V|² = 所有向量两两内积之和必 ≥ 0 因此： 所有 √|xᵢ + xⱼ| 之和 ≥ 所有 √|xᵢ − xⱼ| 之和 这证明了原题在高维空间中的“成立”。 所以可以把复杂的实数不等式转换成一个简单的高维几何事实：向量之和的长度平方不可能为负。 那么是否一维的scalar是高维空间的体重特例？？",
+          "url": "https://x.com/WaylandZhang/status/2122140061936558391?s=20",
+          "time": "2026-11-16 09:29",
           "source_name": "WaylandZhang"
         },
         {
-          "title": "anthropic的路演看完，本质上是一个长期算力期权 + AI行业应用层期权的双期权投资策略。你在买（aka“赌”）的是未来算力成本波动和软件（生物/办公）渗透率的波动。 跟底层大模型指标已经关系不大了。",
-          "url": "https://x.com/WaylandZhang/status/2120370041950740732?s=20",
-          "time": "2026-11-11 12:16",
+          "title": "The distinction between storing a memory and recalling it is fascinating. A smell or a few notes of a song can bring back an entire scene. What evidence would distinguish the standing-wave hypothesis from other explanations of cue-driven recall?",
+          "url": "https://x.com/WaylandZhang/status/2122131820703842463?s=20",
+          "time": "2026-11-16 08:57",
           "source_name": "WaylandZhang"
         }
       ]
@@ -272,62 +272,62 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/middle-east/irans-guards-say-they-targeted-us-early-warning-radar-bahrain-2026-11-13/",
+      "url": "https://www.reuters.com/business/energy/oil-prices-fall-expectations-coming-supply-surplus-2026-11-16/",
       "ok": true,
-      "title": "Iran's Guards say they targeted a US early-warning radar in Bahrain",
-      "length": 986,
-      "seconds": 2.74,
+      "title": "Oil prices fall on expectations of coming supply surplus",
+      "length": 2758,
+      "seconds": 3.11,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "657d877b4fba08b4e7e0712f6f8c1d177da9c71f888e0275566e54b864bd9744",
-      "preview": "Nov 13 (Reuters) - Iran's Revolutionary Guards said on Friday they targeted a US early-warning radar in Bahrain, the first such claim of an attack on American m"
+      "content_sha256": "4dae37efaee9cabe3af5b01e71b7e25885abecdd8f64fba0ea03f8c19da38477",
+      "preview": "PERTH, Nov 16 (Reuters) - Oil prices fell on Monday on expectations of a supply surplus as shipments from the Middle East through the Strait of Hormuz have been"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-13/microsoft-outage-gums-up-markets-forces-traders-to-use-phones",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-15/india-stock-market-rebounds-as-ai-trade-unwinds-foreign-funds-return",
       "ok": true,
-      "title": "Microsoft Outage Sends Traders Back to Phones and Fax",
-      "length": 3309,
-      "seconds": 31.23,
+      "title": "AI Wobble Fuels India Stock Comeback in Rotation Trade",
+      "length": 5523,
+      "seconds": 18.8,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "8ff3a5c8753d2d862d0f6d92ae654bf1ac4575d7524819f1e7da0bd6639c8cbc",
-      "preview": "Traders were forced to do business by phone and Whatsapp, and even fire up their fax machines, as a worldwide outage of Microsoft software crippled communicatio"
+      "content_sha256": "a0385771c69124563721fe09fb63ab9fbf293e20cdce23d9398e19552e3f215b",
+      "preview": "Indian stocks suffered bruising losses in the first nine months of the year as the artificial intelligence trade hoovered up global investor capital. The unwind"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/12/democrats-launch-nvidia-investigation-write-scathing-letter-on-huangs-scheme-with-trump/",
+      "url": "https://techcrunch.com/2026/11/15/apple-launches-new-app-to-study-how-people-use-ai-for-health/",
       "ok": true,
-      "title": "Democrats launch Nvidia investigation, write scathing letter on Huang's 'scheme' with Trump",
-      "length": 3445,
-      "seconds": 2.94,
+      "title": "Apple launches new app to study how people use AI for health",
+      "length": 2647,
+      "seconds": 2.02,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "7d3c669ad268c878beda763fba443f4c9fff29fdcb262e7a74f8a227b1b25d92",
-      "preview": "Democrats on Thursday opened an inquiry into how the Trump administration handled Nvidia's chip sales to China. Earlier on Thursday, the company ousted its CEO "
+      "content_sha256": "768b1c628c2c467c452f4865f78775b519e83cc9072daefab3d074a8866258a8",
+      "preview": "Big AI labs like OpenAI and Anthropic have made their bets on offering chatbots that can answer health-related queries with specialized features. Apple is debut"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/health/2026/11/in-reversal-american-cancer-society-urges-prostate-cancer-tests-for-all-men/",
+      "url": "https://arstechnica.com/space/2026/11/vulcan-rocket-fails-during-launch-dealing-major-blow-to-spacex-competitors/",
       "ok": true,
-      "title": "In reversal, American Cancer Society urges routine prostate cancer screening",
-      "length": 3680,
-      "seconds": 15.96,
+      "title": "Vulcan rocket fails during launch, dealing major blow to SpaceX competitors",
+      "length": 10327,
+      "seconds": 15.95,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "1a8bbab246cea738be3ca77c38bf6654fc38f1defccb40c1e68971c1fa1de626",
-      "preview": "In a significant update to its guidelines for prostate cancer screening, the American Cancer Society is now recommending that men get routinely screened for pro"
+      "content_sha256": "c5d94afc98cecab43024965c10f52bf470d8eae71f7d452d1874e54f2fac7802",
+      "preview": "United Launch Alliance’s Vulcan rocket and 40 Amazon Leo broadband satellites fell back to Earth minutes after liftoff Sunday, a crushing setback that will ripp"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 15.85,
+      "seconds": 3.77,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 15.85,
+      "seconds": 3.51,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 617,
-      "seconds": 10.62,
+      "seconds": 10.1,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 7.64,
+      "seconds": 9.05,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.72,
+      "seconds": 9.87,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-13T09:52:19.542652+00:00"
+    "checked_at": "2026-11-16T03:57:38.977153+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-13T09:52:30.043261+00:00"
+    "checked_at": "2026-11-16T03:57:46.485182+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-13T09:55:49.292373+00:00",
+    "checked_at": "2026-11-16T04:00:25.572174+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

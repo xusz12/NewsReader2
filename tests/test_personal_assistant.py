@@ -299,7 +299,6 @@ def test_codex_adapter_registers_tools_and_resumes_in_own_workspace(service, tmp
     monkeypatch.setenv('NR_RPC_LOG', str(log))
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'codex-home'))
-    monkeypatch.setattr(runtime.codex_client, 'command', lambda *a, **k: pytest.fail('native CLI fallback'))
     service.runner = runtime.run
     thread = send(service)
     assert wait_done(service, thread)['job']['status'] == 'done'

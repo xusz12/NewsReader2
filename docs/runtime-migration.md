@@ -44,7 +44,7 @@ OAR 负责管理底层 runtime。底层仍需要 Pi RPC 进程和 Codex app-serv
 耗时对照：迁移前使用 `codex exec --ephemeral`，同样读取完整对话、沿用原模型／推理强度，并在超长时再次生成。对同一段材料测量，旧 CLI 启动约 0.13 秒，总耗时 54.5 秒，输出 312 字；OAR 会话启动约 0.14 秒，使用 Schema 的整轮耗时 45.9 秒，输出 300 字。两次都使用相同模型及 `max` 推理强度，但输出约束不同且每条路径仅测一次，不能据此声称普遍性能差异；可确认本次主要等待发生在模型生成阶段。没有过去具体成功操作的耗时日志，无法还原当时更快的完整原因。
 
 - **Pi：** OAR 管理 RPC；原生 `--no-session` 不落盘原生会话，`--no-tools` 与通配排除禁用工具，不读项目上下文或技能。临时配置和 NR 目录在结束或超时后清理。
-- **Codex：** OAR 0.106.0 尚无公开的 ephemeral 会话选项。`scripts/oar_codex_ephemeral.mjs` 对锁定版本的 OAR 加载代码做一个受检查的内存补丁，只向原生 `thread/start` 补充 `ephemeral:true`，不修改 node_modules，不另写原生 RPC 客户端。版本或代码接缝改变时明确报错，不退回 CLI，也不改用持久会话。归档关闭 web search，维持只读沙箱，并要求只整理给定材料；OAR 的 Codex 接口尚不能统一禁用所有内置工具，因此不把提示词约束描述成完整的工具隔离。
+- **Codex：** OAR 0.109.0 尚无公开的 ephemeral 会话选项。`scripts/oar_codex_ephemeral.mjs` 对锁定版本的 OAR 加载代码做一个受检查的内存补丁，只向原生 `thread/start` 补充 `ephemeral:true`，不修改 node_modules，不另写原生 RPC 客户端。版本或代码接缝改变时明确报错，不退回 CLI，也不改用持久会话。归档关闭 web search，维持只读沙箱，并要求只整理给定材料；OAR 的 Codex 接口尚不能统一禁用所有内置工具，因此不把提示词约束描述成完整的工具隔离。
 
 升级 OAR 时必须重新检查该补丁和原生归档用例；上游提供等价公开能力后删除补丁，改用公开选项。新增 runtime（例如 DSH）的后台任务可能越过主轮次继续执行，接入前须单独适配其任务生命周期；不能直接复用“本轮结束就释放进程”。
 
@@ -142,3 +142,13 @@ Computer use 使用独立测试库与合成新闻，通过正常页面操作验�
 截图位于 `output/oar-validation/batch5-translations.jpg` 与 `output/oar-validation/batch5-codex-connection.jpg`（本地忽略目录）。第五批纳入 v0.5.14；第四批已单独提交为 v0.5.13（`2551842`）。
 
 正式本地服务已受控重启并通过健康检查，加载第五批代码；当前主题接口返回 200，已退役规则草稿入口返回 404。隔离测试服务已停止。
+
+## v0.5.14 发布前依赖验收
+
+2026-11-16 推送前查询 npm，OAR 最新正式版为 0.109.0；项目由 0.106.0 升至 0.109.0。已核对 [0.107.0](https://github.com/botiverse/oar/releases/tag/v0.107.0)、[0.108.0](https://github.com/botiverse/oar/releases/tag/v0.108.0) 和 [0.109.0](https://github.com/botiverse/oar/releases/tag/v0.109.0) 发布说明：涉及模型确认错误类型、超时进程回收、Factory runtime、恢复目录错误及其他 runtime 的排队行为。NR 仍只提供 Pi、Codex；共享 Pi 1.5.2 满足新版依赖范围，无需更换。
+
+新旧 Codex `open.js` 的差异仅涉及模型确认错误类型，临时会话参数仍未公开，现有补丁接缝保持唯一且不变。更新严格版本检查并保留接缝校验，通过真实安装 Codex／OAR 与本地模拟模型验证归档不落盘、旧会话恢复、搜索策略及助手／报告工具；没有通过放宽检查或退回 CLI 完成升级。
+
+发布回归覆盖 602 项不同 Python 用例：首轮 601 项通过，1 项因个人助手旧测试仍替换已删除的 `codex_client.command` 而失败；移除失效测试引用后，个人助手 15 项整组复测通过。59 项 OAR Node 用例通过。该轮原生运行测试使用隔离目录和本地模拟模型，不代表重新验证公网模型服务或搜索额度。
+
+重新实测 12 个采集来源和 9 类正文抓取全部通过；369 项 adapter、5 项 OpenCLI Node、181 项采集／升级 Python 回归通过。`collection/opencli-release.json` 已绑定当前代码和锁文件，OpenCLI 项目版本及上游稳定版均为 2.0.3。沿用此前五批的 computer use 验收，本次依赖更新未新增页面改动。
