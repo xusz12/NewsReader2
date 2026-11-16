@@ -1,6 +1,6 @@
 /** Pi startup policy only. OAR owns RPC, events, sessions and process cleanup. */
 const mode = process.argv[2];
-if (!['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report'].includes(mode)) throw new Error('oar_invalid_request');
+if (!['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report', 'translation', 'connection_test'].includes(mode)) throw new Error('oar_invalid_request');
 const args = process.argv.slice(3);
 if (['news_chat', 'web_research'].includes(mode)) {
   // OAR disables native mcp.json because its common MCP option supplies its own
@@ -18,6 +18,7 @@ if (['news_chat', 'web_research'].includes(mode)) {
   process.argv = [...process.argv.slice(0, 2), ...args, '--no-extensions', '--no-skills',
     '--no-prompt-templates', '--no-context-files', '--tools', 'mcp__nr_assistant__*'];
 } else {
+  if (['translation', 'connection_test'].includes(mode)) args.push('--no-extensions');
   process.argv = [...process.argv.slice(0, 2), ...args, '--no-session',
     '--no-tools', '--exclude-tools', '*', '--no-skills', '--no-prompt-templates', '--no-context-files'];
 }

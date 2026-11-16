@@ -127,7 +127,8 @@ def test_real_codex_new_and_legacy_sessions_resume_through_oar(native_runtime, l
 
     if legacy_cli_session:
         monkeypatch.setattr(codex_client, 'executable', lambda: env['NEWS_READER_CODEX'])
-        result = subprocess.run(codex_client.command(config, cwd=Path(request['cwd']), live_search=True),
+        import legacy_codex
+        result = subprocess.run(legacy_codex.command(config, cwd=Path(request['cwd']), live_search=True),
             input=request['prompt'], env=env, capture_output=True, text=True, timeout=25)
         assert result.returncode == 0, result.stderr
         native_id = next(json.loads(line)['thread_id'] for line in result.stdout.splitlines()

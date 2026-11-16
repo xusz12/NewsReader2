@@ -10,7 +10,7 @@
 - 首次启用和修改排期从当前时刻开始；恢复服务时，最近两天错过的时刻合并补采一轮。暂停后恢复不补采暂停期间的任务。已有采集任务时，手动或定时触发合并入当前任务。
 - 媒体固定为 Reuters 五个栏目、Bloomberg Tech、TechCrunch、Ars Technica 共八个入口。X 账号在设置「X」中管理；首次从 `collection/sources.json` 迁入 ilyasut、mingchikuo、fxtrader、WaylandZhang，两项自动处理开关均关闭。后续从当前库的 `x_accounts` 读取配置，空列表不会重新填入默认账号。新闻流显示复选框不改变采集任务。
 - 项目固定 OpenCLI 2.0.3，并内置 ReutersBrowser、BloombergUser、TechcrunchPublic、ArsPublic 及 Reuters 正文覆盖代码；X 使用固定版本的内置命令。`npm ci --ignore-scripts` 一次安装，不依赖全局 opencli 或个人 adapter。独立 twitter-cli 与旧任务快照中的备用命令均不执行。新机器仍需准备浏览器扩展、登录会话及翻译配置；应用不修改登录信息。
-- 采集字段翻译沿用设置中的翻译 API 路由与 Pi 后备。正文抓取、全文翻译、研究 Agent 和报告模型仍使用各自原有配置。
+- 采集字段翻译沿用设置中的翻译 API 路由与 Pi 后备；Pi 后备已通过 OAR 的独立无工具会话执行。正文抓取、全文翻译、研究 Agent 和报告模型仍使用各自原有配置。
 - API 与 Pi 后备均要求正常完成响应；即使输出可解析为 JSON，截断、中止或没有完成标记的 Pi 结果也不会发布到新闻库。
 - 「新闻翻译并发上限」保存为 `collection.translation_concurrency`，默认 4，接受 1–32 的整数。全库同时翻译的请求数受数据库领取检查约束。保存后影响后续领取，降低上限不取消在途请求；仅调整并发不会重置排期或遗漏刚到期的采集。
 - macOS 启动器每次分别检测独立 Tailscale 与 Surge 的当前状态和地址；选择顺序为可绑定的客户端地址 → 可接收入站访问的 Surge 节点 → 本机 `127.0.0.1`。发现客户端或 Surge 应用但未运行、地址残留、不可入站时，不会阻止另一种实现被选中。Surge 的用户态地址不能交给 Flask 绑定，使用该路径时监听本机并显示远程访问地址。探测兼容没有 CLI PATH 的 macOS 应用安装，不保存机器 IP、不修改网络配置；显式 `NEWS_READER_HOST` 始终优先。

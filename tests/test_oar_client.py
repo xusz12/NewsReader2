@@ -124,10 +124,9 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
     assert not list(state.glob('config-*'))
 
 
-@pytest.mark.parametrize('route,tool_source', [('oar', 'builtin'), ('cli', 'builtin'), ('assistant', 'nr_tools'),
+@pytest.mark.parametrize('route,tool_source', [('assistant', 'nr_tools'),
     ('news', 'builtin'), ('migrate_cli', 'builtin'), ('import_cli', 'builtin')])
 def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, route, tool_source):
-    """Exercise the installed OAR/SDK and native CLI against a local provider."""
     import shutil
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -189,25 +188,37 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
             'reasoning': False, 'input': ['text'], 'contextWindow': 32768, 'maxTokens': 4096,
             'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}}}))
     if route in ('cli', 'news', 'migrate_cli', 'import_cli') and tool_source == 'builtin':
-        # Native MCP configuration deliberately keeps this session on the CLI route.
         (source / 'mcp.json').write_text('{"mcpServers":{}}')
     original_config = {file.name: file.read_bytes() for file in source.iterdir()}
     env = {'PATH': os.environ['PATH'], 'HOME': str(tmp_path), 'PI_OFFLINE': '1',
            'NEWS_READER_PI_AGENT_DIR': str(source)}
     request = {'cwd': str(cwd), 'state_dir': str(state), 'provider': 'nr-upgrade-test',
                'model': 'fixture', 'prompt': 'Read the sample and retain this first question.',
-               'resume_prompt': 'Continue the same conversation.', 'reasoning_effort': 'off'}
+               'resume_prompt': 'Continue the same conversation.', 'reasoning_effort': 'off', 'task': 'news_chat'}
     if nr_tools:
         request.update(nr_tools=nr_tools, task='personal_assistant')
     if route == 'news':
         request['task'] = 'news_chat'
     command = [node, str(oar_client.ROOT / 'scripts/oar_bridge.mjs')]
     try:
-        assert oar_client.run_once(command, request, env, 20) == 'first-answer'
-        saved = json.loads((state / 'session.json').read_text())
-        assert saved['runtime'] == ('oar' if route in ('news', 'assistant') else 'cli' if route in ('migrate_cli', 'import_cli') else route)
-        if route == 'migrate_cli':
-            request['task'] = 'news_chat'
+        if route in ('migrate_cli', 'import_cli'):
+            native = str(__import__('uuid').uuid4())
+            physical_cwd = str(cwd.resolve())
+            session_dir = state / 'sessions' / ('--' + physical_cwd.lstrip('/').replace('/', '-') + '--')
+            session_dir.mkdir(parents=True)
+            cli = oar_client.ROOT / 'node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js'
+            result = subprocess.run([node, str(cli), '-p', '--mode', 'json', '--no-extensions', '--no-skills',
+                '--session-id', native, '--session-dir', str(session_dir), '--provider', request['provider'],
+                '--model', request['model'], '--thinking', 'off'], input=request['prompt'], text=True,
+                capture_output=True, cwd=cwd, env={**env, 'PI_CODING_AGENT_DIR': str(source)}, timeout=20)
+            assert result.returncode == 0
+            saved = {'id': native, 'runtime': 'cli'}
+            (state / 'session.json').write_text(json.dumps(saved))
+            original_config = {file.name: file.read_bytes() for file in source.iterdir() if file.is_file()}
+        else:
+            assert oar_client.run_once(command, request, env, 20) == 'first-answer'
+            saved = json.loads((state / 'session.json').read_text())
+            assert saved['runtime'] == 'oar'
         if route == 'import_cli':
             shutil.copytree(state / 'sessions', source / 'sessions')
             original_history = {str(f.relative_to(source)): f.read_bytes() for f in (source / 'sessions').rglob('*.jsonl')}
@@ -238,3 +249,34 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+@pytest.mark.parametrize('states,finished', [('77 Z\n77 Z+\n', True), ('90 S\n', True),
+    ('77 Z\n77 S\n', False), ('77 T\n', False), ('unreadable', False)])
+def test_permission_error_ignores_only_exited_process_groups(monkeypatch, states, finished):
+    class Child:
+        pid = 77
+        def wait(self, timeout):
+            return 0
+    def denied(*args):
+        raise PermissionError('process group')
+    monkeypatch.setattr(oar_client.os, 'killpg', denied)
+    monkeypatch.setattr(oar_client.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess(a, 0, states, ''))
+    if finished:
+        oar_client.terminate_group(Child())
+    else:
+        with pytest.raises(PermissionError):
+            oar_client.terminate_group(Child())
+
+
+def test_concurrent_child_cleanup_preserves_original_failure(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    script = tmp_path / 'orphan.py'
+    script.write_text("import sys,json,subprocess\njson.load(sys.stdin)\n"
+        "subprocess.Popen([sys.executable,'-c','import time;time.sleep(15)'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+        "print(json.dumps({'type':'oar_result','outcome':'failed','error':'oar_auth_required'}),flush=True)\n")
+    def run(index):
+        with pytest.raises(RuntimeError, match='^oar_auth_required$'):
+            oar_client.run_result([sys.executable, str(script)], {'state_dir': str(tmp_path / str(index))}, os.environ.copy(), 5)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(run, range(80)))

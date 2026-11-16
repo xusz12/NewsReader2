@@ -1,29 +1,18 @@
-"""Codex OAR adapter and remaining task-specific native execution.
-
-Normalized events match the existing Agent transport, not Pi session identifiers.
-Commands always pin cwd, read-only sandbox and noninteractive approvals, including
-resume. Service tier is always Standard, independently of native Fast settings.
-No bypass/add-dir flags, credential/config copies or automatic fallback.
-"""
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
 import re
-import selectors
 import shutil
 import subprocess
 import tempfile
-import time
 import uuid
 
 import oar_client
-from oar_client import terminate_group
 
 ROOT = Path(__file__).resolve().parent
 REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
-MAX_BYTES = 2 * 1024 * 1024
 ERROR_MESSAGES = {
     "codex_missing": "未找到 Codex CLI，请先安装 Codex。",
     "codex_auth_required": "Codex 请求认证失败，请检查本机 Codex 登录和配置；应用不收集凭据。",
@@ -146,11 +135,6 @@ def executable() -> str:
 
 
 def status_snapshot() -> dict:
-    """Public OpenAI login hint only: custom/local providers may not need it.
-
-    Never read native config/auth files and never use this hint as an exec gate.
-    Exec inherits the same binary selection, HOME/CODEX_HOME and native config.
-    """
     try:
         command = executable()
     except RuntimeError:
@@ -169,12 +153,10 @@ def status_snapshot() -> dict:
 
 
 def require_ready() -> None:
-    # Login status only covers OpenAI auth, not native custom provider credentials.
-    # Only absence/incompatible CLI blocks launch; real request errors decide auth.
     try:
-        probe = subprocess.run([executable(), "exec", "--help"], stdout=subprocess.PIPE,
+        probe = subprocess.run([executable(), "app-server", "--help"], stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL, timeout=5, text=True)
-        if probe.returncode != 0 or not all(flag in probe.stdout for flag in ("--json", "--sandbox", "--cd", "resume")):
+        if probe.returncode != 0 or not all(flag in probe.stdout for flag in ("--listen",)):
             raise RuntimeError("codex_probe_failed")
     except (OSError, subprocess.TimeoutExpired, UnicodeError):
         raise RuntimeError("codex_probe_failed") from None
@@ -187,29 +169,43 @@ def valid_thread_id(value: str) -> bool:
         return False
 
 
-def command(config: dict, *, thread_id: str = "", cwd: Path = ROOT, ephemeral: bool = False, live_search: bool = False) -> list[str]:
+def toml_value(value):
+    if isinstance(value, dict):
+        return "{" + ",".join(json.dumps(k) + "=" + toml_value(v) for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(toml_value(v) for v in value) + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def isolated_launch_args(config: dict, bridge=None) -> list[str]:
     config = normalize_config(config)
-    if thread_id and not valid_thread_id(thread_id):
-        raise RuntimeError("codex_session_invalid")
-    args = [executable(), "exec", "--cd", str(cwd.resolve()), "--sandbox", "read-only",
-            "-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"',
-            "--json", "--color", "never"]
-    if config["model"]:
-        args += ["--model", config["model"]]
-    if config.get("reasoning_effort"):
-        args += ["-c", "model_reasoning_effort=" + json.dumps(config["reasoning_effort"])]
-    # Apply at execution, including resumed sessions and already queued jobs.
-    # Do not change serialized model configs or the user's native CLI settings.
-    args += ["-c", 'service_tier="default"', "-c", "features.fast_mode=false"]
-    if ephemeral:
-        args.append("--ephemeral")
-    if live_search:
-        args += ["-c", 'web_search="live"']
-    if thread_id:
-        args += ["resume", thread_id, "-"]
+    command = [executable(), "mcp", "list", "--json"]
+    try:
+        response = subprocess.run(command, capture_output=True, timeout=20, check=True)
+        servers = json.loads(response.stdout)
+        if not isinstance(servers, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) for s in servers):
+            raise ValueError()
+    except (ValueError, OSError, subprocess.SubprocessError):
+        raise RuntimeError("codex_probe_failed") from None
+    restrictions = ["-c", 'web_search="disabled"', "-c", "skills.include_instructions=false",
+                    "-c", "skills.bundled.enabled=false"]
+    entries = {server["name"]: {"enabled": False, "command": "false"} for server in servers}
+    if bridge:
+        entries["newsreader_report"] = bridge.config()
+        restrictions += ["--enable", "multi_agent", "-c", "agents.enabled=true",
+                         "-c", "agents.max_concurrent_threads_per_session=3",
+                         "-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
+        for source, target in (("model", "default_subagent_model"), ("reasoning_effort", "default_subagent_reasoning_effort")):
+            if config.get(source):
+                restrictions += ["-c", "agents." + target + "=" + toml_value(config[source])]
+        if not bridge.workspace.delegation:
+            restrictions += ["--disable", "multi_agent", "-c", "agents.enabled=false"]
     else:
-        args.append("-")
-    return args
+        restrictions += ["--disable", "multi_agent"]
+    restrictions += ["-c", "mcp_servers=" + toml_value(entries)]
+    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "view_image", "hooks", "memories", "goals"):
+        restrictions += ["--disable", feature]
+    return restrictions
 
 
 def saved_config(state_dir: Path) -> dict:
@@ -250,199 +246,14 @@ def write_thread(state_dir: Path, config: dict, thread_id: str) -> None:
         temp.unlink(missing_ok=True)
 
 
-class EventParser:
-    """One turn only; completed agent_message is authoritative, never deltas.
-
-    Tool/diagnostic contents are discarded. Unknown events fail closed instead
-    of treating partial output as a successful response.
-    """
-    def __init__(self, expected_thread: str = "", *, allow_delegation=False):
-        self.expected_thread = expected_thread
-        self.thread_id = ""
-        self.started = False
-        self.terminal = False
-        self.completed_items: set[str] = set()
-        self.answer = ""
-        self.stream_text = ""
-        self.failure_code = "codex_turn_failed"
-        self.saw_error = False
-        self.allow_delegation = allow_delegation
-
-    def parse(self, raw: str) -> dict:
-        try:
-            event = json.loads(raw)
-            if not isinstance(event, dict) or self.terminal:
-                raise ValueError()
-            kind = event.get("type")
-            # A report's final answer belongs to the coordinator. Native CLI
-            # versions that forward child events must not let them complete it.
-            if (self.allow_delegation and self.thread_id and event.get("thread_id")
-                    and event["thread_id"] != self.thread_id):
-                return {"type": "oar_tool"}
-            if kind == "thread.started":
-                value = event.get("thread_id")
-                if self.thread_id or not valid_thread_id(value) or (self.expected_thread and value != self.expected_thread):
-                    raise ValueError()
-                self.thread_id = value
-                return {"type": "oar_session"}
-            if kind == "turn.started":
-                if not self.thread_id or self.started:
-                    raise ValueError()
-                self.started = True
-                return {"type": "oar_session"}
-            if kind == "error":
-                # Never forward diagnostics; retain only a whitelisted category.
-                self.saw_error = True
-                message = str(event.get("message") or "").lower()
-                if any(word in message for word in ("not logged in", "unauthorized", "401", "authentication")):
-                    self.failure_code = "codex_auth_required"
-                return {"type": "oar_tool"}
-            if kind == "turn.failed":
-                diagnostic = event.get("error")
-                message = str(diagnostic.get("message") or "").lower() if isinstance(diagnostic, dict) else ""
-                if any(word in message for word in ("not logged in", "unauthorized", "401", "authentication")):
-                    self.failure_code = "codex_auth_required"
-                self.terminal = True
-                return {"type": "oar_result", "outcome": "failed", "error": self.failure_code}
-            if kind in {"item.started", "item.updated", "item.completed"}:
-                item = event.get("item")
-                if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"] or item.get("type") not in {
-                    "agent_message", "reasoning", "command_execution", "file_change", "mcp_tool_call",
-                    "web_search", "todo_list", "error", "tool_call", "image_generation",
-                } | ({"collab_tool_call"} if self.allow_delegation else set()):
-                    raise ValueError()
-                if not self.started:
-                    # CLI 0.158.0 can emit completed startup diagnostics between
-                    # thread.started and turn.started. These are not top-level
-                    # errors or answers; admit only this confirmed item shape.
-                    message = item.get("message")
-                    if (not self.thread_id or kind != "item.completed" or item["type"] != "error"
-                            or not isinstance(message, str) or not message.strip()
-                            or len(message.encode()) > MAX_BYTES):
-                        raise ValueError()
-                item_id = item["id"]
-                if item_id in self.completed_items:
-                    raise ValueError()
-                if kind == "item.completed":
-                    self.completed_items.add(item_id)
-                if item["type"] == "agent_message" and kind in {"item.updated", "item.completed"}:
-                    text = item.get("text")
-                    if not isinstance(text, str) or len(text.encode()) > MAX_BYTES:
-                        raise ValueError()
-                    if kind == "item.completed" and item.get("phase") != "commentary":
-                        # Only authoritative completion can fill the final answer.
-                        self.answer = text
-                    self.stream_text = text
-                    return {"type": "text_delta", "delta": text, "replace": True}
-                return {"type": "oar_tool"}
-            if not self.started:
-                raise ValueError()
-            if kind == "turn.completed":
-                self.terminal = True
-                if self.saw_error:
-                    return {"type": "oar_result", "outcome": "failed", "error": self.failure_code}
-                if not self.answer.strip():
-                    return {"type": "oar_result", "outcome": "failed", "error": "codex_empty_answer"}
-                return {"type": "oar_result", "outcome": "completed", "answer": self.answer}
-            raise ValueError()
-        except (ValueError, TypeError, AttributeError):
-            raise RuntimeError("codex_protocol_error") from None
-
-
-def run_once(config: dict, prompt: str, *, thread_id: str = "", timeout: int = 90, ephemeral: bool = False, finish_on_completion: bool = False) -> tuple[str, str]:
+def run_once(config, prompt, *, thread_id="", timeout=90, ephemeral=False):
     require_ready()
-    parser = EventParser(thread_id)
-    proc = None
-    selector = selectors.DefaultSelector()
-    terminal = None
-    completion_deadline = None
-    try:
-        proc = subprocess.Popen(command(config, thread_id=thread_id, ephemeral=ephemeral),
-                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                cwd=ROOT, start_new_session=True, bufsize=0)
-        pending = prompt.encode("utf-8")
-        if len(pending) > MAX_BYTES:
-            raise RuntimeError("codex_protocol_error")
-        os.set_blocking(proc.stdin.fileno(), False)
-        selector.register(proc.stdin, selectors.EVENT_WRITE, "stdin")
-        selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
-        selector.register(proc.stderr, selectors.EVENT_READ, "stderr")
-        buffer = b""
-        deadline = time.monotonic() + timeout
-        while selector.get_map():
-            # Connection probes measure the turn, not native CLI/plugin teardown.
-            # Drain immediately queued output briefly to catch failures/duplicates,
-            # then finally reaps this invocation's entire process group.
-            if finish_on_completion and completion_deadline is not None and time.monotonic() >= completion_deadline:
-                break
-            if time.monotonic() >= deadline:
-                raise RuntimeError("codex_timeout")
-            for key, _ in selector.select(0.1):
-                if key.data == "stdin":
-                    try:
-                        n = os.write(key.fileobj.fileno(), pending[:4096])
-                        pending = pending[n:]
-                    except BrokenPipeError:
-                        pending = b""
-                    if not pending:
-                        selector.unregister(key.fileobj)
-                        key.fileobj.close()
-                    continue
-                chunk = os.read(key.fileobj.fileno(), 4096)
-                if not chunk:
-                    selector.unregister(key.fileobj)
-                    if key.data == "stdout" and buffer.strip():
-                        event = parser.parse(buffer.decode())
-                        if event["type"] == "oar_result":
-                            terminal = event
-                            if finish_on_completion:
-                                completion_deadline = min(deadline, time.monotonic() + 0.25)
-                        buffer = b""
-                elif key.data == "stdout":
-                    buffer += chunk
-                    if len(buffer) > MAX_BYTES:
-                        raise RuntimeError("codex_protocol_error")
-                    while b"\n" in buffer:
-                        line, buffer = buffer.split(b"\n", 1)
-                        if line.strip():
-                            event = parser.parse(line.decode())
-                            if event["type"] == "oar_result":
-                                terminal = event
-                                if finish_on_completion:
-                                    completion_deadline = min(deadline, time.monotonic() + 0.25)
-        if finish_on_completion and terminal is not None:
-            if buffer.strip():
-                # No trailing malformed/partial payload may hide behind a completed turn.
-                parser.parse(buffer.decode())
-            if terminal.get("outcome") != "completed":
-                raise RuntimeError(terminal["error"])
-            # A known nonzero exit is still a failure. A still-running process is
-            # deliberately terminated in finally after the authoritative turn result.
-            if not selector.get_map() and proc.poll() is None:
-                try:
-                    proc.wait(timeout=min(0.25, max(0.01, deadline - time.monotonic())))
-                except subprocess.TimeoutExpired:
-                    pass
-            code = proc.poll()
-            if code is not None and code != 0:
-                raise RuntimeError("codex_runtime_failed")
-            return terminal["answer"], parser.thread_id
-        proc.wait(timeout=max(0.01, deadline - time.monotonic()))
-        if terminal is None:
-            raise RuntimeError("codex_protocol_error")
-        if terminal["outcome"] != "completed":
-            raise RuntimeError(terminal["error"])
-        if proc.returncode != 0:
-            raise RuntimeError("codex_runtime_failed")
-        return terminal["answer"], parser.thread_id
-    except (OSError, UnicodeError):
-        raise RuntimeError("codex_runtime_failed") from None
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("codex_timeout") from None
-    finally:
-        selector.close()
-        if proc:
-            terminate_group(proc)
-            for pipe in (proc.stdin, proc.stdout, proc.stderr):
-                if pipe and not pipe.closed:
-                    pipe.close()
+    if ephemeral and thread_id:
+        raise RuntimeError("codex_session_invalid")
+    with tempfile.TemporaryDirectory(prefix="newsreader-codex-once-") as directory:
+        state = Path(directory)
+        request = oar_request(config, prompt, state_dir=state, thread_id=thread_id,
+                              cwd=state if ephemeral else ROOT)
+        if ephemeral:
+            request.update(task="material_summary", web_search="disabled")
+        return _run_oar(request, state, timeout, thread_id)

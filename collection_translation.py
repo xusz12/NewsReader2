@@ -1,7 +1,7 @@
 """Translate collection fields without an agent orchestrating collection."""
 import json
 import re
-from collection_sources import run_command
+import runtime_tasks
 
 import llm_client
 import model_apis
@@ -78,14 +78,10 @@ def pi_translate(raw, settings):
     if not config.get("provider") or not config.get("model"):
         raise ValueError("translation_unconfigured")
     prompt = "\n\n".join(part["content"] for part in messages(raw))
-    command = ["pi", "-p", "--mode", "json", "--no-session", "--no-tools",
-               "--no-extensions", "--no-skills", "--provider", config["provider"], "--model", config["model"]]
-    if config.get("reasoning_effort"):
-        command += ["--thinking", config["reasoning_effort"]]
-    result = run_command([*command, prompt], timeout=135, env=llm_client._pi_subprocess_env())
-    _, output, failed, _ = llm_client._parse_pi_stdout(result.stdout, require_complete=True)
-    if result.returncode or failed:
-        raise ValueError("translation_pi_failed")
+    try:
+        output = runtime_tasks.run({"runtime": "pi", "pi": config}, prompt, task="translation", timeout=135)
+    except RuntimeError:
+        raise ValueError("translation_pi_failed") from None
     return parse(output, raw)
 
 

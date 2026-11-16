@@ -98,17 +98,16 @@ def test_installed_codex_assistant_executes_nr_mcp_and_resumes(service, native_r
     calls.responses.extend(tool_calls())
     def legacy_runner(**args):
         tools = personal_assistant_runtime.tool_config(args['db'], args['workspace'], args['state_db'], args['job_id'])
-        command = codex_client.command(args['profile']['codex'], cwd=args['workspace'])
+        import legacy_codex
+        command = legacy_codex.command(args['profile']['codex'], cwd=args['workspace'])
         command[2:2] = ['--skip-git-repo-check', '-c', 'mcp_servers.nr_assistant.command=' + json.dumps(tools['command']),
                         '-c', 'mcp_servers.nr_assistant.args=' + json.dumps(tools['args']),
                         '-c', 'mcp_servers.nr_assistant.enabled=true', '-c', 'project_doc_max_bytes=0']
         result = subprocess.run(command, input=args['prompt'], capture_output=True, text=True, env=env, timeout=25)
         assert result.returncode == 0, result.stderr
-        parser = codex_client.EventParser()
-        for line in result.stdout.splitlines():
-            parser.parse(line)
-        codex_client.write_thread(args['state_dir'], args['profile']['codex'], parser.thread_id)
-        return parser.answer
+        native_id, answer = legacy_codex.result(result.stdout)
+        codex_client.write_thread(args['state_dir'], args['profile']['codex'], native_id)
+        return answer
     service.runner = legacy_runner if legacy_cli else personal_assistant_runtime.run
     thread = send(service)
     check_saved(service, thread)

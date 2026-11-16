@@ -117,8 +117,7 @@ def test_workspace_enables_native_delegation_and_only_private_tools(monkeypatch)
     assert owned["enabled"] and owned["required"] and "report_finish" in owned["enabled_tools"]
     assert "agents.enabled=true" in args and "secret" not in " ".join(args)
     assert args[args.index("multi_agent")-1] == "--enable"
-    command = model.codex_client.command({"model": "gpt-6.1-terra", "reasoning_effort": "ultra"}, ephemeral=True)
-    assert 'service_tier="default"' in command and 'features.fast_mode=false' in command
+
 
 
 def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatch):

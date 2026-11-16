@@ -87,18 +87,17 @@ def test_sdk_catalog_reads_logout_and_model_capabilities_without_inference(tmp_p
     assert [m for m in pi_models.catalog()["options"] if m["provider"] == provider]
 
 
-def test_pi_connection_uses_current_model_and_effort(tmp_path, monkeypatch):
+def test_pi_connection_uses_current_model_and_effort(monkeypatch):
     import connection_tests
-    from test_model_settings import fake_pi
-    log = fake_pi(tmp_path, monkeypatch)
-    script = Path(os.environ["NEWS_READER_PI"])
-    script.write_text(script.read_text().replace("--no-prompt-templates'", "--no-prompt-templates --thinking'"))
+    calls = []
+    def run(config, prompt, **kwargs):
+        calls.append(config)
+        assert kwargs["task"] == "connection_test"
+        return "NEWSREADER_CONNECTION_OK"
+    monkeypatch.setattr(connection_tests.runtime_tasks, "run", run)
     monkeypatch.setattr(pi_models, "metadata", lambda request: {"reasoning_efforts": ["off", "high"]})
     for effort in ("off", "high"):
         result = connection_tests.test_connection({"runtime": "pi", "pi": {
             "provider": "chosen-provider", "model": "chosen-model", "reasoning_effort": effort}})
         assert result["status"] == "success"
-        args = json.loads(log.read_text())
-        assert args[args.index("--thinking") + 1] == effort
-        assert args[args.index("--provider") + 1] == "chosen-provider"
-        assert args[args.index("--model") + 1] == "chosen-model"
+        assert calls[-1]["pi"] == {"provider": "chosen-provider", "model": "chosen-model", "reasoning_effort": effort}

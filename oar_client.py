@@ -13,8 +13,11 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 ERROR_MESSAGES = {
-    "oar_resources_changed": "此 OAR 会话需要新的 Pi 原生资源，请明确开启新会话使用兼容模式；不会把旧会话 ID 交给另一运行方式。",
-    "oar_trust_changed": "此 OAR 会话的项目信任已改变，请检查 Pi 信任设置或明确开启新会话；不会自动扩大权限或换成另一执行方式。",
+    "oar_quota": "服务明确报告账户额度不足。",
+    "oar_rate_limited": "服务限制请求频率。",
+    "oar_input_too_large": "输入超出服务限制。",
+    "oar_overloaded": "服务容量暂不可用。",
+    "oar_incomplete_answer": "模型输出未完整结束，请重试。",
     "oar_project_untrusted": "Pi 原有规则未信任此项目，OAR 已暂停以免自动扩大权限；请先在 Pi 检查项目信任。",
     "oar_extension_failed": "Pi 扩展或资源加载失败；为避免丢失现有能力，任务已暂停，请检查 Pi 配置。",
     "oar_node_missing": "未发现 Node.js，请安装 Node.js 24 或更高版本。",
@@ -38,7 +41,7 @@ def bridge_command(session_id: str) -> list[str]:
     return [node, str(ROOT / "scripts/oar_bridge.mjs"), "--session-id", session_id]
 
 
-def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "", task: str = "") -> dict:
+def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "", task: str = "news_chat") -> dict:
     return {"prompt": prompt, "resume_prompt": resume_prompt, "state_dir": str(state_dir),
             "cwd": str(ROOT), "provider": provider, "model": model,
             **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
@@ -75,6 +78,20 @@ def cleanup_config(state_dir: Path, config_id: str) -> None:
             shutil.rmtree(candidate, ignore_errors=True)
 
 
+def _group_finished(pid: int) -> bool:
+    try:
+        result = subprocess.run(["ps", "-A", "-o", "pgid=,stat="],
+                                capture_output=True, text=True, timeout=2, check=True)
+        states = []
+        for line in result.stdout.splitlines():
+            group, state = line.split()
+            if int(group) == pid:
+                states.append(state)
+        return all(state.startswith("Z") for state in states)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+
+
 def terminate_group(proc) -> None:
     """The session leader may exit before its tools; always reap the group."""
     pid = int(getattr(proc, "pid", 0) or 0)
@@ -91,7 +108,11 @@ def terminate_group(proc) -> None:
                 proc.wait(timeout=0.2)
             except subprocess.TimeoutExpired:
                 raise error
-            os.killpg(pid, sig)
+            try:
+                os.killpg(pid, sig)
+            except PermissionError:
+                if not _group_finished(pid):
+                    raise
 
     try:
         if os.name == "posix":

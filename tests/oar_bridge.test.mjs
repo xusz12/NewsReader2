@@ -9,7 +9,7 @@ async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'newsreader-oar-unit-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   return { prompt: 'full news + visible history', resume_prompt: 'next question', cwd: dir,
-    state_dir: dir, provider: 'fixture', model: 'model', history_replayed: true };
+    state_dir: dir, task: 'news_chat', provider: 'fixture', model: 'model', history_replayed: true };
 }
 function fakeRuntime({ missing = false, fail = false } = {}) {
   const calls = [];
@@ -75,6 +75,40 @@ test('each Pi archive attempt is fresh and cannot replace a conversation mapping
   assert.equal(await fs.readFile(mapping, 'utf8'), before);
   assert.throws(() => validateRequest({...request, nr_tools: {command: '/fixture', args: []}}), /oar_invalid_request/);
 });
+
+for (const task of ['translation', 'connection_test']) {
+  for (const stopReason of ['stop', 'length']) test(`${task} requires native completion and preserves existing history: ${stopReason}`, async t => {
+    const request = {...await fixture(t), task}, runtime = fakeRuntime(), events = [];
+    const mapping = path.join(request.state_dir, 'session.json');
+    const before = JSON.stringify({id: 'original-chat', runtime: 'oar'});
+    await fs.writeFile(mapping, before);
+    const success = await execute(request, runtime, {}, e => events.push(e), undefined, async session => {
+      session.records = () => [{kind: 'frame', sessionId: session.id, body: {type: 'message_end',
+        native: {message: {role: 'assistant', stopReason, content: [{type: 'text', text: 'final answer'}]}}}}];
+      return {kind: 'ended', outcome: {kind: 'completed'}, text: 'streamed draft'};
+    });
+    assert.equal(success, stopReason === 'stop');
+    assert.equal(events.at(-1)[success ? 'answer' : 'error'], success ? 'final answer' : 'oar_incomplete_answer');
+    assert.equal(runtime.calls[0].resume, undefined);
+    assert.deepEqual(runtime.calls[0].disallowedTools, ['*']);
+    assert.equal(await fs.readFile(mapping, 'utf8'), before);
+    for (const extra of [{resume: 'old'}, {legacy_native_id: 'old'}, {web_search: 'live'}, {nr_tools: {command: '/fixture', args: []}}]) {
+      assert.throws(() => validateRequest({...request, ...extra}), /oar_invalid_request/);
+    }
+  });
+}
+
+for (const [failure, expected] of [['quota', 'oar_quota'], ['rate_limited', 'oar_rate_limited'],
+  ['overloaded', 'oar_overloaded'], ['input_too_large', 'oar_input_too_large'], ['model_unavailable', 'oar_model_unavailable']]) {
+  test(`connection test preserves structured failure category: ${failure}`, async t => {
+    const request = {...await fixture(t), task: 'connection_test'}, events = [];
+    await execute(request, fakeRuntime(), {}, e => events.push(e), undefined, async session => {
+      session.records = () => [];
+      return {kind: 'ended', outcome: {kind: 'failed', failure, reason: 'private upstream detail'}};
+    });
+    assert.deepEqual(events.at(-1), {type: 'oar_result', outcome: 'failed', error: expected});
+  });
+}
 
 test('corrupt news mappings cannot silently start another conversation', async t => {
   const request = {...await fixture(t), task: 'news_chat'}, runtime = fakeRuntime();
@@ -243,57 +277,6 @@ test('legacy native mapping never silently resets if the native runtime cannot r
   await assert.rejects(execute(request, fakeRuntime({missing:true}), {}, ()=>{}, undefined, completed), /oar_legacy_session_missing/);
 });
 
-test('routing preserves original trust: trusted to OAR, undecided/denied to CLI; sticky across retry', async t => {
-  const {selectRoute} = await import('../scripts/oar_bridge.mjs');
-  const request = await fixture(t);
-  const cli = await selectRoute(request, async ()=>{throw new Error('oar_project_untrusted');});
-  assert.equal(cli.runtime,'cli');
-  assert.equal((await selectRoute(request,async ()=>{})).runtime,'cli');
-  await fs.rm(path.join(request.state_dir,'route.json'));
-  assert.equal((await selectRoute(request,async ()=>{})).runtime,'oar');
-  await assert.rejects(selectRoute(request,async()=>{throw new Error('oar_project_untrusted');}),/oar_trust_changed/);
-  await fs.rm(path.join(request.state_dir,'route.json'));
-  assert.equal((await selectRoute(request,async()=>{throw new Error('unreadable trust');})).runtime,'cli');
-});
-
-test('legacy sync remains native CLI; extension errors are not hidden by route fallback', async t => {
-  const {selectRoute} = await import('../scripts/oar_bridge.mjs');
-  const request=await fixture(t);request.legacy_native_id='native-legacy';
-  assert.equal((await selectRoute(request,()=>{throw new Error('should not pregrant');})).runtime,'cli');
-  await fs.rm(path.join(request.state_dir,'route.json'));delete request.legacy_native_id;
-  await assert.rejects(selectRoute(request,async()=>{throw new Error('oar_extension_failed');}),/oar_extension_failed/);
-});
-
-async function fakeCli(t,events,{code=0,delay=false}={}) {
-  const {spawn}=await import('node:child_process');
-  const script=path.join(os.tmpdir(),`nr-cli-${process.pid}-${Math.random()}.mjs`);
-  t.after(()=>fs.rm(script,{force:true}));
-  await fs.writeFile(script,`let raw='';for await(const c of process.stdin)raw+=c;let args=process.argv;const key=args.includes('--session-id')?'--session-id':'--session';const id=args[args.indexOf(key)+1];\n`+
-    (delay?'setInterval(()=>{},1000);':`for(const event of ${JSON.stringify(events)}) {if(event.type==='session')event.id=id;console.log(JSON.stringify(event));}process.exit(${code});`));
-  return (node,args,options)=>spawn(node,[script,...args],options);
-}
-const cliEvents=[{type:'session'},{type:'message_update',assistantMessageEvent:{type:'text_delta',delta:'stream'}},
-  {type:'tool_execution_start',toolName:'read',args:{private:'do not leak'}},
-  {type:'message_end',message:{role:'assistant',stopReason:'stop',content:[{type:'text',text:'cli answer'}]}}, {type:'agent_end'}];
-
-test('CLI adapter streams, waits for native completion, resumes same native id without prompts in argv', async t => {
-  const {executeCli}=await import('../scripts/oar_bridge.mjs');
-  const request=await fixture(t), events=[];
-  request.reasoning_effort = 'off';
-  let args;
-  const runner=await fakeCli(t,cliEvents);
-  const wrapped=(node,argv,options)=>{args=argv;return runner(node,argv,options);};
-  assert.equal(await executeCli(request,e=>events.push(e),undefined,wrapped),true);
-  assert.equal(events[0].runtime,'pi-cli');
-  assert.equal(events.at(-1).answer,'cli answer');
-  assert.equal(JSON.stringify(events).includes('do not leak'),false);
-  assert.equal(JSON.stringify(args).includes(request.prompt),false);
-  assert.equal(args[args.indexOf('--thinking')+1], 'off');
-  assert.equal(await executeCli(request,()=>{},undefined,wrapped),true);
-  assert.equal(args.includes('--session'),true);
-  assert.equal(args.includes('--session-id'),false);
-});
-
 test('personal assistant registers its MCP through OAR and migrates an old mapping', async t => {
   const request = {...await fixture(t), task: 'personal_assistant',
     nr_tools: {command:'/usr/bin/python3',args:['/local/nr-tools.py']}}, runtime = fakeRuntime();
@@ -341,25 +324,6 @@ test('Pi OAR receives the selected effort for new, resumed, and rebuilt sessions
   assert.throws(()=>validateRequest({...request,reasoning_effort:'guess'}), /oar_invalid_request/);
 });
 
-for(const [label,events,code] of [['partial',cliEvents.slice(0,-1),0],['nonzero',cliEvents,1],
-  ['empty',[{type:'session'},{type:'agent_end'}],0],['provider error',[{type:'session'},
-    {type:'message_end',message:{role:'assistant',stopReason:'error',errorMessage:'private error',content:[{type:'text',text:'partial'}]}},{type:'agent_end'}],0]])
-  test(`CLI ${label} is not success and does not save native mapping`,async t=>{
-    const {executeCli}=await import('../scripts/oar_bridge.mjs');const request=await fixture(t),emitted=[];
-    assert.equal(await executeCli(request,e=>emitted.push(e),undefined,await fakeCli(t,events,{code})),false);
-    assert.equal(emitted.at(-1).outcome,'failed');
-    await assert.rejects(fs.access(path.join(request.state_dir,'session.json')));
-  });
-
-test('CLI cancellation reaches actual child, never saves completion',async t=>{
-  const {executeCli}=await import('../scripts/oar_bridge.mjs');const request=await fixture(t),controller=new AbortController();
-  const runner=await fakeCli(t,[],{delay:true});
-  const pending=executeCli(request,()=>{},controller.signal,runner);
-  setTimeout(()=>controller.abort(),100);
-  await assert.rejects(pending,/oar_stopped/);
-  await assert.rejects(fs.access(path.join(request.state_dir,'session.json')));
-});
-
 test('copied global relative resources keep their original meaning and package selections',async t=>{
   const request=await fixture(t),source=path.join(request.cwd,'source');
   await fs.mkdir(path.join(source,'extensions'),{recursive:true});
@@ -373,31 +337,6 @@ test('copied global relative resources keep their original meaning and package s
   assert.deepEqual(copied.packages[1].extensions,['a.ts']);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(source,'settings.json'))),settings);
 });
-
-test('execution families refuse foreign native session mappings',async t=>{
-  const request=await fixture(t);
-  await fs.writeFile(path.join(request.state_dir,'session.json'),JSON.stringify({id:'cli-native',runtime:'cli'}));
-  await assert.rejects(execute(request,fakeRuntime(),{},()=>{},undefined,completed),/oar_invalid_session/);
-  await fs.writeFile(path.join(request.state_dir,'session.json'),JSON.stringify({id:'oar-native',runtime:'oar'}));
-  const {executeCli}=await import('../scripts/oar_bridge.mjs');
-  await assert.rejects(executeCli(request,()=>{}),/oar_invalid_session/);
-});
-
-test('native built-in configurations use stable CLI compatibility instead of dropping tools',async t=>{
-  const {selectRoute,checkResources}=await import('../scripts/oar_bridge.mjs');
-  const request=await fixture(t);
-  assert.equal((await selectRoute(request,async()=>({nativeBuiltins:true}))).runtime,'cli');
-  await fs.rm(path.join(request.state_dir,'route.json'));
-  request.provider='llama.cpp';
-  assert.equal((await selectRoute(request,async()=>({nativeBuiltins:false}))).runtime,'cli');
-  await fs.rm(path.join(request.state_dir,'route.json'));request.provider='fixture';
-  await selectRoute(request,async()=>({nativeBuiltins:false}));
-  await assert.rejects(selectRoute(request,async()=>({nativeBuiltins:true})),/oar_resources_changed/);
-  const source=path.join(request.cwd,'source');await fs.mkdir(source);await fs.writeFile(path.join(source,'mcp.json'),'{}');
-  const agentDir=await prepareConfig(source,request.state_dir);
-  assert.equal((await checkResources(request.cwd,agentDir)).nativeBuiltins,true);
-});
-
 
 test('private config cleanup tokens are validated and separate invocation directories', async t => {
   const request = await fixture(t);

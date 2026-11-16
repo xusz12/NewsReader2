@@ -139,47 +139,13 @@ def fits(config, prompt):
     return len(prompt.encode()) <= MAX_BYTES and estimate_tokens(prompt) <= config["limits"]["input_tokens"]
 
 
-def toml_value(value):
-    if isinstance(value, dict):
-        return "{" + ",".join(json.dumps(k) + "=" + toml_value(v) for k, v in value.items()) + "}"
-    if isinstance(value, list):
-        return "[" + ",".join(toml_value(v) for v in value) + "]"
-    return json.dumps(value, ensure_ascii=False)
-
-
-def codex_restrictions(config: dict, bridge=None) -> list[str]:
-    # TOML table overrides merge, so mcp_servers={} does not disable saved servers.
-    # Discover names without exposing server URLs, environment values or credentials.
-    config = codex_client.normalize_config(config)
-    command = [codex_client.executable(), "mcp", "list", "--json"]
+def codex_restrictions(config, bridge=None):
     try:
-        response = subprocess.run(command, capture_output=True, timeout=20, check=True)
-        servers = json.loads(response.stdout)
-        if not isinstance(servers, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) for s in servers):
-            raise ValueError()
-    except (ValueError, OSError, subprocess.SubprocessError):
-        raise RuntimeError("report_model_unconfigured") from None
-    restrictions = ["-c", 'web_search="disabled"', "-c", "skills.include_instructions=false",
-                    "-c", "skills.bundled.enabled=false"]
-    # Bootstrap validates a transport even for disabled entries. Replace it with
-    # an inert command rather than copying native server secrets into argv.
-    entries = {server["name"]: {"enabled": False, "command": "false"} for server in servers}
-    if bridge:
-        entries["newsreader_report"] = bridge.config()
-        restrictions += ["--enable", "multi_agent", "-c", "agents.enabled=true",
-                         "-c", "agents.max_concurrent_threads_per_session=3",
-                         "-c", "skills.include_instructions=false", "-c", "skills.bundled.enabled=false"]
-        for source, target in (("model", "default_subagent_model"), ("reasoning_effort", "default_subagent_reasoning_effort")):
-            if config.get(source):
-                restrictions += ["-c", "agents." + target + "=" + toml_value(config[source])]
-        if not bridge.workspace.delegation:
-            restrictions += ["--disable", "multi_agent", "-c", "agents.enabled=false"]
-    else:
-        restrictions += ["--disable", "multi_agent"]
-    restrictions += ["-c", "mcp_servers=" + toml_value(entries)]
-    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "view_image", "hooks", "memories", "goals"):
-        restrictions += ["--disable", feature]
-    return restrictions
+        return codex_client.isolated_launch_args(config, bridge)
+    except RuntimeError as exc:
+        if str(exc) == "codex_probe_failed":
+            raise RuntimeError("report_model_unconfigured") from None
+        raise
 
 
 def selection(settings: dict, feature="reports") -> dict:

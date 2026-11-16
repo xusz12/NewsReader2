@@ -11,3 +11,8 @@ export function toolEvents(emit, completed = false) {
     }
   };
 }
+
+export function classifiedFailure(failure) {
+  return {quota: 'oar_quota', rate_limited: 'oar_rate_limited', input_too_large: 'oar_input_too_large',
+    model_unavailable: 'oar_model_unavailable', overloaded: 'oar_overloaded'}[failure];
+}

@@ -26,7 +26,7 @@ if args==['login','status']:
  print('unexpected private DO_NOT_EXPOSE' if mode=='probe_unknown' else 'Not logged in' if mode in ('auth','custom_provider') else 'Logged in using ChatGPT', file=sys.stderr)
  sys.exit(1 if mode in ('auth','custom_provider','probe_unknown') else 0)
 if '--help' in args:
- print('exec --json --sandbox --cd resume')
+ print('app-server --listen')
  sys.exit(0)
 prompt=sys.stdin.read()
 with open(os.environ['CODEX_TEST_LOG'],'a') as out:
@@ -87,47 +87,16 @@ def select_codex(app, monkeypatch, config=None):
     return settings
 
 
-def test_command_pins_cwd_sandbox_and_does_not_put_prompt_or_credentials_in_argv(tmp_path, monkeypatch):
-    fake_codex(tmp_path, monkeypatch)
-    for thread in ('', THREAD):
-        args = codex.command(CONFIG, thread_id=thread)
-        assert args[args.index('--cd')+1] == str(codex.ROOT.resolve())
-        assert args[args.index('--sandbox')+1] == 'read-only'
-        assert 'approval_policy="never"' in args and 'sandbox_mode="read-only"' in args
-        assert '--add-dir' not in args and '--dangerously-bypass-approvals-and-sandbox' not in args
-        assert args[-1] == '-'
-        if thread:
-            assert args[-3:] == ['resume', thread, '-']
-    with pytest.raises(RuntimeError, match='codex_session_invalid'):
-        codex.command(CONFIG, thread_id='newsreader-oar-pi-foreign')
-
-
 @pytest.mark.parametrize('config', [None, {'model': []}, {'model': '--unsafe'}, {'profile':'../../unsafe'},
                                    {'profile':'bad name'}, {'sandbox':'danger-full-access'}, {'model':'x'*121}])
 def test_invalid_config_rejected(config):
     with pytest.raises(ValueError): codex.normalize_config(config)
 
 
-@pytest.mark.parametrize('options', [{}, {'thread_id': THREAD}, {'ephemeral': True}, {'live_search': True}])
-@pytest.mark.parametrize('inherited_tier', ['fast', 'priority', 'ultrafast'])
-def test_all_execution_modes_force_standard_without_changing_model_binding(monkeypatch, options, inherited_tier):
-    monkeypatch.setattr(codex, 'executable', lambda: 'codex')
-    config = {**CONFIG, 'reasoning_effort': 'max', 'service_tier': inherited_tier, 'features': {'fast_mode': True}}
-    args = codex.command(config, **options)
-    overrides = dict(args[i+1].split('=', 1) for i, flag in enumerate(args[:-1]) if flag == '-c')
-    assert overrides['service_tier'] == '"default"'
-    assert overrides['features.fast_mode'] == 'false'
-    assert overrides['model_reasoning_effort'] == '"max"'
-    assert args[args.index('--model')+1] == CONFIG['model']
-    assert '--profile' not in args and not any(arg.startswith('model_provider=') for arg in args)
-    assert config['service_tier'] == inherited_tier
-    assert codex.normalize_config(config) == {**CONFIG, 'reasoning_effort': 'max'}
-
-
 @pytest.mark.parametrize('mode,error', [('auth','codex_auth_required'),('malformed','codex_protocol_error'),
  ('unknown','codex_protocol_error'),('empty','codex_empty_answer'),('missing','codex_protocol_error'),
  ('duplicate','codex_protocol_error'),('duplicate_item','codex_protocol_error'),
- ('runtime_error','codex_turn_failed'),('nonzero','codex_runtime_failed')])
+ ('runtime_error','codex_turn_failed'),('nonzero','codex_protocol_error')])
 def test_sync_strict_failure_and_redaction(tmp_path, monkeypatch, mode, error):
     fake_codex(tmp_path, monkeypatch)
     monkeypatch.setenv('CODEX_TEST_MODE',mode)
@@ -146,8 +115,8 @@ def test_sync_success_and_independent_ephemeral_archive(tmp_path, monkeypatch, m
     answer2,thread2=codex.run_once(CONFIG,'follow up',thread_id=thread)
     codex.run_once(CONFIG,'archive',ephemeral=True)
     rows=[json.loads(line) for line in log.read_text().splitlines()]
-    assert 'resume' not in rows[0]['args'] and rows[1]['args'][-3:]==['resume',THREAD,'-']
-    assert '--ephemeral' in rows[2]['args'] and 'resume' not in rows[2]['args']
+    assert not rows[0]['resume'] and rows[1]['resume'] == THREAD
+    assert rows[2]['task'] == 'material_summary' and not rows[2]['resume']
     assert rows[0]['prompt']=='private prompt' and 'private prompt' not in rows[0]['args']
     assert (answer2,thread2)==(answer,thread)
 
@@ -159,17 +128,6 @@ def test_state_mapping_is_private_atomic_and_runtime_isolated(tmp_path):
     with pytest.raises(RuntimeError): codex.read_thread(tmp_path,{**CONFIG,'model':'changed'})
     (tmp_path/'codex-session.json').write_text(json.dumps({'runtime':'pi','config':CONFIG,'thread_id':THREAD}))
     with pytest.raises(RuntimeError,match='codex_session_invalid'): codex.read_thread(tmp_path,CONFIG)
-
-
-def test_parser_deltas_and_commentary_do_not_fill_empty_terminal():
-    p=codex.EventParser()
-    for event in [{'type':'thread.started','thread_id':THREAD},{'type':'turn.started'},
-                  {'type':'item.updated','item':{'id':'a','type':'agent_message','text':'partial'}},
-                  {'type':'item.completed','item':{'id':'a','type':'agent_message','text':'commentary','phase':'commentary'}}]:
-        p.parse(json.dumps(event))
-    assert p.parse('{"type":"turn.completed"}')['error']=='codex_empty_answer'
-    p=codex.EventParser(str(uuid.uuid4()))
-    with pytest.raises(RuntimeError): p.parse(json.dumps({'type':'thread.started','thread_id':THREAD}))
 
 
 def test_settings_defaults_persistence_and_invalid_runtime(tmp_path, monkeypatch):
@@ -308,7 +266,7 @@ def test_sync_api_dispatch_resume_and_foreign_namespace(tmp_path, monkeypatch):
 def test_retired_overrides_cannot_run_or_resume_via_any_adapter(tmp_path, monkeypatch, field):
     log = fake_codex(tmp_path, monkeypatch)
     retired = {**CONFIG, field: 'saved'}
-    for call in (lambda: codex.command(retired),
+    for call in (lambda: codex.normalize_config(retired),
                  lambda: codex.run_chat(retired, 'question', state_dir=tmp_path),
                  lambda: codex.oar_request(retired, 'question', state_dir=tmp_path)):
         with pytest.raises(ValueError, match='codex_advanced_config_removed'):
@@ -434,26 +392,6 @@ def test_permission_error_for_live_process_is_not_ignored(monkeypatch):
     with pytest.raises(PermissionError): oar_client.terminate_group(Child())
 
 
-def test_error_event_cannot_be_overridden_by_completed_answer():
-    parser = codex.EventParser()
-    for event in [
-        {'type': 'thread.started', 'thread_id': THREAD},
-        {'type': 'turn.started'},
-        {'type': 'error', 'message': 'private secret=DO_NOT_EXPOSE'},
-        {'type': 'item.completed', 'item': {'id': 'a', 'type': 'agent_message', 'text': 'misleading answer'}},
-    ]:
-        parser.parse(json.dumps(event))
-    assert parser.parse(json.dumps({'type': 'turn.completed'})) == {
-        'type': 'oar_result', 'outcome': 'failed', 'error': 'codex_turn_failed'}
-
-
-def test_nested_failed_auth_is_classified_without_diagnostic_leak():
-    parser = codex.EventParser()
-    result = parser.parse(json.dumps({'type': 'turn.failed', 'error': {
-        'message': '401 unauthorized private secret=DO_NOT_EXPOSE'}}))
-    assert result == {'type': 'oar_result', 'outcome': 'failed', 'error': 'codex_auth_required'}
-
-
 def test_sync_archive_keeps_saved_codex_config_after_default_changes(tmp_path, monkeypatch):
     app, client, item, _, _ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     log = fake_codex(tmp_path, monkeypatch)
@@ -501,92 +439,10 @@ def test_codex_background_timeout_does_not_promote_session(tmp_path, monkeypatch
     assert not list(app.AGENT_RUNTIME_DIR.glob('*/codex-session.json'))
 
 
-
-
-@pytest.mark.parametrize('expected_thread', ['', THREAD])
-def test_parser_accepts_exact_pre_turn_diagnostic_sequence_without_exposing_it(expected_thread):
-    """Regression for CLI 0.158.0: startup error items can precede turn.started."""
-    parser = codex.EventParser(expected_thread)
-    parser.parse(json.dumps({'type': 'thread.started', 'thread_id': THREAD}))
-    for item_id in ('diagnostic_0', 'diagnostic_1'):
-        result = parser.parse(json.dumps({'type': 'item.completed', 'item': {
-            'id': item_id, 'type': 'error', 'message': 'private secret=DO_NOT_EXPOSE'}}))
-        assert result == {'type': 'oar_tool'}
-        assert parser.answer == parser.stream_text == ''
-        assert not parser.started and not parser.saw_error
-    parser.parse(json.dumps({'type': 'turn.started'}))
-    parser.parse(json.dumps({'type': 'item.completed', 'item': {
-        'id': 'answer', 'type': 'agent_message', 'text': '有效最终结论'}}))
-    assert parser.parse(json.dumps({'type': 'turn.completed'})) == {
-        'type': 'oar_result', 'outcome': 'completed', 'answer': '有效最终结论'}
-
-
-@pytest.mark.parametrize('event', [
-    {'type': 'item.started', 'item': {'id': 'd', 'type': 'error', 'message': 'diagnostic'}},
-    {'type': 'item.updated', 'item': {'id': 'd', 'type': 'error', 'message': 'diagnostic'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'agent_message', 'text': 'premature'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'reasoning', 'text': 'premature'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'command_execution', 'command': 'unsafe'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'unknown', 'message': 'diagnostic'}},
-    {'type': 'item.completed', 'item': {'id': '', 'type': 'error', 'message': 'diagnostic'}},
-    {'type': 'item.completed', 'item': {'id': 1, 'type': 'error', 'message': 'diagnostic'}},
-    {'type': 'item.completed', 'item': {'type': 'error', 'message': 'diagnostic'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'error'}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'error', 'message': None}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'error', 'message': {}}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'error', 'message': ' '}},
-    {'type': 'item.completed', 'item': {'id': 'd', 'type': 'error', 'message': '界' * (codex.MAX_BYTES // 3 + 1)}},
-    {'type': 'item.completed', 'item': []},
-    {'type': 'unknown'},
-    {'type': 'turn.completed'},
-])
-def test_pre_turn_diagnostic_exception_does_not_admit_invalid_events(event):
-    parser = codex.EventParser()
-    parser.parse(json.dumps({'type': 'thread.started', 'thread_id': THREAD}))
-    with pytest.raises(RuntimeError, match='^codex_protocol_error$'):
-        parser.parse(json.dumps(event))
-
-
-def test_pre_turn_diagnostics_require_thread_and_unique_completed_ids():
-    diagnostic = {'type': 'item.completed', 'item': {
-        'id': 'diagnostic', 'type': 'error', 'message': 'diagnostic'}}
-    with pytest.raises(RuntimeError, match='^codex_protocol_error$'):
-        codex.EventParser().parse(json.dumps(diagnostic))
-    for start_turn in (False, True):
-        parser = codex.EventParser()
-        parser.parse(json.dumps({'type': 'thread.started', 'thread_id': THREAD}))
-        parser.parse(json.dumps(diagnostic))
-        if start_turn:
-            parser.parse(json.dumps({'type': 'turn.started'}))
-        with pytest.raises(RuntimeError, match='^codex_protocol_error$'):
-            parser.parse(json.dumps(diagnostic))
-        with pytest.raises(RuntimeError, match='^codex_protocol_error$'):
-            parser.parse(json.dumps({'type': 'item.completed', 'item': {
-                'id': 'diagnostic', 'type': 'agent_message', 'text': 'duplicate reused id'}}))
-
-
-@pytest.mark.parametrize('terminal', ['empty', 'top_level_error', 'failed'])
-def test_pre_turn_diagnostics_do_not_fill_answer_or_override_failures(terminal):
-    parser = codex.EventParser()
-    parser.parse(json.dumps({'type': 'thread.started', 'thread_id': THREAD}))
-    parser.parse(json.dumps({'type': 'item.completed', 'item': {
-        'id': 'diagnostic', 'type': 'error', 'message': 'DO_NOT_EXPOSE'}}))
-    parser.parse(json.dumps({'type': 'turn.started'}))
-    if terminal == 'top_level_error':
-        parser.parse(json.dumps({'type': 'error', 'message': 'private DO_NOT_EXPOSE'}))
-        parser.parse(json.dumps({'type': 'item.completed', 'item': {
-            'id': 'answer', 'type': 'agent_message', 'text': 'not a successful answer'}}))
-    event = {'type': 'turn.failed'} if terminal == 'failed' else {'type': 'turn.completed'}
-    result = parser.parse(json.dumps(event))
-    assert result == {'type': 'oar_result', 'outcome': 'failed',
-                      'error': 'codex_empty_answer' if terminal == 'empty' else 'codex_turn_failed'}
-    assert 'DO_NOT_EXPOSE' not in json.dumps(result)
-
-
 @pytest.mark.parametrize('mode,error', [
     ('empty', 'codex_empty_answer'), ('missing', 'codex_protocol_error'),
     ('duplicate_item', 'codex_protocol_error'), ('duplicate', 'codex_protocol_error'),
-    ('unknown', 'codex_protocol_error'), ('nonzero', 'codex_runtime_failed'),
+    ('unknown', 'codex_protocol_error'), ('nonzero', 'codex_protocol_error'),
     ('runtime_error', 'codex_turn_failed'),
 ])
 def test_sync_diagnostics_do_not_bypass_terminal_and_exit_checks(tmp_path, monkeypatch, mode, error):

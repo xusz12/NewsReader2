@@ -3,9 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { toolEvents } from './oar_tool_events.mjs';
+import { toolEvents, classifiedFailure } from './oar_tool_events.mjs';
 import { validateReport, reportEvents, completedPiReport } from './oar_report.mjs';
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -77,11 +75,6 @@ export async function prepareConfig(source, stateDir, configId) {
   }
 }
 
-/** Gate upstream's automatic trust using the pinned Pi CLI's noninteractive rule.
- * No project files are loaded before its original global trust handlers decide.
- * News Chat passes the decision to OAR RPC; later batches still use the old
- * route selector. Neither path implicitly authorizes project resources.
- */
 export async function checkResources(cwd, agentDir, { allowUntrusted = false } = {}) {
   const sdk = await import('@earendil-works/pi-coding-agent');
   const sdkRoot = new URL('./', import.meta.resolve('@earendil-works/pi-coding-agent'));
@@ -164,10 +157,11 @@ export function validateRequest(request) {
   if (request.nr_tools !== undefined && (!request.nr_tools ||
       typeof request.nr_tools.command !== 'string' || !path.isAbsolute(request.nr_tools.command) ||
       !Array.isArray(request.nr_tools.args) || request.nr_tools.args.some(arg => typeof arg !== 'string'))) throw new Error('oar_invalid_request');
-  if (request.task !== undefined && !['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report'].includes(request.task)) throw new Error('oar_invalid_request');
+  if (!['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report', 'translation', 'connection_test'].includes(request.task)) throw new Error('oar_invalid_request');
   if (request.task === 'personal_assistant' ? !request.nr_tools : request.task !== 'report' && request.nr_tools !== undefined) throw new Error('oar_invalid_request');
   validateReport(request);
-  if (['chat_archive', 'material_summary', 'web_research'].includes(request.task) && request.legacy_native_id) throw new Error('oar_invalid_request');
+  if (['translation', 'connection_test'].includes(request.task) && (request.resume || request.web_search === 'live')) throw new Error('oar_invalid_request');
+  if (['chat_archive', 'material_summary', 'web_research', 'translation', 'connection_test'].includes(request.task) && request.legacy_native_id) throw new Error('oar_invalid_request');
   return request;
 }
 
@@ -204,9 +198,9 @@ export async function execute(request, runtime, installation, emit, signal, wait
   validateRequest(request);
   const mappingFile = path.join(request.state_dir, 'session.json');
   let nativeId;
-  const ephemeral = ['chat_archive', 'material_summary', 'web_research', 'report'].includes(request.task);
+  const ephemeral = ['chat_archive', 'material_summary', 'web_research', 'report', 'translation', 'connection_test'].includes(request.task);
   const report = request.task === 'report';
-  const materialOnly = ['chat_archive', 'material_summary'].includes(request.task) || (report && !request.nr_tools);
+  const materialOnly = ['chat_archive', 'material_summary', 'translation', 'connection_test'].includes(request.task) || (report && !request.nr_tools);
   let historyReplayed = Boolean(request.history_replayed);
   if (!ephemeral) {
     try {
@@ -263,11 +257,11 @@ export async function execute(request, runtime, installation, emit, signal, wait
     const result = await promptAndWait(session, resumed ? request.resume_prompt : request.prompt, { signal });
     budget?.close();
     let reportAnswer;
-    if (report) {
+    if (report || ['translation', 'connection_test'].includes(request.task)) {
       try { reportAnswer = completedPiReport(session.records(), session.id, request.output_tokens); }
       catch (error) {
         if (error.message !== 'report_output_truncated') throw error;
-        emit({type: 'oar_result', outcome: 'failed', error: error.message, ...reportObserver.metadata()});
+        emit({type: 'oar_result', outcome: 'failed', error: report ? error.message : 'oar_incomplete_answer', ...reportObserver.metadata()});
         return false;
       }
     }
@@ -275,9 +269,9 @@ export async function execute(request, runtime, installation, emit, signal, wait
       const reason = result.reason || result.outcome?.reason || '';
       const failure = result.failure ?? result.outcome?.failure;
       const code = failure === 'model_unavailable' ? 'oar_model_unavailable'
-        : /No API key|not authenticated|unauthenticated|login/i.test(reason)
+        : ['auth', 'unauthenticated'].includes(failure) || /No API key|not authenticated|unauthenticated|login/i.test(reason)
           ? 'oar_auth_required' : signal?.aborted ? 'oar_stopped' : 'oar_turn_failed';
-      emit({ type: 'oar_result', outcome: 'failed', error: code });
+      emit({ type: 'oar_result', outcome: 'failed', error: request.task === 'connection_test' ? classifiedFailure(failure) || code : code });
       return false;
     }
     const answer = reportAnswer ?? result.text;
@@ -304,119 +298,6 @@ export async function execute(request, runtime, installation, emit, signal, wait
     emit({ type: 'oar_result', outcome: 'completed', answer, ...reportObserver.metadata() });
     return true;
   } finally { budget?.close(); if (session) { try { await session.dispose(); } catch {} } }
-}
-
-/** Keep execution family stable for a conversation, including retries. */
-export async function selectRoute(request, check = checkResources) {
-  const routeFile = path.join(request.state_dir, 'route.json');
-  let saved;
-  try {
-    saved = JSON.parse(await fs.readFile(routeFile, 'utf8'));
-    if (!['oar', 'cli'].includes(saved.runtime)) throw new Error('oar_invalid_session');
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (saved?.runtime === 'cli') return saved;
-  let route = { runtime: 'oar', reason: '' };
-  if (request.legacy_native_id && !saved) route = { runtime: 'cli', reason: 'legacy_session' };
-  else {
-    try {
-      const resources = await check(request.cwd, request.agentDir);
-      if (resources?.nativeBuiltins || request.provider === 'llama.cpp') {
-        if (saved) throw new Error('oar_resources_changed');
-        route = { runtime: 'cli', reason: 'native_builtins' };
-      }
-    }
-    catch (error) {
-      if (['oar_extension_failed', 'oar_resources_changed'].includes(error.message)) throw error;
-      if (saved) throw new Error('oar_trust_changed');
-      route = { runtime: 'cli', reason: error.message === 'oar_project_untrusted' ? 'project_trust' : 'trust_unavailable' };
-    }
-  }
-  if (!saved) {
-    const tmp = `${routeFile}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(route), { mode: 0o600 });
-    await fs.rename(tmp, routeFile);
-  }
-  return saved ?? route;
-}
-
-/** Translate the original CLI's JSON events into the same strict private protocol. */
-export async function executeCli(request, emit, signal, spawnProcess = spawn) {
-  const mappingFile = path.join(request.state_dir, 'session.json');
-  let saved;
-  try { saved = JSON.parse(await fs.readFile(mappingFile, 'utf8')); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (saved && (typeof saved.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(saved.id) || (saved.runtime && saved.runtime !== 'cli'))) {
-    throw new Error('oar_invalid_session');
-  }
-  const nativeId = saved?.id ?? randomUUID();
-  const slug = path.resolve(request.cwd).replace(/^[/\\]/u, '').replaceAll(/[/\\:]/gu, '-');
-  const sessionDir = path.join(request.state_dir, 'sessions', `--${slug}--`);
-  await fs.mkdir(sessionDir, { recursive: true, mode: 0o700 });
-  // --session-id would recreate a missing old session: --session requires it.
-  const sessionArgs = saved ? ['--session', nativeId] : ['--session-id', nativeId];
-  const cliFile = fileURLToPath(new URL('bundle/cli.js', import.meta.resolve('@earendil-works/pi-coding-agent')));
-  const args = [cliFile, '-p', '--mode', 'json', '--session-dir', sessionDir,
-    ...sessionArgs];
-  if (request.reasoning_effort) args.push('--thinking', request.reasoning_effort);
-  if (!saved) {
-    if (!request.provider || !request.model) throw new Error('oar_model_unavailable');
-    args.push('--provider', request.provider, '--model', request.model);
-  }
-  if (signal?.aborted) throw new Error('oar_stopped');
-  const child = spawnProcess(process.execPath, args, { cwd: request.cwd, env: process.env, stdio: ['pipe','pipe','pipe'] });
-  const stop = () => child.kill('SIGTERM');
-  signal?.addEventListener('abort', stop, {once:true});
-  if (signal?.aborted) stop();
-  let answer = '', ended = false, failure = '', observedId = '', malformed = false, raw = '';
-  const handle = line => {
-    if (!line.trim()) return;
-    let event;
-    try { event = JSON.parse(line); } catch { malformed = true; stop(); return; }
-    if (event.type === 'session') {
-      observedId = typeof event.id === 'string' ? event.id : '';
-      emit({ type: 'oar_session', id: observedId, resumed: Boolean(saved), runtime: 'pi-cli' });
-    } else if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
-      emit({ type: 'text_delta', delta: event.assistantMessageEvent.delta });
-    } else if (event.type === 'tool_execution_start' && typeof event.toolName === 'string') {
-      emit({ type: 'oar_tool', tool: event.toolName });
-    } else if (event.type === 'message_end' && event.message?.role === 'assistant') {
-      const message = event.message;
-      if (message.stopReason === 'error' || message.stopReason === 'aborted') {
-        failure = /No API key|not authenticated|login/i.test(message.errorMessage ?? '') ? 'oar_auth_required' : 'oar_turn_failed';
-      }
-      answer = Array.isArray(message.content) ? message.content.filter(c => c.type === 'text').map(c => c.text).join('') : '';
-    } else if (event.type === 'agent_end') ended = true;
-  };
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', chunk => {
-    raw += chunk;
-    if (Buffer.byteLength(raw) > MAX_REQUEST_BYTES) { malformed = true; raw = ''; stop(); return; }
-    let index;
-    while ((index = raw.indexOf('\n')) >= 0) { const line = raw.slice(0,index);raw = raw.slice(index+1);handle(line); }
-  });
-  // Classify startup errors without retaining or exposing provider diagnostics.
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', chunk => {
-    if (/No API key|not authenticated|unauthenticated|login required/i.test(chunk)) failure = 'oar_auth_required';
-    if (/Session.*not found|Session file not found/i.test(chunk) && saved) failure = 'oar_legacy_session_missing';
-  });
-  child.stdin.on('error', () => {});
-  const exited = new Promise((resolve, reject) => { child.once('error',reject);child.once('close',resolve); });
-  child.stdin.end(saved ? request.resume_prompt : request.prompt);
-  let code;
-  try { code = await exited; if (raw.trim()) handle(raw); }
-  finally { signal?.removeEventListener('abort', stop); }
-  if (signal?.aborted) throw new Error('oar_stopped');
-  if (code !== 0 || malformed || !ended || failure || !answer.trim() || observedId !== nativeId) {
-    emit({ type: 'oar_result', outcome: 'failed', error: failure || 'oar_turn_failed' });
-    return false;
-  }
-  const tmp = `${mappingFile}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ id: nativeId, runtime: 'cli',
-    history_replayed: saved ? Boolean(saved.history_replayed) : Boolean(request.history_replayed) }), { mode: 0o600 });
-  await fs.rename(tmp, mappingFile);
-  emit({ type: 'oar_result', outcome: 'completed', answer });
-  return true;
 }
 
 async function main() {
@@ -459,44 +340,31 @@ async function main() {
     process.env.OAR_PI_AGENT_DIR = agentDir;
     process.env.PI_CODING_AGENT_DIR = agentDir;
     request.agentDir = agentDir;
-    if (request.task) {
-      const materialOnly = ['chat_archive', 'material_summary'].includes(request.task);
-      const { projectTrusted } = materialOnly || ['personal_assistant', 'report'].includes(request.task) ? { projectTrusted: false }
-        : await checkResources(request.cwd, agentDir, { allowUntrusted: true });
-      if (request.task === 'report') {
-        process.env.NR_REPORT_OUTPUT_TOKENS = String(request.output_tokens);
-        delete process.env.NR_REPORT_SESSION_ID;
-        if (request.report_session_id) process.env.NR_REPORT_SESSION_ID = request.report_session_id;
-      }
-      await importLegacySession(request, source);
-      const { createPiRuntime } = await import('@botiverse/oar/runtimes/pi');
-      const runtime = createPiRuntime({ execution: 'subprocess', projectTrusted,
-        command: process.execPath,
-        args: [fileURLToPath(new URL('./pi_rpc_entry.mjs', import.meta.url)), request.task] });
-      const installation = await runtime.installation();
-      if (installation.kind !== 'available') throw new Error('oar_dependency_missing');
-      signalRuntimeExit(abort.signal);
-      process.exitCode = await execute(request, runtime, installation, emit, abort.signal) ? 0 : 1;
-      return;
+    const materialOnly = ['chat_archive', 'material_summary', 'translation', 'connection_test'].includes(request.task);
+    const { projectTrusted } = materialOnly || ['personal_assistant', 'report'].includes(request.task) ? { projectTrusted: false }
+      : await checkResources(request.cwd, agentDir, { allowUntrusted: true });
+    if (request.task === 'report') {
+      process.env.NR_REPORT_OUTPUT_TOKENS = String(request.output_tokens);
+      delete process.env.NR_REPORT_SESSION_ID;
+      if (request.report_session_id) process.env.NR_REPORT_SESSION_ID = request.report_session_id;
     }
-    const route = await selectRoute(request);
     await importLegacySession(request, source);
-    if (route.runtime === 'cli') {
-      process.exitCode = await executeCli(request, emit, abort.signal) ? 0 : 1;
-      return;
-    }
-    const { defaultRuntimes } = await import('@botiverse/oar');
-    const runtime = defaultRuntimes.require('pi');
+    const { createPiRuntime } = await import('@botiverse/oar/runtimes/pi');
+    const runtime = createPiRuntime({ execution: 'subprocess', projectTrusted,
+      command: process.execPath,
+      args: [fileURLToPath(new URL('./pi_rpc_entry.mjs', import.meta.url)), request.task] });
     const installation = await runtime.installation();
     if (installation.kind !== 'available') throw new Error('oar_dependency_missing');
+    signalRuntimeExit(abort.signal);
     process.exitCode = await execute(request, runtime, installation, emit, abort.signal) ? 0 : 1;
+    return;
   } catch (error) {
     const code = request?.runtime === 'codex' ? (await import('./oar_codex.mjs')).codexFailure(error)
       : error.failure === 'model_unavailable' ? 'oar_model_unavailable'
-      : error.failure === 'unauthenticated' ? 'oar_auth_required'
+      : ['auth', 'unauthenticated'].includes(error.failure) ? 'oar_auth_required'
       : error.code === 'ERR_MODULE_NOT_FOUND' ? 'oar_dependency_missing'
       : /^(oar_[a-z_]+|report_output_truncated)$/.test(error.message) ? error.message : 'oar_runtime_failed';
-    emit({ type: 'oar_result', outcome: 'failed', error: code });
+    emit({ type: 'oar_result', outcome: 'failed', error: request?.task === 'connection_test' ? classifiedFailure(error.failure) || code : code });
     process.exitCode = 1;
   } finally {
     if (agentDir) await fs.rm(agentDir, { recursive: true, force: true });

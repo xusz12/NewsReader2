@@ -332,23 +332,21 @@ def test_translation_validation_and_error_history_are_safe(service):
     assert history["stats"]["availability"] == 0
 
 
-@pytest.mark.parametrize("stop_reason", ["stop", "length", "aborted", None])
-def test_pi_collection_translation_requires_a_complete_response(monkeypatch, stop_reason):
+@pytest.mark.parametrize("complete", [True, False])
+def test_pi_collection_translation_requires_a_complete_response(monkeypatch, complete):
     raw = {**article(title="An English headline"), "translation_policy": "always"}
     translated = {"title": "翻译后的新闻标题", "summary": "", "quoted_text": ""}
-    message = {"role": "assistant", "content": [{"type": "text", "text": json.dumps(translated)}]}
-    if stop_reason is not None:
-        message["stopReason"] = stop_reason
-    stdout = json.dumps({"type": "message_end", "message": message})
-    monkeypatch.setattr(collection_translation, "run_command",
-                        lambda *args, **kwargs: subprocess.CompletedProcess([], 0, stdout, ""))
-    monkeypatch.setattr(collection_translation.llm_client, "_pi_subprocess_env", lambda: {})
+    def run(config, prompt, **kwargs):
+        assert config["pi"]["model"] == "test-model" and kwargs["task"] == "translation"
+        if not complete:
+            raise RuntimeError("oar_incomplete_answer")
+        return json.dumps(translated)
+    monkeypatch.setattr(collection_translation.runtime_tasks, "run", run)
     config = settings.default_app_settings()
     config["llm"]["pi_chat"].update(provider="test", model="test-model")
-    if stop_reason == "stop":
+    if complete:
         assert collection_translation.pi_translate(raw, config) == translated
     else:
-        # Even valid JSON must not let a truncated or interrupted answer publish a batch.
         with pytest.raises(ValueError, match="translation_pi_failed"):
             collection_translation.pi_translate(raw, config)
 

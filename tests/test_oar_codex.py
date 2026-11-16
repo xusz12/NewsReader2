@@ -155,7 +155,7 @@ def test_summary_runner_uses_installed_oar_and_checks_native_search(runtime, mon
     command, request, env = runtime
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setattr(codex_client, 'command', lambda *a, **k: pytest.fail('native CLI fallback'))
+    assert not hasattr(codex_client, 'command')
     diagnostics = []
     config = {'runtime': 'codex', 'codex': request['codex']}
     if web:

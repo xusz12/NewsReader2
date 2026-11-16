@@ -6,16 +6,16 @@
 
 ## 组件关系
 
-### Runtime 依赖与调用边界（2026-11-15）
+### Runtime 依赖与调用边界（2026-11-16）
 
 - 项目锁定 `@botiverse/oar@0.106.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
 - 第一批新闻 Chat／文章 Agent／对话归档摘要的 Pi、Codex 均固定经过 `oar_client.py` → `scripts/oar_bridge.mjs` → OAR，不保留这批功能的 CLI 回退。旧同步接口仍在，同样使用 OAR；当前新闻面板使用后台 Agent jobs。
 - Pi 新闻任务通过 OAR 管理 RPC 进程。`scripts/pi_rpc_entry.mjs` 只补充原生资源和归档的启动策略，不另行解析事件。聊天保留 MCP、codemode、tool_search、扩展与原项目信任规则；旧 CLI 原生会话成功恢复后才提交 OAR 映射。凭据与资源使用私有副本，包含 MCP OAuth 凭据。
 - Codex 新闻任务由 OAR 管理 app-server，沿用旧原生 ID，固定只读沙箱、不请求审批、标准速度和实时搜索。自定义模型输入、服务商覆盖与 Profile 已停用；旧空字段兼容，非空覆盖的已绑定会话明确拒绝。
 - 归档使用独立临时会话，每次字数重试重新生成；Pi 禁用工具和原生持久会话，Codex 禁用搜索并用原生 ephemeral 线程。OAR 0.106.0 的 ephemeral 缺口由受版本／代码接缝检查的 `scripts/oar_codex_ephemeral.mjs` 内存补丁补齐，升级时必须复验；不修改依赖文件、不退回 CLI。Codex 的“仅材料”仍包含提示词约束，不能宣称其所有内置工具已被统一禁用。
-- 新闻总结／主题的 Pi、Codex 统一经 `news_summaries.run_oar()`；材料整理关闭搜索，主题研究按已完成搜索事件检查检索证据，使用独立临时会话。个人助手 Pi、Codex 经 `personal_assistant_runtime.run()` 调用同一 OAR bridge，用 `mcpServers` 显式接入 NR 查询、讨论与记忆工具。报告／连接测试仍待后续批次，Pi 连接测试与翻译后备仍用外部 CLI。
-- Pi 定期报告当前使用 `ModelRuntime.completeSimple`；已确认在报告批次改成 Agent，经 OAR 管理。本次没有迁移报告。模型目录与容量仍分别使用 Pi SDK／Codex app-server；翻译等直接模型 HTTP API 及 Jev 专用判断继续保留，不改成 Agent。
-- 真实依赖与本地模拟模型验证新旧会话、实际搜索工具、过滤、信任、归档不落盘、停止与进程树清理。未调用付费模型或真实公网搜索；验收细目见[统一调用迁移清单](../runtime-migration.md)。
+- 新闻总结／主题的 Pi、Codex 统一经 `news_summaries.run_oar()`；材料整理关闭搜索，主题研究按已完成搜索事件检查检索证据，使用独立临时会话。个人助手 Pi、Codex 经 `personal_assistant_runtime.run()` 调用同一 OAR bridge，用 `mcpServers` 显式接入 NR 查询、讨论与记忆工具。全部报告由 `report_model.run()` 经 OAR 执行，Pi 长报告与 Codex 共用报告 MCP 工作区，Codex 保留原生子 Agent。
+- Pi 翻译后备及 Pi/Codex 连接测试经 `runtime_tasks.run()` 使用独立 OAR 会话；原生 CLI 执行与事件解析分支已删除。模型目录与容量仍使用无推理的 Pi SDK／Codex app-server；翻译等直接模型 HTTP API 及 Jev 专用判断继续保留。
+- 真实依赖与本地模拟模型验证新旧会话、实际搜索工具、过滤、信任、归档不落盘、停止与进程树清理。自动化用本地模型服务，另通过 computer use 验证真实模型与页面，公网搜索限制单独记录；验收细目见[统一调用迁移清单](../runtime-migration.md)。
 
 ### 阅读查询与加载（2026-11-12）
 
@@ -33,8 +33,8 @@
 - 设置页在「模型与 Agent」中以始终展开的共享分区分别编辑 Chat、主题追踪、新闻总结、日报（早／午／晚）及周报／月报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；主题、总结保存在 `feature_models.topics / summaries`；早午晚报共用 `feature_models.reports`，周报与月报共用 `feature_models.reports_periodic`，没有自定义报告模型配置，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。
 - `settings.feature_model_config()` 返回独立副本。旧文件缺少主题、总结或报告总配置时从原 Chat 配置填充；缺少周月报组配置时从原 `reports` 独立复制，明确设置优先；首次保存固化这些初值，以后改变 Chat 或旧客户端省略 `feature_models` 均不覆盖其他功能。`normalize_feature_models()` 校验 Runtime、模型字段和 Codex 配置，设置接口对变化的 Codex 配置核验目录模型及推理强度，拒绝非空 Profile／服务商覆盖；Codex 目录按本机配置目录和可执行文件缓存，Pi 按其服务商注册表读取。
 - 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 和 `settings.report_model_feature(kind)` 将五种报告类型映射到日报与周月报两组配置；历史自定义任务的未绑定配置兼容读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
-- Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。OAR 通过 `SessionOptions.effort`、Pi CLI 通过 `--thinking`、报告 SDK 通过 reasoning 参数执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
-- `connection_tests.py` 使用当前功能草稿。Pi 显式传入 provider、model、thinking，禁用工具／MCP／扩展／持久会话，要求返回 `NEWSREADER_CONNECTION_OK`；Codex 创建临时只读请求，发送 `hi` 并检查非空完成结果。45秒超时、全局单次执行锁；不写入应用会话。测试结果说明一次模型请求成功，不证明 Agent 搜索或其他工具可用。
+- Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。所有 Pi 生成调用通过 OAR `SessionOptions.effort` 执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
+- `connection_tests.py` 使用当前功能草稿，经 `runtime_tasks.run()` 创建隔离 OAR 请求。Pi/Codex 均要求精确返回 `NEWSREADER_CONNECTION_OK`，不恢复或保存原生会话，禁用外部 MCP、搜索与扩展等能力，拒绝实际工具调用。保留 45 秒生成超时和全局单次执行锁；只有完整结果与进程正常退出均满足才成功。测试说明一次模型请求成功，不证明搜索或其他工具可用。
 - 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode Go 订阅，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
 
 ### 正文翻译与 API 后备
@@ -81,7 +81,7 @@ flowchart LR
   HTTP -. 启用且 API 均失败 .-> PI[Pi 翻译后备]
   API --> A[研究会话和任务]
   A --> ADB[(Agent 独立 SQLite)]
-  A --> R[OAR Pi / Codex 与待迁移的 CLI 兼容入口]
+  A --> R[OAR 管理 Pi RPC / Codex app-server]
   API --> NS[news_summaries]
   NS --> R
   NS --> DB
@@ -94,7 +94,7 @@ flowchart LR
 
 2026-10-31排期与可编辑新闻窗口：启动配置与历史为 `report_schedule`／`report_schedule_history`，窗口独立使用 `report_windows`／`report_window_history`；旧配置缺省沿用08:30／14:30／21:30及整周整月边界。`report_schedule.news_window()` 统一计算五类范围，自动任务按历史启动时刻选择生效窗口，补报不追溯改写。保存校验启动不早于窗口结束、同日起点早于终点，旧过早启动等候完整窗口。已创建任务、快照、重试保持原起止时间。设置编辑复用小时／分钟及前日／当日 Picker；手动表单绑定 `windows` 中所选规则并随 `selection` 提交单份 `window`，打开期间改设置不改变所见范围。旧表单窗口不匹配时提示刷新。
 
-2026-10-31固定标准速度：共享 `codex_client.command()` 在每次执行时显式传入 `service_tier="default"` 与 `features.fast_mode=false`；2026-11-15 起 OAR Codex 入口也显式固定同样配置。覆盖 Chat、主题追踪、新闻总结、日报、归档及连接测试，以及续聊、临时会话、既有队列和报告重试；本机默认开启 Fast 也不会覆盖。模型、推理程度、会话映射及已绑定报告配置保持兼容，不修改本机 Codex 配置；Pi 不使用该开关。
+2026-10-31 起固定标准速度；当前所有 Codex 生成请求由 OAR 入口显式设置 `service_tier="default"` 与 `features.fast_mode=false`，原 CLI 命令构造器已退役。覆盖 Chat、主题追踪、新闻总结、日报、归档及连接测试，以及续聊、临时会话、既有队列和报告重试；本机默认开启 Fast 也不会覆盖。模型、推理程度、会话映射及已绑定报告配置保持兼容，不修改本机 Codex 配置；Pi 不使用该开关。
 
 2026-10-31临时报告模型：新增日报默认收起临时 Runtime／模型／推理程度 Picker；`GET /api/reports/manual-options` 增加公开默认选择，`POST /api/reports/model-options` 按需读取目录，创建的 `model_override` 经白名单与能力校验后绑定单份报告。Pi SDK 传入实际推理程度，Codex 保留只读限制；2026-11-15 起停用 NR Profile／服务商覆盖并校验目录模型；不保存到全局设置。重复提交保持原配置，目录读取在数据库写事务外。
 
@@ -120,7 +120,8 @@ flowchart LR
 | `settings.py` / `secret_store.py` | 路径优先级、配置规范化、macOS Keychain | 不读取并发布真实密钥；配置更换路径需重启 |
 | `llm_client.py` | 翻译、精读、摘要及兼容模型调用 | 与新闻研究 Agent 的配置通道区分 |
 | `oar_client.py` / `scripts/oar_bridge.mjs` / `scripts/oar_codex.mjs` | Pi／Codex 共用桥接；新闻功能固定 OAR，其他功能逐批迁移 | stdin JSON / stdout 事件；终止时清理 OAR 独立子进程组 |
-| `codex_client.py` | Codex 请求与原生会话映射、尚待迁移的 CLI 入口 | 本机凭据；read-only 沙盒及不请求审批配置；拒绝已停用的 Profile／服务商覆盖 |
+| `codex_client.py` | Codex OAR 请求、原生会话映射与隔离启动策略 | 本机凭据；read-only 沙盒及不请求审批配置；拒绝已停用的 Profile／服务商覆盖 |
+| `runtime_tasks.py` | Pi 翻译后备与 Pi/Codex 连接测试的 OAR 执行 | 独立临时目录、禁用工具、严格完成、异常回收 |
 | `model_catalogs.py` / `pi_models.py` / `connection_tests.py` | Codex 目录缓存、Pi 当前可用目录及能力、草稿连接测试 | Codex 失败保留缓存；Pi 刷新替换旧目录；不覆盖其他设置草稿 |
 | `model_apis.py` | HTTP 模型服务注册、配置规范化及原生测试协议 | DeepSeek／OpenCode Chat Completions 与 Jev System One 各自解析响应；密钥仍由 `secret_store.py` 管理 |
 | `news_summary_selection.py` / `news_summaries.py` | 选择范围、预览快照、任务执行、验证、事务归档 | 成功保存报告和批量标读必须原子完成 |

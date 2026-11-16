@@ -1,6 +1,6 @@
 /** Codex on the shared NR JSONL bridge; OAR owns the native app-server. */
 import path from 'node:path';
-import { toolEvents } from './oar_tool_events.mjs';
+import { toolEvents, classifiedFailure } from './oar_tool_events.mjs';
 import { validateReport, reportEvents } from './oar_report.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
@@ -26,9 +26,11 @@ export function codexOptions(request) {
   if (['profile', 'provider'].some(key => key in config && config[key] !== '')) throw new Error('codex_advanced_config_removed');
   if (config.reasoning_effort && !EFFORTS.has(config.reasoning_effort)) throw new Error('codex_session_invalid');
   if (request.web_search !== undefined && !['live', 'disabled'].includes(request.web_search)) throw new Error('codex_session_invalid');
-  if (request.task !== undefined && !['chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report'].includes(request.task)) throw new Error('codex_session_invalid');
+  if (request.task !== undefined && !['chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report', 'connection_test'].includes(request.task)) throw new Error('codex_session_invalid');
   validateReport(request);
   const report = request.task === 'report';
+  const probe = request.task === 'connection_test';
+  if (probe && (!Array.isArray(request.task_launch_args) || request.task_launch_args.some(arg => typeof arg !== 'string'))) throw new Error('codex_session_invalid');
   const assistant = request.task === 'personal_assistant';
   if (assistant || (report && request.nr_tools)) {
     if (!request.nr_tools || typeof request.nr_tools.command !== 'string' || !path.isAbsolute(request.nr_tools.command) ||
@@ -37,7 +39,7 @@ export function codexOptions(request) {
     }
   } else if (request.nr_tools !== undefined) throw new Error('codex_session_invalid');
   const archive = request.task === 'chat_archive';
-  const materialOnly = archive || request.task === 'material_summary';
+  const materialOnly = archive || request.task === 'material_summary' || probe;
   const ephemeral = materialOnly || request.task === 'web_research' || report;
   if (ephemeral && request.resume) throw new Error('codex_session_invalid');
   if (materialOnly && request.web_search === 'live') throw new Error('codex_session_invalid');
@@ -52,7 +54,8 @@ export function codexOptions(request) {
   launchArgs.push('-c', 'approval_policy="never"', '-c', 'sandbox_mode="read-only"',
     '-c', 'service_tier="default"', '-c', 'features.fast_mode=false');
   if (materialOnly || request.web_search) launchArgs.push('-c', `web_search=${JSON.stringify(materialOnly ? 'disabled' : request.web_search)}`);
-  if (assistant || report) launchArgs.push('-c', 'project_doc_max_bytes=0');
+  if (assistant || report || probe) launchArgs.push('-c', 'project_doc_max_bytes=0');
+  if (probe) launchArgs.push(...request.task_launch_args);
   if (report) launchArgs.push(...(request.report_launch_args ?? []));
   return {cwd: request.cwd, launchArgs,
     ...(config.model ? {model: config.model} : {}),
@@ -137,6 +140,7 @@ export async function executeCodex(request, runtime, installation, emit, signal,
     if (result.kind !== 'ended' || result.outcome?.kind !== 'completed') {
       const failure = result.failure ?? result.outcome?.failure;
       emit({type: 'oar_result', outcome: 'failed', error: signal?.aborted ? 'codex_stopped'
+        : request.task === 'connection_test' && classifiedFailure(failure) ? classifiedFailure(failure)
         : failure === 'auth' || failure === 'unauthenticated' ? 'codex_auth_required' : 'codex_turn_failed'});
       return false;
     }
@@ -160,7 +164,7 @@ export async function executeCodex(request, runtime, installation, emit, signal,
 
 export async function runCodex(request, emit, signal) {
   codexOptions(request);
-  if (['chat_archive', 'material_summary', 'web_research', 'report'].includes(request.task)) {
+  if (['chat_archive', 'material_summary', 'web_research', 'report', 'connection_test'].includes(request.task)) {
     const {installEphemeralOption} = await import('./oar_codex_ephemeral.mjs');
     installEphemeralOption();
   }

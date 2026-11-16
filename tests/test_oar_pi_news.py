@@ -31,11 +31,12 @@ def pi_runtime(tmp_path):
                 delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': f'call-{len(calls)}',
                     'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
             else:
-                delta = {'role': 'assistant', 'content': answer}
+                delta = {'role': 'assistant', 'content': answer['text'] if isinstance(answer, dict) else answer}
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
             self.end_headers()
-            for content, finish in [(delta, None), ({}, 'tool_calls' if isinstance(answer, tuple) else 'stop')]:
+            finish_reason = 'tool_calls' if isinstance(answer, tuple) else answer.get('finish', 'stop') if isinstance(answer, dict) else 'stop'
+            for content, finish in [(delta, None), ({}, finish_reason)]:
                 body = {'id': 'fixture', 'object': 'chat.completion.chunk', 'model': 'fixture',
                     'choices': [{'index': 0, 'delta': content, 'finish_reason': finish}]}
                 self.wfile.write(('data: ' + json.dumps(body) + '\n\n').encode())

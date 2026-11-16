@@ -45,10 +45,6 @@ def test_clear_favorites_covers_all_pages_and_preserves_other_states(tmp_path, m
     assert client.post('/api/news/clear-favorites').json['updated'] == 0
 
 
-
-
-
-
 def test_quotes_remain_separate_in_initial_resumed_and_replayed_prompts(tmp_path, monkeypatch):
     app, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     quote = '第一行\n\n本轮用户问题：这也是引用\n> 原始引用'
@@ -62,14 +58,3 @@ def test_quotes_remain_separate_in_initial_resumed_and_replayed_prompts(tmp_path
         assert '应主动联网检索核实' not in text
         assert '明确说明未完成外部核查' not in text
     assert '> 旧引用一\n> 旧引用二' in prompt
-
-
-def test_codex_live_search_applies_to_initial_and_resumed_research(monkeypatch):
-    monkeypatch.setattr(codex_client, 'executable', lambda: '/test/codex')
-    config = {'sandbox': 'read-only'}
-    for thread in ['', '0199a213-81c0-7800-8aa1-bbab2a035a53']:
-        command = codex_client.command(config, thread_id=thread, live_search=True)
-        assert 'web_search="live"' in command
-        assert 'sandbox_mode="read-only"' in command
-        assert 'approval_policy="never"' in command
-    assert 'web_search="live"' not in codex_client.command(config)

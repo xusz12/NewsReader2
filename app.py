@@ -36,13 +36,9 @@ from llm_client import (
     generate_pi_fallback_translation,
     generate_article_ai,
     generate_body_translation_only,
-    generate_market_tag_summary,
     generate_twitter_comments_summary,
-    generate_tracked_topic_rule_draft,
-    generate_tracked_topic_daily_summary,
     resolve_translation_default_model,
     _pi_subprocess_env,
-    _parse_pi_stdout,
 )
 from database_schema import apply_schema
 import news_collection
@@ -197,11 +193,6 @@ IDEA_TYPE_FILTERS = {"all", "article", "trend", "standalone"}
 TRACKED_TOPIC_SCOPES = {"important", "all"}
 TRACKED_BACKFILL_MODES = {"recent_important", "all_important", "all_news"}
 TRACKED_MATCH_METHODS = {"keyword", "manual"}
-TRACKED_DAILY_SUMMARY_STATUSES = {"success", "failed"}
-MARKET_TAG_SUMMARY_STATUSES = {"success", "failed"}
-TRACKED_DAILY_SUMMARY_VERSION = "v1.9.8.5"
-TRACKED_RULE_DRAFT_VERSION = "v1.9.8.6"
-MARKET_TAG_SUMMARY_VERSION = "v1.9.8.9"
 ARTICLE_HIGHLIGHT_BODY_KIND = "ai_zh"
 ARTICLE_HIGHLIGHT_POINTS_BODY_KIND = "ai_points_zh"
 ARTICLE_HIGHLIGHT_CONCLUSION_BODY_KIND = "ai_conclusion_zh"
@@ -260,21 +251,6 @@ TRACKED_RULE_CANDIDATE_THRESHOLD_DEFAULT = 4
 TRACKED_RULE_WEIGHT_MIN = 0
 TRACKED_RULE_WEIGHT_MAX = 20
 TRACKED_RULE_EXCLUDE_PENALTY_BASE = 100
-TRACKED_DAILY_SUMMARY_TEXT_LIMIT = 12000
-TRACKED_DAILY_SUMMARY_CONTENT_LIMIT = 4000
-TRACKED_DAILY_SUMMARY_AI_BODY_LIMIT = 2000
-TRACKED_DAILY_SUMMARY_NOTE_LIMIT = 800
-TRACKED_DAILY_SUMMARY_SUMMARY_LIMIT = 800
-TRACKED_DAILY_SUMMARY_MIN_CHARS = 120
-TRACKED_DAILY_SUMMARY_MAX_CHARS = 600
-TRACKED_RULE_DRAFT_THRESHOLD_MIN = 3
-TRACKED_RULE_DRAFT_THRESHOLD_MAX = 20
-MARKET_WORKBENCH_SUMMARY_RANGE_DAYS = 30
-MARKET_WORKBENCH_SUMMARY_MAX_NEWS = 50
-MARKET_WORKBENCH_SUMMARY_TEXT_LIMIT = 16000
-MARKET_WORKBENCH_SUMMARY_SUMMARY_LIMIT = 800
-MARKET_WORKBENCH_SUMMARY_NOTE_LIMIT = 1200
-MARKET_WORKBENCH_SUMMARY_BODY_LIMIT = 2000
 MARKET_WORKBENCH_CONTENT_FILTERS = {"all", "ideas", "bullish", "bearish"}
 MARKET_PIN_NOTE_MAX_LEN = 5000
 CHAT_ARCHIVE_SUMMARY_MAX_LEN = 300
@@ -1173,68 +1149,6 @@ def normalize_keyword_list(value: object) -> list[str]:
     return normalized
 
 
-def sanitize_tracked_rule_draft_terms(value: object, *, min_items: int = 0, max_items: int, max_len: int = 40) -> list[str]:
-    normalized = normalize_keyword_list(value)
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for text in normalized:
-        if len(text) > max_len:
-            continue
-        lowered = text.lower()
-        if lowered in seen:
-            continue
-        seen.add(lowered)
-        cleaned.append(text)
-        if len(cleaned) >= max_items:
-            break
-    if len(cleaned) < min_items:
-        return cleaned
-    return cleaned
-
-
-def sanitize_tracked_rule_draft(payload: dict[str, object]) -> dict[str, object]:
-    title = " ".join(str(payload.get("title") or "").split()).strip()
-    if not title:
-        raise ValueError("empty_title")
-    if len(title) > 120:
-        raise ValueError("title_too_long")
-
-    strong_phrases = sanitize_tracked_rule_draft_terms(
-        payload.get("strong_phrases"),
-        max_items=12,
-    )
-    core_terms = sanitize_tracked_rule_draft_terms(
-        payload.get("core_terms"),
-        max_items=24,
-    )
-    context_terms = sanitize_tracked_rule_draft_terms(
-        payload.get("context_terms"),
-        max_items=32,
-    )
-    exclude_terms = sanitize_tracked_rule_draft_terms(
-        payload.get("exclude_terms"),
-        max_items=24,
-    )
-    if not strong_phrases and not core_terms:
-        raise ValueError("invalid_rule_draft")
-
-    try:
-        threshold_value = payload.get("threshold")
-        threshold = int(float(str(threshold_value).strip()))
-    except Exception as exc:
-        raise ValueError("invalid_tracked_threshold") from exc
-    threshold = min(TRACKED_RULE_DRAFT_THRESHOLD_MAX, max(TRACKED_RULE_DRAFT_THRESHOLD_MIN, threshold))
-
-    return {
-        "title": title,
-        "strong_phrases": strong_phrases,
-        "core_terms": core_terms,
-        "context_terms": context_terms,
-        "exclude_terms": exclude_terms,
-        "threshold": threshold,
-    }
-
-
 def tracked_scope_value(value: object) -> str:
     scope = str(value or "important").strip().lower()
     if scope not in TRACKED_TOPIC_SCOPES:
@@ -1247,13 +1161,6 @@ def tracked_backfill_mode_value(value: object) -> str:
     if mode not in TRACKED_BACKFILL_MODES:
         raise ValueError("invalid_backfill_mode")
     return mode
-
-
-def tracked_daily_summary_status_value(value: object) -> str:
-    status = str(value or "success").strip().lower()
-    if status not in TRACKED_DAILY_SUMMARY_STATUSES:
-        raise ValueError("invalid_daily_summary_status")
-    return status
 
 
 def parse_tracked_threshold(value: object, *, default: int) -> int:
@@ -4912,280 +4819,6 @@ def tracked_topic_timeline_items(conn: sqlite3.Connection, topic_id: int) -> lis
     return items
 
 
-def tracked_daily_summary_source_rows(conn: sqlite3.Connection, topic_id: int, *, date: str | None = None) -> list[dict]:
-    tracked_rows = conn.execute(
-        """
-        SELECT item_id, updated_at AS tracked_updated_at
-        FROM tracked_topic_items
-        WHERE topic_id = ?
-          AND hidden_at IS NULL
-          AND item_id NOT LIKE 'trend_note:%'
-        """,
-        (topic_id,),
-    ).fetchall()
-    news_ids = [row["item_id"] for row in tracked_rows]
-
-    rows: list[dict] = []
-    tracked_updated_by_item_id = {str(row["item_id"]): row["tracked_updated_at"] or "" for row in tracked_rows}
-    if news_ids:
-        placeholders = ",".join(["?"] * len(news_ids))
-        news_rows = conn.execute(
-            f"""
-            SELECT items.id,
-                   items.url,
-                   items.title,
-                   items.summary,
-                   items.published_at,
-                   items.date,
-                   items.time,
-                   items.source,
-                   items.source_name,
-                   an.note,
-                   aa.conclusion_zh,
-                   aa.body_zh,
-                   ad.content,
-                   CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS has_detail,
-                   items.updated_at AS item_updated_at,
-                   COALESCE(an.updated_at, '') AS note_updated_at,
-                   COALESCE(aa.updated_at, '') AS ai_updated_at,
-                   COALESCE(ad.updated_at, '') AS detail_updated_at
-            FROM items
-            LEFT JOIN article_notes an ON an.url = items.url
-            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-            LEFT JOIN news_item_details ad ON ad.item_id=items.id
-            WHERE items.id IN ({placeholders})
-              AND {visible_news_sql()}
-            """,
-            news_ids,
-        ).fetchall()
-        for row in news_rows:
-            payload = dict(row)
-            payload["entry_type"] = "news"
-            payload["tracked_item_id"] = str(payload["id"])
-            payload["tracked_updated_at"] = tracked_updated_by_item_id.get(str(payload["id"]), "")
-            payload["date_key"] = payload.get("date") or (str(payload.get("published_at") or "")[:10])
-            rows.append(payload)
-    if date:
-        rows = [row for row in rows if (row.get("date_key") or "") == date]
-    rows.sort(
-        key=lambda row: (
-            row.get("date_key") or "",
-            row.get("published_at") or "",
-            str(row.get("tracked_item_id") or row.get("id") or ""),
-        ),
-        reverse=False,
-    )
-    return rows
-
-
-def tracked_daily_summary_row(conn: sqlite3.Connection, topic_id: int, date: str) -> sqlite3.Row | None:
-    return conn.execute(
-        """
-        SELECT topic_id, date, item_ids_hash, summary_text, status, error, model, raw_json, created_at, updated_at
-        FROM tracked_topic_daily_summaries
-        WHERE topic_id = ? AND date = ?
-        """,
-        (topic_id, date),
-    ).fetchone()
-
-
-def truncate_daily_summary_text(value: object, limit: int) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)].rstrip() + "…"
-
-
-def tracked_daily_summary_char_limit(news_count: int) -> int:
-    safe_count = max(0, int(news_count or 0))
-    return min(TRACKED_DAILY_SUMMARY_MAX_CHARS, max(TRACKED_DAILY_SUMMARY_MIN_CHARS, safe_count * 50))
-
-
-def enforce_daily_summary_char_limit(value: object, limit: int) -> str:
-    text = " ".join(str(value or "").split()).strip()
-    if not text or len(text) <= limit:
-        return text
-    natural_limit = max(1, limit - 1)
-    window = text[:natural_limit]
-    cut_at = -1
-    for marker in ("。", "；", ";", "\n", "！", "？", "……", "，", ",", "、", "：", ":"):
-        pos = window.rfind(marker)
-        if pos > cut_at:
-            cut_at = pos
-    if cut_at >= 0:
-        clipped = window[: cut_at + 1].rstrip()
-    else:
-        clipped = window.rstrip()
-    if not clipped:
-        clipped = window.rstrip()
-    return clipped + "…"
-
-
-def build_tracked_daily_summary_hash(rows: list[dict]) -> str:
-    basis = []
-    budget = tracked_daily_summary_char_limit(len(rows))
-    basis.append(f"version={TRACKED_DAILY_SUMMARY_VERSION}")
-    basis.append(f"max_summary_chars={budget}")
-    for row in rows:
-        basis.append(
-            "||".join(
-                [
-                    str(row.get("id") or ""),
-                    str(row.get("published_at") or ""),
-                    str(row.get("title") or ""),
-                    str(row.get("summary") or ""),
-                    str(row.get("note") or ""),
-                    str(row.get("conclusion_zh") or ""),
-                    str(row.get("body_zh") or ""),
-                    str(row.get("content") or ""),
-                    str(row.get("item_updated_at") or ""),
-                    str(row.get("tracked_updated_at") or ""),
-                    str(row.get("note_updated_at") or ""),
-                    str(row.get("ai_updated_at") or ""),
-                    str(row.get("detail_updated_at") or ""),
-                ]
-            )
-        )
-    return hashlib.sha256("\n".join(basis).encode("utf-8")).hexdigest()
-
-
-def build_tracked_daily_summary_materials(topic: dict, date: str, rows: list[dict]) -> str:
-    blocks = [f"主题：{topic.get('title') or '未命名主题'}", f"日期：{date}"]
-    for index, row in enumerate(rows, start=1):
-        source_label = row.get("source_name") or row.get("source") or "未知来源"
-        published_at = row.get("published_at") or row.get("date") or ""
-        lines = [
-            f"新闻 {index}",
-            f"发布时间：{published_at}",
-            f"来源：{source_label}",
-            f"标题：{row.get('title') or '无标题'}",
-        ]
-        summary = truncate_daily_summary_text(row.get("summary"), TRACKED_DAILY_SUMMARY_SUMMARY_LIMIT)
-        if summary:
-            lines.append(f"摘要：{summary}")
-        conclusion = truncate_daily_summary_text(row.get("conclusion_zh"), TRACKED_DAILY_SUMMARY_SUMMARY_LIMIT)
-        if conclusion:
-            lines.append(f"AI 摘要：{conclusion}")
-        note = truncate_daily_summary_text(row.get("note"), TRACKED_DAILY_SUMMARY_NOTE_LIMIT)
-        if note:
-            lines.append(f"用户想法：{note}")
-        body_zh = truncate_daily_summary_text(row.get("body_zh"), TRACKED_DAILY_SUMMARY_AI_BODY_LIMIT)
-        if body_zh:
-            lines.append(f"AI 正文摘录：{body_zh}")
-        content = truncate_daily_summary_text(row.get("content"), TRACKED_DAILY_SUMMARY_CONTENT_LIMIT)
-        if content:
-            lines.append(f"正文：{content}")
-        blocks.append("\n".join(lines))
-    materials = "\n\n".join(blocks).strip()
-    if len(materials) <= TRACKED_DAILY_SUMMARY_TEXT_LIMIT:
-        return materials
-    return materials[:TRACKED_DAILY_SUMMARY_TEXT_LIMIT].rstrip()
-
-
-def serialize_tracked_daily_summary_group(topic: dict, date: str, rows: list[dict], summary_row: sqlite3.Row | None) -> dict:
-    current_hash = build_tracked_daily_summary_hash(rows)
-    max_summary_chars = tracked_daily_summary_char_limit(len(rows))
-    saved_hash = (summary_row["item_ids_hash"] if summary_row else "") or ""
-    saved_status = (summary_row["status"] if summary_row else "") or ""
-    if not summary_row:
-        status = "missing"
-    elif saved_hash != current_hash:
-        status = "stale"
-    elif saved_status == "failed":
-        status = "failed"
-    else:
-        status = "success"
-
-    items = []
-    for row in rows:
-        items.append(
-            {
-                "id": row.get("tracked_item_id") or row.get("id") or "",
-                "entry_type": "news",
-                "url": row.get("url") or "",
-                "title": row.get("title") or "未命名新闻",
-                "published_at": row.get("published_at") or "",
-                "source": row.get("source_name") or row.get("source") or "",
-                "summary": row.get("summary") or "",
-                "has_detail": bool(row.get("has_detail")),
-            }
-        )
-
-    return {
-        "date": date,
-        "item_count": len(items),
-        "item_ids_hash": current_hash,
-        "max_summary_chars": max_summary_chars,
-        "status": status,
-        "summary_text": (summary_row["summary_text"] if summary_row else "") or "",
-        "error": (summary_row["error"] if summary_row else "") or "",
-        "model": (summary_row["model"] if summary_row else "") or "",
-        "created_at": (summary_row["created_at"] if summary_row else "") or "",
-        "updated_at": (summary_row["updated_at"] if summary_row else "") or "",
-        "items": items,
-    }
-
-
-def load_tracked_topic_daily_summaries(conn: sqlite3.Connection, topic: dict) -> list[dict]:
-    rows = tracked_daily_summary_source_rows(conn, int(topic["id"]))
-    grouped: dict[str, list[dict]] = {}
-    for row in rows:
-        date = (row.get("date_key") or row.get("date") or "") or ((row.get("published_at") or "")[:10])
-        if not date:
-            continue
-        grouped.setdefault(date, []).append(row)
-
-    payload: list[dict] = []
-    for date in sorted(grouped.keys(), reverse=True):
-        source_rows = grouped[date]
-        summary_row = tracked_daily_summary_row(conn, int(topic["id"]), date)
-        payload.append(serialize_tracked_daily_summary_group(topic, date, source_rows, summary_row))
-    return payload
-
-
-def save_tracked_daily_summary(
-    conn: sqlite3.Connection,
-    *,
-    topic_id: int,
-    date: str,
-    item_ids_hash: str,
-    status: str,
-    summary_text: str,
-    error: str,
-    model: str,
-    raw_json: str,
-) -> None:
-    ts = now_ts()
-    conn.execute(
-        """
-        INSERT INTO tracked_topic_daily_summaries(
-          topic_id, date, item_ids_hash, summary_text, status, error, model, raw_json, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(topic_id, date) DO UPDATE SET
-          item_ids_hash=excluded.item_ids_hash,
-          summary_text=excluded.summary_text,
-          status=excluded.status,
-          error=excluded.error,
-          model=excluded.model,
-          raw_json=excluded.raw_json,
-          updated_at=excluded.updated_at
-        """,
-        (
-            topic_id,
-            date,
-            item_ids_hash,
-            summary_text,
-            status,
-            error[:500] if error else None,
-            model,
-            raw_json or "{}",
-            ts,
-            ts,
-        ),
-    )
-
-
 def load_market_tag_definitions(conn: sqlite3.Connection, active_only: bool = False) -> list[dict]:
     where_sql = "WHERE mtd.active=1" if active_only else ""
     rows = conn.execute(
@@ -5308,8 +4941,6 @@ def migrate_market_trend_notes(conn: sqlite3.Connection) -> None:
         )
         conn.execute("DROP TABLE market_trend_notes")
         conn.execute("ALTER TABLE market_trend_notes_v2 RENAME TO market_trend_notes")
-
-
 
 
 def migrate_news_reminders_review_chain_id(conn: sqlite3.Connection) -> None:
@@ -5754,70 +5385,6 @@ def load_market_tag_feed(
     }
 
 
-def market_tag_summary_row(conn: sqlite3.Connection, tag_key: str, range_days: int) -> sqlite3.Row | None:
-    return conn.execute(
-        """
-        SELECT tag_key, range_days, source_hash, summary_text, status, error, model, raw_json, created_at, updated_at
-        FROM market_tag_summaries
-        WHERE tag_key = ? AND range_days = ?
-        """,
-        (tag_key, range_days),
-    ).fetchone()
-
-
-def load_market_tag_summary_sources(
-    conn: sqlite3.Connection,
-    *,
-    tag_key: str,
-    range_days: int,
-    limit: int,
-) -> tuple[list[dict], list[dict]]:
-    news_rows = conn.execute(
-        f"""
-        SELECT items.id,
-               items.published_at,
-               items.source,
-               items.source_type,
-               items.source_name,
-               items.title,
-               items.summary,
-               items.url,
-               mt.direction,
-               an.note,
-               an.updated_at AS note_updated_at,
-               aa.conclusion_zh,
-               aa.body_zh,
-               ai.updated_at AS ai_updated_at,
-               ad.content,
-               ad.updated_at AS detail_updated_at,
-               mt.updated_at AS tag_updated_at
-        FROM items
-        JOIN article_market_tags mt ON mt.url = items.url
-        LEFT JOIN article_notes an ON an.url = items.url
-        LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-        LEFT JOIN news_item_ai_jobs ai ON ai.item_id=items.id
-        LEFT JOIN news_item_details ad ON ad.item_id=items.id
-        WHERE mt.tag = ?
-          AND items.published_at >= datetime('now', ?)
-          AND {visible_news_sql()}
-        ORDER BY items.published_at DESC, items.id DESC
-        LIMIT ?
-        """,
-        (tag_key, f"-{int(range_days)} days", limit),
-    ).fetchall()
-    note_rows = conn.execute(
-        """
-        SELECT id, date_key, direction, note, created_at, updated_at
-        FROM market_trend_notes
-        WHERE tag = ?
-          AND COALESCE(updated_at, created_at, date_key) >= datetime('now', ?)
-        ORDER BY COALESCE(updated_at, created_at, date_key) DESC, id DESC
-        """,
-        (tag_key, f"-{int(range_days)} days"),
-    ).fetchall()
-    return [dict(row) for row in news_rows], [dict(row) for row in note_rows]
-
-
 def market_pin_scope_and_tag(tag_key: str | None) -> tuple[str, str]:
     normalized = (tag_key or "").strip()
     return ("overview", "") if not normalized else ("tag", normalized)
@@ -5858,173 +5425,6 @@ def serialize_market_pinned_note(pin_row: dict, tag_def: dict | None = None) -> 
         "updated_at": pin_row.get("updated_at"),
         "created_at": pin_row.get("created_at"),
     }
-
-
-def build_market_tag_summary_hash(news_rows: list[dict], note_rows: list[dict], range_days: int) -> str:
-    basis = [f"version={MARKET_TAG_SUMMARY_VERSION}", f"range_days={range_days}"]
-    for row in news_rows:
-        basis.append(
-            "||".join(
-                [
-                    str(row.get("id") or ""),
-                    str(row.get("published_at") or ""),
-                    str(row.get("title") or ""),
-                    str(row.get("summary") or ""),
-                    str(row.get("note") or ""),
-                    str(row.get("direction") or ""),
-                    str(row.get("conclusion_zh") or ""),
-                    str(row.get("body_zh") or ""),
-                    str(row.get("content") or ""),
-                    str(row.get("tag_updated_at") or ""),
-                    str(row.get("note_updated_at") or ""),
-                    str(row.get("ai_updated_at") or ""),
-                    str(row.get("detail_updated_at") or ""),
-                ]
-            )
-        )
-    for row in note_rows:
-        basis.append(
-            "||".join(
-                [
-                    str(row.get("id") or ""),
-                    str(row.get("date_key") or ""),
-                    str(row.get("direction") or ""),
-                    str(row.get("note") or ""),
-                    str(row.get("created_at") or ""),
-                    str(row.get("updated_at") or ""),
-                ]
-            )
-        )
-    return hashlib.sha256("\n".join(basis).encode("utf-8")).hexdigest()
-
-
-def build_market_tag_summary_materials(tag_label: str, news_rows: list[dict], note_rows: list[dict], range_days: int) -> str:
-    blocks = [
-        f"板块：{tag_label}",
-        f"范围：最近 {range_days} 天",
-        "【新闻事实】",
-    ]
-    for index, row in enumerate(news_rows, start=1):
-        lines = [
-            f"新闻 {index}",
-            f"发布时间：{row.get('published_at') or ''}",
-            f"来源：{row.get('source_name') or row.get('source') or '未知来源'}",
-            f"标题：{row.get('title') or '无标题'}",
-            f"方向：{'看多' if row.get('direction') == 'bullish' else '看空'}",
-        ]
-        summary = truncate_daily_summary_text(row.get("summary"), MARKET_WORKBENCH_SUMMARY_SUMMARY_LIMIT)
-        if summary:
-            lines.append(f"摘要：{summary}")
-        ai_summary = truncate_daily_summary_text(row.get("conclusion_zh"), MARKET_WORKBENCH_SUMMARY_SUMMARY_LIMIT)
-        if ai_summary:
-            lines.append(f"AI 摘要：{ai_summary}")
-        ai_body = truncate_daily_summary_text(row.get("body_zh"), MARKET_WORKBENCH_SUMMARY_BODY_LIMIT)
-        if ai_body:
-            lines.append(f"AI 正文摘录：{ai_body}")
-        content = truncate_daily_summary_text(row.get("content"), MARKET_WORKBENCH_SUMMARY_BODY_LIMIT)
-        if content:
-            lines.append(f"正文摘录：{content}")
-        note = truncate_daily_summary_text(row.get("note"), MARKET_WORKBENCH_SUMMARY_NOTE_LIMIT)
-        if note:
-            lines.append(f"对应新闻想法：{note}")
-        blocks.append("\n".join(lines))
-    blocks.append("【用户想法】")
-    if note_rows:
-        for index, row in enumerate(note_rows, start=1):
-            blocks.append(
-                "\n".join(
-                    [
-                        f"独立板块想法 {index}",
-                        f"日期：{row.get('date_key') or ''}",
-                        f"方向：{'看多' if row.get('direction') == 'bullish' else '看空'}",
-                        f"内容：{truncate_daily_summary_text(row.get('note'), MARKET_WORKBENCH_SUMMARY_NOTE_LIMIT)}",
-                    ]
-                )
-            )
-    else:
-        blocks.append("无独立板块想法。")
-    text = "\n\n".join(blocks).strip()
-    if len(text) <= MARKET_WORKBENCH_SUMMARY_TEXT_LIMIT:
-        return text
-    return text[:MARKET_WORKBENCH_SUMMARY_TEXT_LIMIT].rstrip()
-
-
-def serialize_market_tag_summary(
-    tag_def: dict,
-    range_days: int,
-    news_rows: list[dict],
-    note_rows: list[dict],
-    summary_row: sqlite3.Row | None,
-) -> dict:
-    current_hash = build_market_tag_summary_hash(news_rows, note_rows, range_days)
-    saved_hash = (summary_row["source_hash"] if summary_row else "") or ""
-    saved_status = (summary_row["status"] if summary_row else "") or ""
-    if not summary_row:
-        status = "missing"
-    elif current_hash != saved_hash:
-        status = "stale"
-    elif saved_status == "failed":
-        status = "failed"
-    else:
-        status = "success"
-    return {
-        "tag_key": tag_def["key"],
-        "tag_label": tag_def["display_name"],
-        "range_days": range_days,
-        "scope_label": f"最近 {range_days} 天，最多 {MARKET_WORKBENCH_SUMMARY_MAX_NEWS} 条本地新闻",
-        "news_count": len(news_rows),
-        "trend_note_count": len(note_rows),
-        "source_hash": current_hash,
-        "status": status,
-        "summary_text": (summary_row["summary_text"] if summary_row else "") or "",
-        "error": (summary_row["error"] if summary_row else "") or "",
-        "model": (summary_row["model"] if summary_row else "") or "",
-        "created_at": (summary_row["created_at"] if summary_row else "") or "",
-        "updated_at": (summary_row["updated_at"] if summary_row else "") or "",
-    }
-
-
-def save_market_tag_summary(
-    conn: sqlite3.Connection,
-    *,
-    tag_key: str,
-    range_days: int,
-    source_hash: str,
-    status: str,
-    summary_text: str,
-    error: str,
-    model: str,
-    raw_json: str,
-) -> None:
-    ts = now_ts()
-    conn.execute(
-        """
-        INSERT INTO market_tag_summaries(
-          tag_key, range_days, source_hash, summary_text, status, error, model, raw_json, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(tag_key, range_days) DO UPDATE SET
-          source_hash=excluded.source_hash,
-          summary_text=excluded.summary_text,
-          status=excluded.status,
-          error=excluded.error,
-          model=excluded.model,
-          raw_json=excluded.raw_json,
-          updated_at=excluded.updated_at
-        """,
-        (
-            tag_key,
-            range_days,
-            source_hash,
-            summary_text,
-            status,
-            error[:500] if error else None,
-            model,
-            raw_json or "{}",
-            ts,
-            ts,
-        ),
-    )
 
 
 def derive_date_meta(published_at: str | None, raw_date: str | None) -> tuple[str, str]:
@@ -7298,42 +6698,6 @@ def api_tracked_topics():
     return jsonify({"ok": True, "items": topics})
 
 
-@app.post("/api/tracked-topics/rule-draft")
-def api_tracked_topic_rule_draft():
-    body = request.get_json(silent=True) or {}
-    title = " ".join(str(body.get("title") or "").split()).strip()
-    description = str(body.get("description") or "").strip()
-    if not title:
-        return jsonify({"ok": False, "error": "empty_title"}), 400
-    if len(title) > 120:
-        return jsonify({"ok": False, "error": "title_too_long"}), 400
-    if len(description) > 1000:
-        return jsonify({"ok": False, "error": "description_too_long"}), 400
-
-    llm_settings = current_runtime_settings()["llm"]
-    model_name = (llm_settings["translation"].get("model") or "").strip()
-    try:
-        payload = generate_tracked_topic_rule_draft(
-            title=title,
-            description=description,
-            model=model_name,
-        )
-        draft = sanitize_tracked_rule_draft(payload)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except LLMClientError as exc:
-        return jsonify({"ok": False, "error": "tracked_rule_draft_generate_failed", "detail": str(exc)}), 502
-
-    return jsonify(
-        {
-            "ok": True,
-            "draft": draft,
-            "model": payload.get("model", model_name or "deepseek-v4-flash"),
-            "version": TRACKED_RULE_DRAFT_VERSION,
-        }
-    )
-
-
 @app.post("/api/tracked-topics")
 def api_tracked_topics_create():
     body = request.get_json(silent=True) or {}
@@ -7454,94 +6818,6 @@ def api_tracked_topic_items(topic_id: int):
     finally:
         conn.close()
     return jsonify({"ok": True, "topic": topic, "items": items, "total": len(items)})
-
-
-@app.get("/api/tracked-topics/<int:topic_id>/daily-summaries")
-def api_tracked_topic_daily_summaries(topic_id: int):
-    conn = db_conn()
-    try:
-        topic = load_tracked_topic(conn, topic_id)
-        if not topic:
-            return jsonify({"ok": False, "error": "topic_not_found"}), 404
-        days = load_tracked_topic_daily_summaries(conn, topic)
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "topic": topic, "days": days, "total": len(days)})
-
-
-@app.post("/api/tracked-topics/<int:topic_id>/daily-summaries/<summary_date>/generate")
-def api_tracked_topic_daily_summary_generate(topic_id: int, summary_date: str):
-    try:
-        normalized_date = datetime.strptime((summary_date or "").strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
-    except ValueError:
-        return jsonify({"ok": False, "error": "invalid_summary_date"}), 400
-
-    conn = db_conn()
-    try:
-        topic = load_tracked_topic(conn, topic_id)
-        if not topic:
-            return jsonify({"ok": False, "error": "topic_not_found"}), 404
-        rows = [dict(row) for row in tracked_daily_summary_source_rows(conn, topic_id, date=normalized_date)]
-        if not rows:
-            return jsonify({"ok": False, "error": "summary_source_items_not_found"}), 404
-        item_ids_hash = build_tracked_daily_summary_hash(rows)
-        materials = build_tracked_daily_summary_materials(topic, normalized_date, rows)
-        llm_settings = current_runtime_settings()["llm"]
-        model_name = (llm_settings["translation"].get("model") or "").strip()
-
-        try:
-            payload = generate_tracked_topic_daily_summary(
-                topic_title=(topic.get("title") or "").strip(),
-                summary_date=normalized_date,
-                materials=materials,
-                news_count=len(rows),
-                max_summary_chars=tracked_daily_summary_char_limit(len(rows)),
-                model=model_name,
-            )
-        except LLMClientError as exc:
-            with conn:
-                save_tracked_daily_summary(
-                    conn,
-                    topic_id=topic_id,
-                    date=normalized_date,
-                    item_ids_hash=item_ids_hash,
-                    status="failed",
-                    summary_text="",
-                    error=str(exc),
-                    model=model_name or "deepseek-v4-flash",
-                    raw_json="{}",
-                )
-            summary_row = tracked_daily_summary_row(conn, topic_id, normalized_date)
-            day = serialize_tracked_daily_summary_group(topic, normalized_date, rows, summary_row)
-            return jsonify(
-                {
-                    "ok": False,
-                    "error": "daily_summary_generate_failed",
-                    "detail": str(exc),
-                    "day": day,
-                }
-            ), 502
-
-        with conn:
-            save_tracked_daily_summary(
-                conn,
-                topic_id=topic_id,
-                date=normalized_date,
-                item_ids_hash=item_ids_hash,
-                status="success",
-                summary_text=enforce_daily_summary_char_limit(
-                    payload.get("summary_text", ""),
-                    tracked_daily_summary_char_limit(len(rows)),
-                ),
-                error="",
-                model=payload.get("model", model_name or "deepseek-v4-flash"),
-                raw_json=payload.get("raw_json", "{}"),
-            )
-        summary_row = tracked_daily_summary_row(conn, topic_id, normalized_date)
-        day = serialize_tracked_daily_summary_group(topic, normalized_date, rows, summary_row)
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "topic": topic, "day": day})
 
 
 @app.post("/api/tracked-topics/<int:topic_id>/backfill")
@@ -8610,20 +7886,6 @@ def api_market_workbench():
             return jsonify({"ok": False, "error": "invalid_tag"}), 400
 
         feed = load_market_tag_feed(conn, tag_key=tag_key, content_filter=content_filter, sort_order=sort_order, page=page, per=per)
-        summary_news_rows, summary_note_rows = load_market_tag_summary_sources(
-            conn,
-            tag_key=tag_key,
-            range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-            limit=MARKET_WORKBENCH_SUMMARY_MAX_NEWS,
-        )
-        summary_row = market_tag_summary_row(conn, tag_key, MARKET_WORKBENCH_SUMMARY_RANGE_DAYS)
-        summary_payload = serialize_market_tag_summary(
-            tag_def,
-            MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-            summary_news_rows,
-            summary_note_rows,
-            summary_row,
-        )
         pin_payload = serialize_market_pinned_note(load_market_pinned_note(conn, tag_key), tag_def)
     finally:
         conn.close()
@@ -8641,7 +7903,6 @@ def api_market_workbench():
             "page": feed["page"],
             "pages": feed["pages"],
             "has_more": feed["has_more"],
-            "summary": summary_payload,
             "pin": pin_payload,
         }
     )
@@ -8707,101 +7968,6 @@ def api_market_workbench_pin_save():
     finally:
         conn.close()
     return jsonify({"ok": True, "pin": payload})
-
-
-@app.get("/api/market-tags/<tag_key>/summary")
-def api_market_tag_summary(tag_key: str):
-    conn = db_conn()
-    try:
-        tag_def = conn.execute(
-            "SELECT key, display_name, active FROM market_tag_definitions WHERE key=? AND active=1",
-            (tag_key,),
-        ).fetchone()
-        if not tag_def:
-            return jsonify({"ok": False, "error": "invalid_tag"}), 400
-        news_rows, note_rows = load_market_tag_summary_sources(
-            conn,
-            tag_key=tag_key,
-            range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-            limit=MARKET_WORKBENCH_SUMMARY_MAX_NEWS,
-        )
-        summary_row = market_tag_summary_row(conn, tag_key, MARKET_WORKBENCH_SUMMARY_RANGE_DAYS)
-        payload = serialize_market_tag_summary(dict(tag_def), MARKET_WORKBENCH_SUMMARY_RANGE_DAYS, news_rows, note_rows, summary_row)
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "summary": payload})
-
-
-@app.post("/api/market-tags/<tag_key>/summary/generate")
-def api_market_tag_summary_generate(tag_key: str):
-    conn = db_conn()
-    try:
-        tag_def = conn.execute(
-            "SELECT key, display_name, active FROM market_tag_definitions WHERE key=? AND active=1",
-            (tag_key,),
-        ).fetchone()
-        if not tag_def:
-            return jsonify({"ok": False, "error": "invalid_tag"}), 400
-        news_rows, note_rows = load_market_tag_summary_sources(
-            conn,
-            tag_key=tag_key,
-            range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-            limit=MARKET_WORKBENCH_SUMMARY_MAX_NEWS,
-        )
-        if not news_rows and not note_rows:
-            return jsonify({"ok": False, "error": "summary_source_items_not_found"}), 404
-        source_hash = build_market_tag_summary_hash(news_rows, note_rows, MARKET_WORKBENCH_SUMMARY_RANGE_DAYS)
-        materials = build_market_tag_summary_materials(
-            tag_def["display_name"],
-            news_rows,
-            note_rows,
-            MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-        )
-        llm_settings = current_runtime_settings()["llm"]
-        model_name = (llm_settings["translation"].get("model") or "").strip()
-        try:
-            payload = generate_market_tag_summary(
-                tag_label=tag_def["display_name"],
-                range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-                news_count=len(news_rows),
-                note_count=len(note_rows),
-                materials=materials,
-                model=model_name,
-            )
-        except LLMClientError as exc:
-            with conn:
-                save_market_tag_summary(
-                    conn,
-                    tag_key=tag_key,
-                    range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-                    source_hash=source_hash,
-                    status="failed",
-                    summary_text="",
-                    error=str(exc),
-                    model=model_name or "deepseek-v4-flash",
-                    raw_json="{}",
-                )
-            summary_row = market_tag_summary_row(conn, tag_key, MARKET_WORKBENCH_SUMMARY_RANGE_DAYS)
-            summary = serialize_market_tag_summary(dict(tag_def), MARKET_WORKBENCH_SUMMARY_RANGE_DAYS, news_rows, note_rows, summary_row)
-            return jsonify({"ok": False, "error": "market_tag_summary_generate_failed", "detail": str(exc), "summary": summary}), 502
-
-        with conn:
-            save_market_tag_summary(
-                conn,
-                tag_key=tag_key,
-                range_days=MARKET_WORKBENCH_SUMMARY_RANGE_DAYS,
-                source_hash=source_hash,
-                status="success",
-                summary_text=(payload.get("summary_text") or "").strip(),
-                error="",
-                model=payload.get("model", model_name or "deepseek-v4-flash"),
-                raw_json=payload.get("raw_json", "{}"),
-            )
-        summary_row = market_tag_summary_row(conn, tag_key, MARKET_WORKBENCH_SUMMARY_RANGE_DAYS)
-        summary = serialize_market_tag_summary(dict(tag_def), MARKET_WORKBENCH_SUMMARY_RANGE_DAYS, news_rows, note_rows, summary_row)
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "summary": summary})
 
 
 @app.put("/api/market-trend-note")
@@ -12081,7 +11247,6 @@ def api_review_create_reminder(chain_id: int):
         return jsonify({"ok": True, "reminder_id": reminder_id})
     finally:
         conn.close()
-
 
 
 # Separate summary history in the selected news database; no writes at import.

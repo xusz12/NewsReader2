@@ -461,28 +461,29 @@ def test_managed_go_key_does_not_enable_pi_providers_and_preserves_explicit_envi
     assert 'OPENCODE_API_KEY' not in llm_client._pi_subprocess_env()
 
 
-def test_pi_report_and_connection_transports_do_not_receive_managed_key(tmp_path, monkeypatch):
+def test_pi_report_translation_and_connection_transports_do_not_receive_managed_key(tmp_path, monkeypatch):
     import sys
     import llm_client
     import report_model
     import connection_tests
+    import oar_client
+    import runtime_tasks
     monkeypatch.delenv('OPENCODE_API_KEY', raising=False)
     monkeypatch.setattr(llm_client, 'read_secret', lambda _: 'isolated-managed-key')
     script = tmp_path / 'pi_transport.py'
     script.write_text('''import sys, json, os
 assert 'OPENCODE_API_KEY' not in os.environ
-request = sys.stdin.read()
-if request.startswith('{'):
-    if json.loads(request).get('action') == 'metadata':
-        print(json.dumps({'contextWindow': 10000, 'maxTokens': 1000}))
-    else:
-        print(json.dumps({'type':'oar_result','outcome':'completed','answer':'transport-ok'}))
+request = json.load(sys.stdin)
+if request.get('action') == 'metadata':
+    print(json.dumps({'contextWindow': 10000, 'maxTokens': 1000}))
 else:
-    print(json.dumps({'type':'message_end','message':{'role':'assistant','content':[{'type':'text','text':'NEWSREADER_CONNECTION_OK'}]}}))
-    print(json.dumps({'type':'agent_end'}))
+    answer = 'NEWSREADER_CONNECTION_OK' if request['task'] == 'connection_test' else 'transport-ok'
+    print(json.dumps({'type':'oar_result','outcome':'completed','answer':answer}))
 ''')
     monkeypatch.setattr(report_model, 'pi_command', lambda: [sys.executable, str(script)])
+    monkeypatch.setattr(oar_client, 'bridge_command', lambda *_: [sys.executable, str(script)])
     assert report_model.pi_metadata({'action': 'metadata'})['maxTokens'] == 1000
     assert report_model.run({'runtime':'pi','provider':'opencode-go','model':'test-model'}, 'prompt', timeout=5) == 'transport-ok'
-    monkeypatch.setattr(connection_tests, 'pi_command', lambda _: [sys.executable, str(script)])
-    connection_tests.run_pi({'provider':'opencode-go','model':'test-model'})
+    config = {'runtime':'pi', 'pi':{'provider':'opencode-go','model':'test-model'}}
+    assert connection_tests.test_connection(config)['status'] == 'success'
+    assert runtime_tasks.run(config, 'prompt', task='translation', timeout=5) == 'transport-ok'

@@ -252,12 +252,6 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     assert combo.get_json()["total"] == 0
 
 
-
-
-
-
-
-
 def test_sidecar_source_identity_survives_section_only_source(tmp_path: Path, monkeypatch):
     daily_dir = tmp_path / "DailyNews" / "2026年6月"
     daily_dir.mkdir(parents=True)
@@ -1201,206 +1195,6 @@ def test_tracked_required_terms_gate_and_backfill_preserves_manual_hidden(tmp_pa
     assert drill_item["title"] not in [item["title"] for item in second_items]
 
 
-def test_tracked_topic_daily_summaries_generate_and_stale(tmp_path: Path, monkeypatch):
-    daily_dir = tmp_path / "DailyNews" / "2026年6月"
-    daily_dir.mkdir(parents=True)
-    (daily_dir / "dailyFreshNews_2026-06-20.md").write_text(
-        """## Reuters · World（4条）
-### [俄乌战争：乌克兰回应](https://example.com/ru-day-1)
-- 发布时间：2026-06-20 09:00:00
-- 摘要：乌克兰方面作出回应
-
-### [俄乌战争：俄罗斯表态](https://example.com/ru-day-2)
-- 发布时间：2026-06-20 11:00:00
-- 摘要：俄罗斯方面发布声明
-
-### [补充战况](https://example.com/ru-day-manual)
-- 发布时间：2026-06-20 12:00:00
-- 摘要：更多细节出现
-
-### [俄乌战争：停火谈判](https://example.com/ru-day-3)
-- 发布时间：2026-06-21 08:30:00
-- 摘要：谈判出现新进展
-""",
-        encoding="utf-8",
-    )
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    assert seed_news(client, json={}).status_code == 200
-    items = client.get("/api/news?per=20").get_json()["items"]
-    by_title = {item["title"]: item for item in items}
-    create_tag = client.post("/api/market-tags", json={"display_name": "俄乌战争"})
-    assert create_tag.status_code == 200
-    tag_key = create_tag.get_json()["tag"]["key"]
-    assert client.put(
-        "/api/market-trends/note",
-        json={"date_key": "2026-06-20", "tag_key": tag_key, "direction": "bullish", "note": "独立想法也在跟踪主题里补充判断"},
-    ).status_code == 200
-
-    topic_res = client.post(
-        "/api/tracked-topics",
-        json={
-            "title": "俄乌战争",
-            "strong_phrases": ["俄乌战争"],
-            "core_terms": ["俄乌"],
-            "context_terms": ["补充判断"],
-            "threshold": 6,
-            "scope": "all",
-            "active": True,
-        },
-    )
-    assert topic_res.status_code == 200
-    topic_id = topic_res.get_json()["topic"]["id"]
-
-    conn = sqlite3.connect(db_path)
-    try:
-        ts = "2026-06-20 13:00:00"
-        conn.execute(
-            """
-            INSERT INTO article_details(url, source, title, published_at, content, content_length, raw_json, fetched_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                by_title["俄乌战争：乌克兰回应"]["url"],
-                "Reuters",
-                "俄乌战争：乌克兰回应",
-                "2026-06-20 09:00:00",
-                "Full local body 1",
-                17,
-                "{}",
-                ts,
-                ts,
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO article_details(url, source, title, published_at, content, content_length, raw_json, fetched_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                by_title["俄乌战争：俄罗斯表态"]["url"],
-                "Reuters",
-                "俄乌战争：俄罗斯表态",
-                "2026-06-20 11:00:00",
-                "Full local body 2",
-                17,
-                "{}",
-                ts,
-                ts,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    backfill = client.post(f"/api/tracked-topics/{topic_id}/backfill", json={"mode": "all_news"})
-    assert backfill.status_code == 200
-
-    listing = client.get(f"/api/tracked-topics/{topic_id}/daily-summaries")
-    assert listing.status_code == 200
-    days = listing.get_json()["days"]
-    assert [day["date"] for day in days] == ["2026-06-21", "2026-06-20"]
-    assert days[0]["status"] == "missing"
-    assert days[0]["items"][0]["has_detail"] is False
-    assert all(item["entry_type"] == "news" for item in days[1]["items"])
-    assert [item["title"] for item in days[1]["items"]] == [
-        "俄乌战争：乌克兰回应",
-        "俄乌战争：俄罗斯表态",
-    ]
-    assert days[1]["max_summary_chars"] == 120
-    assert all(item["has_detail"] is True for item in days[1]["items"][:2])
-
-    def fail_summary(**kwargs):
-        raise app_module.LLMClientError("DEEPSEEK_CALL_FAILED: unavailable")
-
-    monkeypatch.setattr(app_module, "generate_tracked_topic_daily_summary", fail_summary)
-    failed = client.post(f"/api/tracked-topics/{topic_id}/daily-summaries/2026-06-20/generate")
-    assert failed.status_code == 502
-    assert failed.get_json()["error"] == "daily_summary_generate_failed"
-
-    failed_listing = client.get(f"/api/tracked-topics/{topic_id}/daily-summaries").get_json()["days"]
-    failed_day = next(day for day in failed_listing if day["date"] == "2026-06-20")
-    assert failed_day["status"] == "failed"
-
-    captured: dict[str, object] = {}
-
-    def ok_summary(**kwargs):
-        captured["materials"] = kwargs["materials"]
-        captured["max_summary_chars"] = kwargs["max_summary_chars"]
-        captured["news_count"] = kwargs["news_count"]
-        return {
-            "model": "deepseek-chat",
-            "summary_text": "甲" * 180,
-            "raw_json": "{}",
-        }
-
-    monkeypatch.setattr(app_module, "generate_tracked_topic_daily_summary", ok_summary)
-    generated = client.post(f"/api/tracked-topics/{topic_id}/daily-summaries/2026-06-20/generate")
-    assert generated.status_code == 200
-    generated_day = generated.get_json()["day"]
-    assert generated_day["status"] == "success"
-    assert generated_day["max_summary_chars"] == 120
-    assert captured["max_summary_chars"] == 120
-    assert captured["news_count"] == 2
-    assert len(generated_day["summary_text"]) <= 120
-    assert generated_day["summary_text"].endswith("…")
-    assert captured["materials"].index("标题：俄乌战争：乌克兰回应") < captured["materials"].index("标题：俄乌战争：俄罗斯表态")
-    assert "正文：Full local body 1" in captured["materials"]
-    assert "正文：Full local body 2" in captured["materials"]
-    assert "【独立想法 / 用户判断】" not in captured["materials"]
-    assert "无独立想法。" not in captured["materials"]
-
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE tracked_topic_daily_summaries SET item_ids_hash=? WHERE topic_id=? AND date=?",
-            ("legacy-v1.9.8.4-hash", topic_id, "2026-06-20"),
-        )
-        conn.commit()
-    stale_from_version = client.get(f"/api/tracked-topics/{topic_id}/daily-summaries").get_json()["days"]
-    stale_version_day = next(day for day in stale_from_version if day["date"] == "2026-06-20")
-    assert stale_version_day["status"] == "stale"
-
-    manual_add = client.post(
-        f"/api/tracked-topics/{topic_id}/items",
-        json={"item_id": by_title["补充战况"]["id"]},
-    )
-    assert manual_add.status_code == 200
-
-    stale_listing = client.get(f"/api/tracked-topics/{topic_id}/daily-summaries").get_json()["days"]
-    stale_day = next(day for day in stale_listing if day["date"] == "2026-06-20")
-    assert stale_day["status"] == "stale"
-    assert stale_day["item_count"] == 3
-
-
-def test_tracked_daily_summary_limits_and_truncation_helpers(tmp_path: Path, monkeypatch):
-    daily_dir = tmp_path / "DailyNews" / "2026年6月"
-    daily_dir.mkdir(parents=True)
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    assert app_module.tracked_daily_summary_char_limit(1) == 120
-    assert app_module.tracked_daily_summary_char_limit(3) == 150
-    assert app_module.tracked_daily_summary_char_limit(10) == 500
-    assert app_module.tracked_daily_summary_char_limit(20) == 600
-    assert app_module.enforce_daily_summary_char_limit("第一句。第二句。第三句。", 6) == "第一句。…"
-    assert app_module.enforce_daily_summary_char_limit("abcdefghijklmnopqrstuvwxyz", 8) == "abcdefg…"
-
-
 def test_tracked_topic_manual_add_trend_note_rejected(tmp_path: Path, monkeypatch):
     daily_dir = tmp_path / "DailyNews" / "2026年6月"
     daily_dir.mkdir(parents=True)
@@ -1453,88 +1247,6 @@ def test_tracked_topic_manual_add_trend_note_rejected(tmp_path: Path, monkeypatc
     )
     assert add_res.status_code == 400
     assert add_res.get_json()["error"] == "invalid_item_id"
-
-
-def test_tracked_topic_rule_draft_generate_and_save(tmp_path: Path, monkeypatch):
-    daily_dir = tmp_path / "DailyNews" / "2026年6月"
-    daily_dir.mkdir(parents=True)
-    (daily_dir / "dailyFreshNews_2026-06-20.md").write_text("", encoding="utf-8")
-    db_path = tmp_path / "news_index.sqlite3"
-
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-
-    empty = client.post("/api/tracked-topics/rule-draft", json={"title": ""})
-    assert empty.status_code == 400
-    assert empty.get_json()["error"] == "empty_title"
-
-    def fake_generate_rule_draft(**kwargs):
-        assert kwargs["title"] == "美伊战争"
-        return {
-            "model": "deepseek-chat",
-            "title": "美伊战争",
-            "strong_phrases": ["美伊战争", "美伊战争", "", "美国伊朗战争"],
-            "core_terms": ["美国", "伊朗", "特朗普", "X" * 60],
-            "context_terms": ["空袭", "导弹", "报复", "空袭"],
-            "exclude_terms": ["电影", "游戏", "", "旅游"],
-            "threshold": 99,
-            "raw_json": "{}",
-        }
-
-    monkeypatch.setattr(app_module, "generate_tracked_topic_rule_draft", fake_generate_rule_draft)
-    res = client.post("/api/tracked-topics/rule-draft", json={"title": "美伊战争"})
-    assert res.status_code == 200
-    payload = res.get_json()
-    assert payload["ok"] is True
-    assert payload["version"] == "v1.9.8.6"
-    assert payload["draft"]["title"] == "美伊战争"
-    assert payload["draft"]["strong_phrases"] == ["美伊战争", "美国伊朗战争"]
-    assert payload["draft"]["core_terms"] == ["美国", "伊朗", "特朗普"]
-    assert payload["draft"]["context_terms"] == ["空袭", "导弹", "报复"]
-    assert payload["draft"]["exclude_terms"] == ["电影", "游戏", "旅游"]
-    assert payload["draft"]["threshold"] == 20
-
-    listed = client.get("/api/tracked-topics").get_json()
-    assert listed["items"] == []
-
-    create_res = client.post(
-        "/api/tracked-topics",
-        json={
-            "title": payload["draft"]["title"],
-            "strong_phrases": ", ".join(payload["draft"]["strong_phrases"]),
-            "core_terms": ", ".join(payload["draft"]["core_terms"]),
-            "context_terms": ", ".join(payload["draft"]["context_terms"]),
-            "exclude_terms": ", ".join(payload["draft"]["exclude_terms"]),
-            "threshold": payload["draft"]["threshold"],
-            "scope": "important",
-            "active": True,
-        },
-    )
-    assert create_res.status_code == 200
-    topic = create_res.get_json()["topic"]
-    assert topic["title"] == "美伊战争"
-    assert topic["rules"]["strong_phrases"] == ["美伊战争", "美国伊朗战争"]
-    assert topic["rules"]["core_terms"] == ["美国", "伊朗", "特朗普"]
-    assert topic["rules"]["threshold"] == 20
-
-    invalid_calls = []
-
-    def fake_invalid_rule_draft(**kwargs):
-        invalid_calls.append(kwargs["title"])
-        raise app_module.LLMClientError("INVALID_TOOL_ARGUMENTS_JSON: broken")
-
-    monkeypatch.setattr(app_module, "generate_tracked_topic_rule_draft", fake_invalid_rule_draft)
-    bad = client.post("/api/tracked-topics/rule-draft", json={"title": "AI 发展"})
-    assert bad.status_code == 502
-    assert bad.get_json()["error"] == "tracked_rule_draft_generate_failed"
-    assert invalid_calls == ["AI 发展"]
 
 
 def test_feed_and_non_feed_sorting_split(tmp_path: Path, monkeypatch):
@@ -2702,8 +2414,6 @@ def test_bloomberg_video_pages_are_hidden_server_side_without_deleting_history(t
     assert "checkpoint" not in locate
 
 
-
-
 def test_news_section_order_date_asc_and_intra_date_asc_for_feed(tmp_path: Path, monkeypatch):
     daily_dir = tmp_path / "DailyNews" / "2026年5月"
     daily_dir.mkdir(parents=True)
@@ -3757,146 +3467,29 @@ def test_market_workbench_overview_and_tag_feed(tmp_path: Path, monkeypatch):
     assert bearish_only["items"][0]["title"] == "R2"
 
 
-def test_market_tag_summary_generate_and_stale(tmp_path: Path, monkeypatch):
-    today = datetime.now().date()
-    day_one = today - timedelta(days=2)
-    day_two = today - timedelta(days=3)
-    daily_dir = tmp_path / "DailyNews" / f"{day_one.year}年{day_one.month}月"
-    daily_dir.mkdir(parents=True)
-    (daily_dir / f"dailyFreshNews_{day_one:%Y-%m-%d}.md").write_text(
-        f"""## Reuters · World（2条）
-### [R1](https://www.reuters.com/world/r1)
-- 发布时间：{day_one:%Y-%m-%d} 09:00:00
-- 摘要：AI 继续上涨
-### [R2](https://www.reuters.com/world/r2)
-- 发布时间：{day_two:%Y-%m-%d} 10:00:00
-- 摘要：算力继续扩张
-""",
-        encoding="utf-8",
-    )
-    db_path = tmp_path / "news_index.sqlite3"
-    monkeypatch.setenv("NEWS_READER_DAILY_NEWS_DIR", str(tmp_path / "DailyNews"))
-    monkeypatch.setenv("NEWS_READER_DB_PATH", str(db_path))
-
-    import app as app_module
-
-    importlib.reload(app_module)
-    app_module.ensure_db()
-    client = app_module.app.test_client()
-    assert seed_news(client, json={}).status_code == 200
-
-    items = client.get("/api/news?per=20").get_json()["items"]
-    r1 = next(x for x in items if x["title"] == "R1")
-    r2 = next(x for x in items if x["title"] == "R2")
-    assert client.put(f"/api/news/{r1['id']}/market-tag", json={"tag": "AI", "direction": "bullish"}).status_code == 200
-    assert client.put(f"/api/news/{r2['id']}/market-tag", json={"tag": "AI", "direction": "bearish"}).status_code == 200
-    assert client.put(f"/api/news/{r1['id']}/note", json={"note": "我倾向继续关注主线"}).status_code == 200
-    assert client.put(
-        "/api/market-trends/note",
-        json={"date_key": day_one.strftime("%Y-%m-%d"), "tag_key": "AI", "direction": "bullish", "note": "独立趋势判断"},
-    ).status_code == 200
-
-    captured = {}
-
-    def fake_summary(**kwargs):
-        captured.update(kwargs)
-        return {
-            "model": "deepseek-chat",
-            "summary_text": "新闻事实：AI 与算力链维持强势。用户想法：继续围绕主线观察，但要区分判断与事实。",
-            "raw_json": "{}",
-        }
-
-    monkeypatch.setattr(app_module, "generate_market_tag_summary", fake_summary)
-
-    missing = client.get("/api/market-tags/AI/summary")
-    assert missing.status_code == 200
-    assert missing.get_json()["summary"]["status"] == "missing"
-
-    generated = client.post("/api/market-tags/AI/summary/generate")
-    assert generated.status_code == 200
-    summary = generated.get_json()["summary"]
-    assert summary["status"] == "success"
-    assert "最近 30 天" in summary["scope_label"]
-    assert "新闻事实" in summary["summary_text"]
-    assert "用户想法" in summary["summary_text"]
-    assert captured["range_days"] == 30
-    assert captured["news_count"] == 2
-    assert captured["note_count"] == 1
-    assert "【新闻事实】" in captured["materials"]
-    assert "【用户想法】" in captured["materials"]
-    assert "方向：看多" in captured["materials"]
-    assert "方向：看空" in captured["materials"]
-    assert "对应新闻想法" in captured["materials"]
-
-    stale_note = client.put(f"/api/news/{r2['id']}/note", json={"note": "补充一条新的新闻想法"})
-    assert stale_note.status_code == 200
-
-    stale = client.get("/api/market-tags/AI/summary")
-    assert stale.status_code == 200
-    assert stale.get_json()["summary"]["status"] == "stale"
-
-    def fail_summary(**kwargs):
-        raise app_module.LLMClientError("DEEPSEEK_CALL_FAILED: boom")
-
-    monkeypatch.setattr(app_module, "generate_market_tag_summary", fail_summary)
-    failed = client.post("/api/market-tags/AI/summary/generate")
-    assert failed.status_code == 502
-    failed_payload = failed.get_json()
-    assert failed_payload["summary"]["status"] == "failed"
-    assert "boom" in failed_payload["summary"]["error"]
-
-
-def test_generate_pi_fallback_translation_layered(tmp_path: Path, monkeypatch):
-    # generate_pi_fallback_translation 复用结构化/body-only/失败分层。
-    import app as app_module
+def test_generate_pi_fallback_translation_layered(monkeypatch):
     import llm_client as llm
-
-    def make_proc(stdout):
-        class Completed:
-            returncode = 0
-            stderr = ""
-        Completed.stdout = stdout
-        return Completed()
-
-    structured = (
-        '{"type":"session","id":"s"}\n'
-        '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"{\\"key_points_zh\\":[\\"一\\",\\"二\\",\\"三\\"],\\"conclusion_zh\\":\\"结论\\",\\"body_zh\\":\\"译文\\"}"}}\n'
-        '{"type":"message_update","assistantMessageEvent":{"type":"text_end"}}\n'
-    )
-    monkeypatch.setattr(llm.subprocess, "run", lambda args, **kwargs: make_proc(structured))
-    out = llm.generate_pi_fallback_translation(title="t", source="s", content="body", pi_provider="ollama", pi_model="minimax-m3:cloud")
-    assert out["key_points_zh"] == ["一", "二", "三"]
-    assert out["body_zh"] == "译文"
-    assert "pi-fallback-structured" in out["raw_json"]
-
-    # body-only：输出非 JSON 但含中文
-    body_only = '{"type":"session","id":"s"}\n{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"这是一段中文译文，不是 JSON"}}\n{"type":"message_update","assistantMessageEvent":{"type":"text_end"}}\n'
-    monkeypatch.setattr(llm.subprocess, "run", lambda args, **kwargs: make_proc(body_only))
-    out2 = llm.generate_pi_fallback_translation(title="t", source="s", content="body", pi_provider="ollama", pi_model="minimax-m3:cloud")
-    assert out2["body_zh"] == "这是一段中文译文，不是 JSON"
-    assert out2["key_points_zh"] == []
-    assert "pi-fallback-body-only" in out2["raw_json"]
-
-    # 完全失败：空输出
-    monkeypatch.setattr(llm.subprocess, "run", lambda args, **kwargs: make_proc('{"type":"session","id":"s"}\n'))
-    raised = False
-    try:
-        llm.generate_pi_fallback_translation(title="t", source="s", content="body", pi_provider="ollama", pi_model="minimax-m3:cloud")
-    except llm.LLMClientError:
-        raised = True
-    assert raised, "空输出应抛 LLMClientError"
-
-    # PI_PACKAGE_DIR 清理断言
-    captured = {}
-
-    def capture_run(args, **kwargs):
-        captured["env"] = kwargs.get("env")
-        return make_proc(structured)
-
-    monkeypatch.setattr(llm.subprocess, "run", capture_run)
-    llm.generate_pi_fallback_translation(title="t", source="s", content="body", pi_provider="ollama", pi_model="minimax-m3:cloud")
-    assert captured["env"] is not None
-    assert captured["env"].get("PI_PACKAGE_DIR") is None
+    import runtime_tasks
+    calls = []
+    structured = json.dumps({"key_points_zh": ["一", "二", "三"], "conclusion_zh": "结论", "body_zh": "译文"})
+    def run(config, prompt, **kwargs):
+        calls.append((config, prompt, kwargs))
+        return structured
+    monkeypatch.setattr(runtime_tasks, "run", run)
+    args = dict(title="t", source="s", content="body", pi_provider="ollama", pi_model="minimax-m3:cloud")
+    out = llm.generate_pi_fallback_translation(**args)
+    assert out["key_points_zh"] == ["一", "二", "三"] and out["body_zh"] == "译文"
+    assert json.loads(out["raw_json"])["transport"] == "oar"
+    assert calls[0][0]["pi"]["model"] == args["pi_model"]
+    assert calls[0][2] == {"task": "translation", "timeout": 90}
+    monkeypatch.setattr(runtime_tasks, "run", lambda *a, **kw: "这是一段中文译文，不是 JSON")
+    out = llm.generate_pi_fallback_translation(**args)
+    assert out["key_points_zh"] == [] and out["body_zh"] == "这是一段中文译文，不是 JSON"
+    def fail(*a, **kw):
+        raise RuntimeError("oar_incomplete_answer")
+    monkeypatch.setattr(runtime_tasks, "run", fail)
+    with pytest.raises(llm.LLMClientError, match="PI_FALLBACK_FAILED"):
+        llm.generate_pi_fallback_translation(**args)
 
 
 def test_deepseek_failure_uses_pi_fallback_and_persists_result(tmp_path: Path, monkeypatch):
@@ -3959,8 +3552,6 @@ def test_deepseek_failure_uses_pi_fallback_and_persists_result(tmp_path: Path, m
     assert job_row["status"] == "success"
     assert job_row["last_error"] is None
     assert fallback_called["pi_provider"] == ""
-
-
 
 
 def test_process_pending_jobs_once_twitter_success_and_comment_summary(tmp_path: Path, monkeypatch):
@@ -4236,28 +3827,6 @@ def test_process_pending_ai_once_twitter_generates_body_only(tmp_path: Path, mon
     assert detail["ai"]["body_zh"] == "这是推文中文翻译。"
     assert detail["ai"]["key_points_zh"] == "[]"
     assert detail["ai"]["conclusion_zh"] == ""
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_process_pending_jobs_once_twitter_success_does_not_enqueue_ai_job(tmp_path: Path, monkeypatch):
@@ -4656,7 +4225,6 @@ def test_feed_source_subkeys_use_collection_source_for_x_and_merge_bloomberg(tmp
     assert {item["id"] for item in feed["items"]} == {"x2", "x3", "b1", "b2", "b3"}
 
 
-
 def test_feed_source_subkey_settings_roundtrip_normalizes_values(tmp_path: Path, monkeypatch):
     daily_dir = tmp_path / "DailyNews" / "2026年7月"
     daily_dir.mkdir(parents=True)
@@ -5048,56 +4616,6 @@ def test_pi_chat_settings_snapshot_removes_logged_out_provider_even_when_saved(m
     assert empty["provider_options"] == [] and empty["model_options_by_provider"] == {}
     assert empty["error"] == "" and empty["source"] == "pi-model-registry"
     assert empty["saved_provider"] == "deepseek"
-
-
-def test_parse_pi_stdout_success_text_delta():
-    import app as app_module
-
-    stdout = (
-        '{"type":"session","id":"pi-session-1"}\n'
-        '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"你好"}}\n'
-        '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"世界"}}\n'
-        '{"type":"message_update","assistantMessageEvent":{"type":"text_end","content":"你好世界"}}\n'
-    )
-    session_id, answer, has_error, error_message = app_module._parse_pi_stdout(stdout)
-    assert session_id == "pi-session-1"
-    assert answer == "你好世界"
-    assert has_error is False
-    assert error_message == ""
-
-
-def test_parse_pi_stdout_falls_back_to_message_end():
-    import app as app_module
-
-    stdout = (
-        '{"type":"session","id":"pi-session-2"}\n'
-        '{"type":"message_end","message":{"content":[{"type":"text","text":"fallback"}]}}\n'
-    )
-    session_id, answer, has_error, error_message = app_module._parse_pi_stdout(stdout)
-    assert session_id == "pi-session-2"
-    assert answer == "fallback"
-    assert has_error is False
-
-
-def test_parse_pi_stdout_detects_auto_retry_failure():
-    import app as app_module
-
-    stdout = (
-        '{"type":"session","id":"pi-session-3"}\n'
-        '{"type":"auto_retry_end","success":false,"finalError":"rate limit"}\n'
-    )
-    _, _, has_error, error_message = app_module._parse_pi_stdout(stdout)
-    assert has_error is True
-    assert "rate limit" in error_message
-
-
-def test_parse_pi_stdout_detects_will_retry():
-    import app as app_module
-
-    stdout = '{"type":"agent_end","willRetry":true}\n'
-    _, _, has_error, error_message = app_module._parse_pi_stdout(stdout)
-    assert has_error is True
-    assert error_message == "pi_will_retry"
 
 
 def test_run_pi_chat_success(tmp_path: Path, monkeypatch):
@@ -5714,7 +5232,6 @@ def test_detail_retry_non_twitter_with_detail_still_requeues_ai_job(tmp_path: Pa
     assert called["model"] == ""
 
 
-
 def test_sanitize_twitter_media_images_filters_invalid_items():
     import app as app_module
 
@@ -5860,7 +5377,6 @@ def test_detail_retry_twitter_resets_detail_job_attempts_and_timestamps(tmp_path
         assert job["finished_at"] is None
     finally:
         conn.close()
-
 
 
 def test_media_cache_key_is_deterministic_sha256():
@@ -6193,7 +5709,6 @@ def test_media_cache_route_rejects_invalid_and_missing_keys(tmp_path: Path, monk
     assert client.get("/api/media-cache/" + "0" * 64).status_code == 404
 
 
-
 def test_media_cache_route_blocks_traversal_and_sibling_prefix(tmp_path: Path, monkeypatch):
     media_dir = tmp_path / "media-cache"
     evil_sibling = tmp_path / "media-cache-evil"
@@ -6267,7 +5782,6 @@ def test_cleanup_media_cache_does_not_delete_outside_files(tmp_path: Path, monke
         conn.close()
 
 
-
 def test_cache_twitter_image_rejects_non_whitelisted_url(tmp_path: Path, monkeypatch):
     media_dir = tmp_path / "media-cache"
     monkeypatch.setenv("NEWS_READER_MEDIA_CACHE_DIR", str(media_dir))
@@ -6298,7 +5812,6 @@ def test_cache_twitter_image_rejects_non_whitelisted_url(tmp_path: Path, monkeyp
         conn.close()
 
     assert not downloaded
-
 
 
 def test_run_opencli_twitter_detail_allows_short_tweet_with_media(monkeypatch, tmp_path):
@@ -6390,7 +5903,6 @@ def test_run_opencli_twitter_detail_rejects_truly_empty_thread(monkeypatch, tmp_
     assert error == "EMPTY_TWITTER_THREAD"
 
 
-
 def test_run_opencli_twitter_detail_allows_single_character_tweet(monkeypatch, tmp_path):
     monkeypatch.setenv("NEWS_READER_MEDIA_CACHE_DIR", str(tmp_path / "media-cache"))
     monkeypatch.setenv("NEWS_READER_DB_PATH", str(tmp_path / "news_index.sqlite3"))
@@ -6413,7 +5925,6 @@ def test_run_opencli_twitter_detail_allows_single_character_tweet(monkeypatch, t
     assert ok is True
     assert error == ""
     assert "早" in detail["content"]
-
 
 
 def test_normalize_deepseek_model_maps_deprecated_names():
@@ -6856,8 +6367,6 @@ def test_review_retrack_without_criteria(tmp_path: Path, monkeypatch):
     })
     assert resp.status_code == 200
     assert resp.get_json()["review"]["source_note"]
-
-
 
 
 def test_review_list_date_key_label(tmp_path: Path, monkeypatch):
@@ -7643,8 +7152,6 @@ def test_review_progress_with_evidence_complete(tmp_path: Path, monkeypatch):
     assert all(ev["event_id"] == event_id for ev in review["evidence"])
 
 
-
-
 def test_review_news_reminders_migration_compatible(tmp_path: Path, monkeypatch):
     """Old reminders without review_chain_id should still work after migration."""
     db_path = tmp_path / "news_index.sqlite3"
@@ -7966,9 +7473,6 @@ def test_review_search_no_duplicate(tmp_path: Path, monkeypatch):
     r = client.get("/api/reviews?q=新能源")
     assert r.get_json()["total"] == 1
     assert len(r.get_json()["items"]) == 1
-
-
-
 
 
 def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path, monkeypatch):
@@ -8583,27 +8087,6 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     assert deleted.get_json()["highlight_surfaces"]["twitter_detail"]["highlights"] == []
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_index_theme_init_script_precedes_stylesheet():
     """Apply stored theme before fetching CSS, with no first-paint flash."""
     source = (Path(__file__).resolve().parents[1] / "static/index.html").read_text()
@@ -8722,18 +8205,6 @@ def test_agent_session_new_and_clear_are_real_and_idempotent(tmp_path: Path, mon
         assert conn.execute("SELECT COUNT(*) FROM agent_sessions").fetchone() == (0,)
         assert conn.execute("SELECT COUNT(*) FROM agent_jobs").fetchone() == (0,)
         assert conn.execute("SELECT COUNT(*) FROM agent_messages").fetchone() == (0,)
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _install_fake_oar(tmp_path, monkeypatch):
@@ -9027,7 +8498,6 @@ def test_agent_ttl_setting_persists_and_ui_exposes_cleanup_controls(tmp_path: Pa
     assert saved.status_code == 200
     assert saved.get_json()["agent"]["session_ttl_hours"] == 24
     assert app_module.load_app_settings()["agent"]["session_ttl_hours"] == 24
-
 
 
 def test_database_settings_connect_selected_db_in_fresh_process(tmp_path: Path, monkeypatch):
