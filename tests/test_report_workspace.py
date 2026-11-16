@@ -150,25 +150,6 @@ def test_large_context_pi_batches_reduce_repeated_reasoning_but_keep_all_sources
     assert [ref for batch in large.values() for ref in batch] == list(workspace.sources)
 
 
-def test_planned_chapters_are_written_from_original_sources_in_parallel(workspace):
-    review_all(workspace)
-    events = workspace.events()
-    parts = [{"id": "p"+str(i), "title": "独立主题", "event_ids": [event["id"]]} for i, event in enumerate(events)]
-    workspace.invoke("report_plan", {"parts": parts, "omitted_events": []})
-    calls = []
-    def model(config, prompt):
-        if "本次独立编写计划中的一个章节" in prompt:
-            material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
-            assert "事实" in material[0]["title"]  # Original, not only the event summary.
-            calls.append("draft")
-            return gen.encoded({"sections": [], "briefs": [{"text": "依据原始资料编写", "refs": [r for s in material for r in s["refs"]]}]})
-        assert "saved_chapters" in prompt
-        assert len(workspace.state["drafts"]) == len(parts)
-        return gen.encoded(final_actions(workspace))
-    result = rw.program_editor(workspace, workspace.config, model, Checkpoints())
-    assert len(calls) == len(parts) and len(result["briefs"]) == len(parts)
-
-
 def test_confirmed_title_selection_rejects_reselection_and_late_draft(workspace):
     review_all(workspace)
     old = plan_all(workspace)
@@ -179,62 +160,6 @@ def test_confirmed_title_selection_rejects_reselection_and_late_draft(workspace)
     assert old == new
     assert "error" in workspace.invoke("report_plan", {"parts": [], "omitted_events": [e["id"] for e in workspace.events()]})
     assert "error" in workspace.invoke("report_draft", {"part_id": "main", "revision": "stale", "briefs": [{"text": "迟到的旧稿", "refs": list(workspace.sources)}]})
-
-
-def test_candidate_directory_survives_preliminary_stateless_tool_reads(workspace):
-    review_all(workspace)
-    calls = []
-    def model(config, prompt):
-        calls.append(prompt)
-        assert "完整候选目录（已读取全部页）" in prompt
-        for event in workspace.events():
-            assert gen.encoded(event) in prompt
-        if len(calls) == 1:
-            return gen.encoded({"actions": [{"tool": "report_status", "arguments": {}}]})
-        assert '"tool":"report_status"' in prompt
-        raise RuntimeError("fixture_stop_after_read")
-    with pytest.raises(RuntimeError, match="fixture_stop_after_read"):
-        rw.program_editor(workspace, workspace.config, model, Checkpoints())
-    assert len(calls) == 2
-
-
-def test_malformed_editor_actions_do_not_poison_the_next_retry(workspace):
-    review_all(workspace)
-    cache = Checkpoints()
-    with pytest.raises(RuntimeError, match="report_invalid_result"):
-        rw.program_editor(workspace, workspace.config, lambda *_: '{"actions":[]}', cache)
-    assert workspace.state["turn"] == 1
-    def call(*_):
-        raise RuntimeError("fixture_fresh_call")
-    with pytest.raises(RuntimeError, match="fixture_fresh_call"):
-        rw.program_editor(workspace, workspace.config, call, cache)
-
-
-def test_cached_chapter_repairs_only_missing_planned_events(workspace):
-    for batch, refs in workspace.batches.items():
-        workspace.invoke("report_review", {"batch_id": batch, "events": [
-            {"text": "独立事件", "refs": [r]} for r in refs], "omitted": []})
-    events = workspace.events()
-    plan = workspace.invoke("report_plan", {"parts": [{"id": "main", "title": "重点", "event_ids": [e["id"] for e in events[:2]]}],
-                                           "omitted_events": [e["id"] for e in events[2:]]})
-    good = {"title": "已完成的段落", "paragraphs": [{"text": "已有事实", "refs": events[0]["refs"]}]}
-    raw = {"sections": [good], "briefs": []}
-    cache = Checkpoints()
-    key = workspace.key+":draft:"+plan["revision"]+":main"
-    cache.saved[key+":raw"] = raw
-    cache.saved[key+":checked"] = gen.validate_report(raw, list(workspace.sources.values()), "monthly")
-    repairs = []
-    def model(config, prompt):
-        if "本次独立编写计划中的一个章节" in prompt:
-            assert "本次仅修复" in prompt and '"path":"/briefs"' in prompt
-            material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
-            assert [s["refs"] for s in material] == [events[1]["refs"]]
-            repairs.append(1)
-            return gen.encoded({"repairs": [{"path": "/briefs", "value": [{"text": "补充的独立事件", "refs": events[1]["refs"]}]}]})
-        return gen.encoded(final_actions(workspace))
-    result = rw.program_editor(workspace, workspace.config, model, cache)
-    assert result["sections"][0]["paragraphs"][0]["text"] == good["paragraphs"][0]["text"]
-    assert len(repairs) == 1 and result["briefs"][0]["refs"] == events[1]["refs"]
 
 
 def test_mcp_bridge_is_report_scoped_and_concurrent_reviews_are_durable(workspace):
@@ -269,36 +194,10 @@ def test_bridge_closes_only_after_an_accepted_journal_write_finishes(workspace):
     assert batch in restored.state["reviews"]
 
 
-def test_program_editor_uses_same_model_and_preserves_full_chapters_on_retry(workspace):
-    calls, fail = [], [True]
-    def model(config, prompt):
-        assert config["model"] == "fixture"
-        calls.append(prompt)
-        if "本批仅建立" in prompt:
-            material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
-            return gen.encoded({"events": [{"text": "独立事件", "refs": [item["ref"]]} for item in material], "omitted": []})
-        if fail[0]:
-            fail[0] = False
-            raise RuntimeError("report_model_timeout")
-        if workspace.state["plan"] is None:
-            return gen.encoded({"actions": [{"tool": "report_plan", "arguments": {"parts": [{"id": "main", "title": "主线", "event_ids": [e["id"] for e in workspace.events()]}], "omitted_events": []}}]})
-        revision = workspace.state["plan"]["revision"]
-        if not workspace.state["drafts"]:
-            return gen.encoded({"actions": [{"tool": "report_draft", "arguments": {"revision": revision, "part_id": "main", "briefs": [{"text": "完整重要事实", "refs": list(workspace.sources)}]}}]})
-        return gen.encoded(final_actions(workspace))
-    checkpoint = Checkpoints()
-    with pytest.raises(RuntimeError, match="report_model_timeout"):
-        rw.program_editor(workspace, workspace.config, model, checkpoint)
-    first_calls = sum("本批仅建立" in p for p in calls)
-    result = rw.program_editor(workspace, workspace.config, model, checkpoint)
-    assert first_calls == len(workspace.batches)
-    assert sum("本批仅建立" in p for p in calls) == first_calls
-    assert result["briefs"][0]["text"] == "完整重要事实"
-
-
-def test_native_completion_without_persisted_final_report_is_not_success(workspace):
+@pytest.mark.parametrize("runtime", ["pi", "codex"])
+def test_native_completion_without_persisted_final_report_is_not_success(workspace, runtime):
     with pytest.raises(RuntimeError, match="report_work_incomplete"):
-        rw.generate_workspace(workspace.snapshot, {**workspace.config, "runtime": "codex", "codex": {}},
+        rw.generate_workspace(workspace.snapshot, {**workspace.config, "runtime": runtime, "codex": {}},
                               lambda *_: "子任务已完成", Checkpoints(), lambda *a, **kw: None)
 
 
@@ -311,7 +210,8 @@ def test_short_ultra_report_keeps_native_workspace_capability(monkeypatch):
     assert len(seen) == 1
 
 
-def test_native_editor_continues_partial_turn_without_losing_valid_work(workspace):
+@pytest.mark.parametrize("runtime", ["pi", "codex"])
+def test_native_editor_continues_partial_turn_without_losing_valid_work(workspace, runtime):
     calls = []
     def call(config, prompt):
         w = config["_workspace"]
@@ -325,54 +225,33 @@ def test_native_editor_continues_partial_turn_without_losing_valid_work(workspac
         w.invoke("report_draft", {"part_id": "main"})
         w.invoke("report_finish", {"revision": plan["revision"], "audit": "已复核"})
         return "已完成"
-    result = rw.generate_workspace(workspace.snapshot, {**workspace.config, "runtime": "codex", "codex": {}}, call, Checkpoints(), lambda *a, **kw: None)
+    result = rw.generate_workspace(workspace.snapshot, {**workspace.config, "runtime": runtime, "codex": {}}, call, Checkpoints(), lambda *a, **kw: None)
     assert len(calls) == 2 and result["briefs"][0]["text"] == "完成跨日比较"
 
 
-def test_pi_failed_batch_stops_scheduling_remaining_month(workspace):
-    calls = []
-    def model(config, prompt):
-        calls.append(1)
-        raise RuntimeError("report_output_truncated")
-    with pytest.raises(RuntimeError, match="report_output_truncated"):
-        rw.program_editor(workspace, workspace.config, model, Checkpoints())
-    assert 1 <= len(calls) <= 3
-
-
-def test_repeated_invalid_editor_actions_stop_without_losing_reviews(workspace):
-    review_all(workspace)
-    calls = []
-    def model(config, prompt):
-        if calls:
-            assert '"arguments":{"attempt":"retain for correction"}' in prompt
-        calls.append(1)
-        return gen.encoded({"actions": [{"tool": "unknown", "arguments": {"attempt": "retain for correction"}}]})
-    with pytest.raises(RuntimeError, match="report_work_incomplete"):
-        rw.program_editor(workspace, workspace.config, model, Checkpoints())
-    assert len(calls) == 3 and workspace.status()["reviewed_count"] == 5
-    restored = rw.Workspace(workspace.snapshot, workspace.config, state_store=workspace.store)
-    assert restored.state["agent_results"][0]["arguments"] == {"attempt": "retain for correction"}
-
-
-def test_pi_truncation_expands_budget_once_without_changing_model_or_effort(workspace, monkeypatch):
+def test_pi_truncation_expands_budget_once_without_changing_model_or_effort(workspace):
     config = {**workspace.config, "reasoning_effort": "max", "limits": {"context_window": 1000000, "input_tokens": 834464, "output_tokens": 65536, "max_output_tokens": 384000}}
     seen = []
     def model(selected, prompt):
         seen.append(selected)
-        if len(seen) == 1: raise RuntimeError("report_output_truncated")
+        w = selected["_workspace"]
+        if len(seen) == 1:
+            review_all(w)
+            raise RuntimeError("report_output_truncated")
+        assert w.status()["reviewed_count"] == 5
+        plan = plan_all(w)
+        w.invoke("report_draft", {"part_id": "main", "revision": plan["revision"], "briefs": [{"text": "完整报告", "refs": list(w.sources)}]})
+        w.invoke("report_draft", {"part_id": "main"})
+        w.invoke("report_finish", {"revision": plan["revision"], "audit": "已复核"})
         return "complete"
-    def editor(w, selected, call, checkpoint):
-        assert call(selected, "bounded evidence") == "complete"
-        w.state["final"] = {"sections": [], "briefs": []}
-        return w.state["final"]
-    monkeypatch.setattr(rw, "program_editor", editor)
     rw.generate_workspace(workspace.snapshot, config, model, Checkpoints(), lambda *a, **kw: None)
     assert [c["limits"]["output_tokens"] for c in seen] == [65536, 131072]
     assert seen[1]["limits"]["input_tokens"] == 768928
     assert all(c["model"] == "fixture" and c["reasoning_effort"] == "max" for c in seen)
 
 
-def test_failed_root_turn_requires_coordinator_acknowledgement_on_retry(workspace):
+@pytest.mark.parametrize("runtime", ["pi", "codex"])
+def test_failed_root_turn_requires_coordinator_acknowledgement_on_retry(workspace, runtime):
     config = {**workspace.config, "runtime": "codex", "codex": {"model": "fixture"}}
     journal, calls = Journal(), []
     def call(config, prompt):

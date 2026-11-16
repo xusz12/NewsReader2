@@ -64,7 +64,7 @@ def test_defaults_cover_five_types_without_changing_schedule(service, db, monkey
     monkeypatch.setattr(pr, "calendar_data", lambda: {})
     assert len(service.manual_options()["periods"]) == 5
     service.settings = lambda: {**SETTINGS, "feature_models": {"reports": {
-        "runtime": "codex", "codex": {"model": "report-model", "reasoning_effort": "high", "provider": "private-provider"},
+        "runtime": "codex", "codex": {"model": "report-model", "reasoning_effort": "high"},
         "pi": {"model": "unused-model"}}}}
     assert service.manual_options()["model_label"] == "Codex · report-model · high"
     service.settings = lambda: {"agent": {"runtime": "pi"}, "llm": {"pi_chat": {}}}

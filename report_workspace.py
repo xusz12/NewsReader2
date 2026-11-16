@@ -6,7 +6,6 @@ unlocks the selected sources' summaries and bodies for writing.
 from __future__ import annotations
 
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import copy
 import hashlib
 import re
@@ -15,7 +14,7 @@ import time
 
 import report_model
 import report_monthly
-from report_generation import (EDITOR, EDITION, InvalidReport, edited_call, encoded, json_call,
+from report_generation import (EDITOR, EDITION, InvalidReport, encoded,
                                headline_material, writing_material, validate_selected_report,
                                validate_events, report_context)
 
@@ -57,10 +56,6 @@ def working_batches(sources, config):
     # arbitrary boundaries at any time through source search and event records.
     target = WORK_TOKENS
     if config.get("runtime") == "pi":
-        # Repeated stateless reasoning has a substantial per-request cost.
-        # Large-context providers can review more evidence in each parallel
-        # call, while retaining ample context/output headroom and full re-read
-        # access. Native delegates instead control their own working contexts.
         target = min(96000, max(WORK_TOKENS, config["limits"]["input_tokens"] // 8),
                      max(WORK_TOKENS, config["limits"].get("output_tokens", WORK_TOKENS) * 2))
     budget = min(target, config["limits"]["input_tokens"] // 2)
@@ -335,6 +330,8 @@ class Workspace:
         with self.lock:
             if self.failed:
                 raise RuntimeError(self.failed)
+            if self.config.get("_cancelled", lambda: False)():
+                raise RuntimeError("report_interrupted")
             self.last_activity = time.monotonic()
             before = copy.deepcopy(self.state)
             try:
@@ -383,178 +380,46 @@ def editorial_rules():
     return EDITOR.replace("只用输入新闻资料，不联网、不调用工具、不获取正文。", "只用报告工作区的本期新闻资料，不联网、不获取快照以外的正文。").replace("只返回要求的 JSON。", "") + EDITION.split("返回 {")[0]
 
 
-def run_parallel(items, work, abort):
-    """Three in flight; fail-fast cancellation still preserves completed work."""
-    pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="report-evidence")
-    pending, active = iter(items), set()
-    try:
-        for _ in range(3):
-            item = next(pending, None)
-            if item is not None:
-                active.add(pool.submit(work, item))
-        while active:
-            completed, active = wait(active, return_when=FIRST_COMPLETED)
-            for future in completed:
-                future.result()
-            for _ in completed:
-                item = next(pending, None)
-                if item is not None:
-                    active.add(pool.submit(work, item))
-    finally:
-        abort.set()
-        pool.shutdown(wait=True, cancel_futures=True)
-        abort.clear()
-
-
-def program_editor(workspace, config, call, checkpoint):
-    """Provider-neutral orchestration; never changes the selected model/effort."""
-    abort = threading.Event()
-    cancelled = config.get("_cancelled", lambda: False)
-    config = {**config, "_cancelled": lambda: abort.is_set() or cancelled(), "_deadline": time.monotonic()+3600}
-    def review(batch_id):
-        if batch_id in workspace.state["reviews"]:
-            return
-        material = [{**headline_material(workspace.sources[r]), "refs": [r]} for r in workspace.batches[batch_id]]
-        context = encoded(report_context(workspace.snapshot))
-        prompt = EDITOR + "\n编辑规则与期别：" + context + '\n本批仅建立可供主编辑回查的事件记录，并非最终删选。保留独立的重要事实、关键日期、数字、变化、分歧与限定；同事件的不同进展应保留，周月报尤其注意早期信号与后续结果。确无新闻价值的来源可放 omitted。每个输入编号必须出现在 events 或 omitted 中。返回 {"events":[{"text":"事实与时间、条件","refs":["N00001"]}],"omitted":[]}。\n新闻资料：' + encoded(material)
-        if not report_model.fits(config, prompt):
-            # An unusually long individual source remains for paged reading by
-            # the editor below, instead of truncation or a doomed retry.
-            return
-        allowed = set(workspace.batches[batch_id])
-        result = edited_call(workspace.key + ":" + batch_id, prompt, material, context, config, call, checkpoint,
-                             lambda value: validate_events(value, allowed, workspace.required & allowed))
-        saved = workspace.invoke("report_review", {"batch_id": batch_id, **result})
-        if "error" in saved:
-            raise RuntimeError("report_coverage_incomplete")
-    workspace.progress("reading", completed=len(workspace.state["reviews"]), total=len(workspace.batches))
-    run_parallel([b for b in workspace.batches if b not in workspace.state["reviews"]], review, abort)
-    workspace.progress("planning")
-    context = encoded(report_context(workspace.snapshot))
-
-    def draft(part):
-        revision = workspace.state["plan"]["revision"]
-        events = [e for e in workspace.events() if e["id"] in part["event_ids"]]
-        refs = {r for e in events for r in e["refs"]}
-        sources = [workspace.sources[r] for r in sorted(refs)]
-        material = [{**news_material(s), "refs": [s["ref"]]} for s in sources]
-        prompt = EDITOR + "\n编辑规则与期别：" + context + EDITION.split("返回 {")[0] + '\n本次独立编写计划中的一个章节，输出完整内容，主编辑将直接组装，不再压缩。标题选稿已确认，本章每个入选编号都须保留引用；摘要与正文只补充细节，不得重新选稿或因没有正文而舍弃。关键数字、条件与反证不得省略。返回 {"sections":[{"title":"重点主题","paragraphs":[{"text":"完整正文","refs":[],"emphasis":""}]}],"briefs":[{"text":"次重点","refs":[]}]}。\n本章计划：' + encoded(part) + "\n事件记录：" + encoded(events) + "\n新闻资料：" + encoded(material)
-        if not report_model.fits(config, prompt):
-            return  # The editor can page the originals and write this part.
-        key = workspace.key+":draft:"+revision+":"+part["id"]
-        raw = checkpoint(key+":raw", lambda: json_call(key, prompt, config, call, checkpoint))
-        # Older attempts may have cached only shape validation. Reuse their
-        # original text, then apply the stronger planned-event validation.
-        checkpoint(key+":planned:raw", lambda: raw)
-        value = edited_call(key+":planned", prompt, material, context, config, call, checkpoint,
-                            lambda v: validate_chapter(v, sources, workspace.snapshot["kind"], events))
-        saved = workspace.invoke("report_draft", {"part_id": part["id"], "revision": revision,
-                                                 "sections": value["sections"], "briefs": value["briefs"]})
-        if "error" in saved:
-            raise RuntimeError("report_coverage_incomplete")
-
-    drafted_revision = None
-    # Durable records are the memory. Only recent tool results travel in each
-    # turn; the editor can page back to every record and original source.
-    results, repeated_error, failures = copy.deepcopy(workspace.state.get("agent_results", [])), "", 0
-    for _ in range(max(60, len(workspace.batches)*8)):
-        if time.monotonic() >= config["_deadline"]:
-            raise RuntimeError("report_model_timeout")
-        if cancelled():
-            raise RuntimeError("report_interrupted")
-        plan = workspace.state["plan"]
-        if plan and plan["revision"] != drafted_revision:
-            run_parallel([p for p in plan["parts"] if p["id"] not in workspace.state["drafts"]], draft, abort)
-            drafted_revision = plan["revision"]
-            saved = [{"part_id": p["id"], **workspace.state["drafts"][p["id"]]} for p in plan["parts"] if p["id"] in workspace.state["drafts"]]
-            if report_model.estimate_tokens(encoded(saved)) <= min(64000, config["limits"]["input_tokens"]//3):
-                results = [{"tool": "report_draft", "result": {"saved_chapters": saved}}]
-        catalogue = ""
-        if plan and all(p["id"] in workspace.state["drafts"] for p in plan["parts"]):
-            workspace.progress("reviewing", completed=len(plan["parts"])-len(workspace.unread_drafts()), total=len(plan["parts"]))
-        if not plan:
-            events = workspace.events()
-            if report_model.estimate_tokens(encoded(events)) <= min(96000, config["limits"]["input_tokens"]//3):
-                # Keep this available until the plan is saved. A preliminary
-                # status/source read must not erase the full candidate context
-                # from the following stateless editor request.
-                catalogue = "\n完整候选目录（已读取全部页）：" + encoded(events)
-        prompt = editorial_rules() + WORKFLOW.replace("先读 report_status", "先查看下文当前状态，缺失时调用 report_status") + '\n这是程序编排模式。每次只返回 {"memory":"供下一步继续的简短工作备忘","actions":[{"tool":"报告工具名","arguments":{}}]}，一次最多6项操作。已提供的完整候选目录可直接用于计划，无需重复翻页；仍可按需回查原文。需要读完工具结果后再写依赖它的操作。保存计划后，程序会用同一模型并行编写可容纳的章节，你负责回查原文、补写未完成章节和最终审核。完整草稿通过工具保存。\n工具：' + encoded(TOOLS) + catalogue + "\n当前状态：" + encoded(workspace.status()) + "\n工作备忘：" + workspace.state["agent_memory"] + "\n上步结果：" + encoded(results)
-        if not report_model.fits(config, prompt):
-            raise RuntimeError("report_workspace_capacity")
-        answer = json_call(workspace.key+":editor:"+str(workspace.state["turn"]), prompt, config, call, checkpoint)
-        with workspace.lock:
-            # A decoded but malformed action list must not become a permanent
-            # cached answer on every later retry. Syntax-repair interruptions
-            # above retain the same turn and its original text.
-            workspace.state["turn"] += 1
-            workspace.persist()
-        actions = answer.get("actions") if isinstance(answer, dict) else None
-        if not isinstance(actions, list) or not 1 <= len(actions) <= 6:
-            raise RuntimeError("report_invalid_result")
-        results = []
-        for action in actions:
-            if not isinstance(action, dict):
-                raise RuntimeError("report_invalid_result")
-            result = workspace.invoke(action.get("tool"), action.get("arguments"))
-            results.append({"tool": action.get("tool"), "result": result,
-                            **({"arguments": action.get("arguments")} if "error" in result else {})})
-            if workspace.state["final"]:
-                return workspace.state["final"]
-        errors = encoded(results) if all("error" in item["result"] for item in results) else ""
-        failures = failures+1 if errors and errors == repeated_error else (1 if errors else 0)
-        repeated_error = errors
-        if failures >= 3:
-            raise RuntimeError("report_work_incomplete")
-        memory = answer.get("memory", "")
-        if not isinstance(memory, str) or len(memory) > 12000:
-            raise RuntimeError("report_invalid_result")
-        with workspace.lock:
-            workspace.state["agent_memory"] = memory
-            workspace.state["agent_results"] = results
-            workspace.persist()
-    raise RuntimeError("report_work_incomplete")
-
-
 def generate_workspace(snapshot, config, call, checkpoint, progress, state_store=None, title_report=None):
     workspace = Workspace(snapshot, config, progress, state_store, title_report)
     if workspace.state["final"] and workspace.state["accepted"]:
         return workspace.state["final"]
-    if config["runtime"] == "codex":
-        prompt = editorial_rules() + WORKFLOW + (NATIVE if workspace.delegation else "\n本次仅由主编辑使用报告工具完成全部流程。") + "\n先调用 report_status 获取本期规则和已完成工作。完成时只需简短确认，正文以工作区保存内容为准。"
-        deadline, stalled = time.monotonic()+3600, 0
-        for turn in range(max(4, len(workspace.batches)+3)):
-            if time.monotonic() >= deadline:
-                raise RuntimeError("report_model_timeout")
-            before = encoded([workspace.state[k] for k in ("reviews", "plan", "drafts", "final")])
-            continuation = "" if not turn else "\n上轮已结束，但完整报告尚未保存。继续调用 report_status，从已有成果完成剩余工作；不要只汇报进度或提前结束。"
-            call({**config, "_workspace": workspace, "_deadline": deadline}, prompt+continuation)
-            if workspace.state["final"]:
-                workspace.state["accepted"] = True
-                workspace.persist()
-                return workspace.state["final"]
-            stalled = stalled+1 if before == encoded([workspace.state[k] for k in ("reviews", "plan", "drafts", "final")]) else 0
-            if stalled >= 2:
-                break
-        raise RuntimeError("report_work_incomplete")
-    def with_output_budget(selected, prompt):
-        for attempt in range(2):
-            try:
-                return call(selected, prompt)
-            except RuntimeError as exc:
-                if str(exc) != "report_output_truncated" or attempt:
-                    raise
-                current = selected["limits"]["output_tokens"]
-                ceiling = min(selected["limits"].get("max_output_tokens", current),
-                              selected["limits"]["context_window"] // 4, 131072)
-                larger = min(current * 2, ceiling)
-                if larger <= current:
-                    raise
-                selected = {**selected, "limits": {**selected["limits"], "output_tokens": larger,
-                            "input_tokens": selected["limits"]["input_tokens"]-(larger-current)}}
-                if not report_model.fits(selected, prompt):
-                    raise RuntimeError("report_output_truncated") from None
-    result = program_editor(workspace, {**config, "_metric": workspace.metric}, with_output_budget, checkpoint)
-    workspace.state["accepted"] = True
-    workspace.persist()
-    return result
+    delegation = config["runtime"] == "codex" and workspace.delegation
+    prompt = editorial_rules() + WORKFLOW + (NATIVE if delegation else "\n本次仅由主编辑使用报告工具完成全部流程。") + "\n先调用 report_status 获取本期规则和已完成工作。完成时只需简短确认，正文以工作区保存内容为准。"
+    deadline, stalled = time.monotonic()+3600, 0
+    selected = {**config, "_workspace": workspace, "_deadline": deadline}
+    expanded = False
+    for turn in range(max(4, len(workspace.batches)+3)):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("report_model_timeout")
+        if config.get("_cancelled", lambda: False)():
+            raise RuntimeError("report_interrupted")
+        before = encoded([workspace.state[k] for k in ("reviews", "plan", "drafts", "final")])
+        continuation = "" if not turn else "\n上轮已结束，但完整报告尚未保存。继续调用 report_status，从已有成果完成剩余工作；不要只汇报进度或提前结束。"
+        try:
+            call(selected, prompt+continuation)
+        except RuntimeError as exc:
+            if str(exc) != "report_output_truncated" or config["runtime"] != "pi" or expanded:
+                raise
+            current = selected["limits"]["output_tokens"]
+            ceiling = min(selected["limits"].get("max_output_tokens", current),
+                          selected["limits"]["context_window"] // 4, 131072)
+            larger = min(current * 2, ceiling)
+            if larger <= current:
+                raise
+            selected = {**selected, "limits": {**selected["limits"], "output_tokens": larger,
+                        "input_tokens": selected["limits"]["input_tokens"]-(larger-current)}}
+            if not report_model.fits(selected, prompt+continuation):
+                raise RuntimeError("report_output_truncated") from None
+            expanded = True
+            continue
+        if config.get("_cancelled", lambda: False)():
+            raise RuntimeError("report_interrupted")
+        if workspace.state["final"]:
+            workspace.state["accepted"] = True
+            workspace.persist()
+            return workspace.state["final"]
+        stalled = stalled+1 if before == encoded([workspace.state[k] for k in ("reviews", "plan", "drafts", "final")]) else 0
+        if stalled >= 2:
+            break
+    raise RuntimeError("report_work_incomplete")

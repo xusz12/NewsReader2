@@ -81,8 +81,8 @@ class Bridge:
         return {"command": sys.executable, "args": [str(Path(__file__).resolve()), self.path],
                 "enabled": True, "required": True, "enabled_tools": [t["name"] for t in TOOLS],
                 "startup_timeout_sec": 20, "tool_timeout_sec": 60,
-                "default_tools_approval_mode": "approve",
-                "tools": {t["name"]: {"approval_mode": "approve", "output_token_limit": 24000} for t in TOOLS}}
+                "default_tools_approval_mode": "auto",
+                "tools": {t["name"]: {"approval_mode": "auto", "output_token_limit": 24000} for t in TOOLS}}
 
 
 def stdio(path):
@@ -101,7 +101,10 @@ def stdio(path):
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": request(path, "_tools", {})}
+            result = {"tools": [{**tool, "annotations": {
+                "readOnlyHint": tool["name"] in {"report_status", "report_sources", "report_source", "report_events"},
+                "destructiveHint": False, "openWorldHint": False}}
+                for tool in request(path, "_tools", {})]}
         elif method == "tools/call":
             try:
                 output = request(path, params.get("name"), params.get("arguments", {}))

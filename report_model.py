@@ -12,10 +12,12 @@ import selectors
 import subprocess
 import tempfile
 import time
+import uuid
 
 import codex_client
 import model_catalogs
 import pi_models
+import oar_client
 from settings import feature_model_config
 from oar_client import parse_event, terminate_group
 from llm_client import _pi_subprocess_env
@@ -157,7 +159,8 @@ def codex_restrictions(config: dict, bridge=None) -> list[str]:
             raise ValueError()
     except (ValueError, OSError, subprocess.SubprocessError):
         raise RuntimeError("report_model_unconfigured") from None
-    restrictions = ["--skip-git-repo-check", "-c", 'web_search="disabled"']
+    restrictions = ["-c", 'web_search="disabled"', "-c", "skills.include_instructions=false",
+                    "-c", "skills.bundled.enabled=false"]
     # Bootstrap validates a transport even for disabled entries. Replace it with
     # an inert command rather than copying native server secrets into argv.
     entries = {server["name"]: {"enabled": False, "command": "false"} for server in servers}
@@ -174,7 +177,7 @@ def codex_restrictions(config: dict, bridge=None) -> list[str]:
     else:
         restrictions += ["--disable", "multi_agent"]
     restrictions += ["-c", "mcp_servers=" + toml_value(entries)]
-    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "hooks", "memories", "goals"):
+    for feature in ("shell_tool", "apps", "plugins", "browser_use", "computer_use", "image_generation", "view_image", "hooks", "memories", "goals"):
         restrictions += ["--disable", feature]
     return restrictions
 
@@ -259,47 +262,49 @@ def configuration(settings: dict, *, resolve=True, override=None, feature="repor
     return config
 
 
-def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
-    """One ephemeral turn, optionally with a private report evidence workspace.
+def report_request(config, prompt, directory, bridge):
+    request = {"runtime": config["runtime"], "task": "report", "prompt": prompt, "resume_prompt": "",
+               "cwd": str(directory), "state_dir": str(Path(directory) / "state"),
+               "output_tokens": config.get("limits", {}).get("output_tokens", 32768),
+               "delegation": bool(bridge and bridge.workspace.delegation and config["runtime"] == "codex")}
+    if bridge:
+        transport = bridge.config()
+        request["nr_tools"] = {key: transport[key] for key in ("command", "args")}
+    if config["runtime"] == "codex":
+        codex_client.require_ready()
+        selected = codex_client.normalize_config(config["codex"])
+        for field in ("model", "reasoning_effort"):
+            if not selected.get(field) and config.get("limits", {}).get("resolved_"+field):
+                selected[field] = config["limits"]["resolved_"+field]
+        request.update(codex=selected, web_search="disabled", report_launch_args=codex_restrictions(selected, bridge))
+    else:
+        request.update(provider=config["provider"], model=config["model"],
+                       reasoning_effort=config.get("reasoning_effort") or "off",
+                       report_session_id=config.get("session_id") or str(uuid.uuid4()))
+    return request
 
-    Reuse only the app's CLI transport/authentication, not its summary pipelines.
-    Prompts travel over stdin; never log the prompt, credentials or raw errors.
-    """
-    proc = None
+
+def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
+    proc, terminal, outcome = None, None, "interrupted"
     workspace = config.get("_workspace")
     from report_tools import Bridge
+    from report_workspace import TOOLS
     began = time.monotonic()
     usage, delegates, collaboration_calls = {}, set(), Counter()
+    allowed = {"mcp__newsreader_report__" + tool["name"] for tool in TOOLS} if workspace else set()
     with tempfile.TemporaryDirectory(prefix="newsreader-report-") as directory, (Bridge(workspace) if workspace else nullcontext()) as bridge:
-        if config["runtime"] == "codex":
-            codex_client.require_ready()
-            selected = dict(config["codex"])
-            for field in ("model", "reasoning_effort"):
-                if not selected.get(field) and config.get("limits", {}).get("resolved_"+field):
-                    selected[field] = config["limits"]["resolved_"+field]
-            command = codex_client.command(selected, ephemeral=True, cwd=Path(directory))
-            command[-1:-1] = codex_restrictions(selected, bridge) if bridge else codex_restrictions(selected)
-            pending = prompt.encode()
-            parser = codex_client.EventParser(allow_delegation=bool(workspace))
-        else:
-            command = pi_command()
-            request = {"prompt": prompt, "provider": config["provider"], "model": config["model"],
-                       "maxTokens": config.get("limits", {}).get("output_tokens", 32768)}
-            if config.get("reasoning_effort"):
-                request["reasoning_effort"] = config["reasoning_effort"]
-            if config.get("session_id"):
-                request["session_id"] = config["session_id"]
-            pending = json.dumps(request, ensure_ascii=False).encode()
-            parser = None
+        request = report_request(config, prompt, directory, bridge)
+        if request["delegation"]:
+            allowed.update({"collabAgentToolCall", "collabToolCall", "sleep"})
+        pending = json.dumps(request, ensure_ascii=False).encode()
         if len(pending) > MAX_BYTES:
             raise RuntimeError("report_input_too_large")
         try:
+            command = oar_client.bridge_command(uuid.uuid4().hex)
             proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     cwd=ROOT, start_new_session=True, bufsize=0,
                                     **({"env": _pi_subprocess_env()} if config["runtime"] == "pi" else {}))
-            terminal = None
-            buffer = b""
-            total = 0
+            buffer, total = b"", 0
             deadline = time.monotonic() + (max(timeout, 3600) if workspace else timeout)
             if config.get("_deadline"):
                 deadline = min(deadline, config["_deadline"])
@@ -309,7 +314,7 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                 selector.register(proc.stdin, selectors.EVENT_WRITE, "input")
                 selector.register(proc.stdout, selectors.EVENT_READ, "output")
                 selector.register(proc.stderr, selectors.EVENT_READ, "error")
-                while selector.get_map():
+                while selector.get_map() or proc.poll() is None:
                     if time.monotonic() >= deadline:
                         raise RuntimeError("report_model_timeout")
                     activity = max(last_activity, workspace.last_activity if workspace else 0)
@@ -346,48 +351,72 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
                                 line, buffer = buffer, b""
                             if not line.strip():
                                 continue
-                            raw = json.loads(line)
-                            item = raw.get("item", {})
+                            try:
+                                raw = json.loads(line)
+                                if not isinstance(raw, dict):
+                                    raise ValueError()
+                            except (ValueError, UnicodeError):
+                                raise RuntimeError("report_invalid_result") from None
+                            if terminal:
+                                raise RuntimeError("report_invalid_result")
                             last_activity = time.monotonic()
-                            owned_tool = (workspace and item.get("type") == "mcp_tool_call"
-                                          and item.get("server") == "newsreader_report"
-                                          and item.get("tool") in {t["name"] for t in __import__("report_workspace").TOOLS})
-                            if parser and item.get("type") in {"command_execution", "file_change", "mcp_tool_call", "web_search", "tool_call", "image_generation"} and not owned_tool:
-                                raise RuntimeError("report_tools_not_allowed")
-                            if workspace and item.get("type") == "collab_tool_call":
-                                if raw.get("type") == "item.completed":
-                                    collaboration_calls[str(item.get("tool", "unknown"))] += 1
-                                if item.get("tool") in {"spawn_agent", "spawn"}:
-                                    delegates.update(item.get("receiver_thread_ids") or [])
-                                if config.get("_collaboration_trace"):
-                                    config["_collaboration_trace"]({k: v for k, v in item.items() if k in {"id", "type", "tool", "sender_thread_id", "receiver_thread_ids", "status"}})
+                            if raw.get("type") == "oar_report_agent":
+                                if not request["delegation"]:
+                                    raise RuntimeError("report_tools_not_allowed")
+                                if not isinstance(raw.get("id"), str) or not raw["id"]:
+                                    raise RuntimeError("report_invalid_result")
+                                delegates.add(raw["id"])
                                 workspace.progress("delegating", agents=len(delegates), completed=len(workspace.state["reviews"]), total=len(workspace.batches))
-                            if raw.get("type") in {"turn.completed", "oar_result"} and (not parser or not raw.get("thread_id") or raw["thread_id"] == parser.thread_id):
-                                observed = raw.get("usage", {})
-                                if isinstance(observed, dict):
-                                    usage = {k: v for k, v in observed.items() if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 10**15}
-                            event = parser.parse(line.decode()) if parser else parse_event(line.decode())
-                            if not parser and event["type"] == "oar_tool":
+                                continue
+                            if raw.get("type") == "oar_report_collaboration":
+                                if not request["delegation"] or raw.get("phase") not in {"started", "completed"}:
+                                    raise RuntimeError("report_tools_not_allowed")
+                                receivers = raw.get("receiver_thread_ids", [])
+                                if not isinstance(receivers, list) or any(not isinstance(value, str) for value in receivers):
+                                    raise RuntimeError("report_invalid_result")
+                                if raw["phase"] == "completed":
+                                    collaboration_calls[str(raw.get("tool", "unknown"))] += 1
+                                if raw.get("tool") in {"spawn_agent", "spawn"}:
+                                    delegates.update(receivers)
+                                if config.get("_collaboration_trace"):
+                                    config["_collaboration_trace"]({k: v for k, v in raw.items() if k in {"id", "tool", "receiver_thread_ids", "status", "phase"}})
+                                workspace.progress("delegating", agents=len(delegates), completed=len(workspace.state["reviews"]), total=len(workspace.batches))
+                                continue
+                            try:
+                                event = parse_event(line.decode())
+                            except (RuntimeError, UnicodeError):
+                                raise RuntimeError("report_invalid_result") from None
+                            if event["type"] == "oar_tool" and event["tool"] not in allowed:
                                 raise RuntimeError("report_tools_not_allowed")
                             if event["type"] == "oar_result":
                                 terminal = event
-                    # A completed protocol result is authoritative; do not wait for CLI teardown.
-                    if terminal:
-                        break
-            if terminal and not parser and terminal.get("error") in {"report_model_dependencies_missing", "report_output_truncated"}:
-                raise RuntimeError(terminal["error"])
-            if not terminal or terminal.get("outcome") != "completed" or not terminal.get("answer", "").strip():
+                                observed = raw.get("usage", {})
+                                if isinstance(observed, dict):
+                                    usage = {k: v for k, v in observed.items() if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 10**15}
+            if config.get("_cancelled") and config["_cancelled"]():
+                raise RuntimeError("report_interrupted")
+            if terminal and terminal.get("error") == "report_output_truncated":
+                raise RuntimeError("report_output_truncated")
+            if terminal and terminal.get("error") in {"oar_dependency_missing", "oar_node_version"}:
+                raise RuntimeError("report_model_dependencies_missing")
+            if proc.wait() != 0 or not terminal or terminal.get("outcome") != "completed" or not terminal.get("answer", "").strip():
                 raise RuntimeError("report_model_failed")
+            outcome = "completed"
             return terminal["answer"]
+        except RuntimeError as exc:
+            if str(exc) == "oar_node_missing":
+                raise RuntimeError("report_model_dependencies_missing") from None
+            outcome = "interrupted" if str(exc) == "report_interrupted" else "failed"
+            raise
         finally:
             if proc is not None:
                 terminate_group(proc)
-            metric = {"runtime": config["runtime"], "seconds": round(time.monotonic()-began, 3),
+            metric = {"runtime": config["runtime"], "transport": "oar", "seconds": round(time.monotonic()-began, 3),
                       "estimated_prompt_tokens": estimate_tokens(prompt), "usage": usage,
                       "delegate_threads_observed": len(delegates), "collaboration_calls": dict(collaboration_calls),
-                      "usage_scope": "cli_turn_as_reported" if parser else "provider_completion",
+                      "usage_scope": "oar_root_session",
                       "requested_reasoning": config.get("codex", {}).get("reasoning_effort") if config["runtime"] == "codex" else config.get("reasoning_effort", ""),
-                      "outcome": terminal.get("outcome") if 'terminal' in locals() and terminal else "interrupted"}
+                      "outcome": outcome}
             if workspace:
                 workspace.metric(metric)
             elif config.get("_metric"):

@@ -1,5 +1,6 @@
 """Title-only evidence boundaries for native and programmatic report editors."""
 import json
+import pytest
 
 import report_generation as gen
 import report_workspace as rw
@@ -44,32 +45,25 @@ def test_workspace_tools_hide_details_until_selection_and_never_reveal_omitted_b
     assert rw.working_batches(sources, config) == rw.working_batches(plain, config)
 
 
-def test_pi_workspace_selects_with_titles_then_writes_only_selected_details():
+@pytest.mark.parametrize("runtime", ["pi", "codex"])
+def test_oar_workspace_selects_with_titles_then_writes_only_selected_details(runtime):
     snapshot = {"kind": "monthly", "sources": [source(1, "只有标题"), source(2, "已选新闻", body="被选正文"),
                                                source(3, "未选新闻", body="不该被读到" * 50000)]}
-    w = rw.Workspace(snapshot, {"runtime": "pi", "model": "fixture", "limits": {"input_tokens": 100000}})
-    phases = []
-    def model(config, prompt):
-        assert "不该被读到" not in prompt
-        if "本批仅建立" in prompt:
-            phases.append("select")
-            material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
-            assert all(set(s) == {"ref", "title", "published_at", "source_name", "refs"} for s in material)
-            assert "被选正文" not in prompt
-            return gen.encoded({"events": [{"text": "标题重点", "refs": ["N00001", "N00002"]}], "omitted": ["N00003"]})
-        if not w.state["plan"]:
-            phases.append("plan")
-            assert "被选正文" not in prompt
-            return gen.encoded({"actions": [{"tool": "report_plan", "arguments": {
-                "parts": [{"id": "main", "title": "重点", "event_ids": [w.events()[0]["id"]]}], "omitted_events": []}}]})
-        if "本次独立编写计划中的一个章节" in prompt:
-            phases.append("write")
-            assert "被选正文" in prompt
-            material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
-            assert {s["ref"] for s in material} == {"N00001", "N00002"}
-            return gen.encoded({"sections": [], "briefs": [{"text": "标题事实及被选正文", "refs": ["N00001", "N00002"]}]})
-        phases.append("audit")
-        return gen.encoded(final_actions(w))
-    result = rw.program_editor(w, w.config, model, Checkpoints())
-    assert phases == ["select", "plan", "write", "audit"]
+    config = {"runtime": runtime, "model": "fixture", "codex": {}, "limits": {"input_tokens": 100000}}
+    def model(selected, prompt):
+        w = selected["_workspace"]
+        assert "不该被读到" not in prompt and "被选正文" not in prompt
+        material = w.invoke("report_sources", {})["items"]
+        assert all(set(s) == {"ref", "title", "published_at", "source_name"} for s in material)
+        batch = next(iter(w.batches))
+        w.invoke("report_review", {"batch_id": batch, "events": [{"text": "标题重点", "refs": ["N00001", "N00002"]}], "omitted": ["N00003"]})
+        plan = w.invoke("report_plan", {"parts": [{"id": "main", "title": "重点", "event_ids": [w.events()[0]["id"]]}], "omitted_events": []})
+        assert "被选正文" in w.invoke("report_source", {"ref": "N00002"})["json_text"]
+        assert "不该被读到" not in w.invoke("report_source", {"ref": "N00003"})["json_text"]
+        w.invoke("report_draft", {"part_id": "main", "revision": plan["revision"],
+            "briefs": [{"text": "标题事实及被选正文", "refs": ["N00001", "N00002"]}]})
+        for action in final_actions(w)["actions"]:
+            assert "error" not in w.invoke(action["tool"], action["arguments"])
+        return "已完成"
+    result = rw.generate_workspace(snapshot, config, model, Checkpoints(), lambda *a, **kw: None)
     assert {s["ref"] for s in result["sources"]} == {"N00001", "N00002"}

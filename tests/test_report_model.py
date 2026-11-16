@@ -1,5 +1,6 @@
 """Transport checks use local processes and a local HTTP model, never user credentials."""
 import json
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import shutil
@@ -14,18 +15,18 @@ import pytest
 import report_model as model
 
 
-def fake_codex(tmp_path, monkeypatch, events, *, linger=False):
+def fake_codex(tmp_path, monkeypatch, events, *, linger=False, exit_code=0):
     script = tmp_path / "fake.py"
     script.write_text("import sys,json,time\nsys.stdin.read()\n" +
                       "\n".join("print(" + repr(json.dumps(event)) + ",flush=True)" for event in events) +
-                      ("\ntime.sleep(30)\n" if linger else "\n"))
+                      ("\ntime.sleep(30)\n" if linger else "\n") + f"sys.exit({exit_code})\n")
     monkeypatch.setattr(model.codex_client, "require_ready", lambda:None)
-    monkeypatch.setattr(model.codex_client, "command", lambda *args, **kwargs:[sys.executable, str(script), "-"])
+    monkeypatch.setattr(model.oar_client, "bridge_command", lambda *_:[sys.executable, str(script)])
     monkeypatch.setattr(model, "codex_restrictions", lambda config, bridge=None:[])
     return {"runtime":"codex", "codex":{}}
 
 
-START = [{"type":"thread.started", "thread_id":"019a1234-1234-7123-8123-123456789abc"}, {"type":"turn.started"}]
+START = [{"type":"oar_session", "id":"019a1234-1234-7123-8123-123456789abc", "runtime":"oar-codex"}]
 
 
 def test_report_catalog_hides_opencode_free_models_without_changing_other_providers(monkeypatch):
@@ -42,22 +43,24 @@ def test_report_catalog_hides_opencode_free_models_without_changing_other_provid
     assert len(options) == 5
 
 
-def test_terminal_answer_finishes_without_waiting_for_cli_teardown(tmp_path, monkeypatch):
-    events = START + [
-        {"type":"item.completed", "item":{"id":"reason", "type":"reasoning", "text":"working"}},
-        {"type":"item.completed", "item":{"id":"answer", "type":"agent_message", "text":'{"ok":true}'}},
-        {"type":"turn.completed"},
-    ]
-    config = fake_codex(tmp_path, monkeypatch, events, linger=True)
-    began = time.monotonic()
-    assert model.run(config, "private input", timeout=3) == '{"ok":true}'
-    assert time.monotonic() - began < 3
+@pytest.mark.parametrize("linger,exit_code,error", [(False, 0, ""), (True, 0, "report_model_timeout"),
+                                                        (False, 1, "report_model_failed")])
+def test_report_requires_clean_oar_completion_and_exit(tmp_path, monkeypatch, linger, exit_code, error):
+    events = START + [{"type":"oar_result", "outcome":"completed", "answer":'{"ok":true}'}]
+    config = fake_codex(tmp_path, monkeypatch, events, linger=linger, exit_code=exit_code)
+    if error:
+        with pytest.raises(RuntimeError, match="^" + error + "$"):
+            model.run(config, "private input", timeout=.3)
+    else:
+        assert model.run(config, "private input", timeout=3) == '{"ok":true}'
 
 
 @pytest.mark.parametrize("events,error", [
-    (START + [{"type":"item.completed", "item":{"id":"partial", "type":"agent_message", "text":"partial"}}], "report_model_failed"),
-    (START + [{"type":"turn.failed", "error":{"message":"private provider diagnostic"}}], "report_model_failed"),
-    (START + [{"type":"item.started", "item":{"id":"tool", "type":"command_execution", "command":"never run"}}], "report_tools_not_allowed"),
+    (START + [{"type":"text_delta", "delta":"partial"}], "report_model_failed"),
+    (START + [{"type":"oar_result", "outcome":"failed", "error":"codex_turn_failed"}], "report_model_failed"),
+    (START + [{"type":"oar_tool", "tool":"commandExecution"}], "report_tools_not_allowed"),
+    (START + [{"type":"oar_result", "outcome":"completed", "answer":"done"}]*2, "report_invalid_result"),
+    (START + [{"type":"oar_result", "outcome":"completed", "answer":"done"}, {"type":"text_delta", "delta":"late"}], "report_invalid_result"),
 ])
 def test_partial_failed_or_tool_turn_cannot_become_report(tmp_path, monkeypatch, events, error):
     config = fake_codex(tmp_path, monkeypatch, events)
@@ -75,21 +78,20 @@ def test_workspace_accepts_only_owned_mcp_and_root_completion(tmp_path, monkeypa
     from report_workspace import Workspace
     child = "019a1234-1234-7123-8123-123456789abd"
     events = START + [
-        {"type": "item.started", "item": {"id": "read", "type": "mcp_tool_call", "server": "newsreader_report", "tool": "report_sources"}},
-        {"type": "item.completed", "item": {"id": "read", "type": "mcp_tool_call", "server": "newsreader_report", "tool": "report_sources"}},
-        {"type": "item.completed", "item": {"id": "delegate", "type": "collab_tool_call", "tool": "spawn_agent", "receiver_thread_ids": [child]}},
-        {"type": "item.completed", "thread_id": child, "item": {"id": "answer", "type": "agent_message", "text": "child only"}},
-        {"type": "turn.completed", "thread_id": child, "usage": {"input_tokens": 999999}},
-        {"type": "item.completed", "item": {"id": "answer", "type": "agent_message", "text": "root done"}},
-        {"type": "turn.completed", "usage": {"input_tokens": 123, "output_tokens": 20}},
+        {"type": "oar_tool", "tool": "mcp__newsreader_report__report_sources"},
+        {"type": "oar_report_agent", "id": child},
+        {"type": "oar_report_agent", "id": child},
+        {"type": "oar_report_collaboration", "tool": "wait", "phase": "completed", "receiver_thread_ids": [child]},
+        {"type": "oar_result", "outcome": "completed", "answer": "root done", "usage": {"input": 123, "output": 20}},
     ]
     config = fake_codex(tmp_path, monkeypatch, events)
     config["limits"] = {"input_tokens": 100000}
     workspace = Workspace({"kind": "monthly", "sources": []}, config)
     assert model.run({**config, "_workspace": workspace}, "test", timeout=3) == "root done"
-    assert workspace.state["calls"][0]["usage"]["input_tokens"] == 123
+    assert workspace.state["calls"][0]["usage"]["input"] == 123
     assert workspace.state["calls"][0]["delegate_threads_observed"] == 1
-    events[2]["item"]["server"] = "outside"
+    assert workspace.state["calls"][0]["collaboration_calls"] == {"wait": 1}
+    events[1]["tool"] = "mcp__outside__report_sources"
     config = fake_codex(tmp_path, monkeypatch, events)
     with pytest.raises(RuntimeError, match="report_tools_not_allowed"):
         model.run({**config, "_workspace": workspace}, "test", timeout=3)
@@ -141,7 +143,7 @@ def test_saved_mcp_servers_disabled_without_copying_secrets_into_argv(monkeypatc
 
 @pytest.mark.parametrize("finish_reason,effort", [("stop", ""), ("length", ""), ("stop", "high"), ("stop", "off")])
 @pytest.mark.parametrize("provider", ["report-test", "opencode", "opencode-go"])
-def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason, effort, provider):
+def test_pi_oar_agent_uses_configured_model_without_tools_and_rejects_truncation(tmp_path, monkeypatch, finish_reason, effort, provider):
     if not shutil.which("node") or not (model.ROOT / "node_modules/@earendil-works/pi-coding-agent").exists():
         pytest.skip("Pi SDK requires npm ci")
     requests = []
@@ -201,7 +203,7 @@ def test_pi_sdk_uses_configured_model_without_tools_and_rejects_truncation(tmp_p
         assert requests[0]["model"] == "fixture"
         assert requests[0].get("reasoning_effort") == ("high" if effort == "high" else None)
         assert not requests[0].get("tools")
-        assert requests[0]["messages"][-1]["content"] == "isolated fixture"
+        assert requests[0]["messages"][-1]["content"] == [{"type": "text", "text": "isolated fixture"}]
         assert (requests[0].get("max_tokens") or requests[0].get("max_completion_tokens")) == 4096
         if provider.startswith("opencode"):
             if effort:
@@ -291,6 +293,9 @@ def test_pi_missing_dependencies_are_not_reported_as_unknown_capacity(tmp_path, 
         scripts.mkdir()
         shutil.copyfile(model.ROOT / "scripts/report_model.mjs", scripts / "report_model.mjs")
         monkeypatch.setattr(model, "ROOT", tmp_path)
+        monkeypatch.setattr(model.oar_client, "ROOT", tmp_path)
+        for name in ("oar_bridge.mjs", "oar_report.mjs", "oar_tool_events.mjs"):
+            shutil.copyfile(Path(__file__).resolve().parents[1] / "scripts" / name, scripts / name)
     config = {"runtime": "pi", "provider": "fixture", "model": "fixture"}
     with pytest.raises(RuntimeError, match="^report_model_dependencies_missing$"):
         if operation == "catalog":

@@ -232,32 +232,31 @@ def test_workspace_enforces_monthly_review_plan_writing_and_history_boundaries(r
     assert monthly.VERSION in restored.state['final']['generation']['workflow']
 
 
-def test_pi_orchestration_preserves_corrections_and_related_history_through_final_review():
+@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+def test_oar_orchestration_preserves_corrections_and_related_history_through_final_review(runtime):
     snapshot = {'kind': 'monthly', 'sources': monthly_sources()}
-    config = {'runtime': 'pi', 'limits': {'input_tokens': 100000}}
-    w = rw.Workspace(snapshot, config)
-    phases = []
-    def model(config, prompt):
+    config = {'runtime': runtime, 'limits': {'input_tokens': 100000}}
+    def model(selected, prompt):
+        w = selected['_workspace']
         assert '无关背景秘密正文' not in prompt and '未选秘密正文' not in prompt
-        if '本批仅建立' in prompt:
-            phases.append('titles')
-            assert '入选重要正文' not in prompt and '相关历史正文' not in prompt
-            return gen.encoded({'events': [{'text': '本月计划及纠正与此前安排', 'refs': ['N00001', 'N00002', 'N00003']}],
-                                'omitted': ['N00004', 'N00005']})
-        if not w.state['plan']:
-            phases.append('plan')
-            assert 'important_refs' in prompt and 'background_refs' in prompt
-            assert '相关历史正文' not in prompt
-            return gen.encoded({'actions': [{'tool': 'report_plan', 'arguments': {'parts': [
-                {'id': 'main', 'title': '本月计划与变化', 'event_ids': [w.events()[0]['id']]}], 'omitted_events': []}}]})
-        if '本次独立编写' in prompt:
-            phases.append('writing')
-            assert '相关历史正文' in prompt and '入选纠正正文' in prompt
-            return gen.encoded(edition(['N00001', 'N00002', 'N00003']))
-        phases.append('audit')
-        return gen.encoded(final_actions(w))
-    result = rw.program_editor(w, config, model, Checkpoints())
-    assert phases == ['titles', 'plan', 'writing', 'audit']
+        assert '正文' not in gen.encoded(w.invoke('report_sources', {}))
+        batch = next(iter(w.batches))
+        w.invoke('report_review', {'batch_id': batch,
+            'events': [{'text': '本月计划及纠正与此前安排', 'refs': ['N00001', 'N00002', 'N00003']}],
+            'omitted': ['N00004', 'N00005']})
+        events = w.invoke('report_events', {})
+        assert 'important_refs' in gen.encoded(events) and 'background_refs' in gen.encoded(events)
+        plan = w.invoke('report_plan', {'parts': [
+            {'id': 'main', 'title': '本月计划与变化', 'event_ids': [w.events()[0]['id']]}], 'omitted_events': []})
+        assert '相关历史正文' in w.invoke('report_source', {'ref': 'N00003'})['json_text']
+        assert '入选纠正正文' in w.invoke('report_source', {'ref': 'N00002'})['json_text']
+        assert '无关背景秘密正文' not in w.invoke('report_source', {'ref': 'N00004'})['json_text']
+        draft = edition(['N00001', 'N00002', 'N00003'])
+        assert 'error' not in w.invoke('report_draft', {'part_id': 'main', 'revision': plan['revision'], 'sections': draft['sections'], 'briefs': draft['briefs']})
+        for action in final_actions(w)['actions']:
+            assert 'error' not in w.invoke(action['tool'], action['arguments'])
+        return '已完成'
+    result = rw.generate_workspace(snapshot, config, model, Checkpoints(), lambda *a, **kw: None)
     assert {s['ref'] for s in result['sources']} == {'N00001', 'N00002', 'N00003'}
 
 

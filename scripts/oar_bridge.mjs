@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { toolEvents } from './oar_tool_events.mjs';
+import { validateReport, reportEvents, completedPiReport } from './oar_report.mjs';
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const CONFIG_FILES = ['auth.json', 'models.json', 'models-store.json', 'settings.json', 'trust.json',
@@ -163,8 +164,9 @@ export function validateRequest(request) {
   if (request.nr_tools !== undefined && (!request.nr_tools ||
       typeof request.nr_tools.command !== 'string' || !path.isAbsolute(request.nr_tools.command) ||
       !Array.isArray(request.nr_tools.args) || request.nr_tools.args.some(arg => typeof arg !== 'string'))) throw new Error('oar_invalid_request');
-  if (request.task !== undefined && !['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant'].includes(request.task)) throw new Error('oar_invalid_request');
-  if (request.task === 'personal_assistant' ? !request.nr_tools : request.nr_tools !== undefined) throw new Error('oar_invalid_request');
+  if (request.task !== undefined && !['news_chat', 'chat_archive', 'material_summary', 'web_research', 'personal_assistant', 'report'].includes(request.task)) throw new Error('oar_invalid_request');
+  if (request.task === 'personal_assistant' ? !request.nr_tools : request.task !== 'report' && request.nr_tools !== undefined) throw new Error('oar_invalid_request');
+  validateReport(request);
   if (['chat_archive', 'material_summary', 'web_research'].includes(request.task) && request.legacy_native_id) throw new Error('oar_invalid_request');
   return request;
 }
@@ -202,8 +204,9 @@ export async function execute(request, runtime, installation, emit, signal, wait
   validateRequest(request);
   const mappingFile = path.join(request.state_dir, 'session.json');
   let nativeId;
-  const ephemeral = ['chat_archive', 'material_summary', 'web_research'].includes(request.task);
-  const materialOnly = ['chat_archive', 'material_summary'].includes(request.task);
+  const ephemeral = ['chat_archive', 'material_summary', 'web_research', 'report'].includes(request.task);
+  const report = request.task === 'report';
+  const materialOnly = ['chat_archive', 'material_summary'].includes(request.task) || (report && !request.nr_tools);
   let historyReplayed = Boolean(request.history_replayed);
   if (!ephemeral) {
     try {
@@ -215,8 +218,8 @@ export async function execute(request, runtime, installation, emit, signal, wait
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   const options = { cwd: request.cwd, ...(request.reasoning_effort ? { effort: request.reasoning_effort } : {}),
-    ...(request.task === 'personal_assistant' ? {
-      mcpServers: [{name: 'nr_assistant', ...request.nr_tools}],
+    ...(request.task === 'personal_assistant' || (report && request.nr_tools) ? {
+      mcpServers: [{name: report ? 'newsreader_report' : 'nr_assistant', ...request.nr_tools}],
       disallowedTools: ['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls', 'codemode', 'tool_search'],
     } : materialOnly ? { disallowedTools: ['*'] }
       : request.task === 'web_research' ? {disallowedTools: ['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls']} : {}) };
@@ -246,17 +249,28 @@ export async function execute(request, runtime, installation, emit, signal, wait
     if (signal?.aborted) throw new Error('oar_stopped');
     emit({ type: 'oar_session', id: session.id, resumed, runtime: 'oar-pi' });
     budget = researchBudget(session, request, emit);
+    const reportObserver = reportEvents(session, request, emit);
     const forwardTool = toolEvents(emit, request.task === 'web_research');
     session.events(event => {
+      reportObserver.event(event);
       // Never forward raw event payloads, tool arguments or provider diagnostics.
       if (event.agentPath?.length) return;
       budget.event(event);
       if (event.kind === 'text_delta') emit({ type: 'text_delta', delta: event.text });
-      forwardTool(event);
+      if (!report) forwardTool(event);
     });
     const promptAndWait = waitForTurn ?? (await import('@botiverse/oar')).promptAndWait;
     const result = await promptAndWait(session, resumed ? request.resume_prompt : request.prompt, { signal });
     budget?.close();
+    let reportAnswer;
+    if (report) {
+      try { reportAnswer = completedPiReport(session.records(), session.id, request.output_tokens); }
+      catch (error) {
+        if (error.message !== 'report_output_truncated') throw error;
+        emit({type: 'oar_result', outcome: 'failed', error: error.message, ...reportObserver.metadata()});
+        return false;
+      }
+    }
     if (result.kind !== 'ended' || result.outcome?.kind !== 'completed') {
       const reason = result.reason || result.outcome?.reason || '';
       const failure = result.failure ?? result.outcome?.failure;
@@ -266,7 +280,8 @@ export async function execute(request, runtime, installation, emit, signal, wait
       emit({ type: 'oar_result', outcome: 'failed', error: code });
       return false;
     }
-    if (typeof result.text !== 'string' || !result.text.trim()) {
+    const answer = reportAnswer ?? result.text;
+    if (typeof answer !== 'string' || !answer.trim()) {
       emit({ type: 'oar_result', outcome: 'failed', error: 'oar_empty_answer' });
       return false;
     }
@@ -286,7 +301,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
       }
     }
     // Explicit terminal result is mandatory. Exit 0 alone is not success.
-    emit({ type: 'oar_result', outcome: 'completed', answer: result.text });
+    emit({ type: 'oar_result', outcome: 'completed', answer, ...reportObserver.metadata() });
     return true;
   } finally { budget?.close(); if (session) { try { await session.dispose(); } catch {} } }
 }
@@ -421,9 +436,10 @@ async function main() {
     let raw = '';
     for await (const chunk of process.stdin) {
       raw += chunk;
-      if (Buffer.byteLength(raw) > MAX_REQUEST_BYTES) throw new Error('oar_invalid_request');
+      if (Buffer.byteLength(raw) > 16 * 1024 * 1024) throw new Error('oar_invalid_request');
     }
     request = JSON.parse(raw);
+    if (request?.task !== 'report' && Buffer.byteLength(raw) > MAX_REQUEST_BYTES) throw new Error('oar_invalid_request');
     if (request?.runtime === 'codex') {
       const {runCodex} = await import('./oar_codex.mjs');
       // OAR owns detached app-server groups. Exit normally before the Python
@@ -445,8 +461,13 @@ async function main() {
     request.agentDir = agentDir;
     if (request.task) {
       const materialOnly = ['chat_archive', 'material_summary'].includes(request.task);
-      const { projectTrusted } = materialOnly || request.task === 'personal_assistant' ? { projectTrusted: false }
+      const { projectTrusted } = materialOnly || ['personal_assistant', 'report'].includes(request.task) ? { projectTrusted: false }
         : await checkResources(request.cwd, agentDir, { allowUntrusted: true });
+      if (request.task === 'report') {
+        process.env.NR_REPORT_OUTPUT_TOKENS = String(request.output_tokens);
+        delete process.env.NR_REPORT_SESSION_ID;
+        if (request.report_session_id) process.env.NR_REPORT_SESSION_ID = request.report_session_id;
+      }
       await importLegacySession(request, source);
       const { createPiRuntime } = await import('@botiverse/oar/runtimes/pi');
       const runtime = createPiRuntime({ execution: 'subprocess', projectTrusted,
@@ -474,7 +495,7 @@ async function main() {
       : error.failure === 'model_unavailable' ? 'oar_model_unavailable'
       : error.failure === 'unauthenticated' ? 'oar_auth_required'
       : error.code === 'ERR_MODULE_NOT_FOUND' ? 'oar_dependency_missing'
-      : /^oar_[a-z_]+$/.test(error.message) ? error.message : 'oar_runtime_failed';
+      : /^(oar_[a-z_]+|report_output_truncated)$/.test(error.message) ? error.message : 'oar_runtime_failed';
     emit({ type: 'oar_result', outcome: 'failed', error: code });
     process.exitCode = 1;
   } finally {

@@ -6,7 +6,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "test:oar": "node --test tests/oar_bridge.test.mjs tests/oar_codex.test.mjs",
+    "test:oar": "node --test tests/oar_bridge.test.mjs tests/oar_codex.test.mjs tests/oar_report.test.mjs",
     "test:ui": "playwright test",
     "build:idea-editor": "node scripts/build-idea-editor.mjs",
     "opencli": "node scripts/opencli.mjs",
@@ -37,5 +37,5 @@
     "esbuild": "0.28.2",
     "vitest": "4.1.0"
   },
-  "version": "0.5.12"
+  "version": "0.5.13"
 }
