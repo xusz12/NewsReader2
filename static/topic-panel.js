@@ -142,7 +142,7 @@ export class TopicPanel {
       if(this.selected && (!this.entries.some(t=>t.id===this.selected) || (!creating && !this.entries.some(t=>t.id===this.selected && this.matchesList(t))))){
         this.detailSequence++;this.selected="";this.data=null;this.page="topic";this.reading=false;this.closeArticle();this.render();this.onViewChange();
       }
-      this.configured = data.matching_configured; this.matchingError = data.matching_error; this.loaded = true;
+      this.configured = data.matching_configured; this.matchingError = data.matching_error; this.matchingWaiting = data.matching_waiting; this.loaded = true;
       this.renderList();
       if (!this.selected && this.page === "topic" && this.visibleEntries().length && !singlePane.matches && this.isVisible())
         await this.select(this.visibleEntries()[0].id, false);
@@ -229,7 +229,7 @@ export class TopicPanel {
       } else if (oldPage==="create" && previous?.topic.status==="initializing") this.page = "complete";
       if (!data.nodes.some(node => node.id === this.node)) this.node = data.nodes.at(-1)?.id || "";
       const changed = JSON.stringify({...previous, observed_at:0}) !== JSON.stringify({...data, observed_at:0});
-      if (forceRender || !quiet || oldPage !== this.page || (this.page !== "edit" && (this.renderedMatching !== JSON.stringify([this.configured,this.matchingError]) || (changed && this.page !== "create") || previous?.topic.rules_revision !== data.topic.rules_revision || previous?.job?.id !== data.job?.id || previous?.job?.status !== data.job?.status || previous?.topic.status !== data.topic.status))) {
+      if (forceRender || !quiet || oldPage !== this.page || (this.page !== "edit" && (this.renderedMatching !== JSON.stringify([this.configured,this.matchingError,this.matchingWaiting]) || (changed && this.page !== "create") || previous?.topic.rules_revision !== data.topic.rules_revision || previous?.job?.id !== data.job?.id || previous?.job?.status !== data.job?.status || previous?.topic.status !== data.topic.status))) {
         this.renderList();
         this.render({preserveScroll:quiet || append});
       }
@@ -306,7 +306,7 @@ export class TopicPanel {
     const selection=focusSelector && typeof focus.selectionStart === "number" ? [focus.selectionStart,focus.selectionEnd] : null;
     const chat=this.content.querySelector("#topicChatStream"), chatScroll=chat?.scrollTop || 0;
     const chatAtEnd=!chat || chat.scrollHeight-chat.scrollTop-chat.clientHeight<48;
-    this.renderedMatching=JSON.stringify([this.configured,this.matchingError]);
+    this.renderedMatching=JSON.stringify([this.configured,this.matchingError,this.matchingWaiting]);
     const t=this.data?.topic, job=this.data?.job;
     const error = job?.status==="failed" ? '<div class="button-row error-state topic-error" role="alert"><p>'+e(jobErrorText(job))+'</p><button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>' : "";
     let html;
@@ -353,7 +353,7 @@ export class TopicPanel {
         (activeJob(job)&&job.kind==="update"?'<p class="muted topic-status" role="status">正在整理新进展…</p>':'')+
         (activeJob(job)&&job.kind==="milestone"?'<p class="muted topic-status" role="status">正在筛选横向重要进展…</p>':'')+
         (activeJob(job)&&job.kind==="refine"?'<p class="muted topic-status" role="status">正在合并阶段里程碑…</p>':'')+
-        (t.archived_at?'<p class="muted topic-status" role="status">已归档，停止收录新新闻。恢复后从新的入库新闻继续跟踪。</p>':!this.configured?'<p class="muted topic-status">Jev 尚未配置，相关新闻归属等待处理。请在新闻分类设置中配置。</p>':this.matchingError?'<div class="button-row error-state topic-error" role="status">Jev 暂时无法完成主题判断，请检查 API 配置后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>':'')+
+        (t.archived_at?'<p class="muted topic-status" role="status">已归档，停止收录新新闻。恢复后从新的入库新闻继续跟踪。</p>':this.matchingWaiting?'<p class="muted topic-status" role="status">两家判断服务暂不可用，等待恢复或配置密钥。</p>':!this.configured?'<p class="muted topic-status">判断服务尚未配置，相关新闻归属等待处理。请在新闻分类设置中配置。</p>':this.matchingError?'<div class="button-row error-state topic-error" role="status">判断服务暂时无法完成主题判断，请检查新闻分类设置后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>':'')+
         (!t.archived_at&&this.data.matching.failed?'<div class="button-row error-state topic-error" role="status">'+this.data.matching.failed+' 条新闻判断失败。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>':'')+
         '<section class="settings-section-card settings-section-card--compact" aria-labelledby="topicNewsTitle"><h2 class="section-card-title" id="topicNewsTitle"><span class="section-title-label">'+timelineIcon+(this.filter?'相关报道':'新闻时间线')+' <span class="muted">'+this.data.total+' 条</span></span>'+
         (this.filter?'<button class="btn-secondary" type="button" data-topic-action="all">全部新闻</button>':'')+'</h2>'+(filteredNode?'<p class="muted">'+e(filteredNode.title)+'</p>':'')+this.newsHTML()+

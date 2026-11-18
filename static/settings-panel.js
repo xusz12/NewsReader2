@@ -543,9 +543,13 @@ export class SettingsPanel {
       ${field("分类并发上限", "classification.concurrency", d.classification?.concurrency ?? 8, 'type="number" min="1" max="32" step="1" required')}
       <p class="muted">默认 8，可设置 1–32。遇到限流自动降速，稳定后逐步恢复。</p>
       </fieldset>
-      <p class="muted">下方 Jev 配置同时用于新闻分类、主题归属和重要进展筛选。</p>
-      <button class="btn-secondary" id="classificationApiSettingsBtn" type="button">管理 Jev API</button></section>
+      <fieldset class="field-options" aria-label="首选判断服务"><legend class="field-label">首选判断服务</legend>${d.api_providers.filter(p => ["jev", "openai-decisions"].includes(p.id)).map(p => `<label class="settings-toggle"><input type="radio" name="classification.provider" value="${p.id}" ${(d.classification?.provider || "jev") === p.id ? "checked" : ""}><span>${e(p.label)}</span></label>`).join("")}</fieldset>
+      <label class="settings-toggle settings-switch"><span>自动使用备用判断服务</span><input type="checkbox" role="switch" name="classification.fallback_enabled" ${d.classification?.fallback_enabled ? "checked" : ""}></label>
+      <p class="muted">新闻分类、主题归属和重要进展共用此设置。开启后，首选服务不可用时由另一家处理，恢复后自动切回。请先配置备用服务的密钥。</p>
+      <p class="muted" id="decisionRouteStatus" role="status" hidden></p>
+      <button class="btn-secondary" id="classificationApiSettingsBtn" type="button">管理判断 API</button></section>
       <section class="settings-section-card" data-section="classification" id="classificationApiSettings" data-api-provider="jev" aria-labelledby="apiTitle-jev"></section>
+      <section class="settings-section-card" data-section="classification" data-api-provider="openai-decisions" aria-labelledby="apiTitle-openai-decisions"></section>
       <section class="settings-section-card" data-section="catchup"><div class="section-card-title"><span>积压新闻总结范围</span></div>
       <div class="form-group-grid">${field("最多自然日（含起止）", "news_summary.max_days", d.news_summary?.max_days ?? 20, 'type="number" min="1" max="9007199254740991" step="1" required')}${field("最多未读条数", "news_summary.max_items", d.news_summary?.max_items ?? 6000, 'type="number" min="1" max="9007199254740991" step="1" required')}</div>
       <div class="catchup-scope-preview" id="settingsCatchupScope" role="status">正在读取当前生效范围…</div>
@@ -703,12 +707,12 @@ export class SettingsPanel {
     const legacy = { runtime: saved.agent.runtime, codex: saved.agent.codex, pi: saved.llm.pi_chat };
     const features = [
       ["chat", "Chat 与对话归档", "失败保留对话，可重试；不会自动切换服务。"],
-      ["topics", "主题研究与整理", "失败保留已有内容，可重试；新闻归属与重要进展筛选另由 Jev 执行。"],
+      ["topics", "主题研究与整理", "失败保留已有内容，可重试；新闻归属与重要进展筛选使用新闻分类中选择的判断服务。"],
       ["summaries", "积压新闻总结", "失败不保存成功结果、不标记新闻已读，可重新生成。"],
       ...Object.entries(reportModelFeatures).map(([key, label]) => [key, label, ""]),
     ];
     return `<div class="section-card-title"><span id="apiUsageTitle">功能与后备措施</span></div>
-      <p class="muted">正文翻译按上方设置调用；Jev 在「新闻分类」管理。以下为其他功能已保存的模型配置，修改并保存后更新。</p>
+      <p class="muted">正文翻译按上方设置调用；Jev 与 OpenAI Decisions 在「新闻分类」管理。以下为其他功能已保存的模型配置，修改并保存后更新。</p>
       <div class="section-stack">${features.map(([key, label, fallback]) => {
         const config = key === "chat" ? legacy : saved.feature_models?.[key] || legacy;
         const model = config.runtime === "codex" ? `Codex · ${config.codex?.model || "本机默认模型"}`
@@ -738,10 +742,11 @@ export class SettingsPanel {
       return;
     }
     root.innerHTML = `<section class="settings-section-card" id="translationRouting">${this.translationRoutingHTML()}</section>`
-      + this.draft.api_providers.filter(config => config.id !== "jev").map(config => `<section class="settings-section-card" data-api-provider="${e(config.id)}" aria-labelledby="apiTitle-${e(config.id)}">${this.apiProviderHTML(config.id)}</section>`).join("")
+      + this.draft.api_providers.filter(config => config.translation_base_url).map(config => `<section class="settings-section-card" data-api-provider="${e(config.id)}" aria-labelledby="apiTitle-${e(config.id)}">${this.apiProviderHTML(config.id)}</section>`).join("")
       + `<section class="settings-section-card" id="apiUsage" aria-labelledby="apiUsageTitle">${this.apiUsageHTML()}</section>`;
     this.selects.refresh(root);
     this.renderTranslation("jev");
+    this.renderTranslation("openai-decisions");
     this.updateTranslationRoute();
   }
   apiProviderHTML(provider) {
@@ -931,6 +936,13 @@ export class SettingsPanel {
   renderClassificationProgress() {
     if (!$("#classificationSettingsProgress")) return;
     const {progress:p, error, updatedAt} = this.classificationSnapshot || {};
+    const route = $("#decisionRouteStatus");
+    route.hidden = !p?.fallback_enabled;
+    if (!route.hidden) {
+      if (p.waiting_for_service) route.textContent = "两家判断服务暂不可用，等待恢复或配置密钥。";
+      else if (p.using_backup) route.textContent = `当前使用备用服务 ${p.provider_label}，等待首选 ${p.preferred_label} 恢复。`;
+      else route.textContent = `当前使用首选服务 ${p.preferred_label}。`;
+    }
     const status=$("#classificationSettingsStatus");
     const complete=p && p.enabled!==false && p.total>0 && !p.pending && !p.running && !p.failed && !p.error;
     status.hidden=!!complete;
@@ -1009,8 +1021,9 @@ export class SettingsPanel {
       classificationRefreshBtn: () => this.onClassificationRefresh?.(),
       classificationRetryBtn: () => this.onClassificationRetry?.(),
       classificationApiSettingsBtn: () => {
-        $("#apiTitle-jev").scrollIntoView({ block: "start" });
-        $("#apiTitle-jev").focus({ preventScroll: true });
+        const title = $(`#apiTitle-${this.draft.classification?.provider || "jev"}`);
+        title.scrollIntoView({ block: "start" });
+        title.focus({ preventScroll: true });
       },
       apiFeatureSettingsBtn: () => this.selectSection("models"),
       retryCatchupScopeBtn: () => this.loadCatchupScope(),

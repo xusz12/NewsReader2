@@ -5,12 +5,17 @@
     },
     "opencode": {
       "model": ""
+    },
+    "openai-decisions": {
+      "model": ""
     }
   },
   "classification": {
     "enabled": true,
     "concurrency": 8,
-    "unread_only": false
+    "unread_only": false,
+    "provider": "jev",
+    "fallback_enabled": false
   },
   "llm": {
     "translation": {

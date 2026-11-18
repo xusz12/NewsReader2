@@ -28,8 +28,11 @@
   register('input', 'invalid_report_windows', '请选择有效的新闻起止日期、小时和分钟。');
   register('input', 'invalid_report_window_order', '同一天的新闻起点必须早于终点。');
   register('input', 'invalid_classification_unread_only', '仅对未读新闻分类必须为开启或关闭。');
+  register('input', 'invalid_classification_fallback_enabled', '自动使用备用判断服务必须为开启或关闭。');
   register('input', 'invalid_classification_enabled', '自动分类必须为开启或关闭。');
   register('input', 'invalid_classification_settings', '新闻分类设置格式无效。');
+  register('input', 'invalid_classification_provider unsupported_decision_provider', '请选择 Jev 或 OpenAI Decisions 作为判断服务。');
+  register('input', 'unsupported_decision_model', 'OpenAI Decisions 当前仅支持 gpt-6-luna；留空将使用此默认模型。');
   register('input', 'classification_disabled', '自动分类已关闭，请先在新闻分类设置中开启。');
   register('credentials', 'credentials codex_auth_required oar_auth_required authentication_error invalid_api_key', '身份验证失败。');
   register('model', 'models_unavailable', '获取模型列表失败。');

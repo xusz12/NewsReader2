@@ -2,7 +2,6 @@
 from contextlib import closing
 import json
 import sqlite3
-from types import SimpleNamespace
 
 import task_progress
 from test_periodic_reports import db, due
@@ -95,9 +94,10 @@ def test_reports_keep_real_phases_retries_and_bounded_rows(db):
 def test_progress_api_does_not_start_work_and_hides_internal_errors(db,monkeypatch):
     import app
     monkeypatch.setattr(app,'db_conn',db)
-    monkeypatch.setattr(app,'CLASSIFICATION_SERVICE',SimpleNamespace(error=''))
     monkeypatch.setattr(app,'provider_has_configured_key',lambda provider:False)
     def forbidden(*args,**kwargs):raise AssertionError('Observation started work')
+    monkeypatch.setattr(app.CLASSIFICATION_SERVICE,'start',forbidden)
+    monkeypatch.setattr(app,'provider_secret_value',forbidden)
     monkeypatch.setattr(app.REPORT_SERVICE,'start',forbidden)
     monkeypatch.setattr(app.TOPIC_SERVICE,'start',forbidden)
     monkeypatch.setattr(app,'current_runtime_settings',forbidden)

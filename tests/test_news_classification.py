@@ -137,7 +137,7 @@ def test_worker_persists_result_and_pauses_bad_configuration(conn):
     service = nc.Service(connect, lambda: ("valid", "configured-model"), runner=runner)
     assert service.process_one("invalid", "configured-model")
     assert service.error == "http_401"
-    assert service.blocked_config == (nc.fingerprint("invalid"), "configured-model")
+    assert service.blocked_config == ("jev", nc.fingerprint("invalid"), "configured-model")
     service.resume()
     assert not service.error and service.blocked_config is None
     with conn:

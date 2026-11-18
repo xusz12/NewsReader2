@@ -12,7 +12,7 @@ from test_api import _setup_agent_api_fixture
 @pytest.fixture
 def api_fixture(tmp_path, monkeypatch):
     app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    for name in ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY", "OPENCODE_API_KEY"):
+    for name in ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY", "OPENCODE_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     secrets = {}
     monkeypatch.setattr(app, "has_secret", lambda name: name in secrets)
@@ -34,9 +34,9 @@ class Reply:
 def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, tmp_path):
     app, client, _ = api_fixture
     initial = client.get('/api/settings').json
-    assert initial['api_models'] == {'jev': {'model': ''}, 'opencode-go': {'model': ''}}
-    assert initial['classification'] == {'enabled': True, 'concurrency': 8, 'unread_only': False}
-    assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev', 'opencode-go']
+    assert initial['api_models'] == {'jev': {'model': ''}, 'opencode-go': {'model': ''}, 'openai-decisions': {'model': ''}}
+    assert initial['classification'] == {'enabled': True, 'concurrency': 8, 'unread_only': False, 'provider': 'jev', 'fallback_enabled': False}
+    assert [p['id'] for p in initial['api_providers']] == ['deepseek', 'jev', 'openai-decisions', 'opencode-go']
     assert initial['api_status']['jev']['configured'] is False
     assert initial['model_catalogs']['jev']['options'] == []
     initial['api_models']['jev']['model'] = ' jev-custom '

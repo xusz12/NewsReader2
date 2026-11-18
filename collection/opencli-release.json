@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-16T03:57:36.447660+00:00",
-  "fingerprint": "bc2b8ad705cae800701f71e795e4b3028a2620dcbfee353c7084b802ff1dd94f",
-  "newsreader_version": "0.5.14",
+  "checked_at": "2026-11-18T02:53:08.052131+00:00",
+  "fingerprint": "ea9f72032c6175b8fbf4793cb12eddd33f7b2b33cce064202ab244deb98d85ed",
+  "newsreader_version": "0.5.15",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.79,
+      "seconds": 17.88,
       "error": "",
       "samples": [
         {
-          "title": "Oil prices fall on expectations of coming supply surplus",
-          "url": "https://www.reuters.com/business/energy/oil-prices-fall-expectations-coming-supply-surplus-2026-11-16/",
-          "time": "2026-11-16 10:00:51",
+          "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
+          "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
+          "time": "2026-11-18 09:46:14",
           "source_name": "Reuters"
         },
         {
-          "title": "Asian shares fall before Nvidia earnings, Anthropic IPO test tech rally",
-          "url": "https://www.reuters.com/world/china/global-markets-global-markets-2026-11-16/",
-          "time": "2026-11-16 09:35:52",
+          "title": "Dollar holds near 19-month high as data supports case for US rate hikes",
+          "url": "https://www.reuters.com/world/middle-east/dollar-holds-near-19-month-high-data-supports-case-us-rate-hikes-2026-11-18/",
+          "time": "2026-11-18 09:34:14",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.33,
+      "seconds": 4.73,
       "error": "",
       "samples": [
         {
-          "title": "Asian shares fall before Nvidia earnings, Anthropic IPO test tech rally",
-          "url": "https://www.reuters.com/world/china/global-markets-global-markets-2026-11-16/",
-          "time": "2026-11-16 09:35:52",
+          "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
+          "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
+          "time": "2026-11-18 09:46:14",
           "source_name": "Reuters"
         },
         {
-          "title": "Inside China's drive to build an AI-native generation",
-          "url": "https://www.reuters.com/world/china/inside-chinas-drive-build-an-ai-native-generation-2026-11-16/",
-          "time": "2026-11-16 08:06:15",
+          "title": "Insight: How India became a rice powerhouse - and why it's becoming a problem",
+          "url": "https://www.reuters.com/world/china/how-india-became-rice-powerhouse-why-its-becoming-problem-2026-11-18/",
+          "time": "2026-11-18 09:03:52",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.4,
+      "seconds": 17.75,
       "error": "",
       "samples": [
         {
-          "title": "After days of flight disruptions, officials see system back to normal by Monday",
-          "url": "https://www.reuters.com/world/us/us-air-travel-disruptions-continue-into-third-day-2026-11-15/",
-          "time": "2026-11-16 00:49:04",
+          "title": "Tech outage wave reaches US government, Trump says all is 'fine'",
+          "url": "https://www.reuters.com/business/aerospace-defense/trump-shrugs-off-spate-us-outages-says-things-like-that-happen-2026-11-17/",
+          "time": "2026-11-17 21:08:04",
           "source_name": "Reuters"
         },
         {
-          "title": "Rocket from Boeing-Lockheed firm fails mid-flight, destroys payload of Amazon satellites",
-          "url": "https://www.reuters.com/business/aerospace-defense/us-rocket-fails-after-launch-payload-amazon-internet-satellites-destroyed-2026-11-15/",
-          "time": "2026-11-16 04:26:04",
+          "title": "Ukraine cripples Crimean road bridge in blow to Putin before meeting with Xi and Trump",
+          "url": "https://www.reuters.com/world/europe/ukraine-strikes-crimean-bridge-second-day-russia-pounds-kyiv-bridges-2026-11-17/",
+          "time": "2026-11-17 17:50:40",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.34,
+      "seconds": 4.68,
       "error": "",
       "samples": [
         {
-          "title": "Intel sued by shareholders following 29% stock plunge",
-          "url": "https://www.reuters.com/business/intel-sued-by-shareholders-following-29-stock-plunge-2026-11-15/",
-          "time": "2026-11-16 07:05:21",
+          "title": "Troubled Australian retailer David Jones to cut 1,500 jobs, union says",
+          "url": "https://www.reuters.com/business/world-at-work/troubled-australian-retailer-david-jones-cut-1500-jobs-union-says-2026-11-18/",
+          "time": "2026-11-18 09:32:31",
           "source_name": "Reuters"
         },
         {
-          "title": "After days of flight disruptions, officials see system back to normal by Monday",
-          "url": "https://www.reuters.com/world/us/us-air-travel-disruptions-continue-into-third-day-2026-11-15/",
-          "time": "2026-11-16 00:49:04",
+          "title": "Nvidia chair says the board will not rehire Huang as CEO",
+          "url": "https://www.reuters.com/business/nvidia-forecasts-quarterly-revenue-above-estimates-first-report-since-huangs-2026-11-17/",
+          "time": "2026-11-18 05:24:04",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.23,
+      "seconds": 5.03,
       "error": "",
       "samples": [
         {
-          "title": "South Korea to inspect glasses worn by exam candidates after AI cheating scandal",
-          "url": "https://www.reuters.com/world/asia-pacific/south-korea-inspect-glasses-worn-by-exam-candidates-after-ai-cheating-scandal-2026-11-16/",
-          "time": "2026-11-16 11:48:17",
+          "title": "Nvidia chair says the board will not rehire Huang as CEO",
+          "url": "https://www.reuters.com/business/nvidia-forecasts-quarterly-revenue-above-estimates-first-report-since-huangs-2026-11-17/",
+          "time": "2026-11-18 05:24:04",
           "source_name": "Reuters"
         },
         {
-          "title": "Inside China's drive to build an AI-native generation",
-          "url": "https://www.reuters.com/world/china/inside-chinas-drive-build-an-ai-native-generation-2026-11-16/",
-          "time": "2026-11-16 08:06:15",
+          "title": "Tech outage wave reaches US government, Trump says all is 'fine'",
+          "url": "https://www.reuters.com/business/aerospace-defense/trump-shrugs-off-spate-us-outages-says-things-like-that-happen-2026-11-17/",
+          "time": "2026-11-17 21:08:04",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 4.04,
+      "seconds": 4.4,
       "error": "",
       "samples": [
         {
-          "title": "India Stock Market Rebounds as AI Trade Unwinds, Foreign Funds Return",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-15/india-stock-market-rebounds-as-ai-trade-unwinds-foreign-funds-return",
-          "time": "2026-11-15 08:00:00",
+          "title": "Asics COO Business & Growth Outlook",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-18/asics-coo-business-growth-outlook-video",
+          "time": "2026-11-18 10:51:06",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Morgan Stanley ‘Max Overweight’ Global Stocks on AI Cycle",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-16/morgan-stanley-max-overweight-global-stocks-on-intact-ai-cycle",
-          "time": "2026-11-16 09:48:39",
+          "title": "Nvidia Raises Outlook, Says It Can Thrive Without Huang",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-17/nvidia-delivers-solid-outlook-in-first-post-huang-earnings",
+          "time": "2026-11-18 05:24:23",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.58,
+      "seconds": 2.56,
       "error": "",
       "samples": [
         {
-          "title": "Apple launches new app to study how people use AI for health",
-          "url": "https://techcrunch.com/2026/11/15/apple-launches-new-app-to-study-how-people-use-ai-for-health/",
-          "time": "2026-11-16 09:30:00",
+          "title": "Nvidia’s startup stakes ballooned to $65B, but Huang’s exit puts future deals in doubt",
+          "url": "https://techcrunch.com/2026/11/17/nvidias-startup-stakes-ballooned-to-65b-but-huangs-exit-puts-future-deals-in-doubt/",
+          "time": "2026-11-18 09:44:21",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Indian chip startup Bharat Semi lands $24M seed round as it eyes global AI sensor market",
-          "url": "https://techcrunch.com/2026/11/15/indian-chip-startup-bharat-semi-lands-24m-seed-round-as-it-eyes-global-ai-sensor-market/",
-          "time": "2026-11-16 07:30:00",
+          "title": "Nvidia promises that revenue will keep soaring — for now",
+          "url": "https://techcrunch.com/2026/11/17/nvidia-promises-that-revenue-will-keep-soaring-for-now/",
+          "time": "2026-11-18 08:16:50",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.28,
+      "seconds": 2.36,
       "error": "",
       "samples": [
         {
-          "title": "Vulcan rocket fails during launch, dealing major blow to SpaceX competitors",
-          "url": "https://arstechnica.com/space/2026/11/vulcan-rocket-fails-during-launch-dealing-major-blow-to-spacex-competitors/",
-          "time": "2026-11-16 07:11:54",
+          "title": "Copilot is \"the new OS for work,\" and now Office runs inside of it",
+          "url": "https://arstechnica.com/gadgets/2026/11/microsoft-calls-copilot-the-new-os-for-work-at-ignite-keynote/",
+          "time": "2026-11-18 08:27:29",
           "source_name": "Ars Technica"
         },
         {
-          "title": "How the world’s fires changed while humanity hit pause",
-          "url": "https://arstechnica.com/science/2026/11/how-the-worlds-fires-changed-while-humanity-hit-pause/",
-          "time": "2026-11-15 20:07:34",
+          "title": "San Diego dumps both Flock cameras and smart streetlights",
+          "url": "https://arstechnica.com/tech-policy/2026/11/san-diego-dumps-both-flock-cameras-and-smart-streetlights/",
+          "time": "2026-11-18 07:09:09",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.78,
+      "seconds": 1.71,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.76,
+      "seconds": 1.59,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.71,
+      "seconds": 1.74,
       "error": "",
       "samples": [
         {
-          "title": "猪肉价格创10年新低，上海多个市场的部分猪肉价格已低于蔬菜。 需求端消费整体疲弱，供强需弱格局未根本改变。第四季生猪出栏仍处高位，未来6至8个月猪价可能继续反弹乏力，延续亏损。 https://t.co/a2zTC3ON4q",
-          "url": "https://x.com/fxtrader/status/2122169276362788927?s=20",
-          "time": "2026-11-16 11:25",
+          "title": "美国国家情报总监解释近期信息系统故障频发原因：“就我们目前所能判断的，这不是网络攻击，也不是某个国家协调发动的行动。” “我认为这里正在发生的是，很多人正在给系统打补丁。他们知道这些是遗留系统，存在漏洞，已经过时，是时候对我们的数字基础设施进行全面升级了。” https://t.co/u8MpiSXDTr",
+          "url": "https://x.com/fxtrader/status/2122874679312752690?s=20",
+          "time": "2026-11-18 10:08",
           "source_name": "外汇交易员"
         },
         {
-          "title": "#数据 中国 10月规模以上工业增加值同比增4.8%，预期5.3%； 10月社会消费品零售总额同比增0.4%，预期0.8%； 10月城镇调查失业率5.1%，前值5.5%； 1-10月城镇固定资产投资同比-8.1%，预期-7.0%。 https://t.co/YxeKrMkGSQ",
-          "url": "https://x.com/fxtrader/status/2122148040123527335?s=20",
-          "time": "2026-11-16 10:01",
+          "title": "https://t.co/iNZegyDES1",
+          "url": "https://x.com/fxtrader/status/2122880347293777936?s=20",
+          "time": "2026-11-18 10:31",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,19 +250,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.71,
+      "seconds": 1.66,
       "error": "",
       "samples": [
+        {
+          "title": "RT @elonmusk: Relentless reinforcement learning must feel like Edge of Tomorrow to superintelligence",
+          "url": "https://x.com/WaylandZhang/status/2122659202133061892?s=20",
+          "time": "2026-11-17 19:52",
+          "source_name": "WaylandZhang"
+        },
         {
           "title": "从几何来看： 可以把一维空间中的标量（scalar），理解为高维空间中向量（vector）的特殊情况。 一维空间：数字的平方非负 例如： a = 3 a² = 9 ≥ 0 而高维空间：向量的长度平方非负 例如： v = (3, 4) |v|² = 3² + 4² = 25 ≥ 0 本质上，两者遵循相同的数学原理。 回到原题的不等式 我们把每个实数 xᵢ 映射成高维向量 vᵢ，并让两个向量的内积满足： 内积(vᵢ, vⱼ) = √|xᵢ + xⱼ| − √|xᵢ − xⱼ| 然后把所有向量相加： V = v₁ + v₂ + … + vₙ 由于向量长度的平方一定非负 那么： |V|² = 所有向量两两内积之和必 ≥ 0 因此： 所有 √|xᵢ + xⱼ| 之和 ≥ 所有 √|xᵢ − xⱼ| 之和 这证明了原题在高维空间中的“成立”。 所以可以把复杂的实数不等式转换成一个简单的高维几何事实：向量之和的长度平方不可能为负。 那么是否一维的scalar是高维空间的体重特例？？",
           "url": "https://x.com/WaylandZhang/status/2122140061936558391?s=20",
           "time": "2026-11-16 09:29",
-          "source_name": "WaylandZhang"
-        },
-        {
-          "title": "The distinction between storing a memory and recalling it is fascinating. A smell or a few notes of a song can bring back an entire scene. What evidence would distinguish the standing-wave hypothesis from other explanations of cue-driven recall?",
-          "url": "https://x.com/WaylandZhang/status/2122131820703842463?s=20",
-          "time": "2026-11-16 08:57",
           "source_name": "WaylandZhang"
         }
       ]
@@ -272,62 +272,62 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/business/energy/oil-prices-fall-expectations-coming-supply-surplus-2026-11-16/",
+      "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
       "ok": true,
-      "title": "Oil prices fall on expectations of coming supply surplus",
-      "length": 2758,
-      "seconds": 3.11,
+      "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
+      "length": 3116,
+      "seconds": 9.23,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "4dae37efaee9cabe3af5b01e71b7e25885abecdd8f64fba0ea03f8c19da38477",
-      "preview": "PERTH, Nov 16 (Reuters) - Oil prices fell on Monday on expectations of a supply surplus as shipments from the Middle East through the Strait of Hormuz have been"
+      "content_sha256": "5701f83ae118723ff6afe7994375b6f8237d512d528ed1856c137299b67a50b4",
+      "preview": "SINGAPORE, Nov 18 (Reuters) - Stocks rose in Asia on Wednesday as Nvidia shrugged off recent turmoil to post a better-than-expected sales forecast, boosting com"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-15/india-stock-market-rebounds-as-ai-trade-unwinds-foreign-funds-return",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-17/nvidia-delivers-solid-outlook-in-first-post-huang-earnings",
       "ok": true,
-      "title": "AI Wobble Fuels India Stock Comeback in Rotation Trade",
-      "length": 5523,
-      "seconds": 18.8,
+      "title": "Nvidia Raises Outlook, Says It Can Thrive Without Huang",
+      "length": 7221,
+      "seconds": 32.39,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "a0385771c69124563721fe09fb63ab9fbf293e20cdce23d9398e19552e3f215b",
-      "preview": "Indian stocks suffered bruising losses in the first nine months of the year as the artificial intelligence trade hoovered up global investor capital. The unwind"
+      "content_sha256": "703f825dea3d58d2647fd7816114a1fe4b3967e17aaabbf9831f5c63758ad54b",
+      "preview": "Nvidia Corp. sought to deliver a clear message during its first earnings update since the departure of longtime leader Jensen Huang: He’s not coming back, and t"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/15/apple-launches-new-app-to-study-how-people-use-ai-for-health/",
+      "url": "https://techcrunch.com/2026/11/17/nvidias-startup-stakes-ballooned-to-65b-but-huangs-exit-puts-future-deals-in-doubt/",
       "ok": true,
-      "title": "Apple launches new app to study how people use AI for health",
-      "length": 2647,
-      "seconds": 2.02,
+      "title": "Nvidia’s startup stakes ballooned to $65B, but Huang’s exit puts future deals in doubt",
+      "length": 2750,
+      "seconds": 3.09,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "768b1c628c2c467c452f4865f78775b519e83cc9072daefab3d074a8866258a8",
-      "preview": "Big AI labs like OpenAI and Anthropic have made their bets on offering chatbots that can answer health-related queries with specialized features. Apple is debut"
+      "content_sha256": "3a925a3972733a8757d98928404a5f141d1fbea6d72d197d069d1731ca9e56b2",
+      "preview": "Nvidia’s equity in private companies continues to grow: it revealed its stakes are now worth $65.5 billion on Tuesday , up from the $22 billion reported in Janu"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/space/2026/11/vulcan-rocket-fails-during-launch-dealing-major-blow-to-spacex-competitors/",
+      "url": "https://arstechnica.com/gadgets/2026/11/microsoft-calls-copilot-the-new-os-for-work-at-ignite-keynote/",
       "ok": true,
-      "title": "Vulcan rocket fails during launch, dealing major blow to SpaceX competitors",
-      "length": 10327,
-      "seconds": 15.95,
+      "title": "Copilot is “the new OS for work,” and now Office runs inside of it",
+      "length": 7117,
+      "seconds": 16.33,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "c5d94afc98cecab43024965c10f52bf470d8eae71f7d452d1874e54f2fac7802",
-      "preview": "United Launch Alliance’s Vulcan rocket and 40 Amazon Leo broadband satellites fell back to Earth minutes after liftoff Sunday, a crushing setback that will ripp"
+      "content_sha256": "4db41935aa0e75a1914d2037ca4c11203d01a6fa7cee663ef0262d06e6104cf8",
+      "preview": "Opening the keynote at its Ignite event, Microsoft CEO Satya Nadella outlined the company’s vision for its new “frontier ecosystem,” announcing Tuesday the gene"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 3.77,
+      "seconds": 16.4,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.51,
+      "seconds": 16.32,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -365,13 +365,13 @@
       "url": "https://x.com/ilyasut/status/2094881278621253755?s=20",
       "ok": true,
       "title": "ilyasut",
-      "length": 617,
-      "seconds": 10.1,
+      "length": 769,
+      "seconds": 9.66,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "6a9671fe30c54332d03397bb01ff37826947527398f1793898894783fe2587db",
+      "content_sha256": "344758a38581824b78e4ab18bfccdfc96a7312206596558d77892c6053252489",
       "preview": "【主推文】\nNeoclouds have limited cybersecurity.   Next time agents successfully go rouge, they'll try taking over a neocloud to run more copies.  This is bad.\n\nThus"
     },
     {
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 9.05,
+      "seconds": 6.6,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 9.87,
+      "seconds": 7.15,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-16T03:57:38.977153+00:00"
+    "checked_at": "2026-11-18T02:53:10.252535+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-16T03:57:46.485182+00:00"
+    "checked_at": "2026-11-18T02:53:22.552606+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-16T04:00:25.572174+00:00",
+    "checked_at": "2026-11-18T02:56:56.610562+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

@@ -99,14 +99,17 @@ def classification_concurrency(value: object) -> int:
 def normalize_classification(value: object, *, defaults: dict | None = None, legacy: object = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError("invalid_classification_settings")
-    result = {"enabled": True, "concurrency": DEFAULT_CLASSIFICATION_CONCURRENCY, "unread_only": False}
+    result = {"enabled": True, "concurrency": DEFAULT_CLASSIFICATION_CONCURRENCY, "unread_only": False,
+              "provider": "jev", "fallback_enabled": False}
     result.update(defaults or {})
     # Read old Jev settings without retaining feature controls in API management.
     if isinstance(legacy, dict):
         result.update({key: legacy[key] for key in ("concurrency", "unread_only") if key in legacy})
     result.update({key: value[key] for key in result if key in value})
     result["concurrency"] = classification_concurrency(result["concurrency"])
-    for key in ("enabled", "unread_only"):
+    if result["provider"] not in ("jev", "openai-decisions"):
+        raise ValueError("invalid_classification_provider")
+    for key in ("enabled", "unread_only", "fallback_enabled"):
         if type(result[key]) is not bool:
             raise ValueError(f"invalid_classification_{key}")
     return result

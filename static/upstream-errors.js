@@ -232,12 +232,13 @@ export class UpstreamErrors {
     if (error) return { message: error, retry: false };
     if (!p || !(p.pending || p.running || p.failed || p.error)) return null;
     const errors = p.errors || [];
-    if (p.configured && !p.error && !p.failed && !p.throttle?.rate_limited && !errors.length) return null;
+    if (p.configured && !p.waiting_for_service && !p.error && !p.failed && !p.throttle?.rate_limited && !errors.length) return null;
     const codes = [...new Set([p.error, ...errors.map(row => row.code)].filter(Boolean))];
     const reasons = { http_401: "鉴权失败（HTTP 401）", http_403: "无调用权限（HTTP 403）", http_429: "请求限流（HTTP 429）",
       http_529: "服务过载（HTTP 529）", network_error: "网络连接失败", invalid_response: "模型返回格式异常",
-      classification_failed: "模型调用失败", worker_unavailable: "分类服务暂不可用", interrupted: "分类任务中断" };
-    const status = p.configured && !p.error && errors.length && !p.failed && !p.throttle?.rate_limited
+      insufficient_quota: "账户额度不足", decision_refused: "模型拒绝回答，未保存判断结果",
+      unsupported_decision_model: "判断模型不受支持", classification_failed: "模型调用失败", worker_unavailable: "分类服务暂不可用", interrupted: "分类任务中断" };
+    const status = p.configured && !p.waiting_for_service && !p.error && errors.length && !p.failed && !p.throttle?.rate_limited
       ? "分类请求失败，正在自动重试" : classificationStatus(p);
     return { message: [status, p.failed ? `${p.failed} 条新闻分类失败` : "",
       ...codes.map(code => reasons[code] || code)].filter(Boolean).join("；"), retry: !!(p.failed || p.error) };
@@ -269,7 +270,7 @@ export class UpstreamErrors {
     const issue = this.classificationIssue();
     if (!issue) return "";
     return `<article class="upstream-error-card" data-upstream-model="classification">
-      <div class="upstream-card-head"><div class="upstream-source-title"><strong>新闻分类 · Jev</strong></div><span class="upstream-error-tag">当前异常</span></div>
+      <div class="upstream-card-head"><div class="upstream-source-title"><strong>新闻分类 · ${e(this.classificationSnapshot?.progress?.provider_label || "Jev")}</strong></div><span class="upstream-error-tag">当前异常</span></div>
       <div class="section-stack"><div class="muted">${e(issue.message)}</div>
       <div class="button-row"><button class="reader-tool-btn" type="button" data-upstream-classification="settings">检查分类设置</button>
       <button class="reader-tool-btn" type="button" data-upstream-classification="${issue.retry ? "retry" : "refresh"}" aria-busy="${!!this.classificationBusy}"${this.classificationBusy ? " disabled" : ""}>${issue.retry ? "重试分类" : "刷新状态"}</button></div>

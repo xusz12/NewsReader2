@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from uuid import uuid4
 
+import decision_protocol
+
 
 # urllib applies this to blocking socket operations, including HTTPS handshakes.
 MODEL_CATALOG_TIMEOUT_SECONDS = 25
@@ -109,7 +111,16 @@ API_PROVIDERS = {
         "test_url": "https://api.typesafe.ai/v1/systemone",
         "model_path": "api_models.jev.model", "default_model": "jev-latest",
         "description": "TypeSafe 的判断模型，用于新闻分类、主题新闻归属和重要进展筛选。",
-        "fallback": "临时错误自动退避重试，限流时降低并发；密钥失效时暂停等待修复。已有分类与主题内容保留，未分类新闻仍可在「全部」阅读；不会自动改用其他服务。",
+        "fallback": "临时错误自动退避重试，限流时降低并发；密钥失效时暂停等待修复。已有分类与主题内容保留，未分类新闻仍可在「全部」阅读；仅在开启自动备用时切换判断服务。",
+    },
+    "openai-decisions": {
+        "label": "OpenAI Decisions", "secret_name": "OPENAI_API_KEY",
+        "models_url": "https://api.openai.com/v1/models",
+        "test_url": "https://api.openai.com/v1/decisions",
+        "model_path": "api_models.openai-decisions.model", "default_model": "gpt-6-luna",
+        "description": "用于新闻分类、主题新闻归属和重要进展筛选；在上方选择判断服务后保存生效。当前支持 gpt-6-luna，使用独立的 OpenAI API 密钥。",
+        "fallback": "临时错误退避重试，限流时降低并发；凭据或额度问题暂停。保留已有结果；仅在开启自动备用时切换判断服务。",
+        "docs_url": "https://developers.openai.com/api/docs/guides/decisions",
     },
     "opencode-go": {
         # Reuse the original managed key slot when replacing the OpenCode card.
@@ -174,6 +185,8 @@ def normalize_api_models(value: object, *, defaults: dict | None = None) -> dict
         # migrates the old model; the normalized result no longer has that alias.
         if provider == "opencode-go" and not model.strip():
             model = legacy_model
+        if provider == "openai-decisions" and model.strip() and model.strip() not in decision_protocol.OPENAI_MODELS:
+            raise ValueError("unsupported_decision_model")
         normalized[provider] = {"model": model.strip()}
     return normalized
 
@@ -208,6 +221,8 @@ def parse_model_options(provider: str, payload: object) -> list[dict]:
             continue
         name = name.strip()
         seen.add(name)
+        if provider == "openai-decisions" and name not in decision_protocol.OPENAI_MODELS:
+            continue
         if is_hidden_model(provider, name, row):
             continue
         # These HTTP translation clients use Chat Completions. Pi has its own
@@ -220,10 +235,10 @@ def parse_model_options(provider: str, payload: object) -> list[dict]:
 
 
 def probe_payload(provider: str, model: str) -> dict:
-    if provider == "jev":
-        return {"model": model, "state": "The sky is blue.", "questions": {
+    if provider in decision_protocol.PROVIDERS:
+        return decision_protocol.request_payload(provider, model, "The sky is blue.", {
             "connection_check": {"type": "noul", "instructions": "Does the text mention the sky?"},
-        }}
+        })
     return {"model": model, "messages": [{"role": "user", "content": "Reply OK."}],
             "max_tokens": 128 if provider in {"opencode", "opencode-go"} else 16}
 
@@ -231,13 +246,16 @@ def probe_payload(provider: str, model: str) -> dict:
 def valid_probe_response(provider: str, payload: object) -> bool:
     if not isinstance(payload, dict) or payload.get("error"):
         return False
+    if provider == "openai-decisions":
+        try:
+            decision_protocol.normalize_response(provider, payload, {"connection_check": {"type": "noul"}})
+        except ValueError:
+            return False
+        return True
     if provider == "jev":
         answers = payload.get("answers")
         answer = answers.get("connection_check") if isinstance(answers, dict) else None
-        if not isinstance(answer, dict) or answer.get("type") != "noul":
-            return False
-        probability = answer.get("noul")
-        return type(probability) in (int, float) and 0 <= probability <= 1
+        return isinstance(answer, dict) and answer.get("type") == "noul" and decision_protocol.probability(answer.get("noul"))
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         return False

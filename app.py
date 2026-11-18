@@ -3,6 +3,7 @@ from contextlib import closing
 import model_catalogs
 import connection_tests
 import model_apis
+import decision_protocol
 import pi_models
 from opencli_runtime import resolve_command as resolve_opencli_command
 
@@ -2226,7 +2227,7 @@ def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool 
                 payload = json.loads(response.read().decode("utf-8"))
                 parsed = model_apis.parse_model_options(provider, payload)
             # A valid directory may contain only free or incompatible models.
-            empty_filtered = provider in {"opencode", "opencode-go"} and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
+            empty_filtered = provider in {"opencode", "opencode-go", "openai-decisions"} and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
                 isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip() for row in payload["data"])
             if not parsed and not empty_filtered:
                 raise ValueError("empty_models")
@@ -7382,8 +7383,12 @@ def api_translation_test(provider: str = "deepseek"):
         return jsonify(ok=False, error="missing_api_key"), 400
     if not model:
         return jsonify(ok=False, error="invalid_model", message="请先选择或填写测试模型。"), 400
+    try:
+        probe_body = model_apis.probe_payload(provider, model)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 400
     probe = Request(config["test_url"],
-                    data=json.dumps(model_apis.probe_payload(provider, model)).encode(),
+                    data=json.dumps(probe_body).encode(),
                     headers={**model_apis.request_headers(key, provider), "Content-Type": "application/json"}, method="POST")
     started = time.monotonic()
     try:
@@ -7463,7 +7468,7 @@ def api_settings_update():
     # Account revisions protect drafts from concurrent edits/removals and bind
     # them to the library. The legacy settings file never owns subscriptions.
     try:
-        with NEWS_SUMMARY_SERVICE.lock, REPORT_SNAPSHOT_LOCK, closing(db_conn()) as conn, conn:
+        with NEWS_SUMMARY_SERVICE.lock, REPORT_SNAPSHOT_LOCK, CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             if "x_accounts" in body:
                 x_accounts.save(conn, body["x_accounts"], body.get("x_accounts_revision"))
@@ -11361,10 +11366,37 @@ def api_news_summary_detail(summary_id):
         return _summary_error(exc)
 
 
-def classification_config() -> tuple[str, str]:
+def classification_config(provider=None) -> tuple[str, str, str]:
     settings = current_runtime_settings()
-    model = settings["api_models"]["jev"]["model"] or model_apis.API_PROVIDERS["jev"]["default_model"]
-    return provider_secret_value("jev"), model
+    if provider is None:
+        provider = settings["classification"]["provider"]
+    model = settings["api_models"][provider]["model"] or model_apis.API_PROVIDERS[provider]["default_model"]
+    return provider_secret_value(provider), model, provider
+
+
+def decision_service_status():
+    service = CLASSIFICATION_SERVICE
+    with service.lock:
+        primary = service.provider
+        backup = decision_protocol.alternate(primary)
+        primary_key = provider_has_configured_key(primary)
+        route = primary
+        waiting = False
+        if service.fallback_enabled and (not primary_key or service.gate.last_error or service.gate.cooling()):
+            backup_key = provider_has_configured_key(backup)
+            backup_lane = service.lanes[backup]
+            waiting = not backup_key or bool(backup_lane.last_error) or backup_lane.cooling()
+            if not waiting:
+                route = backup
+        else:
+            backup_key = False
+        label = model_apis.API_PROVIDERS[route]["label"]
+        return {"provider": primary, "preferred_label": model_apis.API_PROVIDERS[primary]["label"],
+                "provider_label": label, "active_provider": None if waiting else route,
+                "fallback_enabled": service.fallback_enabled, "using_backup": route != primary,
+                "waiting_for_service": waiting, "configured": primary_key or backup_key,
+                "error": service.error, "throttle": service.lanes[route].snapshot()}
+
 
 
 TOPIC_SERVICE = topic_tracking.Service(db_conn, current_runtime_settings)
@@ -11491,8 +11523,10 @@ def api_task_progress():
     try:
         with closing(db_conn()) as conn:
             result = task_progress.snapshot(conn)
-        result['topics'].update(matching_configured=provider_has_configured_key('jev'),
-                                matching_error=CLASSIFICATION_SERVICE.error)
+        decision = decision_service_status()
+        result['topics'].update(matching_configured=decision['configured'], matching_provider_label=decision['provider_label'],
+                                matching_error=decision["error"], matching_waiting=decision["waiting_for_service"],
+                                using_backup=decision["using_backup"])
         return jsonify(ok=True, **result)
     except (sqlite3.Error, OSError, ValueError):
         return jsonify(ok=False, error="task_progress_unavailable"), 503
@@ -11588,7 +11622,8 @@ def api_report_retry(report_id):
     return jsonify(ok=True), 202
 
 
-CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config, topic_queue=topic_tracking.MatchQueue())
+CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config, topic_queue=topic_tracking.MatchQueue(),
+                                                    backup_config=classification_config)
 CLASSIFICATION_SERVICE.configure(**current_runtime_settings()["classification"])
 
 
@@ -11605,8 +11640,10 @@ def _topic_error(exc):
 def api_event_topics():
     try:
         if request.method == "GET":
-            return jsonify(ok=True, topics=TOPIC_SERVICE.listing(), matching_configured=provider_has_configured_key("jev"),
-                           matching_error=CLASSIFICATION_SERVICE.error)
+            decision = decision_service_status()
+            return jsonify(ok=True, topics=TOPIC_SERVICE.listing(), matching_configured=decision['configured'],
+                           matching_provider_label=decision['provider_label'],
+                           matching_error=decision["error"], matching_waiting=decision["waiting_for_service"])
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             raise ValueError("topic_invalid_input")
@@ -11717,9 +11754,7 @@ def api_classification_status():
     with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn:
         progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
     return jsonify(ok=True, **progress, enabled=CLASSIFICATION_SERVICE.enabled,
-                   configured=provider_has_configured_key("jev"),
-                   error=CLASSIFICATION_SERVICE.error,
-                   throttle=CLASSIFICATION_SERVICE.gate.snapshot(),
+                   **decision_service_status(),
                    categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
 
 

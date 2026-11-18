@@ -82,7 +82,8 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 | `NEWS_READER_CODEX` | PATH 中的 codex | 使用接手方安装及登录的 CLI |
 | `NEWS_READER_PI_AGENT_DIR` | Pi 配置来源覆盖 | 不配置时继承本机 Pi；迁移扩展和信任配置需单独核验 |
 | `DEEPSEEK_API_KEY` | 环境变量优先，否则 macOS Keychain | 由接手方设置；不要放进源码或交付说明 |
-| `TYPESAFE_API_KEY` | 环境变量优先，否则 macOS Keychain | Jev 新闻分类、主题归属和重要进展筛选 |
+| `TYPESAFE_API_KEY` | 环境变量优先，否则 macOS Keychain | 选择 Jev 时用于新闻分类、主题归属和重要进展筛选 |
+| `OPENAI_API_KEY` | 环境变量优先，否则 macOS Keychain | 选择 OpenAI Decisions 时用于同三项判断；默认 `gpt-6-luna` |
 | `OPENCODE_API_KEY` | 环境变量优先，否则 macOS Keychain | OpenCode Go 订阅的正文翻译／精读、目录与测试；沿用原 OpenCode 密钥槽，Keychain 密钥不再注入 Pi 子进程 |
 
 | `NEWS_READER_LLM_MODEL` | 空时由代码使用翻译默认模型 | 显式保存的模型设置需与服务可用目录核对 |
@@ -151,7 +152,7 @@ CI=1 npm run test:ui
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
 5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。新版升级器在停服前准备目标锁定依赖，健康检查失败同时恢复代码与依赖；首次从旧升级器迁入时需手动执行一次 `npm ci --ignore-scripts`。每次推送前运行 `npm run check:release`，维护者用 `npm run setup:hooks` 启用自动检查。
 
-每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.109.0 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
+每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.116.0 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
 
 OAR／Pi 升级至少运行 `npm run test:oar`，以及 `python3 -m pytest tests/test_oar_client.py tests/test_oar_pi_news.py tests/test_oar_codex.py tests/test_oar_codex_native.py tests/test_pi_models.py tests/test_codex_client.py tests/test_model_settings.py tests/test_model_catalog_errors.py tests/test_model_catalog_cache.py tests/test_report_model.py tests/test_news_summaries.py tests/test_topic_tracking.py tests/test_personal_assistant.py tests/test_agent_model_picker.py tests/test_chat_archive.py tests/test_agent_conversation.py -q`；`npm ls @botiverse/oar @earendil-works/pi-coding-agent @earendil-works/pi-ai` 应确认共享的 Pi 版本符合依赖范围。真实安装依赖用例使用本地模拟模型验证工具与跨进程续接；原生 Codex 用例缺少可执行文件时会跳过，发布验收须在安装 Codex 的环境实际通过。它们不代表真实搜索、服务商认证或新增 runtime 已验收。迁移范围与未解决能力以[迁移清单](../runtime-migration.md)为准。
 

@@ -16,9 +16,9 @@ def test_legacy_entry_migrates_to_one_subscription_provider(api_fixture, go_mode
                              'opencode-go': {'model': go_model}}
     app.save_app_settings(initial)
     current = client.get('/api/settings').json
-    assert [p['id'] for p in current['api_providers']] == ['deepseek', 'jev', 'opencode-go']
+    assert [p['id'] for p in current['api_providers']] == ['deepseek', 'jev', 'openai-decisions', 'opencode-go']
     assert current['llm']['translation']['provider'] == 'opencode-go'
-    assert current['api_models'] == {'jev': {'model': 'jev-kept'}, 'opencode-go': {'model': expected}}
+    assert current['api_models'] == {'jev': {'model': 'jev-kept'}, 'opencode-go': {'model': expected}, 'openai-decisions': {'model': ''}}
     assert current['api_status']['opencode-go']['configured'] is True
     assert 'opencode' not in current['api_status']
     assert app.provider_secret_value('opencode-go') == 'existing-subscription-key'
@@ -32,7 +32,7 @@ def test_legacy_entry_migrates_to_one_subscription_provider(api_fixture, go_mode
     assert saved.json['api_models']['opencode-go']['model'] == expected
     assert 'opencode' not in app.load_app_settings()['api_models']
     # Once migrated, clearing the Go model must not resurrect the legacy value.
-    cleared = client.put('/api/settings', json={'llm': saved.json['llm'], 'api_models': {'opencode-go': {'model': ''}}})
+    cleared = client.put('/api/settings', json={'llm': saved.json['llm'], 'api_models': {'opencode-go': {'model': ''}, 'openai-decisions': {'model': ''}}})
     assert cleared.status_code == 200 and cleared.json['api_models']['opencode-go']['model'] == ''
 
 

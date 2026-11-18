@@ -14,12 +14,15 @@ import threading
 import time
 import uuid
 from contextlib import closing
+from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import certifi
+import decision_protocol
+import model_apis
 from settings import DEFAULT_CLASSIFICATION_CONCURRENCY, classification_concurrency
 
 RULES = json.loads((Path(__file__).parent / "classification/rules.json").read_text())
@@ -165,6 +168,84 @@ class AdaptiveConcurrency:
                     "cooldown_seconds": max(0, math.ceil(self.cooldown_until - self.clock()))}
 
 
+def service_unavailable(error):
+    if error is None:
+        return False
+    return error.code in {
+        "network_error", "http_408", "http_429", "http_529", "http_401", "http_402",
+        "http_403", "http_404", "insufficient_quota", "unsupported_decision_model",
+    } or error.code.startswith("http_5")
+
+
+@dataclass(frozen=True)
+class DecisionAttempt:
+    provider: str
+    model: str
+    key: str = field(repr=False)
+    epoch: int
+    generation: int
+    probe: bool
+
+
+class DecisionLane(AdaptiveConcurrency):
+    def __init__(self, limit, clock):
+        super().__init__(limit, clock)
+        self.identity = None
+        self.epoch = 0
+        self.failures = 0
+        self.retry_at = 0
+        self.probing = False
+        self.last_error = ""
+
+    def reset_health(self):
+        self.epoch += 1
+        self.failures = 0
+        self.retry_at = 0
+        self.probing = False
+        self.last_error = ""
+
+    def bind(self, identity):
+        if self.identity != identity:
+            previous_error = self.last_error
+            self.reset_health()
+            self.identity = identity
+            if previous_error:
+                self.failures = 1
+                self.last_error = previous_error
+
+    def cooling(self):
+        return self.probing or self.clock() < max(self.retry_at, self.cooldown_until)
+
+    def reserve(self, key, model, provider):
+        if not key or self.cooling() or self.active >= self.effective:
+            return None
+        self.active += 1
+        self.probing = bool(self.failures)
+        return DecisionAttempt(provider, model, key, self.epoch, self.generation, self.probing)
+
+    def complete(self, attempt, error, fallback_enabled):
+        if attempt.epoch != self.epoch:
+            if (self.failures and attempt.epoch + 1 == self.epoch and error and error.rate_limited):
+                self.result(attempt.generation, error)
+            return
+        self.result(attempt.generation, error)
+        if fallback_enabled and (service_unavailable(error) or (attempt.probe and error)):
+            self.failures += 1
+            base = 300 if error.block_config else 30
+            delay = min(300, base * 2 ** min(4, self.failures - 1))
+            self.retry_at = self.clock() + max(delay, error.retry_after)
+            self.last_error = error.code
+            self.probing = False
+            self.epoch += 1
+        elif attempt.probe and not error:
+            self.reset_health()
+
+    def release_attempt(self, attempt):
+        if attempt.probe and attempt.epoch == self.epoch:
+            self.probing = False
+        self.release()
+
+
 def _probability(value: object) -> bool:
     return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1
 
@@ -194,7 +275,7 @@ def parse_response(payload: object) -> dict:
             "model": model, "usage_json": json.dumps(payload.get("usage", {}))}
 
 
-def classify(title: str, key: str, model: str, *, summary="", tracked_topics=None, include_category=True, milestone=None) -> dict:
+def classify(title: str, key: str, model: str, *, summary="", tracked_topics=None, include_category=True, milestone=None, provider="jev") -> dict:
     questions = dict(RULES["questions"]) if include_category else {}
     state = title
     if tracked_topics:
@@ -228,45 +309,38 @@ def classify(title: str, key: str, model: str, *, summary="", tracked_topics=Non
             "只有真正不同的重要进展才能新增节点。\n主题定义："+rules["definition"]+
             "\n纳入范围："+rules["include_scope"]+"\n排除范围："+rules["exclude_scope"]+
             "\n横向收录规则："+rules["horizontal_rule"]}}
-    body = json.dumps({"model": model, "state": state, "questions": questions}, ensure_ascii=False).encode()
-    req = Request("https://api.typesafe.ai/v1/systemone", data=body,
-                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        body = json.dumps(decision_protocol.request_payload(provider, model, state, questions), ensure_ascii=False).encode()
+    except ValueError as exc:
+        raise ClassificationError(str(exc), block_config=True) from None
+    req = Request(model_apis.API_PROVIDERS[provider]["test_url"], data=body,
+                  headers={**model_apis.request_headers(key, provider), "Content-Type": "application/json"})
     try:
         with urlopen(req, timeout=45, context=ssl.create_default_context(cafile=certifi.where())) as response:
-            payload = json.load(response)
+            try:
+                payload = decision_protocol.normalize_response(provider, json.load(response), questions)
+            except ValueError as exc:
+                code = "decision_refused" if str(exc) == "decision_refused" else "invalid_response"
+                raise ClassificationError(code, retryable=code != "decision_refused") from None
             result = parse_response(payload) if include_category else {}
+            if include_category:
+                result["provider"] = provider
             if milestone:
-                try:
-                    answer = payload["answers"]["milestone"]
-                    probabilities = answer["probabilities"]
-                    if (answer["type"]!="choice" or set(probabilities)!=set(criteria) or answer["choice"] not in criteria
-                            or not all(_probability(v) for v in probabilities.values()) or abs(sum(probabilities.values())-1)>=.02
-                            or not _probability(answer["confidence"]) or probabilities[answer["choice"]]<max(probabilities.values())
-                            or not isinstance(payload["model"],str) or not payload["model"].strip()):
-                        raise ValueError()
-                    result["_milestone_result"] = {**answer,"model":payload["model"]}
-                except (KeyError,TypeError,ValueError,AttributeError):
-                    raise ClassificationError("invalid_response",retryable=True) from None
+                result["_milestone_result"] = {**payload["answers"]["milestone"], "model": payload["model"], "provider": provider}
             if tracked_topics:
-                answers = {}
-                try:
-                    for topic in tracked_topics:
-                        answer = payload["answers"]["tracked_" + topic["topic_id"]]
-                        probabilities = answer["probabilities"]
-                        if (answer["type"] != "choice" or set(probabilities) != {"属于", "不属于", "信息不足"}
-                                or answer["choice"] not in probabilities
-                                or not all(_probability(v) for v in probabilities.values())
-                                or abs(sum(probabilities.values())-1) >= .02
-                                or not _probability(answer["confidence"])
-                                or probabilities[answer["choice"]] < max(probabilities.values())
-                                or not isinstance(payload["model"], str) or not payload["model"].strip()):
-                            raise ValueError()
-                        answers[topic["topic_id"]] = {**answer, "model": payload["model"]}
-                except (KeyError, TypeError, ValueError, AttributeError):
-                    raise ClassificationError("invalid_response", retryable=True) from None
-                result["_topic_results"] = answers
+                result["_topic_results"] = {
+                    topic["topic_id"]: {**payload["answers"]["tracked_" + topic["topic_id"]],
+                                        "model": payload["model"], "provider": provider}
+                    for topic in tracked_topics}
             return result
     except HTTPError as exc:
+        if provider == "openai-decisions":
+            details = model_apis.http_error_details(exc)
+            if details["reason"] == "insufficient_quota":
+                raise ClassificationError("insufficient_quota", block_config=True) from None
+            raise ClassificationError(f"http_{exc.code}", retryable=exc.code in (408, 429, 500, 502, 503, 504, 529),
+                                      block_config=exc.code in (400, 401, 402, 403, 404, 422),
+                                      retry_after=details.get("retry_after_seconds", 0)) from None
         # Never persist response bodies, request headers or credentials.
         raise ClassificationError(f"http_{exc.code}", retryable=exc.code in (408, 429, 500, 502, 503, 504, 529),
                                   block_config=exc.code in (400, 401, 402, 403, 404, 422),
@@ -443,54 +517,92 @@ def attach(conn: sqlite3.Connection, items: list[dict]) -> None:
 
 
 class Service:
-    def __init__(self, connect, config, runner=classify, *, concurrency=DEFAULT_CLASSIFICATION_CONCURRENCY, topic_queue=None):
+    def __init__(self, connect, config, runner=classify, *, concurrency=DEFAULT_CLASSIFICATION_CONCURRENCY, topic_queue=None,
+                 backup_config=None, clock=time.monotonic):
         self.connect, self.config, self.runner = connect, config, runner
         self.topic_queue = topic_queue
         self.stop = threading.Event()
         self.threads = []
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.blocked_config = None
         self.error = ""
-        self.gate = AdaptiveConcurrency(concurrency)
+        self.lanes = {provider: DecisionLane(concurrency, clock) for provider in decision_protocol.PROVIDERS}
+        self.backup_config = backup_config
+        self.fallback_enabled = False
         self.unread_only = False
         self.enabled = True
+        self.provider = "jev"
+        self.config_revision = 0
 
-    def process_one(self, key: str, model: str, generation: int | None = None) -> bool:
-        # Serialize scope changes with claiming, not with the network request.
+    @property
+    def gate(self):
+        return self.lanes[self.provider]
+
+    def _reserve_backup(self, preferred):
+        provider = decision_protocol.alternate(preferred)
+        key, model, actual = self.backup_config(provider)
+        if actual != provider:
+            raise ValueError("invalid_classification_provider")
+        lane = self.lanes[provider]
+        lane.bind((provider, fingerprint(key) if key else None, model))
+        return lane.reserve(key, model, provider)
+
+    def _claim(self):
+        with closing(self.connect()) as conn:
+            database = conn.execute("PRAGMA database_list").fetchone()[2]
+            topic_work = self.topic_queue.claim(conn) if self.topic_queue else None
+            milestone_work = self.topic_queue.claim_milestone(conn) if self.topic_queue and not topic_work else None
+            job = None
+            if self.enabled and not milestone_work:
+                job = claim(conn, unread_only=self.unread_only, item_id=topic_work["item"]["id"] if topic_work else None,
+                            exclude_topic_running=self.topic_queue is not None)
+        return database, job, topic_work, milestone_work
+
+    def _run(self, attempt, job, topic_work, milestone_work):
+        options = {"provider": attempt.provider} if attempt.provider != "jev" else {}
+        if milestone_work:
+            item = milestone_work["item"]
+            options.update(summary=item["summary"], milestone=milestone_work, include_category=False)
+        elif topic_work:
+            item = topic_work["item"]
+            options.update(summary=item["summary"], tracked_topics=topic_work["topics"], include_category=bool(job))
+        else:
+            item = job
+        return self.runner(item["title"], attempt.key, attempt.model, **options)
+
+    def process_one(self, key: str, model: str, *, provider="jev", config_revision=None) -> bool:
         with self.lock:
+            if config_revision is not None and config_revision != self.config_revision:
+                return False
             if not self.enabled and self.topic_queue is None:
                 return False
-            with closing(self.connect()) as conn:
-                database = conn.execute("PRAGMA database_list").fetchone()[2]
-                # Match new ingestions promptly, including read articles outside category scope.
-                topic_work = self.topic_queue.claim(conn) if self.topic_queue else None
-                milestone_work = self.topic_queue.claim_milestone(conn) if self.topic_queue and not topic_work else None
-                job = claim(conn, unread_only=self.unread_only,
-                            item_id=topic_work["item"]["id"] if topic_work else None,
-                            exclude_topic_running=self.topic_queue is not None) if self.enabled and not milestone_work else None
-        if not job and not topic_work and not milestone_work:
-            return False
-        if generation is None:
-            generation = self.gate.generation
-        try:
-            if milestone_work:
-                result = self.runner(milestone_work["item"]["title"],key,model,summary=milestone_work["item"]["summary"],
-                                     milestone=milestone_work,include_category=False)
-            elif topic_work:
-                result = self.runner(topic_work["item"]["title"], key, model,
-                                     summary=topic_work["item"]["summary"],
-                                     tracked_topics=topic_work["topics"], include_category=bool(job))
-            else:
-                result = self.runner(job["title"], key, model)
-            error = None
-        except ClassificationError as exc:
-            result, error = None, exc
-            if exc.block_config:
-                self.blocked_config = (fingerprint(key), model)
-                self.error = exc.code
-        except Exception:
-            result, error = None, ClassificationError("classification_failed", retryable=True)
-        self.gate.result(generation, error)
+            if sum(lane.active for lane in self.lanes.values()) >= self.gate.limit:
+                return False
+            revision = self.config_revision
+            allow_backup = self.fallback_enabled and self.backup_config is not None
+            lane = self.lanes[provider]
+            identity = (provider, fingerprint(key) if key else None, model)
+            lane.bind(identity)
+            if not allow_backup and self.blocked_config == identity:
+                return False
+            if self.blocked_config and self.blocked_config != identity:
+                self.resume()
+            attempt = lane.reserve(key, model, provider)
+            if allow_backup and not key:
+                lane.last_error = "missing_api_key"
+            if attempt is None and allow_backup and (not key or lane.failures or lane.cooling()):
+                attempt = self._reserve_backup(provider)
+            if attempt is None:
+                return False
+            try:
+                database, job, topic_work, milestone_work = self._claim()
+            except BaseException:
+                self.lanes[attempt.provider].release_attempt(attempt)
+                raise
+            if not (job or topic_work or milestone_work):
+                self.lanes[attempt.provider].release_attempt(attempt)
+                return False
+        result, error = self._dispatch(attempt, provider, revision, allow_backup, job, topic_work, milestone_work)
         with closing(self.connect()) as conn:
             if conn.execute("PRAGMA database_list").fetchone()[2] != database:
                 return True
@@ -503,25 +615,60 @@ class Service:
                 self.topic_queue.finish_milestone(conn,milestone_work,(result or {}).get("_milestone_result"),error)
         return True
 
+    def _dispatch(self, attempt, provider, revision, allow_backup, job, topic_work, milestone_work):
+        while attempt:
+            try:
+                result = self._run(attempt, job, topic_work, milestone_work)
+                error = None
+            except ClassificationError as exc:
+                result, error = None, exc
+            except Exception:
+                result, error = None, ClassificationError("classification_failed", retryable=True)
+            with self.lock:
+                lane = self.lanes[attempt.provider]
+                current = (revision == self.config_revision and
+                           lane.identity == (attempt.provider, fingerprint(attempt.key), attempt.model))
+                if current:
+                    lane.complete(attempt, error, allow_backup)
+                    if not allow_backup and error and error.block_config:
+                        self.blocked_config = lane.identity
+                        self.error = error.code
+                    elif not self.blocked_config:
+                        self.error = ""
+                lane.release_attempt(attempt)
+                if current and allow_backup and attempt.provider == provider and service_unavailable(error):
+                    try:
+                        attempt = self._reserve_backup(provider)
+                    except Exception:
+                        self.error = "worker_unavailable"
+                        attempt = None
+                else:
+                    attempt = None
+                if attempt is None and current and allow_backup and service_unavailable(error):
+                    delays = [max(0, max(other.retry_at, other.cooldown_until) - other.clock())
+                              for other in self.lanes.values() if other.identity and other.identity[1]]
+                    error.retry_after = min(delays, default=0)
+                    if error.code.startswith("http_5"):
+                        error.retryable = True
+        if allow_backup and error and error.code in {"http_400", "http_422"}:
+            error = ClassificationError(error.code)
+        return result, error
+
     def loop(self):
         while not self.stop.is_set():
             if not self.enabled and self.topic_queue is None:
                 self.stop.wait(5)
                 continue
-            generation = self.gate.acquire(self.stop)
-            if generation is None:
-                return
             worked = False
             try:
-                key, model = self.config()
-                if key and self.blocked_config != (fingerprint(key), model):
-                    self.error = ""
-                    worked = self.process_one(key, model, generation)
+                with self.lock:
+                    config = self.config()
+                    key, model = config[:2]
+                    provider = config[2] if len(config) > 2 else self.provider
+                    revision = self.config_revision
+                worked = self.process_one(key, model, provider=provider, config_revision=revision)
             except Exception:
-                # DB contention/config errors must not kill the durable queue.
                 self.error = "worker_unavailable"
-            finally:
-                self.gate.release()
             self.stop.wait(.15 if worked else 5)
 
     def _grow_workers(self):
@@ -530,13 +677,27 @@ class Service:
             self.threads.append(thread)
             thread.start()
 
-    def configure(self, concurrency: int, *, unread_only: bool | None = None, enabled: bool | None = None):
+    def configure(self, concurrency: int, *, unread_only: bool | None = None, enabled: bool | None = None,
+                  provider=None, fallback_enabled=None):
         if unread_only is not None and type(unread_only) is not bool:
             raise ValueError("invalid_classification_unread_only")
         if enabled is not None and type(enabled) is not bool:
             raise ValueError("invalid_classification_enabled")
+        if provider is not None and provider not in decision_protocol.PROVIDERS:
+            raise ValueError("invalid_classification_provider")
+        if fallback_enabled is not None and type(fallback_enabled) is not bool:
+            raise ValueError("invalid_classification_fallback_enabled")
         with self.lock:
-            self.gate.configure(concurrency)
+            if fallback_enabled is not None and self.fallback_enabled != fallback_enabled:
+                self.fallback_enabled = fallback_enabled
+                for lane in self.lanes.values():
+                    lane.reset_health()
+            self.config_revision += 1
+            self.resume()
+            if provider is not None:
+                self.provider = provider
+            for lane in self.lanes.values():
+                lane.configure(concurrency)
             if unread_only is not None:
                 self.unread_only = unread_only
             if enabled is not None:

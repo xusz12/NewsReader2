@@ -222,7 +222,7 @@ test('OpenCode Go 订阅 filtered catalog and 429 reason preserve model drafts',
 test('usage describes saved feature selections and fallback limits', async ({ page, request }) => {
   await setup(page, request);
   await expect(card(page, 'deepseek')).toContainText('按上方顺序切换 API');
-  await expect(card(page, 'jev')).toContainText('不会自动改用其他服务');
+  await expect(card(page, 'jev')).toContainText('仅在开启自动备用时切换判断服务');
   await expect(card(page, 'opencode-go')).toContainText('使用 Go 订阅完成新闻正文翻译与精读');
   await expect(page.locator('[data-api-provider="opencode"]')).toHaveCount(0);
   await expect(page.getByRole('radio',{name:'OpenCode',exact:true})).toHaveCount(0);

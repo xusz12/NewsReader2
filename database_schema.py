@@ -11,6 +11,7 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
     if "archived_at" not in {r[1] for r in conn.execute("PRAGMA table_info(event_topics)")}:
         conn.execute("ALTER TABLE event_topics ADD COLUMN archived_at TEXT")
     for table, additions in {
+        "item_classifications": (("provider", "TEXT NOT NULL DEFAULT 'jev'"),),
         "event_topics": (("horizontal_rule", "TEXT NOT NULL DEFAULT ''"), ("rules_revision", "INTEGER NOT NULL DEFAULT 1")),
         "topic_checks": (("rules_json", "TEXT NOT NULL DEFAULT '{}'"),),
         "topic_jobs": (("attempts", "INTEGER NOT NULL DEFAULT 0"), ("next_attempt_at", "REAL NOT NULL DEFAULT 0")),

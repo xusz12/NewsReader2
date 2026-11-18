@@ -105,8 +105,10 @@ export class TaskProgress {
       .filter(([key])=>matching[key]).map(([key,label])=>`${label} ${matching[key]} 条`).join(" · ");
     if(counts)parts.push(counts);
     if(matching.pending || matching.running || matching.waiting_update || job?.kind==="milestone") {
-      if(this.data.topics.matching_configured===false)parts.push("等待配置 Jev");
-      else if(this.data.topics.matching_error)parts.push("匹配已暂停，请检查 Jev 配置");
+      if(this.data.topics.matching_waiting)parts.push("等待判断服务恢复或配置密钥");
+      else if(this.data.topics.using_backup)parts.push(`使用备用服务 ${this.data.topics.matching_provider_label}`);
+      else if(this.data.topics.matching_configured===false)parts.push(`等待配置 ${this.data.topics.matching_provider_label || "Jev"}`);
+      else if(this.data.topics.matching_error)parts.push(`匹配已暂停，请检查 ${this.data.topics.matching_provider_label || "Jev"} 配置`);
     }
     return `<strong>${e(row.name || "新建主题")}</strong><span class="agent-notice-preview">${e(parts.join(" · "))}</span>`;
   }

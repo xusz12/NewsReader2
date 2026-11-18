@@ -4409,9 +4409,9 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
 
     initial = client.get("/api/settings").get_json()
     assert set(initial["llm"]) == {"translation", "pi_chat"}
-    assert set(initial["api_status"]) == {"deepseek", "jev", "opencode-go", "pi", "codex"}
+    assert set(initial["api_status"]) == {"deepseek", "jev", "openai-decisions", "opencode-go", "pi", "codex"}
     assert initial["agent"]["runtime"] == "pi"
-    assert set(initial["model_catalogs"]) == {"translation", "jev", "opencode-go", "pi_chat", "codex"}
+    assert set(initial["model_catalogs"]) == {"translation", "jev", "openai-decisions", "opencode-go", "pi_chat", "codex"}
     assert initial["llm"]["translation"]["model"] == "deepseek-saved"
 
     saved = client.put(

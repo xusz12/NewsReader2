@@ -9,5 +9,5 @@ export const jobErrors = {
 };
 
 export const jobErrorText = job => job?.kind === "milestone"
-  ? "横向筛选失败，请检查 Jev 配置后重试。已收录新闻保留。"
+  ? "横向筛选失败，请检查新闻分类中的判断服务配置后重试。已收录新闻保留。"
   : jobErrors[job?.error] || "整理失败，请检查模型与 Agent 设置。";

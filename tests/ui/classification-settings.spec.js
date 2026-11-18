@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { openSettings, chooseTheme, withClassificationBatch } from './helpers.js';
 
-const defaults = { enabled: true, concurrency: 8, unread_only: false };
+const defaults = { enabled: true, concurrency: 8, unread_only: false, provider: 'jev', fallback_enabled: false };
 async function reset(request) {
   const saved = await (await request.get('/api/settings')).json();
   await request.put('/api/settings', { data: { llm: saved.llm, classification: defaults } });
@@ -173,7 +173,7 @@ for (const width of [390, 1050, 1440]) {
     await expect(unread).not.toBeChecked();
     await enabled.focus();
     await page.keyboard.press('Tab');
-    await expect(page.locator('#classificationApiSettingsBtn')).toBeFocused();
+    await expect(page.getByRole('radio', {name:'Jev', exact:true})).toBeFocused();
     await enabled.check();
     await expect(unread).toBeEnabled();
     await expect(concurrency).toBeEnabled();
@@ -211,7 +211,7 @@ for (const width of [390, 1050, 1440]) {
     await expect(enabled).not.toBeChecked();
     await save(page);
     const saved = await (await request.get('/api/settings')).json();
-    expect(saved.classification).toEqual({ enabled: false, concurrency: 12, unread_only: true });
+    expect(saved.classification).toEqual({ enabled: false, concurrency: 12, unread_only: true, provider: 'jev', fallback_enabled: false });
     expect(Object.keys(saved.api_models.jev)).toEqual(['model']);
     await expect(page.locator('#classificationProgress')).toBeHidden();
     await page.reload();
@@ -274,7 +274,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark', 'eink']) 
     await page.goto('/');
     await chooseTheme(page, theme);
     await openSettings(page);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
+    await expect(page.locator('.settings-category-card:visible')).toHaveCount(12);
     await section(page, 'classification');
     await expect(page.getByRole('switch', { name: '启用自动分类' })).toBeVisible();
     expect(await page.locator('#classificationSettings').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

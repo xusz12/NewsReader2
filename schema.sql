@@ -410,6 +410,7 @@ CREATE TABLE IF NOT EXISTS item_classifications (
   category TEXT CHECK(category IN ('china','ai','politics','economy','business','science','other')),
   topic TEXT,
   china_probability REAL,
+  provider TEXT NOT NULL DEFAULT 'jev',
   probabilities_json TEXT,
   confidence REAL,
   needs_review INTEGER NOT NULL DEFAULT 0,
