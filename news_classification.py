@@ -428,12 +428,17 @@ def _batch_scope(unread_only):
             [time.time()]) if unread_only else ("", [])
 
 
-def progress_batch_counts(conn, *, unread_only=False):
+def batch_items(unread_only):
     scope, args = _batch_scope(unread_only)
-    rows = conn.execute("""SELECT c.status,COUNT(*) FROM classification_progress_items b
+    return ("""FROM classification_progress_items b
         JOIN item_classifications c ON c.item_id=b.item_id AND c.title_hash=b.title_hash AND c.rule_version=b.rule_version
         JOIN items i ON i.id=c.item_id AND i.title=c.title WHERE c.rule_version=?"""
-        + scope + " GROUP BY c.status", [RULE_VERSION, *args]).fetchall()
+        + scope, [RULE_VERSION, *args])
+
+
+def progress_batch_counts(conn, *, unread_only=False):
+    items, args = batch_items(unread_only)
+    rows = conn.execute(f"SELECT c.status,COUNT(*) {items} GROUP BY c.status", args).fetchall()
     counts = dict.fromkeys(("pending", "running", "done", "failed"), 0)
     counts.update(dict(rows))
     return {**counts, "total": sum(counts.values())}
@@ -477,7 +482,14 @@ def status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
         batch = sync_progress_batch(conn, unread_only=unread_only)
-        return {**_status(conn, unread_only=unread_only), "batch": batch}
+        failed, notice = 0, None
+        if batch["failed"]:
+            items, args = batch_items(unread_only)
+            failed, notice = conn.execute(f"""SELECT COUNT(*),MAX(id) FROM task_progress_notices
+                WHERE source='classification' AND dismissed=0 AND item_key IN (
+                    SELECT c.item_id {items} AND c.status='failed')""", args).fetchone()
+        return {**_status(conn, unread_only=unread_only), "batch": batch, "unacknowledged_failed": failed,
+                "notices": {"classification": notice} if notice else {}}
 
 
 def _status(conn: sqlite3.Connection, *, unread_only: bool = False) -> dict:

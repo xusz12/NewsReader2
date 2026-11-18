@@ -1,26 +1,82 @@
-import { $, api, busy, escapeHTML as e } from "./ui.js";
+import { $, api, busy, escapeHTML as e, toast } from "./ui.js";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { jobErrorText } from "./topic-status.js";
-import { failureText, statusText, progressText } from "./report-status.js?v=0.5.0";
+import { failureText, statusText, reportProgress } from "./report-status.js?v=0.5.16";
 
-const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};
+const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",
+  update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};
 const retryTime = value => value ? new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value)) : "";
 const topicWorking = row => ["pending","running"].includes(row.job?.status) || row.matching.pending || row.matching.running || (row.matching.waiting_update && row.job?.status !== "failed");
+
+const localNoticeKey = "newsreader_task_notice_dismissals";
+const needsMatching = row => row.matching.pending || row.matching.running || row.matching.waiting_update || row.job?.kind === "milestone";
+
+function matchingBlock(routing) {
+  const provider = routing.matching_provider_label || "Jev";
+  if (routing.matching_waiting) return ["等待恢复","等待判断服务恢复或配置密钥"];
+  if (routing.using_backup) return null;
+  if (routing.matching_configured === false) return ["等待配置",`等待配置 ${provider}`];
+  if (routing.matching_error) return ["匹配暂停",`匹配已暂停，请检查 ${provider} 配置`];
+  return null;
+}
+
+function topicTask(row, routing, block) {
+  const {job, matching} = row;
+  const counts = [["pending","待匹配"],["running","匹配中"],["waiting_update","待整理"],["failed","匹配失败"]]
+    .filter(([key]) => matching[key]).map(([key, label]) => `${label} ${matching[key]} 条`).join(" · ");
+  const [blocked, reason] = (needsMatching(row) && block) || [];
+  const backup = needsMatching(row) && routing.using_backup && `使用备用服务 ${routing.matching_provider_label}`;
+  const retry = job?.status === "pending" && job.next_attempt_at;
+  let stage = matching.running ? "正在匹配新闻" : matching.pending ? "等待匹配新闻" : "等待整理新进展";
+  if (job) {
+    const phase=phases[job.kind] || "处理主题";
+    if (job.status === "failed") stage = phase+"失败";
+    else if (job.status === "running") stage = "正在"+phase;
+    else stage = retry ? phase+" · 等待重试" : "等待"+phase;
+  } else if (matching.failed) stage = "新闻匹配失败";
+  else if (blocked) stage = blocked;
+  let state = job?.status === "running" || matching.running ? "running" : "pending";
+  if ((job?.status==="pending" && !job.error_dismissed && (retry || job.error)) || blocked) state = "warning";
+  if (job?.status === "failed" || matching.failed) state = "failed";
+  return {id:row.id, section:"taskProgressTopics", label:"主题", title:row.name || "新建主题", stage, state,
+    error:[job?.error && job.status!=="running" && !job.error_dismissed && jobErrorText(job), reason].filter(Boolean).join(" · "),
+    notes:[counts, backup, retry && `${retryTime(retry*1000)} 重试`].filter(Boolean)};
+}
+
+function reportTask(row) {
+  const running = row.status === "running", progress = reportProgress(row);
+  const label=row.kind_label || "报告", title=row.title || label;
+  return {id:row.id, section:"taskProgressReports", kind:row.kind, label,
+    title:row.kind_label && !title.includes(label) ? `${label} · ${title}` : title,
+    stage:running ? progress.text : statusText(row), measurement:running && progress.count ? row.progress : null,
+    state:row.status==="pending" && row.error && !row.error_dismissed ? "warning" : row.status,
+    error:!running && row.error && !row.error_dismissed && failureText(row),
+    notes:[row.next_retry_at && `${retryTime(row.next_retry_at)} 重试`, !running && row.progress?.stage && `上次进度 · ${progress.text}`, row.model_label].filter(Boolean)};
+}
 
 export class TaskProgress {
   constructor({classification, onSettings, onTopic, onReport, onReports}) {
     Object.assign(this,{classification,onSettings,onTopic,onReport,onReports});
+    this.localIssues={};
+    this.dismissedLocal={};
+    try {
+      const saved=JSON.parse(sessionStorage.getItem(localNoticeKey));
+      if(saved && typeof saved==="object" && !Array.isArray(saved))this.dismissedLocal=saved;
+    } catch {}
     this.root=$("#classificationProgress"); this.indicator=$("#classificationProgressIndicator"); this.panel=$("#classificationProgressPanel");
     this.root.addEventListener("pointerenter", event=>{if(event.pointerType!=="touch")this.open();});
-    this.root.addEventListener("pointerleave",()=>{
-      this.leaveTimer=setTimeout(()=>{if(!this.root.contains(document.activeElement))this.close();},150);
+    this.root.addEventListener("pointerleave",event=>{
+      if(event.pointerType==="touch" || this.pinned)return;
+      this.leaveTimer=setTimeout(()=>{if(!this.pinned && !this.root.contains(document.activeElement))this.close();},150);
     });
     this.root.addEventListener("focusin",()=>{if(!this.restoringFocus)this.open();});
-    this.root.addEventListener("focusout",event=>{if(!this.root.contains(event.relatedTarget))this.close();});
-    this.indicator.addEventListener("pointerdown",event=>{if(event.pointerType==="touch"){event.preventDefault();this.open();}});
-    this.indicator.addEventListener("keydown",event=>{
-      if(["Enter"," "].includes(event.key)){event.preventDefault();this.open();}
+    document.addEventListener("focusin",event=>{if(!this.root.contains(event.target))this.close();});
+    this.indicator.addEventListener("click",()=>{
+      if(this.pinned)this.close();
+      else {this.pinned=true;this.open();}
     });
+    $("#taskProgressClose").onclick=()=>{this.close();this.restoreFocus(this.indicator);};
+    $("#taskProgressClear").onclick=()=>this.clearNotices();
     document.addEventListener("pointerdown",event=>{if(!this.root.contains(event.target))this.close();});
     document.addEventListener("topbar:popover-open",event=>{if(event.detail!==this.panel.id)this.close();});
     document.addEventListener("keydown",event=>{
@@ -33,7 +89,7 @@ export class TaskProgress {
     $("#classificationProgressRetry").onclick=event=>busy(event.currentTarget,async()=>{
       await api("/api/news/classification/retry",{method:"POST"});await this.classification.refresh();
     });
-    $("#taskProgressRefresh").onclick=event=>busy(event.currentTarget,()=>this.refresh());
+    $("#taskProgressRefresh").onclick=event=>busy(event.currentTarget,()=>Promise.all([this.classification.refresh(),this.refresh()]));
     $("#taskProgressMoreReports").onclick=()=>{this.close();return busy(null,this.onReports);};
     this.panel.addEventListener("click",event=>{
       const button=event.target.closest("[data-task-id]");if(!button)return;
@@ -53,13 +109,54 @@ export class TaskProgress {
     clearTimeout(this.leaveTimer);
     if(this.root.hidden || !this.panel.hidden)return;
     document.dispatchEvent(new CustomEvent("topbar:popover-open",{detail:this.panel.id}));
-    this.panel.hidden=false;this.indicator.setAttribute("aria-expanded","true");
+    this.render(true);
+    this.panel.hidden=false;this.panel.scrollTop=0;this.indicator.setAttribute("aria-expanded","true");
     void this.classification.refresh();void this.refresh();
   }
   close() {
-    clearTimeout(this.leaveTimer);this.panel.hidden=true;this.indicator.setAttribute("aria-expanded","false");
+    clearTimeout(this.leaveTimer);this.pinned=false;this.panel.hidden=true;this.indicator.setAttribute("aria-expanded","false");
   }
   updateClassification(snapshot) { this.classificationSnapshot=snapshot;this.render(); }
+  saveLocalDismissals() {
+    try { sessionStorage.setItem(localNoticeKey,JSON.stringify(this.dismissedLocal)); } catch {}
+  }
+  localNotice(key, known, signature) {
+    if (known) {
+      this.localIssues[key]=signature || "";
+      if (this.dismissedLocal[key] && this.dismissedLocal[key]!==this.localIssues[key]) {
+        delete this.dismissedLocal[key];
+        this.saveLocalDismissals();
+      }
+    }
+    return this.localIssues[key] && this.localIssues[key]!==this.dismissedLocal[key];
+  }
+  async clearNotices() {
+    if(this.clearing)return;
+    const progress=this.classificationSnapshot?.progress;
+    const taskNotices=this.data?.notices || {};
+    const classificationNotices=progress?.enabled!==false ? progress?.notices || {} : {};
+    const token=Object.keys(taskNotices).length ? this.data.database_token : progress?.database_token;
+    const notices={...taskNotices,...classificationNotices};
+    for(const [key,value] of Object.entries(this.localIssues))if(value)this.dismissedLocal[key]=value;
+    this.saveLocalDismissals();
+    this.clearing=true;
+    const button=$("#taskProgressClear");
+    button.setAttribute("aria-busy","true");
+    try {
+      this.render();
+      if(Object.keys(notices).length){
+        if(classificationNotices.classification && progress.database_token!==token)throw new Error("task_database_changed");
+        await api("/api/tasks/progress/dismiss",{method:"POST",body:{database_token:token,notices,batch_id:progress?.batch?.id}});
+        await Promise.all([this.classification.refresh(),this.refresh()]);
+      }
+      toast("已清理异常提示");
+    } catch {
+      toast("任务异常清理失败，请重试");
+      void this.classification.refresh();void this.refresh();
+    } finally {
+      this.clearing=false;button.removeAttribute("aria-busy");
+    }
+  }
   async refresh() {
     if(document.hidden)return;
     if(this.refreshing){this.refreshAgain=true;return;}
@@ -80,88 +177,107 @@ export class TaskProgress {
       }
     }
   }
-  renderRows(container, rows, type, content) {
+  renderRows(container, rows, type) {
+    const featured=rows.findIndex(row=>row.section===this.firstTask?.section && row.id===this.firstTask.id);
+    if(featured>0)rows.unshift(...rows.splice(featured,1));
     const existing=new Map([...container.children].map(node=>[node.dataset.id,node]));
     for(const [index,row] of rows.entries()) {
       let node=existing.get(row.id);existing.delete(row.id);
       if(!node){node=document.createElement("li");node.className="agent-notice";node.dataset.id=row.id;
         node.innerHTML=`<button type="button" class="agent-notice-open" data-task-type="${type}" data-task-id="${e(row.id)}"></button>`;}
-      const button=node.firstElementChild, html=content(row);
+      const button=node.firstElementChild;
+      const html=`<strong>${e(row.title)}</strong><span class="task-progress-stage status-text" data-status="${e(row.state)}">${e(row.stage)}</span>` +
+        (row.error ? `<span class="status-text" data-status="failed">${e(row.error)}</span>` : "") +
+        row.notes.map(note=>`<span class="agent-notice-preview">${e(note)}</span>`).join("");
       if(row.kind)button.dataset.kind=row.kind;
       if(button.innerHTML!==html)button.innerHTML=html;
       if(container.children[index]!==node)container.insertBefore(node,container.children[index] || null);
     }
     for(const node of existing.values())node.remove();
   }
-  topicContent(row) {
-    const job=row.job, matching=row.matching, parts=[];
-    if(job) {
-      const phase=phases[job.kind] || "处理主题";
-      parts.push(job.status==="failed" ? `${phase}失败` : job.status==="pending" ? `等待${phase}` : `正在${phase}`);
-      if(job.error)parts.push(jobErrorText(job));
-      if(job.status==="pending" && job.next_attempt_at)parts.push(`${retryTime(job.next_attempt_at*1000)} 重试`);
-    }
-    const counts=[["pending","待匹配"],["running","匹配中"],["waiting_update","待整理"],["failed","匹配失败"]]
-      .filter(([key])=>matching[key]).map(([key,label])=>`${label} ${matching[key]} 条`).join(" · ");
-    if(counts)parts.push(counts);
-    if(matching.pending || matching.running || matching.waiting_update || job?.kind==="milestone") {
-      if(this.data.topics.matching_waiting)parts.push("等待判断服务恢复或配置密钥");
-      else if(this.data.topics.using_backup)parts.push(`使用备用服务 ${this.data.topics.matching_provider_label}`);
-      else if(this.data.topics.matching_configured===false)parts.push(`等待配置 ${this.data.topics.matching_provider_label || "Jev"}`);
-      else if(this.data.topics.matching_error)parts.push(`匹配已暂停，请检查 ${this.data.topics.matching_provider_label || "Jev"} 配置`);
-    }
-    return `<strong>${e(row.name || "新建主题")}</strong><span class="agent-notice-preview">${e(parts.join(" · "))}</span>`;
-  }
-  reportContent(row) {
-    const parts=[row.model_label, row.status==="running"?progressText(row):statusText(row)].filter(Boolean);
-    if(row.error)parts.push(failureText(row));
-    if(row.next_retry_at)parts.push(`${retryTime(row.next_retry_at)} 重试`);
-    return `<strong>${e(row.title || row.kind_label)}</strong><span class="agent-notice-preview">${e(parts.join(" · "))}</span>`;
-  }
-  render() {
+  render(opening=false) {
     const focused=document.activeElement, focusInside=this.root.contains(focused);
     const p=this.classificationSnapshot?.progress, batch=p?.batch;
-    const showClassification=!!(p && p.enabled!==false && batch?.total && (batch.pending || batch.running || batch.failed));
-    const topics=this.data?.topics.items || [], reports=this.data?.reports.items || [];
+    const failed=p?.unacknowledged_failed ?? batch?.failed;
+    const showClassification=!!(p && p.enabled!==false && batch?.total && (batch.pending || batch.running || failed));
+    const rows=this.data?.topics.items || [], routing=this.data?.topics;
+    const block=rows.some(needsMatching) && matchingBlock(routing);
+    const matchingIssue=this.localNotice("matchingService",this.data && !this.error,
+      block && JSON.stringify([this.data.database_token,block,routing.matching_error]));
+    const topics=rows.map(row=>topicTask(row,routing,matchingIssue && block));
+    const reports=(this.data?.reports.items || []).map(reportTask);
     const reportTotal=this.data?.reports.total || 0;
-    const labels=[showClassification&&"新闻分类",topics.length&&"主题追踪",reportTotal&&"日报"].filter(Boolean);
-    this.root.hidden=!labels.length && !this.error;
+    const taskCount=Number(showClassification)+topics.length+reportTotal;
+    $("#taskProgressTitle").textContent=taskCount>1 ? `任务进度（${taskCount} 项）` : "任务进度";
+    const classificationError=this.localNotice("classificationRead",this.classificationSnapshot,this.classificationSnapshot?.error && "offline") && this.classificationSnapshot?.error;
+    const taskError=this.localNotice("taskRead",this.data || this.error,this.error && "offline") && this.error;
+    const readErrors=[classificationError && `新闻分类 · ${classificationError}`,taskError].filter(Boolean);
+    const stale=[showClassification && this.classificationSnapshot.error && !classificationError && "新闻分类",
+      (topics.length || reportTotal) && this.error && !taskError && "主题与报告"].filter(Boolean);
+    const service=showClassification && (p.waiting_for_service ? "等待恢复" : !p.configured ? "等待配置" : p.error ? "分类暂停" :
+      p.throttle?.rate_limited ? "限流降速" : "");
+    const classificationIssue=this.localNotice("classificationService",p && !this.classificationSnapshot.error,
+      service && JSON.stringify([p.database_token,batch.id,p.provider_label,service,p.error]));
+    $("#taskProgressClear").hidden=!(readErrors.length || matchingIssue || classificationIssue ||
+      (p?.enabled!==false && p?.notices?.classification) || Object.keys(this.data?.notices || {}).length);
+    const labels=[(showClassification || classificationError)&&"新闻分类",topics.length&&"主题追踪",reportTotal&&"日报"].filter(Boolean);
+    this.root.hidden=!labels.length && !readErrors.length;
     $("#taskProgressClassification").hidden=!showClassification;
     $("#taskProgressTopics").hidden=!topics.length;
     $("#taskProgressReports").hidden=!reportTotal;
-    $("#taskProgressError").hidden=!this.error;
-    $("#taskProgressErrorText").textContent=this.error || "";
+    $("#taskProgressError").hidden=!readErrors.length && !stale.length;
+    const readStatus=$("#taskProgressErrorText");
+    readStatus.classList.toggle("error-state",!!readErrors.length);
+    readStatus.classList.toggle("muted",!readErrors.length);
+    readStatus.textContent=[...readErrors,stale.length && `${stale.join("、")}显示上次进度`].filter(Boolean).join("。");
     $("#taskProgressTopicCount").textContent=`${topics.length} 个主题`;
     const counts=this.data?.reports.counts || {};
     $("#taskProgressReportCount").textContent=[["running","生成中"],["pending","等待"],["failed","失败"]]
       .filter(([key])=>counts[key]).map(([key,label])=>`${label} ${counts[key]}`).join(" · ");
     $("#taskProgressMoreReports").hidden=reportTotal<=reports.length;
     $("#taskProgressMoreReports").textContent="查看报告列表";
-    this.renderRows($("#taskProgressTopicList"),topics,"topic",row=>this.topicContent(row));
-    this.renderRows($("#taskProgressReportList"),reports,"report",row=>this.reportContent(row));
-    let done=0,percent=0;
+    let done=0,classificationTask;
     if(showClassification) {
-      done=Math.min(batch.total,Math.max(0,batch.done));percent=done/batch.total*100;
+      done=Math.min(batch.total,Math.max(0,batch.done));
       $("#classificationProgressCount").textContent=`此次已分类 ${done.toLocaleString()}/${batch.total.toLocaleString()} 条`;
       $("#classificationProgressScope").textContent=`当前模式：${p.unread_only?"仅未读":"全部"}`;
-      $("#classificationProgressDetails").textContent=`待处理 ${batch.pending} · 处理中 ${batch.running} · 失败 ${batch.failed}`;
-      $("#classificationProgressStatus").textContent=this.classificationSnapshot.error || classificationStatus({...p,...batch});
+      const pendingNotice=failed>0 && failed<batch.failed ? `（${failed} 条待查看）` : "";
+      $("#classificationProgressDetails").textContent=`待处理 ${batch.pending} · 处理中 ${batch.running} · 失败 ${batch.failed}${pendingNotice}`;
+      $("#classificationProgressStatus").textContent=classificationStatus({...p,...batch});
+      $("#classificationProgressStatus").hidden=!!service && !classificationIssue;
+      const issue=failed ? `失败 ${failed} 条` : classificationIssue ? service : "";
+      classificationTask={section:"taskProgressClassification", label:"分类", stage:issue || `${done}/${batch.total}`, state:failed || (classificationIssue && p.error) ? "failed" : issue ? "warning" : "running"};
+      $("#classificationProgressStatus").dataset.status=classificationTask.state;
       $("#classificationProgressRetry").hidden=!p.configured || !(batch.failed || p.error);
       $("#classificationProgressSettings").hidden=p.configured && !p.error;
     }
-    const determinate=showClassification && labels.length===1 && !this.error;
-    const label=labels.length===1?labels[0]+"进度":"任务进度";
-    const description=determinate ? `此次已分类 ${done}/${batch.total} 条，${p.unread_only?"仅未读新闻":"全部新闻"}`
-      : [...(showClassification?[`新闻分类 ${done}/${batch.total} 条`]:[]),...(topics.length?[`主题追踪 ${topics.length} 个主题`]:[]),...(reportTotal?[`日报 ${reportTotal} 份`]:[]),...(this.error?[this.error]:[])].join("；");
+    const label=labels.length===1 && !taskError ? labels[0]+"进度" : "任务进度";
+    const tasks=[...reports,...topics];
+    if(counts.failed && !reports.some(row=>row.state==="failed"))tasks.push({section:"taskProgressReports", label:"报告", stage:`失败 ${counts.failed} 份`, state:"failed"});
+    if(classificationTask)tasks.push(classificationTask);
+    const lead=readErrors.length ? {label:taskError ? "任务进度" : "分类进度", stage:"读取异常", state:"failed"} :
+      tasks.find(row=>row.state==="failed") || tasks.find(row=>row.state==="warning") || tasks.find(row=>row.state==="running") || tasks[0];
+    if(opening) {
+      this.firstTask=lead;
+      const section=lead?.section && document.getElementById(lead.section);
+      if(section)$("#taskProgressError").after(section);
+    }
+    this.renderRows($("#taskProgressTopicList"),topics,"topic");
+    this.renderRows($("#taskProgressReportList"),reports,"report");
+    const measurement=showClassification && labels.length===1 && !this.error ? {completed:done,total:batch.total} : lead?.measurement;
+    this.indicator.dataset.status=lead?.state || "";
+    const description=[lead && `${lead.label} · ${lead.stage}`, showClassification && `此次已分类 ${done}/${batch.total} 条，${p.unread_only?"仅未读新闻":"全部新闻"}`,
+      topics.length && `主题追踪 ${topics.length} 个主题`,reportTotal && `日报 ${reportTotal} 份`, ...readErrors].filter(Boolean).join("，");
+    const meter=$("#taskProgressSummary");
     this.indicator.setAttribute("aria-label",label);this.panel.setAttribute("aria-label",label+"详情");
-    this.indicator.setAttribute("aria-valuetext",description);$("#taskProgressSummary").textContent=description;
-    this.indicator.dataset.mode=determinate?"determinate":"indeterminate";
-    if(determinate){this.indicator.setAttribute("aria-valuenow",String(done));this.indicator.setAttribute("aria-valuemax",String(batch.total));}
-    else{this.indicator.removeAttribute("aria-valuenow");this.indicator.removeAttribute("aria-valuemax");}
+    meter.setAttribute("aria-label",label);meter.setAttribute("aria-valuetext",description);meter.textContent=description;
+    this.indicator.dataset.mode=measurement?"determinate":"indeterminate";
+    if(measurement){meter.setAttribute("aria-valuenow",String(measurement.completed));meter.setAttribute("aria-valuemax",String(measurement.total));}
+    else{meter.removeAttribute("aria-valuenow");meter.removeAttribute("aria-valuemax");}
     const arc=$("#classificationProgressArc");
-    arc.style.strokeDasharray=determinate?"100":"22 11";
-    arc.style.strokeDashoffset=String(determinate?100-percent:0);
-    arc.style.opacity=determinate&&!done?"0":"1";
+    arc.style.strokeDasharray=measurement?"100":"22 11";
+    arc.style.strokeDashoffset=String(measurement?100-measurement.completed/measurement.total*100:0);
+    arc.style.opacity=measurement && !measurement.completed?"0":"1";
     if(this.root.hidden)this.close();
     if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?$("#upstreamErrorsBtn"):this.indicator);
   }

@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {chooseTheme,openNavigation} from './helpers.js';
 
-async function openSources(page,request) {
+async function seedSourceLayout(page,request) {
   await request.post('/__test/reports',{data:{linked_sources:true}});
   await page.route('**/api/reports/report-evening',async route=>{
     const response=await route.fetch(), data=await response.json(), report=data.report;
@@ -14,6 +14,9 @@ async function openSources(page,request) {
     report.content.sections[0].paragraphs[0].refs.push('N3');
     await route.fulfill({response,json:data});
   });
+}
+
+async function openSources(page) {
   await openNavigation(page);await page.locator('#navReportsBtn').click();
   await page.locator('[data-report-id="report-evening"]').click();
   const sources=page.locator('.report-sources').first();
@@ -35,10 +38,32 @@ async function sourceGeometry(sources) {
 
 for (const touch of [true,false]) test.describe(touch?'触屏来源':'桌面来源',()=>{
   test.use({hasTouch:touch,isMobile:touch,viewport:{width:touch?390:1440,height:900}});
+  test('切换日报来源时入口保持在原来的屏幕位置', async ({page,request}) => {
+    await request.post('/__test/reports',{data:{linked_sources:true,long_sources:true}});
+    await page.setViewportSize({width:touch ? 390 : 1440, height:640});
+    await page.goto('/');
+    const first = await openSources(page);
+    const second = page.locator('.report-sources').nth(1);
+    for (const [previous, next] of [[first, second], [second, first]]) {
+      const trigger = next.locator('summary');
+      await trigger.evaluate(node => node.scrollIntoView({block:'center'}));
+      const before = await trigger.boundingBox();
+      if (touch) await trigger.tap();
+      else await trigger.press('Enter');
+      await expect(previous).toHaveJSProperty('open',false);
+      await expect(next).toHaveJSProperty('open',true);
+      expect(Math.abs((await trigger.boundingBox()).y - before.y)).toBeLessThanOrEqual(1);
+      await expect(next.locator('.reader-source-open').first()).toBeInViewport();
+    }
+    if (touch) await first.locator('summary').tap();
+    else await first.locator('summary').press('Space');
+    await expect(page.locator('.report-sources[open]')).toHaveCount(0);
+  });
   for (const theme of ['light','dark','system-light','system-dark','eink']) test('标题对齐、行距与操作 '+theme,async({page,request},testInfo)=>{
     await page.emulateMedia({colorScheme:theme==='system-dark'?'dark':'light'});
     await page.goto('/');await chooseTheme(page,theme.startsWith('system')?'system':theme);
-    const sources=await openSources(page,request);
+    await seedSourceLayout(page,request);
+    const sources=await openSources(page);
     expect(await page.evaluate(()=>matchMedia('(pointer: coarse)').matches)).toBe(touch);
     for (const large of [false,true]) {
       if (large) {

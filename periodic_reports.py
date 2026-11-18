@@ -20,6 +20,7 @@ from feed_sources import is_bloomberg_video_url
 import report_monthly
 from settings import report_model_feature
 import report_schedule
+import task_notices
 import trading_calendar
 from report_generation import generate, parse_json, partition, reading_minutes, validate_events, validate_report
 
@@ -144,6 +145,7 @@ def initialize(conn, at=None):
     conn.execute("INSERT OR IGNORE INTO periodic_report_meta VALUES (1, ?, ?, ?)", (uuid.uuid4().hex, ts, ts))
     conn.execute("INSERT OR IGNORE INTO periodic_report_snapshot_cleanup(singleton,next_run_at) VALUES (1,?)",
                  (stamp(local(ts) + SNAPSHOT_RETENTION),))
+    task_notices.install(conn, ("report",))
     conn.commit()
 
 

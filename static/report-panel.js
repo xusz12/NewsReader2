@@ -1,4 +1,4 @@
-import { readerSources, updateSourceState } from "./reader-sources.js?v=0.5.4";
+import { bindSourceGroups, readerSources, updateSourceState } from "./reader-sources.js?v=0.5.16";
 import { readerText } from "./reader-highlights.js?v=0.5.8";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
@@ -29,7 +29,7 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.5.0";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.5.16";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);
@@ -114,10 +114,7 @@ export class ReportPanel {
     });
     this.creationHost.addEventListener("input", event => this.changeCreation(event));
     this.creationHost.addEventListener("change", event => this.changeCreation(event));
-    this.content.addEventListener("toggle", event => {
-      if (!event.target.matches(".report-sources[open]")) return;
-      this.content.querySelectorAll(".report-sources[open]").forEach(other => {if (other !== event.target) other.open = false;});
-    }, true);
+    bindSourceGroups($("#reportScrollArea"));
     $("#retryReportBtn").addEventListener("click", () => this.retry());
     $("#createReportBtn").addEventListener("click", () => this.popover.open ? this.popover.close(true) : this.openCreation());
     $("#deleteReportBtn").addEventListener("click", () => this.deleteReport());

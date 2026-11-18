@@ -51,8 +51,14 @@ export const progressStages = {waiting_material:"等待新闻快照", reusing_ma
   selecting:"分批筛选新闻", merging:"归并候选新闻", checking_material:"校验候选新闻", repairing_material:"修正候选新闻",
   reading:"整理全期新闻", delegating:"协作整理与写作", planning:"统筹主题与跨日进展", drafting:"编写报告章节", reviewing:"复核报告全文",
   writing:"编写报告", validating:"校验内容与来源", repairing:"修正报告", saving:"保存报告", done:"已完成"};
-export const progressText = report => {
+export function reportProgress(report) {
   const p = report.progress || {};
   const unit = ["planning", "drafting", "reviewing"].includes(p.stage) ? "章" : "批";
-  return (progressStages[p.stage] || "正在准备生成") + (Number.isInteger(p.total) && p.total > 0 ? ` · 已完成 ${p.completed || 0} / ${p.total} ${unit}` : "");
-};
+  const measured = Number.isInteger(p.total) && p.total > 0 && Number.isInteger(p.completed) && p.completed >= 0 && p.completed <= p.total;
+  const stage = progressStages[p.stage] || "正在准备生成";
+  const count = measured ? `${p.completed} / ${p.total} ${unit}` : "";
+  return {stage, count, text:count ? `${stage} · 已完成 ${count}` : stage};
+}
+export function progressText(report) {
+  return reportProgress(report).text;
+}

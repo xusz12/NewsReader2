@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.15</title>
+    <title>News Reader v0.5.16</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.15" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.15" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.16" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.16" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.15"
+      href="/static/style.css?v=0.5.16"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.15</span>
+            <span class="brand-version">v0.5.16</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -105,19 +105,31 @@
         <div class="topbar-right">
           <button class="topbar-tool-btn" id="personalAssistantBtn" type="button" aria-label="个人助手" title="个人助手"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/><path d="M8 8h8M8 12h5"/></svg></button>
           <div class="classification-progress" id="classificationProgress" hidden>
-            <div class="classification-progress-indicator" id="classificationProgressIndicator" role="progressbar" tabindex="0" aria-label="任务进度" aria-valuemin="0" aria-describedby="taskProgressSummary" aria-controls="classificationProgressPanel" aria-expanded="false">
+            <button class="topbar-tool-btn classification-progress-indicator" id="classificationProgressIndicator" type="button" aria-label="任务进度" aria-describedby="taskProgressSummary" aria-controls="classificationProgressPanel" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <circle class="classification-progress-track" cx="12" cy="12" r="9"/>
                 <circle class="classification-progress-arc" id="classificationProgressArc" cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)"/>
+                <g class="task-progress-alert" fill="currentColor">
+                  <rect x="11" y="6" width="2" height="8" rx="1"/>
+                  <circle cx="12" cy="16.5" r="1.15"/>
+                </g>
               </svg>
-            </div>
-            <span class="agent-notifications-live" id="taskProgressSummary"></span>
+            </button>
+            <span class="agent-notifications-live" id="taskProgressSummary" role="progressbar" aria-label="任务进度" aria-valuemin="0"></span>
             <section class="classification-progress-panel" id="classificationProgressPanel" role="region" aria-label="任务进度详情" hidden>
+              <div class="agent-notifications-heading"><strong id="taskProgressTitle">任务进度</strong><div class="button-row">
+                <button class="agent-notice-dismiss" id="taskProgressClear" type="button" title="收起本次异常提示，任务仍可在原页面查看和重试" hidden>清理异常</button>
+                <button class="agent-notice-dismiss" id="taskProgressClose" type="button" aria-label="关闭任务进度">关闭</button>
+              </div></div>
+              <div class="task-progress-section" id="taskProgressError" hidden>
+                <p class="error-state" id="taskProgressErrorText" role="status"></p>
+                <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="taskProgressRefresh" type="button">重新读取进度</button></div>
+              </div>
               <div class="task-progress-section" id="taskProgressClassification" hidden>
                 <div class="classification-progress-heading"><strong>新闻分类</strong><span id="classificationProgressScope"></span></div>
                 <p class="classification-progress-count" id="classificationProgressCount"></p>
                 <p id="classificationProgressDetails"></p>
-                <p id="classificationProgressStatus"></p>
+                <p class="status-text" id="classificationProgressStatus"></p>
                 <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="classificationProgressSettings" type="button" hidden>分类设置</button><button class="agent-notice-dismiss" id="classificationProgressRetry" type="button" hidden>重试失败项</button></div>
               </div>
               <div class="task-progress-section" id="taskProgressTopics" hidden>
@@ -128,10 +140,6 @@
                 <div class="classification-progress-heading"><strong>日报</strong><span id="taskProgressReportCount"></span></div>
                 <ul class="agent-notifications-list" id="taskProgressReportList"></ul>
                 <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="taskProgressMoreReports" type="button" hidden>查看全部报告</button></div>
-              </div>
-              <div class="task-progress-section" id="taskProgressError" hidden>
-                <p class="error-state" id="taskProgressErrorText" role="status"></p>
-                <div class="classification-progress-actions"><button class="agent-notice-dismiss" id="taskProgressRefresh" type="button">重新读取进度</button></div>
               </div>
             </section>
           </div>
@@ -1021,9 +1029,9 @@
         </button>
       </div>
     </div>
-    <script src="/static/error_ui.js?v=0.5.15"></script>
+    <script src="/static/error_ui.js?v=0.5.16"></script>
     <script
-      src="/static/app.js?v=0.5.15"
+      src="/static/app.js?v=0.5.16"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

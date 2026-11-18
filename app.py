@@ -11532,6 +11532,22 @@ def api_task_progress():
         return jsonify(ok=False, error="task_progress_unavailable"), 503
 
 
+@app.post("/api/tasks/progress/dismiss")
+def api_task_progress_dismiss():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="invalid_task_notices"), 400
+    try:
+        with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn, conn:
+            task_progress.dismiss(conn, body.get("database_token"), body.get("notices"),
+                                  unread_only=CLASSIFICATION_SERVICE.unread_only, batch_id=body.get("batch_id"))
+        return jsonify(ok=True)
+    except ValueError as exc:
+        return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "task_database_changed" else 400
+    except (sqlite3.Error, OSError):
+        return jsonify(ok=False, error="task_notice_clear_failed"), 503
+
+
 def report_request_error(exc):
     code = str(exc)
     if code not in {"report_preview_invalid", "report_preview_conflict", "report_database_changed",
@@ -11753,7 +11769,8 @@ def api_event_topic_delete(topic_id):
 def api_classification_status():
     with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn:
         progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
-    return jsonify(ok=True, **progress, enabled=CLASSIFICATION_SERVICE.enabled,
+        token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
+    return jsonify(ok=True, **progress, database_token=token, enabled=CLASSIFICATION_SERVICE.enabled,
                    **decision_service_status(),
                    categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
 

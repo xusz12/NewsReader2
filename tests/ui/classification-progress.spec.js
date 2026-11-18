@@ -5,7 +5,8 @@ test.beforeEach(async ({page}) => {
   await page.route('**/api/tasks/progress',route=>route.fulfill({json:{ok:true,database_token:'test',topics:{items:[]},reports:{items:[],total:0,counts:{}}}}));
 });
 
-const indicator = page => page.getByRole('progressbar', { name: '新闻分类进度' });
+const indicator = page => page.getByRole('button', { name: '新闻分类进度', exact:true });
+const meter = page => page.getByRole('progressbar', { name: '新闻分类进度' });
 const panel = page => page.getByRole('region', { name: '新闻分类进度详情' });
 const base = () => ({ ok: true, total: 100, done: 25, pending: 67, running: 8, failed: 0,
   configured: true, enabled: true, unread_only: false, completed_revision: 200,
@@ -20,13 +21,13 @@ async function start(page, progress = base()) {
   });
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', String(progress.done));
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', String(progress.done));
   return state;
 }
 
-test('non-button ring lives beside notifications, follows real counts and hides on completion', async ({ page }) => {
+test('task button beside notifications exposes progress and hides on completion', async ({ page }) => {
   const state = await start(page);
-  expect(await indicator(page).evaluate(el => el.tagName)).toBe('DIV');
+  expect(await indicator(page).evaluate(el => el.tagName)).toBe('BUTTON');
   expect(await page.locator('#classificationProgress').evaluate(el => el.nextElementSibling.id)).toBe('agentNotifications');
   await expect(page.locator('#classificationNotice')).toHaveCount(0);
   await expect(indicator(page).getByRole('button')).toHaveCount(0);
@@ -43,7 +44,7 @@ test('non-button ring lives beside notifications, follows real counts and hides 
   state.progress.pending = 32;
   state.progress.unread_only = true;
   await page.clock.runFor(2100);
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '60');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '60');
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('stroke-dashoffset', '40px');
   await expect(panel(page)).toContainText('60/100 条');
   await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
@@ -55,7 +56,7 @@ test('non-button ring lives beside notifications, follows real counts and hides 
   // New indexed work makes the indicator return, without revisiting the news feed.
   Object.assign(state.progress, { total: 110, pending: 10 });
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(indicator(page)).toHaveAttribute('aria-valuemax', '110');
+  await expect(meter(page)).toHaveAttribute('aria-valuemax', '110');
 });
 
 test('hover, keyboard and other header popovers share a dismissible card', async ({ page }) => {
@@ -102,18 +103,18 @@ test('progress refreshes in other collections and keeps last counts on request f
   state.progress.done = 40;
   state.progress.pending = 52;
   await page.clock.runFor(2100);
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '40');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '40');
   state.failed = true;
   await indicator(page).hover();
   await expect(panel(page)).toContainText('进度暂时无法更新，显示上次结果');
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '40');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '40');
   await page.clock.runFor(5000);
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '40');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '40');
   state.failed = false;
   state.progress.done = 50;
   state.progress.pending = 42;
   await page.clock.runFor(2100);
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '50');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '50');
   await expect(panel(page)).not.toContainText('暂时无法更新');
 });
 
@@ -132,7 +133,7 @@ test('hidden pages stop polling and visibility resumes from current counts', asy
     delete document.hidden;
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '75');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '75');
 });
 
 test('disabled classification hides pending progress and resumes after it is enabled', async ({ page }) => {
@@ -166,7 +167,7 @@ test('zero percent, failures and unread scope stay explicit without pretending c
   await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
   Object.assign(state.progress, { done: 98, pending: 0, failed: 2 });
   await page.clock.runFor(2100);
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow', '98');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow', '98');
   await expect(panel(page)).toContainText('有失败项待重试');
   await expect(page.locator('#classificationProgressRetry')).toBeVisible();
 });
@@ -230,20 +231,20 @@ test('header progress uses only this persisted batch while settings keeps librar
   const state={progress};
   await page.route('**/api/news/classification',route=>route.fulfill({json:state.progress}));
   await page.goto('/');
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow','5');
-  await expect(indicator(page)).toHaveAttribute('aria-valuemax','20');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow','5');
+  await expect(meter(page)).toHaveAttribute('aria-valuemax','20');
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('stroke-dashoffset','75px');
   await indicator(page).focus();
   await expect(panel(page)).toContainText('此次已分类 5/20 条');
   await page.reload();
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow','5');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow','5');
   await openSettings(page);
   await page.locator('[data-settings-tab="classification"]').click();
   await expect(page.locator('#classificationSettingsCompletionText')).toHaveText('1,005 / 1,020 条');
   state.progress.batch={id:'next',total:3,done:0,pending:3,running:0,failed:0};
   state.progress.done=1020;state.progress.total=1023;
   await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
-  await expect(indicator(page)).toHaveAttribute('aria-valuenow','0');
-  await expect(indicator(page)).toHaveAttribute('aria-valuemax','3');
+  await expect(meter(page)).toHaveAttribute('aria-valuenow','0');
+  await expect(meter(page)).toHaveAttribute('aria-valuemax','3');
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('opacity','0');
 });

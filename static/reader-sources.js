@@ -41,6 +41,24 @@ export function chronologicalSources(sources, items = {}) {
     .sort((a,b) => a.time === b.time ? 0 : a.time-b.time).map(row => row.source);
 }
 
+export function bindSourceGroups(scrollArea) {
+  scrollArea.addEventListener("click", event => {
+    const trigger = event.target.closest(".reader-sources[name]:not([open]) > summary");
+    if (!trigger || event.defaultPrevented) return;
+    const group = trigger.parentElement;
+    const name = CSS.escape(group.getAttribute("name"));
+    const previous = scrollArea.querySelector(`.reader-sources[name="${name}"][open]`);
+    if (!previous) return;
+
+    event.preventDefault();
+    const top = trigger.getBoundingClientRect().top;
+    group.open = true;
+    previous.open = false;
+    const shift = trigger.getBoundingClientRect().top - top;
+    if (shift) scrollArea.scrollTop += shift;
+  });
+}
+
 export function readerSources(sources, {className = "", name = "", label = "来源", dateLabel,
   items = {}, cardAction} = {}) {
   return `<details class="reader-sources ${className}" ${name ? `name="${e(name)}"` : ""}><summary class="reader-tool-btn">${e(label)} · ${sources.length}篇<svg class="reader-source-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="reader-source-list"><ul>${chronologicalSources(sources, items).map(source => {

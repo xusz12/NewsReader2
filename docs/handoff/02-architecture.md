@@ -8,7 +8,7 @@
 
 ### Runtime 依赖与调用边界（2026-11-16）
 
-- 项目锁定 `@botiverse/oar@0.116.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
+- 项目锁定 `@botiverse/oar@0.118.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
 - 第一批新闻 Chat／文章 Agent／对话归档摘要的 Pi、Codex 均固定经过 `oar_client.py` → `scripts/oar_bridge.mjs` → OAR，不保留这批功能的 CLI 回退。旧同步接口仍在，同样使用 OAR；当前新闻面板使用后台 Agent jobs。
 - Pi 新闻任务通过 OAR 管理 RPC 进程。`scripts/pi_rpc_entry.mjs` 只补充原生资源和归档的启动策略，不另行解析事件。聊天保留 MCP、codemode、tool_search、扩展与原项目信任规则；旧 CLI 原生会话成功恢复后才提交 OAR 映射。凭据与资源使用私有副本，包含 MCP OAuth 凭据。
 - Codex 新闻任务由 OAR 管理 app-server，沿用旧原生 ID，固定只读沙箱、不请求审批、标准速度和实时搜索。自定义模型输入、服务商覆盖与 Profile 已停用；旧空字段兼容，非空覆盖的已绑定会话明确拒绝。
@@ -61,10 +61,12 @@
 - `classification.unread_only` 是布尔开关（默认 false），保存后即时更新服务，启动时恢复。开启时 `claim`、`status`、`retry_failed` 使用同一未读条件：不存在 `item_state.read_at IS NOT NULL` 的状态记录；无状态记录也视为未读。领取任务与设置切换串行，模型请求在锁外执行；切换前已领取的请求继续完成。索引仍维护全部新闻的队列，已读待处理记录不消耗请求或尝试次数，关闭开关后自动恢复资格。已有结果不清除，分类筛选不受开关影响；进度接口返回 `unread_only` 及当前范围的计数。
 - `classification_progress_batch` 与 `classification_progress_items` 仅保存当前批次及其新闻标题指纹／规则版本。首次读取状态或领取任务时，在写事务内收录当前可执行且未完成的新闻；本批仍有待处理、在途或失败任务时合入新增任务，已结束后出现新任务才清空成员并生成新批ID。刷新、服务重启和重试保留批次；仅未读范围变化重新建立，已完成成员不因标读退出。已删除或标题／规则不符的成员不计入，改写任务重新收录。状态查询的短写事务用于持久化批次发现，模型请求仍在事务外。
 - `GET /api/news/classification` 返回独立的 `batch` 本次进度、全库 `coverage`、原有队列进度和 `throttle`（配置／有效并发、在途数、限流状态、剩余冷却秒数）；`errors` 按当前有效标题、规则及未读范围聚合未完成任务的安全错误码、状态和数量，包含自动重试中的错误。采集记录复用同一前端快照显示当前异常并合并角标；`POST /api/news/classification/retry` 重排失败任务并恢复配置错误导致的暂停，保留限流冷却。接口不返回密钥或上游错误正文。无密钥时等待，阅读和索引仍正常。
-- `static/classification-progress.js` 独立维护顶栏确定性圆环与悬停卡片。所有集合中有 pending／running 时每 2 秒读取进度，空闲每 30 秒探测；页面隐藏暂停、回到前台或刷新索引时立即读取，限制单个在途请求，失败时保留上次计数并标注。圆环按 batch.done／batch.total 绘制，pending／running／failed 均为零时连同浮层隐藏；失败不伪装为成功。分类进度刷新不重载新闻列表或修改阅读位置。
+- `static/classification-progress.js` 为设置页和顶栏共享分类批次快照。有 pending／running 时每 2 秒读取进度，空闲每 30 秒探测。页面隐藏时暂停，回到前台或刷新索引时立即读取，同一时间只发起一个请求。读取异常时保留上次结果。`static/task-progress.js` 负责顶栏按钮和详情，分类独占时按 `batch.done / batch.total` 绘制圆环。当前批次结束后移除分类分组，其他任务或读取异常仍可从顶栏查看。
 - `/api/news`、`/api/search`、`/api/news/mark-all-read` 接受 `category=all|china|ai|politics|economy|business|science|other`；未知类别返回 400。服务端先筛选当前标题和规则下的完成结果，再做计数、日期分组、分页或批量操作。新闻序列化增加 `category`、`category_label`、`classification_status`。未完成记录只出现在全部，侧栏全局计数不跟随分类。
 - 新闻列表复用 `/api/news`、`/api/search` 的 `date_counts` 生成日期分组。`count_only=1` 可追加 `date_counts=1` 取得同一筛选范围的每日完整数量；不传时保持仅返回总数。未知日期归入 `unknown`。主筛选统计使用 `category=all`，日期统计保留当前分类；前端以请求序号、范围及写入版本隔离过期响应，乐观标读同步更新当日数量。
 - `count_only=1&category_counts=1` 在上述统计响应中追加 `category_counts`，按当前请求筛选范围一次分组统计七类新闻（零值保留，仅计当前标题和规则下的完成结果）。前端在主筛选统计请求中传 `category=all`，据此为未选中的非空二级标签显示浅黄色边框；不从当前分页推算，也不为每个标签单独请求。标读／撤销与失败回滚复用现有乐观计数和过期响应保护。
+
+顶栏任务异常由 SQLite 的 `task_progress_notices` 标识每一次失败或任务重试。建库及升级时补入现存异常。源任务完成、恢复或删除时，同一事务移除对应提示，再次失败生成新编号。`POST /api/tasks/progress/dismiss` 校验新闻库标识，按各来源最后观察到的编号确认提示。并发新增异常继续待看，清理结果仅用于顶栏。分类与任务接口的读取故障以及临时服务状态由标签页按连续故障记忆，断线时也能收起提示。
 
 ### 当前数据流
 

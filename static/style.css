@@ -2407,6 +2407,7 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
 }
 .status-text[data-status="success"] { color: color-mix(in oklab, var(--status-success) 60%, var(--fg)); }
 .status-text[data-status="running"] { color: color-mix(in oklab, var(--status-info) 60%, var(--fg)); }
+.status-text[data-status="warning"] { color: color-mix(in oklab, var(--status-warning) 60%, var(--fg)); }
 .status-text:is([data-status="failed"], [data-status="unknown"]) { color: color-mix(in oklab, var(--status-danger) 60%, var(--fg)); }
 .status-dot { background: var(--muted); vertical-align: middle; }
 .status-dot[data-status="success"] { background: var(--status-success); }
@@ -4751,11 +4752,15 @@ button:disabled {
 
 /* 全局 Agent 回复通知，沿用阅读工作台的主题和控件尺度。 */
 .classification-progress { position: relative; flex-shrink: 0; }
-.classification-progress-indicator { display: flex; align-items: center; justify-content: center; width: 32px; height: var(--topbar-control-height); border-radius: var(--radius-sm); cursor: default; }
-.classification-progress-indicator svg { width: 22px; height: 22px; fill: none; stroke-width: 2; }
+.classification-progress-indicator svg { width: 22px; height: 22px; fill: none; stroke-width: 2; flex-shrink: 0; }
+.task-progress-alert { display: none; }
+.classification-progress-indicator[data-status="failed"] { border-color: var(--status-danger); color: color-mix(in oklab, var(--status-danger) 60%, var(--fg)); }
+.classification-progress-indicator[data-status="warning"] { border-color: var(--status-warning); color: color-mix(in oklab, var(--status-warning) 60%, var(--fg)); }
+.classification-progress-indicator:is([data-status="failed"],[data-status="warning"]) .task-progress-alert { display: inline; }
 .classification-progress-track { stroke: var(--border-strong); stroke-width: 1; }
 .classification-progress-arc { stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 100; stroke-dashoffset: 100; stroke-linecap: round; }
-.classification-progress-panel { position: absolute; z-index: 250; top: 100%; right: 0; width: min(300px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - var(--header-height) - var(--mobile-nav-height, 0px) - env(safe-area-inset-bottom, 0px) - var(--space-6))); overflow: auto; overscroll-behavior: contain; padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); box-shadow: var(--shadow-float); text-align: left; font-size: var(--fs-meta); line-height: 1.6; }
+.classification-progress-panel { position: absolute; z-index: 250; top: 100%; right: 0; width: min(390px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - var(--header-height) - var(--mobile-nav-height, 0px) - env(safe-area-inset-bottom, 0px) - var(--space-6))); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); box-shadow: var(--shadow-float); text-align: left; font-size: var(--fs-small); line-height: 1.6; }
+.classification-progress-panel .agent-notifications-heading { position: sticky; top: 0; background: var(--surface); }
 .classification-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .classification-progress-heading strong { font-size: var(--fs-body); }
 .classification-progress-heading span { color: var(--muted); }
@@ -4763,15 +4768,29 @@ button:disabled {
 .progress-count, .classification-progress-panel .classification-progress-count { font-size: var(--fs-h3); font-variant-numeric: tabular-nums; }
 .classification-progress-actions { display: flex; justify-content: flex-end; gap: var(--space-1); }
 .classification-progress-actions:has(button:not([hidden])) { margin-top: var(--space-2); }
-.task-progress-section:not([hidden]) ~ .task-progress-section { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.task-progress-section { padding: var(--space-3) var(--space-4); }
+.task-progress-section:not([hidden]) ~ .task-progress-section { border-top: 1px solid var(--border); }
 .task-progress-section .agent-notifications-list { max-height: none; overflow: visible; }
 .task-progress-section .agent-notice { padding: var(--space-3) 0; }
 .task-progress-section .agent-notice:last-child { padding-bottom: 0; }
 .task-progress-section .agent-notice-open { padding: 0; }
+.task-progress-stage { font-weight: 600; }
 .task-progress-section .agent-notice-preview { display: block; overflow: visible; }
 @media (max-width: 920px) {
-  .classification-progress-indicator { height: 36px; }
-  .classification-progress-panel { position: fixed; top: var(--header-height); right: 12px; }
+  .topbar:has(.classification-progress:not([hidden])) .topbar-left { flex: 1 0 auto; }
+  .topbar:has(.classification-progress:not([hidden])) .brand-mark { flex: 1 1 0; container: task-brand / inline-size; overflow: hidden; }
+  .classification-progress-panel { position: fixed; top: calc(var(--header-height) + var(--space-2)); right: var(--space-3); }
+}
+@container task-brand (max-width: 100px) {
+  .brand-wordmark { display: none; }
+}
+@container task-brand (max-width: 23px) {
+  .brand-symbol { display: none; }
+}
+@media (max-width: 380px) {
+  .topbar:has(.classification-progress:not([hidden])) { padding-inline: var(--space-0-5); gap: var(--space-0-5); }
+  .topbar:has(.classification-progress:not([hidden])) :is(.topbar-left,.topbar-right) { gap: var(--space-0-5); }
+  .topbar:has(.classification-progress:not([hidden])) :is(#mobileReaderBackBtn,#openNavBtn) { flex: 0 0 36px; min-width: 36px; }
 }
 .agent-notifications { position: relative; }
 .topbar-ghost-btn { background: transparent; border-color: transparent; }

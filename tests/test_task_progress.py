@@ -4,7 +4,9 @@ import json
 import sqlite3
 
 import task_progress
-from test_periodic_reports import db, due
+import task_notices
+import news_classification
+from test_periodic_reports import db, due, news
 
 
 def topic(conn, ident, *, archived=None, status="ready"):
@@ -108,3 +110,86 @@ def test_progress_api_does_not_start_work_and_hides_internal_errors(db,monkeypat
         monkeypatch.setattr(app,'db_conn',broken)
         failure=client.get('/api/tasks/progress')
         assert failure.status_code==503 and failure.get_json()=={'ok':False,'error':'task_progress_unavailable'}
+
+
+def test_clear_covers_unlisted_failures_preserves_retries_and_new_errors(db, monkeypatch):
+    import app
+    monkeypatch.setattr(app, 'db_conn', db)
+    source = due(db)['id']
+    with closing(db()) as conn, conn:
+        columns = [r[1] for r in conn.execute('PRAGMA table_info(periodic_reports)')]
+        row = dict(conn.execute("SELECT * FROM periodic_reports WHERE id=?", (source,)).fetchone())
+        for i in range(13):
+            row.update(id=f"error-{i}", edition_key=f"error-{i}", status='pending' if i == 12 else 'failed', error='report_model_timeout')
+            conn.execute(f"INSERT INTO periodic_reports ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
+                         [row[key] for key in columns])
+    first = read(db)
+    payload = {"database_token": first['database_token'], "notices": first['notices']}
+    assert len(first['reports']['items']) == 10 and first['reports']['counts']['failed'] == 12
+    with closing(db()) as conn, conn:
+        conn.execute("UPDATE periodic_reports SET status='running',error='' WHERE id='error-0'")
+        conn.execute("UPDATE periodic_reports SET status='failed',error='report_model_timeout' WHERE id='error-0'")
+    with app.app.test_client() as client:
+        url = '/api/tasks/progress/dismiss'
+        assert client.post(url, json=payload | {"database_token": "other"}).status_code == 409
+        assert client.post(url, json=payload | {"notices": {"report": True}}).status_code == 400
+        assert read(db)['reports']['counts']['failed'] == 12
+        assert client.post(url, json=payload).status_code == 200
+        assert client.post(url, json=payload).status_code == 200
+    remaining = read(db)
+    assert remaining['reports']['counts']['failed'] == 1
+    rows = {row['id']: row for row in remaining['reports']['items']}
+    assert rows['error-0']['error_dismissed'] is False and rows['error-12']['error_dismissed'] is True
+    assert remaining['notices']['report'] > first['notices']['report']
+    with closing(db()) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM periodic_reports WHERE status='failed'").fetchone()[0] == 12
+
+
+def test_clear_classification_and_topic_messages_keeps_underlying_jobs(db):
+    with closing(db()) as conn, conn:
+        news(conn, 'input')
+        news_classification.enqueue(conn)
+        conn.execute("UPDATE item_classifications SET status='failed',last_error='http_503'")
+        topic(conn, 'research')
+        job(conn, 'job', 'research', 'failed')
+        check(conn, 'bad', 'research', 'failed')
+        check(conn, 'waiting', 'research', 'done', matched=1)
+    observed = read(db)
+    with closing(db()) as conn:
+        classification = news_classification.status(conn)
+        assert classification['unacknowledged_failed'] == 1
+        with conn:
+            task_progress.dismiss(conn, observed['database_token'], classification['notices'], unread_only=False, batch_id='old-batch')
+        assert news_classification.status(conn)['unacknowledged_failed'] == 1
+        with conn:
+            task_progress.dismiss(conn, observed['database_token'], observed['notices'] | classification['notices'],
+                                  unread_only=False, batch_id=classification['batch']['id'])
+        classified = news_classification.status(conn)
+        assert classified['batch']['failed'] == 1 and classified['unacknowledged_failed'] == 0
+        assert classified['notices'] == {}
+    assert read(db)['topics']['items'] == []
+    with closing(db()) as conn, conn:
+        assert conn.execute("SELECT status FROM topic_jobs WHERE id='job'").fetchone()[0] == 'failed'
+        conn.execute("UPDATE item_classifications SET status='pending'")
+        conn.execute("UPDATE item_classifications SET status='failed'")
+        conn.execute("UPDATE topic_checks SET status='running' WHERE item_id='bad'")
+        conn.execute("UPDATE topic_checks SET status='failed' WHERE item_id='bad'")
+    assert read(db)['topics']['items'][0]['matching'] == {'failed': 1}
+    with closing(db()) as conn:
+        assert news_classification.status(conn)['unacknowledged_failed'] == 1
+
+
+def test_existing_failures_are_added_once_and_recovery_retires_the_notice():
+    with sqlite3.connect(':memory:') as conn:
+        conn.execute("CREATE TABLE periodic_reports(id TEXT PRIMARY KEY,status TEXT,error TEXT)")
+        conn.execute("INSERT INTO periodic_reports VALUES ('a','failed','timeout')")
+        task_notices.install(conn, ('report',))
+        conn.execute("UPDATE task_progress_notices SET dismissed=1")
+        task_notices.install(conn, ('report',))
+        assert conn.execute("SELECT id,dismissed FROM task_progress_notices").fetchall() == [(1, 1)]
+        conn.execute("UPDATE periodic_reports SET status='running'")
+        assert conn.execute("SELECT COUNT(*) FROM task_progress_notices").fetchone()[0] == 0
+        conn.execute("UPDATE periodic_reports SET status='failed'")
+        assert conn.execute("SELECT id,dismissed FROM task_progress_notices").fetchall() == [(2, 0)]
+        conn.execute("DELETE FROM periodic_reports")
+        assert conn.execute("SELECT COUNT(*) FROM task_progress_notices").fetchone()[0] == 0

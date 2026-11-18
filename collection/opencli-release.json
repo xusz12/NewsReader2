@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-18T02:53:08.052131+00:00",
-  "fingerprint": "ea9f72032c6175b8fbf4793cb12eddd33f7b2b33cce064202ab244deb98d85ed",
-  "newsreader_version": "0.5.15",
+  "checked_at": "2026-11-18T15:14:03.556834+00:00",
+  "fingerprint": "38fc804a5e580114af97fb20c70d54eedb6febd5ba8a3cb073836aebda27269e",
+  "newsreader_version": "0.5.16",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.88,
+      "seconds": 4.39,
       "error": "",
       "samples": [
         {
-          "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
-          "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
-          "time": "2026-11-18 09:46:14",
+          "title": "Saudis preparing for Yemen campaign to last well into 2027",
+          "url": "https://www.reuters.com/world/middle-east/saudis-preparing-yemen-campaign-last-well-into-2027-2026-11-18/",
+          "time": "2026-11-18 21:10:10",
           "source_name": "Reuters"
         },
         {
-          "title": "Dollar holds near 19-month high as data supports case for US rate hikes",
-          "url": "https://www.reuters.com/world/middle-east/dollar-holds-near-19-month-high-data-supports-case-us-rate-hikes-2026-11-18/",
-          "time": "2026-11-18 09:34:14",
+          "title": "Israeli military begins a new thrust in Gaza, witnesses say",
+          "url": "https://www.reuters.com/world/middle-east/israeli-military-begins-new-thrust-gaza-kills-three-people-2026-11-18/",
+          "time": "2026-11-18 21:01:28",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.73,
+      "seconds": 3.15,
       "error": "",
       "samples": [
         {
-          "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
-          "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
-          "time": "2026-11-18 09:46:14",
+          "title": "Sheinbaum says Mexico-US trade talks 'very far along' after meeting Trump at APEC",
+          "url": "https://www.reuters.com/world/americas/mexicos-sheinbaum-says-she-had-very-good-meeting-with-trump-2026-11-18/",
+          "time": "2026-11-18 21:09:19",
           "source_name": "Reuters"
         },
         {
-          "title": "Insight: How India became a rice powerhouse - and why it's becoming a problem",
-          "url": "https://www.reuters.com/world/china/how-india-became-rice-powerhouse-why-its-becoming-problem-2026-11-18/",
-          "time": "2026-11-18 09:03:52",
+          "title": "IAEA says North Korea is expanding uranium-enrichment plant at Yongbyon",
+          "url": "https://www.reuters.com/world/china/iaea-says-north-korea-is-expanding-uranium-enrichment-plant-yongbyon-2026-11-18/",
+          "time": "2026-11-18 21:38:48",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.75,
+      "seconds": 3.33,
       "error": "",
       "samples": [
         {
-          "title": "Tech outage wave reaches US government, Trump says all is 'fine'",
-          "url": "https://www.reuters.com/business/aerospace-defense/trump-shrugs-off-spate-us-outages-says-things-like-that-happen-2026-11-17/",
-          "time": "2026-11-17 21:08:04",
+          "title": "Drone attacks nearly halve Russia's November oil refining, sources say",
+          "url": "https://www.reuters.com/business/energy/drone-attacks-nearly-halve-russias-november-oil-refining-sources-say-2026-11-18/",
+          "time": "2026-11-18 22:58:39",
           "source_name": "Reuters"
         },
         {
-          "title": "Ukraine cripples Crimean road bridge in blow to Putin before meeting with Xi and Trump",
-          "url": "https://www.reuters.com/world/europe/ukraine-strikes-crimean-bridge-second-day-russia-pounds-kyiv-bridges-2026-11-17/",
-          "time": "2026-11-17 17:50:40",
+          "title": "Xi and Putin blast sanctions as Trump lands in China",
+          "url": "https://www.reuters.com/world/chinas-xi-calls-free-open-trade-apec-summit-2026-11-18/",
+          "time": "2026-11-18 11:21:19",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.68,
+      "seconds": 3.78,
       "error": "",
       "samples": [
         {
-          "title": "Troubled Australian retailer David Jones to cut 1,500 jobs, union says",
-          "url": "https://www.reuters.com/business/world-at-work/troubled-australian-retailer-david-jones-cut-1500-jobs-union-says-2026-11-18/",
-          "time": "2026-11-18 09:32:31",
+          "title": "US pending home sales tumble to record low in October",
+          "url": "https://www.reuters.com/business/us-pending-home-sales-tumble-record-low-october-2026-11-18/",
+          "time": "2026-11-18 23:03:32",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia chair says the board will not rehire Huang as CEO",
-          "url": "https://www.reuters.com/business/nvidia-forecasts-quarterly-revenue-above-estimates-first-report-since-huangs-2026-11-17/",
-          "time": "2026-11-18 05:24:04",
+          "title": "Nvidia gains, lifts battered AI stocks as forecast eases post-Huang uncertainty",
+          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
+          "time": "2026-11-18 19:12:33",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.03,
+      "seconds": 2.96,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia chair says the board will not rehire Huang as CEO",
-          "url": "https://www.reuters.com/business/nvidia-forecasts-quarterly-revenue-above-estimates-first-report-since-huangs-2026-11-17/",
-          "time": "2026-11-18 05:24:04",
+          "title": "Nvidia gains, lifts battered AI stocks as forecast eases post-Huang uncertainty",
+          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
+          "time": "2026-11-18 19:12:33",
           "source_name": "Reuters"
         },
         {
-          "title": "Tech outage wave reaches US government, Trump says all is 'fine'",
-          "url": "https://www.reuters.com/business/aerospace-defense/trump-shrugs-off-spate-us-outages-says-things-like-that-happen-2026-11-17/",
-          "time": "2026-11-17 21:08:04",
+          "title": "Trump administration weighs forcing US firms to disclose Chinese AI use",
+          "url": "https://www.reuters.com/world/china/trump-administration-weighs-forcing-us-firms-disclose-chinese-ai-use-2026-11-18/",
+          "time": "2026-11-18 19:02:29",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 4.4,
+      "seconds": 2.95,
       "error": "",
       "samples": [
         {
-          "title": "Asics COO Business & Growth Outlook",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-18/asics-coo-business-growth-outlook-video",
-          "time": "2026-11-18 10:51:06",
+          "title": "Why GTA VI Took 13 Years and $1 Billion to Make",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-12/why-gta-6-took-13-years-and-1-billion-to-make",
+          "time": "2026-11-13 06:01:01",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Nvidia Raises Outlook, Says It Can Thrive Without Huang",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-17/nvidia-delivers-solid-outlook-in-first-post-huang-earnings",
-          "time": "2026-11-18 05:24:23",
+          "title": "NYC Comptroller Says Pensions Are Ready to Fight for AI Safety",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-18/nyc-comptroller-says-pensions-are-ready-to-fight-for-ai-safety",
+          "time": "2026-11-18 22:50:03",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.56,
+      "seconds": 1.59,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia’s startup stakes ballooned to $65B, but Huang’s exit puts future deals in doubt",
-          "url": "https://techcrunch.com/2026/11/17/nvidias-startup-stakes-ballooned-to-65b-but-huangs-exit-puts-future-deals-in-doubt/",
-          "time": "2026-11-18 09:44:21",
+          "title": "British hackers face prison for GTA 6 data breach and crypto thefts",
+          "url": "https://techcrunch.com/2026/11/18/british-hackers-face-prison-for-gta-6-data-breach-and-crypto-thefts/",
+          "time": "2026-11-18 22:55:13",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Nvidia promises that revenue will keep soaring — for now",
-          "url": "https://techcrunch.com/2026/11/17/nvidia-promises-that-revenue-will-keep-soaring-for-now/",
-          "time": "2026-11-18 08:16:50",
+          "title": "Nvidia clarifies when it will — and won’t —keep financing neoclouds",
+          "url": "https://techcrunch.com/2026/11/18/nvidia-clarifies-when-it-will-and-wont-keep-financing-neoclouds/",
+          "time": "2026-11-18 21:00:00",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.36,
+      "seconds": 2.1,
       "error": "",
       "samples": [
         {
-          "title": "Copilot is \"the new OS for work,\" and now Office runs inside of it",
-          "url": "https://arstechnica.com/gadgets/2026/11/microsoft-calls-copilot-the-new-os-for-work-at-ignite-keynote/",
-          "time": "2026-11-18 08:27:29",
+          "title": "Tesla’s $30,000 Cybercab comes with a $299 monthly catch",
+          "url": "https://arstechnica.com/cars/2026/11/tesla-will-sell-you-a-cybercab-for-30000-then-charge-299-a-month-to-use-it/",
+          "time": "2026-11-18 22:01:45",
           "source_name": "Ars Technica"
         },
         {
-          "title": "San Diego dumps both Flock cameras and smart streetlights",
-          "url": "https://arstechnica.com/tech-policy/2026/11/san-diego-dumps-both-flock-cameras-and-smart-streetlights/",
-          "time": "2026-11-18 07:09:09",
+          "title": "Voyager 1 at one light-day: Historian revisits Golden Record's forgotten details",
+          "url": "https://arstechnica.com/space/2026/11/voyager-1-at-one-light-day-historian-revisits-golden-records-forgotten-details/",
+          "time": "2026-11-18 20:15:44",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.71,
+      "seconds": 1.78,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.59,
+      "seconds": 1.86,
       "error": "",
       "samples": [
         {
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 10,
-      "seconds": 1.74,
+      "valid_count": 9,
+      "seconds": 1.64,
       "error": "",
       "samples": [
         {
-          "title": "美国国家情报总监解释近期信息系统故障频发原因：“就我们目前所能判断的，这不是网络攻击，也不是某个国家协调发动的行动。” “我认为这里正在发生的是，很多人正在给系统打补丁。他们知道这些是遗留系统，存在漏洞，已经过时，是时候对我们的数字基础设施进行全面升级了。” https://t.co/u8MpiSXDTr",
-          "url": "https://x.com/fxtrader/status/2122874679312752690?s=20",
-          "time": "2026-11-18 10:08",
+          "title": "俄罗斯总统新闻秘书佩斯科夫：11月19日未计划举行俄罗斯总统普京与美国总统特朗普的双边会谈。普京与特朗普今日未进行实质性交谈。 https://t.co/fe0fpPDJEX",
+          "url": "https://x.com/fxtrader/status/2123071509589832088?s=20",
+          "time": "2026-11-18 23:11",
           "source_name": "外汇交易员"
         },
         {
-          "title": "https://t.co/iNZegyDES1",
-          "url": "https://x.com/fxtrader/status/2122880347293777936?s=20",
-          "time": "2026-11-18 10:31",
+          "title": "Metacritic对《GTA6》评分已出炉，给出99的高分，追平任天堂N64平台1998年推出的《塞尔达传说：时之笛》，并列电子游戏史上评分最高的作品。 IGN、TechRadar Gaming、Edge和Game Informer也都给出最高评价。 $TTWO Take-Two股价周三大涨6%。 https://t.co/Ee6bCxXejE",
+          "url": "https://x.com/fxtrader/status/2123063694783558066?s=20",
+          "time": "2026-11-18 22:40",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,19 +250,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.66,
+      "seconds": 1.73,
       "error": "",
       "samples": [
+        {
+          "title": "full raw L3 tick, better than IB. Recommend!",
+          "url": "https://x.com/WaylandZhang/status/2122990184572830175?s=20",
+          "time": "2026-11-18 17:47",
+          "source_name": "WaylandZhang"
+        },
         {
           "title": "RT @elonmusk: Relentless reinforcement learning must feel like Edge of Tomorrow to superintelligence",
           "url": "https://x.com/WaylandZhang/status/2122659202133061892?s=20",
           "time": "2026-11-17 19:52",
-          "source_name": "WaylandZhang"
-        },
-        {
-          "title": "从几何来看： 可以把一维空间中的标量（scalar），理解为高维空间中向量（vector）的特殊情况。 一维空间：数字的平方非负 例如： a = 3 a² = 9 ≥ 0 而高维空间：向量的长度平方非负 例如： v = (3, 4) |v|² = 3² + 4² = 25 ≥ 0 本质上，两者遵循相同的数学原理。 回到原题的不等式 我们把每个实数 xᵢ 映射成高维向量 vᵢ，并让两个向量的内积满足： 内积(vᵢ, vⱼ) = √|xᵢ + xⱼ| − √|xᵢ − xⱼ| 然后把所有向量相加： V = v₁ + v₂ + … + vₙ 由于向量长度的平方一定非负 那么： |V|² = 所有向量两两内积之和必 ≥ 0 因此： 所有 √|xᵢ + xⱼ| 之和 ≥ 所有 √|xᵢ − xⱼ| 之和 这证明了原题在高维空间中的“成立”。 所以可以把复杂的实数不等式转换成一个简单的高维几何事实：向量之和的长度平方不可能为负。 那么是否一维的scalar是高维空间的体重特例？？",
-          "url": "https://x.com/WaylandZhang/status/2122140061936558391?s=20",
-          "time": "2026-11-16 09:29",
           "source_name": "WaylandZhang"
         }
       ]
@@ -272,62 +272,62 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-11-18/",
+      "url": "https://www.reuters.com/world/middle-east/saudis-preparing-yemen-campaign-last-well-into-2027-2026-11-18/",
       "ok": true,
-      "title": "Asia stocks set to snap losing streak on Nvidia beat as Anthropic looms",
-      "length": 3116,
-      "seconds": 9.23,
+      "title": "Saudis preparing for Yemen campaign to last well into 2027",
+      "length": 4811,
+      "seconds": 15.95,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "5701f83ae118723ff6afe7994375b6f8237d512d528ed1856c137299b67a50b4",
-      "preview": "SINGAPORE, Nov 18 (Reuters) - Stocks rose in Asia on Wednesday as Nvidia shrugged off recent turmoil to post a better-than-expected sales forecast, boosting com"
+      "content_sha256": "43f2ebb069d57d28c311bd358e836c6d259e58861cbe834f397fd809ce962802",
+      "preview": "EXCLUSIVE\n\nRIYADH, Nov 18 (Reuters) - Saudi Arabia is preparing for war against Yemen's Houthis to stretch well into next year, doubling down despite setbacks o"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-17/nvidia-delivers-solid-outlook-in-first-post-huang-earnings",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-18/nyc-comptroller-says-pensions-are-ready-to-fight-for-ai-safety",
       "ok": true,
-      "title": "Nvidia Raises Outlook, Says It Can Thrive Without Huang",
-      "length": 7221,
+      "title": "NYC Comptroller Says Pensions Are Ready to Fight for AI Safety",
+      "length": 2051,
       "seconds": 32.39,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "703f825dea3d58d2647fd7816114a1fe4b3967e17aaabbf9831f5c63758ad54b",
-      "preview": "Nvidia Corp. sought to deliver a clear message during its first earnings update since the departure of longtime leader Jensen Huang: He’s not coming back, and t"
+      "content_sha256": "1e23d21a8b56c11f1799085a007ecc04fe49f45509bc041ad79ab256be1cb475",
+      "preview": "Mark Levine, New York City’s comptroller, said “it’s disappointing” that Anthropic PBC is moving ahead with its initial public offering this week despite calls "
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/17/nvidias-startup-stakes-ballooned-to-65b-but-huangs-exit-puts-future-deals-in-doubt/",
+      "url": "https://techcrunch.com/2026/11/18/british-hackers-face-prison-for-gta-6-data-breach-and-crypto-thefts/",
       "ok": true,
-      "title": "Nvidia’s startup stakes ballooned to $65B, but Huang’s exit puts future deals in doubt",
-      "length": 2750,
-      "seconds": 3.09,
+      "title": "British hackers face prison for GTA 6 data breach and crypto thefts",
+      "length": 2586,
+      "seconds": 2.16,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "3a925a3972733a8757d98928404a5f141d1fbea6d72d197d069d1731ca9e56b2",
-      "preview": "Nvidia’s equity in private companies continues to grow: it revealed its stakes are now worth $65.5 billion on Tuesday , up from the $22 billion reported in Janu"
+      "content_sha256": "f96a352b7a86894c1e92266307be4ccbed4dd8958725bdb5034c94e3b699a4e6",
+      "preview": "Two British hackers are facing lengthy prison sentences for separate hacks as part of their roles in long-running, prolific cybercriminal hacking groups. The tw"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/gadgets/2026/11/microsoft-calls-copilot-the-new-os-for-work-at-ignite-keynote/",
+      "url": "https://arstechnica.com/cars/2026/11/tesla-will-sell-you-a-cybercab-for-30000-then-charge-299-a-month-to-use-it/",
       "ok": true,
-      "title": "Copilot is “the new OS for work,” and now Office runs inside of it",
-      "length": 7117,
-      "seconds": 16.33,
+      "title": "Tesla’s $30,000 Cybercab comes with a $299 monthly catch",
+      "length": 5731,
+      "seconds": 15.92,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "4db41935aa0e75a1914d2037ca4c11203d01a6fa7cee663ef0262d06e6104cf8",
-      "preview": "Opening the keynote at its Ignite event, Microsoft CEO Satya Nadella outlined the company’s vision for its new “frontier ecosystem,” announcing Tuesday the gene"
+      "content_sha256": "459e33d4fa2ba203c7b288457902963e1a337cee628280e1fc1effd70cb4115b",
+      "preview": "There is always a catch. Or in the case of Tesla’s self-driving Cybercab, several.\n\nLast Friday night, Tesla said it had invited “select customers” to purchase "
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 16.4,
+      "seconds": 15.94,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 16.32,
+      "seconds": 3.16,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 9.66,
+      "seconds": 13.2,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 6.6,
+      "seconds": 10.31,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.15,
+      "seconds": 13.12,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-18T02:53:10.252535+00:00"
+    "checked_at": "2026-11-18T15:14:06.096456+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-18T02:53:22.552606+00:00"
+    "checked_at": "2026-11-18T15:14:10.327766+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-18T02:56:56.610562+00:00",
+    "checked_at": "2026-11-18T15:17:16.568637+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

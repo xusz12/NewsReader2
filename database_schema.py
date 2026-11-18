@@ -2,6 +2,7 @@
 import sqlite3
 from pathlib import Path
 import topic_tracking
+import task_notices
 import news_versions
 import x_accounts
 
@@ -85,4 +86,5 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
             WHERE st.read_later_at IS NULL AND st.read_later_done_at IS NULL
             ON CONFLICT(item_id) DO UPDATE SET read_later_at=excluded.read_later_at""")
         conn.execute("INSERT INTO news_version_migrations VALUES ('explicit_read_later')")
+    task_notices.install(conn, ("classification", "topic", "matching"))
     conn.commit()

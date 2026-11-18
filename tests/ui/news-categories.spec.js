@@ -80,14 +80,14 @@ test('missing key and failed classification remain explicit, retry uses the queu
   const progress = { ok: true, total: 65, done: 60, failed: 5, pending: 0, running: 0, configured: true, completed_revision: 0 };
   await page.route('**/api/news/classification', route => route.fulfill({ json: withClassificationBatch(progress) }));
   await page.clock.runFor(31000);
-  await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
+  await page.getByRole('button', { name: '新闻分类进度', exact:true }).hover();
   await expect(page.locator('#classificationProgressPanel')).toContainText('失败 5');
   const retry = page.waitForRequest('**/api/news/classification/retry');
   await page.locator('#classificationProgressRetry').click();
   expect((await retry).method()).toBe('POST');
   progress.configured = false;
   await page.clock.runFor(31000);
-  await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
+  await page.getByRole('button', { name: '新闻分类进度', exact:true }).hover();
   await expect(page.locator('#classificationProgressPanel')).toContainText('等待在新闻分类设置中配置 Jev');
   await page.locator('#classificationProgressSettings').click();
   await expect(page.locator('#settingsCategory-classification')).toHaveAttribute('aria-current', 'true');
@@ -98,7 +98,7 @@ test('unread-only progress uses its scope and hides when eligible work is comple
     configured: true, unread_only: true, completed_revision: 0 };
   await page.route('**/api/news/classification', route => route.fulfill({ json: withClassificationBatch(progress) }));
   await page.clock.runFor(31000);
-  await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
+  await page.getByRole('button', { name: '新闻分类进度', exact:true }).hover();
   await expect(page.locator('#classificationProgressScope')).toHaveText('当前模式：仅未读');
   await expect(page.locator('#classificationProgressCount')).toHaveText('此次已分类 7/10 条');
   progress.done = 10;
@@ -114,7 +114,7 @@ test('shared rate limiting is shown as cooldown without replacing the news list'
   }) }));
   const first = await page.locator('#feedCardList .news-card').first().getAttribute('data-id');
   await page.clock.runFor(31000);
-  await page.getByRole('progressbar', { name: '新闻分类进度' }).hover();
+  await page.getByRole('button', { name: '新闻分类进度', exact:true }).hover();
   await expect(page.locator('#classificationProgressPanel')).toContainText('限流降速 · 并发 4/8 · 20 秒后继续');
   await expect(page.locator('#feedCardList .news-card').first()).toHaveAttribute('data-id', first);
 });
