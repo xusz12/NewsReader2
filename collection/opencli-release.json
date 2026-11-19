@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-19T08:59:58.839421+00:00",
-  "fingerprint": "271c61bb9855a93e378b19b4f72e3c469ccbffc410c36148599cf7803f74af4d",
-  "newsreader_version": "0.5.18",
+  "checked_at": "2026-11-19T12:20:21.699244+00:00",
+  "fingerprint": "07f11c6abe406481b8eb65ef14743d26e8bd0403721a1c58320baa85665733f4",
+  "newsreader_version": "0.6.0",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 8.4,
+      "seconds": 15.88,
       "error": "",
       "samples": [
         {
-          "title": "Energy-security response to Iran war could cut oil demand by 4% by 2035, IEA says",
-          "url": "https://www.reuters.com/business/energy/energy-security-response-iran-war-could-cut-oil-demand-by-4-by-2035-iea-says-2026-11-19/",
-          "time": "2026-11-19 13:05:28",
+          "title": "Israel says it concludes Gaza tank raid",
+          "url": "https://www.reuters.com/world/middle-east/israel-says-it-concludes-gaza-tank-raid-2026-11-19/",
+          "time": "2026-11-19 18:09:02",
           "source_name": "Reuters"
         },
         {
-          "title": "Saudis preparing for Yemen campaign to last well into 2027",
-          "url": "https://www.reuters.com/world/middle-east/saudis-preparing-yemen-campaign-last-well-into-2027-2026-11-18/",
-          "time": "2026-11-18 21:10:10",
+          "title": "Trump says US will 'see what happens' in conflict with Iran after January 1",
+          "url": "https://www.reuters.com/world/trump-says-us-will-see-what-happens-conflict-with-iran-after-january-1-2026-11-19/",
+          "time": "2026-11-19 20:11:04",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.4,
+      "seconds": 6.38,
       "error": "",
       "samples": [
         {
-          "title": "From tarmac to APEC summit table, Japan's PM cuts a lonely figure",
-          "url": "https://www.reuters.com/world/china/tarmac-apec-summit-table-japans-pm-cuts-lonely-figure-2026-11-19/",
-          "time": "2026-11-19 16:41:04",
+          "title": "China's Xi says US should do 'right thing' on Taiwan to avoid setbacks in relations",
+          "url": "https://www.reuters.com/world/china/chinas-xi-says-us-should-do-right-thing-taiwan-avoid-setbacks-relations-2026-11-19/",
+          "time": "2026-11-19 19:45:23",
           "source_name": "Reuters"
         },
         {
-          "title": "How Japan PM's Taiwan remarks sparked a year-long rift with China",
-          "url": "https://www.reuters.com/world/china/how-japan-pms-taiwan-remarks-sparked-year-long-rift-with-china-2026-11-19/",
-          "time": "2026-11-19 16:36:02",
+          "title": "ANTics",
+          "url": "https://www.reuters.com/commentary/reuters-open-interest/global-markets-view-usa-2026-11-19/",
+          "time": "2026-11-19 19:36:44",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.17,
+      "seconds": 5.47,
       "error": "",
       "samples": [
         {
-          "title": "Trump calls Putin a \"friend\"",
-          "url": "https://www.reuters.com/world/china/trumps-historic-meeting-with-xi-putin-headlines-asia-trip-2026-11-18/",
-          "time": "2026-11-19 07:05:40",
+          "title": "Top UN court finds Myanmar committed state-sponsored genocide against Muslim Rohingya",
+          "url": "https://www.reuters.com/world/asia-pacific/top-un-court-rule-alleged-genocide-myanmars-rohingya-2026-11-18/",
+          "time": "2026-11-19 07:06:58",
           "source_name": "Reuters"
         },
         {
-          "title": "Parts of Bangladesh shut down in protests by Hasina's party, Yunus' home set ablaze",
-          "url": "https://www.reuters.com/world/asia-pacific/parts-bangladesh-shut-down-protests-by-hasinas-party-yunus-home-set-ablaze-2026-11-19/",
-          "time": "2026-11-19 13:58:54",
+          "title": "Trump says US will 'see what happens' in conflict with Iran after January 1",
+          "url": "https://www.reuters.com/world/trump-says-us-will-see-what-happens-conflict-with-iran-after-january-1-2026-11-19/",
+          "time": "2026-11-19 20:11:04",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.26,
+      "seconds": 4.36,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic raises record $81 billion in IPO at $1.5 trillion valuation",
-          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
-          "time": "2026-11-19 05:26:21",
+          "title": "Anthropic's historic debut to put AI's promise and peril to Wall St test",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia retreats as strong outlook fails to dispel uncertainty",
-          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
-          "time": "2026-11-18 19:12:33",
+          "title": "Trump unveils $17 billion of Southeast Asia deals for US firms, White House says",
+          "url": "https://www.reuters.com/business/aerospace-defense/trump-unveils-17-billion-southeast-asia-deals-us-firms-white-house-says-2026-11-19/",
+          "time": "2026-11-19 18:19:10",
           "source_name": "Reuters"
         }
       ]
@@ -96,13 +96,13 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.96,
+      "seconds": 5.28,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic raises record $81 billion in IPO at $1.5 trillion valuation",
-          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
-          "time": "2026-11-19 05:26:21",
+          "title": "Anthropic's historic debut to put AI's promise and peril to Wall St test",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         },
         {
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 3.04,
+      "seconds": 5.16,
       "error": "",
       "samples": [
         {
-          "title": "Lenovo Shares Tank After First Operating Loss Since 2017",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-19/lenovo-sales-beat-estimate-due-to-solid-ai-hardware-demand",
-          "time": "2026-11-19 12:29:27",
+          "title": "Nvidia Moves Ousted CEO Jensen Huang Out of the Spotlight",
+          "url": "https://www.bloomberg.com/news/newsletters/2026-11-19/nvidia-moves-ousted-ceo-jensen-huang-out-of-the-spotlight",
+          "time": "2026-11-19 20:02:01",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Amundi CIO Mortier Shifts 2027 Strategy Away From Big Tech",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-19/amundi-s-mortier-shifts-2027-strategy-away-from-big-tech-video",
-          "time": "2026-11-19 16:43:11",
+          "title": "‘Grand Theft Auto VI’ Debut Spurs Livestream Influencer Marathons",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-19/-grand-theft-auto-vi-debut-spurs-livestream-influencer-marathons",
+          "time": "2026-11-19 20:00:00",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,7 +140,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.63,
+      "seconds": 1.66,
       "error": "",
       "samples": [
         {
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.77,
+      "seconds": 2.86,
       "error": "",
       "samples": [
+        {
+          "title": "How to tell a cyberattack from a plain old outage",
+          "url": "https://arstechnica.com/security/2026/11/how-to-tell-a-cyberattack-from-a-plain-old-outage/",
+          "time": "2026-11-19 19:13:01",
+          "source_name": "Ars Technica"
+        },
         {
           "title": "Ted Cruz-led committee approves Trump FCC nominee 15-0 as Democrats boycott vote",
           "url": "https://arstechnica.com/tech-policy/2026/11/ted-cruz-led-committee-approves-trump-fcc-nominee-15-0-as-democrats-boycott-vote/",
           "time": "2026-11-19 07:25:04",
-          "source_name": "Ars Technica"
-        },
-        {
-          "title": "Ukraine blew up Putin’s bridge using relay drones to bypass Starlink limits",
-          "url": "https://arstechnica.com/gadgets/2026/11/ukraine-blew-up-putins-bridge-using-relay-drones-to-bypass-starlink-limits/",
-          "time": "2026-11-19 07:10:39",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.73,
+      "seconds": 2.15,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.8,
+      "seconds": 2.06,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.67,
+      "seconds": 1.75,
       "error": "",
       "samples": [
         {
-          "title": "特朗普中俄美元首会晤开场白： 我们真的在创造历史。 过去领导人往往回避与有分歧的国家对话。对此我们持相反看法。 https://t.co/c42b0A7ktq https://t.co/I7P5SrYeSc",
-          "url": "https://x.com/fxtrader/status/2123336501744558456?s=20",
-          "time": "2026-11-19 16:44",
+          "title": "俄罗斯总统普京：表示希望与中国和美国元首的三边会晤继续进行。",
+          "url": "https://x.com/fxtrader/status/2123384676991762649?s=20",
+          "time": "2026-11-19 19:55",
           "source_name": "外汇交易员"
         },
         {
-          "title": "11月19日下午，国家主席习近平在深圳同俄罗斯总统普京、美国总统特朗普举行中俄美元首会晤。（央视） 🗒较日程晚了2小时。",
-          "url": "https://x.com/fxtrader/status/2123332347739418801?s=20",
-          "time": "2026-11-19 16:27",
+          "title": "美国能源部长赖特：美国考虑加大对欧洲的柴油和石油出口。",
+          "url": "https://x.com/fxtrader/status/2123379539502137763?s=20",
+          "time": "2026-11-19 19:35",
           "source_name": "外汇交易员"
         }
       ]
@@ -272,32 +272,32 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/business/energy/energy-security-response-iran-war-could-cut-oil-demand-by-4-by-2035-iea-says-2026-11-19/",
+      "url": "https://www.reuters.com/world/middle-east/israel-says-it-concludes-gaza-tank-raid-2026-11-19/",
       "ok": true,
-      "title": "Energy-security response to Iran war could cut oil demand by 4% by 2035, IEA says",
-      "length": 2772,
-      "seconds": 3.29,
+      "title": "Israel says it concludes Gaza tank raid",
+      "length": 2783,
+      "seconds": 15.9,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "fbfddecc59ba142be05f87076703c5e91465ff84a08c28ddda40ab170767e113",
-      "preview": "LONDON, Nov 19 (Reuters) - The Middle East conflict has caused the biggest disruption ever to global oil and gas trade and could cut world oil demand by more th"
+      "content_sha256": "930afe7d8467f5e0aeeb691b3200da17dc288b0e08cf57abaf098cc4909d4223",
+      "preview": "CAIRO, Nov 19 (Reuters) - Israel’s military said on Thursday it had concluded a tank raid to dismantle a suspected Hamas tunnel in the central Gaza Strip, its h"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-19/lenovo-sales-beat-estimate-due-to-solid-ai-hardware-demand",
+      "url": "https://www.bloomberg.com/news/newsletters/2026-11-19/nvidia-moves-ousted-ceo-jensen-huang-out-of-the-spotlight",
       "ok": true,
-      "title": "Lenovo Shares Tank After First Operating Loss Since 2017",
-      "length": 2379,
-      "seconds": 32.23,
+      "title": "Nvidia Moves Ousted CEO Jensen Huang Out of the Spotlight",
+      "length": 5697,
+      "seconds": 32.11,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "28b902b54606e8dbd17012d15b74783592582a2590fa7469838fa81cfe7f701d",
-      "preview": "Lenovo Group Ltd. shares slid more than 5% after reporting a far larger-than-anticipated loss for the September quarter, reflecting accounting charges and the m"
+      "content_sha256": "112625e76d465553e6ef4ada2b9d606fef260eceb3ecc8751271cbc66f1af234",
+      "preview": "Welcome to Tech In Depth, our daily newsletter about the business of tech from Bloomberg’s journalists around the world. Today, Ian King reports on Nvidia and o"
     },
     {
       "name": "TechCrunch",
@@ -306,7 +306,7 @@
       "ok": true,
       "title": "Microsoft CEO Satya Nadella explains why he asked 60K employees to quit",
       "length": 3002,
-      "seconds": 2.47,
+      "seconds": 2.11,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -317,17 +317,17 @@
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/tech-policy/2026/11/ted-cruz-led-committee-approves-trump-fcc-nominee-15-0-as-democrats-boycott-vote/",
+      "url": "https://arstechnica.com/security/2026/11/how-to-tell-a-cyberattack-from-a-plain-old-outage/",
       "ok": true,
-      "title": "Ted Cruz-led committee approves Trump FCC nominee 15-0 as Democrats boycott vote",
-      "length": 8070,
-      "seconds": 15.98,
+      "title": "How to tell a cyberattack from a plain old outage",
+      "length": 11570,
+      "seconds": 16.25,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "27a98655bbb7344effa04bbdf28c441ee364cd8ec9e53fa59ac693b6c02c72ab",
-      "preview": "A Senate committee chaired by Ted Cruz (R-Texas) voted today to approve a Federal Communications Commission nominee, despite accusations that the nominee gave f"
+      "content_sha256": "c8625d5bfccc25d17e0f966f2bf093631963d3897f5509579c1e9a83e0f53d4d",
+      "preview": "Over the past week, anyone could be forgiven for wondering whether a Diehard IV–style cyberwar had finally arrived in the US.\n\nAcross just four consecutive busi"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 15.88,
+      "seconds": 7.45,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 15.87,
+      "seconds": 4.54,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 9.42,
+      "seconds": 11.24,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 6.59,
+      "seconds": 6.65,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 6.98,
+      "seconds": 7.7,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-19T09:00:01.214483+00:00"
+    "checked_at": "2026-11-19T12:20:23.547491+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-19T09:00:06.869539+00:00"
+    "checked_at": "2026-11-19T12:20:28.363562+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-19T09:03:01.187115+00:00",
+    "checked_at": "2026-11-19T12:24:00.951261+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

@@ -18,7 +18,7 @@
     "test:collection:live": "python3 scripts/verify_collection_runtime.py --output output/opencli-validation.json --restart-daemon"
   },
   "dependencies": {
-    "@botiverse/oar": "0.120.0",
+    "@botiverse/oar": "0.121.0",
     "@earendil-works/pi-ai": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
     "@jackwener/opencli": "2.0.3",
@@ -37,5 +37,5 @@
     "esbuild": "0.28.2",
     "vitest": "4.1.0"
   },
-  "version": "0.5.18"
+  "version": "0.6.0"
 }
