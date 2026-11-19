@@ -116,7 +116,8 @@ Pi 登出后回到「模型与 Agent」会重新读取可用目录，也可点�
 
 ```bash
 PYTHONPATH=. python3 -m pytest -q
-node --test tests/error_ui.test.cjs tests/item_state.test.mjs tests/read_later.test.mjs tests/oar_bridge.test.mjs
+node --test tests/error_ui.test.cjs tests/item_state.test.mjs tests/read_later.test.mjs
+npm run test:oar
 npx playwright install chromium
 CI=1 npm run test:ui
 ```
