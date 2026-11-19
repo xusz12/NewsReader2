@@ -104,7 +104,8 @@ def initialize(conn, at=None):
                               ("model_label", "TEXT NOT NULL DEFAULT ''"), ("snapshot_id", "TEXT"),
                               ("snapshot_captured_at", "TEXT"), ("generation_seconds", "REAL"),
                               ("attempt_seconds", "REAL NOT NULL DEFAULT 0"), ("read_completed_at", "TEXT"),
-                              ("source_count", "INTEGER"), ("monthly_snapshot_json", "TEXT")):
+                              ("source_count", "INTEGER"), ("monthly_snapshot_json", "TEXT"),
+                              ("fresh_material", "INTEGER NOT NULL DEFAULT 0")):
         if name not in columns:
             conn.execute(f"ALTER TABLE periodic_reports ADD COLUMN {name} {declaration}")
     if "monthly_snapshot_json" not in {row[1] for row in conn.execute("PRAGMA table_info(periodic_report_snapshots)")}:
@@ -229,11 +230,11 @@ def schedule_control(conn):
 
 
 SHARED_SNAPSHOT_IN_USE = """EXISTS (SELECT 1 FROM periodic_reports dependent
-    WHERE (dependent.snapshot_id=s.id OR (dependent.period_start=s.period_start AND dependent.period_end=s.period_end))
+    WHERE (dependent.snapshot_id=s.id OR (dependent.fresh_material=0 AND dependent.period_start=s.period_start AND dependent.period_end=s.period_end))
     AND dependent.status NOT IN ('done','skipped'))"""
-LEGACY_SNAPSHOT_CLEARABLE = """r.status IN ('done','skipped') AND NOT EXISTS (
+REPORT_SNAPSHOT_CLEARABLE = """r.status IN ('done','skipped') AND (r.fresh_material=1 OR NOT EXISTS (
     SELECT 1 FROM periodic_reports active WHERE active.period_start=r.period_start AND active.period_end=r.period_end
-    AND active.status NOT IN ('done','skipped'))"""
+    AND active.fresh_material=0 AND active.status NOT IN ('done','skipped')))"""
 
 
 def snapshot_storage(conn):
@@ -243,7 +244,7 @@ def snapshot_storage(conn):
         SELECT LENGTH(CAST(s.snapshot_json AS BLOB))+COALESCE(LENGTH(CAST(s.monthly_snapshot_json AS BLOB)),0) AS bytes, NOT ({SHARED_SNAPSHOT_IN_USE}) AS clearable
             FROM periodic_report_snapshots s
         UNION ALL
-        SELECT LENGTH(CAST(r.snapshot_json AS BLOB))+COALESCE(LENGTH(CAST(r.monthly_snapshot_json AS BLOB)),0), {LEGACY_SNAPSHOT_CLEARABLE}
+        SELECT LENGTH(CAST(r.snapshot_json AS BLOB))+COALESCE(LENGTH(CAST(r.monthly_snapshot_json AS BLOB)),0), {REPORT_SNAPSHOT_CLEARABLE}
             FROM periodic_reports r WHERE r.snapshot_json IS NOT NULL)
         SELECT COALESCE(SUM(bytes),0),COALESCE(SUM(CASE WHEN clearable THEN bytes ELSE 0 END),0),
             COUNT(*),COALESCE(SUM(clearable),0) FROM materials""").fetchone()
@@ -259,7 +260,7 @@ def prune_snapshots(conn, cutoff=None):
     removed = conn.execute(f"DELETE FROM periodic_report_snapshots WHERE id IN ({unused})", (cutoff, cutoff)).rowcount
     removed += conn.execute(f"""UPDATE periodic_reports AS r SET snapshot_json=NULL,monthly_snapshot_json=NULL
         WHERE r.snapshot_json IS NOT NULL AND (? IS NULL OR COALESCE(r.snapshot_captured_at,r.updated_at)<=?)
-        AND {LEGACY_SNAPSHOT_CLEARABLE}""", (cutoff, cutoff)).rowcount
+        AND {REPORT_SNAPSHOT_CLEARABLE}""", (cutoff, cutoff)).rowcount
     return removed
 
 
@@ -787,11 +788,25 @@ class Service:
         self.update_progress(job, "waiting_material")
         # Serialise snapshot capture only; collection and translation run independently.
         with self.index_lock:
+            if job["fresh_material"]:
+                self.update_progress(job, "capturing")
+                with closing(self.connect()) as conn:
+                    conn.execute("BEGIN")
+                    material = capture(conn, job)
+                    supplement = capture_monthly(conn, material) if job["kind"] == "monthly" else None
+                with closing(self.connect()) as conn, conn:
+                    changed = conn.execute("""UPDATE periodic_reports SET snapshot_json=?,monthly_snapshot_json=?,
+                        snapshot_captured_at=?,lease_until=? WHERE id=? AND lease=? AND status='running'""",
+                        (encoded(material), encoded(supplement) if supplement else None, material["captured_at"],
+                         time.time()+LEASE_SECONDS, job["id"], job["lease"])).rowcount
+                    if changed != 1:
+                        raise RuntimeError("report_interrupted")
+                return report_monthly.combine(material, supplement) if supplement else material
             with closing(self.connect()) as conn:
                 shared = conn.execute("SELECT * FROM periodic_report_snapshots WHERE period_start=? AND period_end=?",
                     (job["period_start"], job["period_end"])).fetchone()
                 legacy = None if shared else conn.execute("""SELECT id,snapshot_json FROM periodic_reports
-                    WHERE period_start=? AND period_end=? AND snapshot_json IS NOT NULL
+                    WHERE period_start=? AND period_end=? AND snapshot_json IS NOT NULL AND fresh_material=0
                     ORDER BY created_at,id LIMIT 1""", (job["period_start"], job["period_end"])).fetchone()
             material = None
             if not shared:
@@ -1054,7 +1069,7 @@ class Service:
                 "schedule_times": times, "window_times": dict(report_schedule.WINDOW_TIMES), "windows": windows,
                 "model_defaults": model_defaults, **model_defaults["morning"]}
 
-    def create_selected(self, kind, selection, request_id, token, schedule_times=None, model_override=None, window=None):
+    def create_selected(self, kind, selection, request_id, token, schedule_times=None, model_override=None, window=None, *, fresh_material=False):
         if not isinstance(kind, str) or kind not in KINDS:
             raise ValueError("report_window_invalid")
         if window is not None:
@@ -1077,9 +1092,11 @@ class Service:
             used = {"morning": ("evening", "morning"), "noon": ("morning", "noon"), "evening": ("evening",)}[kind]
             if any(times[key] != report_schedule.WINDOW_TIMES[key] for key in used):
                 raise ValueError("report_window_changed")
-        return self.create_manual(kind, stamp(start), stamp(end), request_id, token, model_override)
+        return self.create_manual(kind, stamp(start), stamp(end), request_id, token, model_override, fresh_material=fresh_material)
 
-    def create_manual(self, kind, period_start, period_end, request_id, token, model_override=None):
+    def create_manual(self, kind, period_start, period_end, request_id, token, model_override=None, *, fresh_material=False):
+        if type(fresh_material) is not bool:
+            raise ValueError("report_material_option_invalid")
         try:
             if not isinstance(kind, str) or kind not in KINDS or not all(isinstance(value, str) for value in (period_start, period_end, request_id)):
                 raise ValueError()
@@ -1114,16 +1131,16 @@ class Service:
                 raise ValueError("report_deleted")
             row = conn.execute("SELECT * FROM periodic_reports WHERE edition_key=?", (key,)).fetchone()
             if row:
-                if (row["kind"], row["period_start"], row["period_end"]) != (kind, stamp(start), stamp(end)):
+                if (row["kind"], row["period_start"], row["period_end"], row["fresh_material"]) != (kind, stamp(start), stamp(end), fresh_material):
                     raise ValueError("report_manual_conflict")
             else:
                 ts = stamp(at)
                 if config is None:
                     raise ValueError("report_deleted")
                 conn.execute("""INSERT INTO periodic_reports
-                    (id,edition_key,kind,title,period_start,period_end,scheduled_at,created_at,updated_at,config_json,model_label)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (uuid.uuid4().hex, key, kind, title, stamp(start), stamp(end), stamp(end), ts, ts,
-                    encoded(config), model_label(config)))
+                    (id,edition_key,kind,title,period_start,period_end,scheduled_at,created_at,updated_at,config_json,model_label,fresh_material)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (uuid.uuid4().hex, key, kind, title, stamp(start), stamp(end), stamp(end), ts, ts,
+                    encoded(config), model_label(config), fresh_material))
                 row = conn.execute("SELECT * FROM periodic_reports WHERE edition_key=?", (key,)).fetchone()
             conn.commit()
         self.wake.set()
@@ -1191,7 +1208,7 @@ class Service:
                 conn.execute(f"DELETE FROM {table} WHERE url=?", (reader_url,))
             conn.execute("""DELETE FROM periodic_report_snapshots WHERE period_start=? AND period_end=?
                 AND NOT EXISTS (SELECT 1 FROM periodic_reports r WHERE
-                    r.period_start=periodic_report_snapshots.period_start AND r.period_end=periodic_report_snapshots.period_end)""",
+                    r.fresh_material=0 AND r.period_start=periodic_report_snapshots.period_start AND r.period_end=periodic_report_snapshots.period_end)""",
                 (row["period_start"], row["period_end"]))
             conn.commit()
 

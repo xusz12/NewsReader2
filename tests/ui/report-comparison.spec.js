@@ -28,14 +28,22 @@ test('新建表单显示日报模型，重新打开时更新模型并保留所�
   await expect(page.locator('#reportCreationModel')).toHaveText('Codex · ui-catalog-a');
   await expect(page.locator('#reportSelection')).toHaveValue('2026-10-30');
   await page.locator('#reportSelection').fill('2026-10-28');
+  const fresh = page.getByRole('switch',{name:'重新取材'});
+  await expect(fresh).not.toBeChecked();
+  await fresh.check();
   await page.keyboard.press('Escape');
   expect((await request.put('/api/settings',{data:{llm:saved.llm,feature_models:{...saved.feature_models,reports:pi}}})).ok()).toBe(true);
   await page.locator('#createReportBtn').click();
   await expect(page.locator('#reportCreationModel')).toHaveText('Pi · test-model');
   await expect(page.locator('#reportSelection')).toHaveValue('2026-10-28');
+  await expect(fresh).toBeChecked();
   const result = page.waitForResponse(response=>response.url().endsWith('/api/reports/manual') && response.request().method()==='POST');
   await page.getByRole('button',{name:'开始生成',exact:true}).click();
-  expect((await (await result).json()).report.model_label).toBe('Pi · test-model');
+  const response = await result;
+  expect(response.request().postDataJSON().fresh_material).toBe(true);
+  expect((await response.json()).report.model_label).toBe('Pi · test-model');
+  await page.locator('#createReportBtn').click();
+  await expect(fresh).not.toBeChecked();
 });
 
 test('先后切换配置并入队，卡片、正文和顶部状态仍标明各自模型及相同取材时间',async({page,request})=>{

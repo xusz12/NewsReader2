@@ -177,9 +177,27 @@ const paths = {
   note: '<path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   refresh:
     '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/>',
+  expand: '<path d="M15 3h6v6M21 3l-7 7M9 21H3v-6M3 21l7-7"/>',
+  shrink: '<path d="M4 14h6v6M10 14l-7 7M20 10h-6V4M14 10l7-7"/>',
 };
 export const icon = (name) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${paths[name] || paths.note}</svg>`;
+export function bindAgentWindowSize(panel, button, onResize) {
+  function render() {
+    const maximized = panel.classList.contains("maximized");
+    button.title = maximized ? "还原窗口" : "扩大窗口";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-controls", panel.id);
+    button.innerHTML = icon(maximized ? "shrink" : "expand");
+  }
+  render();
+  button.onclick = event => {
+    event.stopPropagation();
+    panel.classList.toggle("maximized");
+    render();
+    onResize?.();
+  };
+}
 export function sourceKey(item) {
   const value = `${item.source_type} ${item.source} ${item.url}`.toLowerCase();
   if (/reuters/.test(value)) return "reuters";

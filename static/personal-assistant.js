@@ -1,4 +1,4 @@
-import { $, api, escapeHTML as e, errorText, icon, markdown, storage, persist, resizeAutoFields } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, icon, markdown, storage, persist, resizeAutoFields, bindAgentWindowSize } from "./ui.js";
 import { selectField } from "./form-controls.js";
 import { AnchoredPopover } from "./anchored-popover.js";
 
@@ -15,7 +15,7 @@ export class PersonalAssistant {
     this.threadId = storage(lastThreadKey, "");
     this.panel = $("#personalAssistantPanel"); this.trigger = $("#personalAssistantBtn");
     this.panel.innerHTML = `<div class="agent-header"><div class="agent-title-info"><div class="agent-title-line"><strong id="personalAssistantName">个人助手</strong><span class="agent-runtime-badge" id="personalAssistantRuntime"></span></div><span class="agent-caption" id="personalAssistantCaption">独立讨论 · 长期记忆 · NR 全库</span></div>
-      <div class="agent-actions"><button type="button" class="agent-btn" id="personalAssistantNew" aria-label="新讨论" title="新讨论">＋</button><button type="button" class="agent-btn" id="personalAssistantSettingsBtn" aria-label="个人助手设置" title="个人助手设置">${icon("settings")}</button><button type="button" class="agent-btn" id="personalAssistantClose" aria-label="关闭个人助手" title="关闭">✕</button></div></div>
+      <div class="agent-actions"><button type="button" class="agent-btn" id="personalAssistantNew" aria-label="新讨论" title="新讨论">＋</button><button type="button" class="agent-btn" id="personalAssistantSettingsBtn" aria-label="个人助手设置" title="个人助手设置">${icon("settings")}</button><button type="button" class="agent-btn" id="personalAssistantExpand"></button><button type="button" class="agent-btn" id="personalAssistantClose" aria-label="关闭个人助手" title="关闭">✕</button></div></div>
       <div class="agent-context" id="personalThreadPicker"></div>
       <div class="agent-chat-stream" id="personalAssistantMessages" role="log" aria-label="个人助手讨论" aria-live="off" tabindex="0"></div>
       <div class="agent-context"><p id="personalAssistantStatus" role="status" aria-live="polite"></p><button type="button" class="reader-tool-btn" id="personalAssistantReload" hidden>重新读取</button></div>
@@ -26,6 +26,7 @@ export class PersonalAssistant {
       onClose:()=>{clearTimeout(this.timer); this.timer=null;}});
     this.trigger.onclick = () => this.popover.open ? this.popover.close(true) : this.show();
     $("#personalAssistantClose").onclick = () => this.popover.close(true);
+    bindAgentWindowSize(this.panel, $("#personalAssistantExpand"), () => this.popover.position());
     $("#personalAssistantNew").onclick = () => this.newDiscussion();
     $("#personalAssistantSettingsBtn").onclick = () => {this.popover.close(); this.onSettings();};
     $("#personalAssistantReload").onclick = () => this.load();

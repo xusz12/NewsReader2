@@ -231,3 +231,21 @@ def test_api_resolves_selection_instead_of_accepting_conflicting_client_range(se
     assert response.status_code == 202
     assert response.json["report"]["period_start"] == "2026-10-21T00:00:00+08:00"
     assert response.json["report"]["period_end"] == "2026-10-28T00:00:00+08:00"
+
+
+@pytest.mark.parametrize("period", [{"selection": "2026-10-21"},
+    {"period_start": "2026-10-21T00:00:00+08:00", "period_end": "2026-10-28T00:00:00+08:00"}])
+def test_manual_api_binds_fresh_material_to_this_request(service, db, monkeypatch, period):
+    import app
+    monkeypatch.setattr(app.runtime.jobs, "reports", service)
+    monkeypatch.setattr(service, "start", lambda: None)
+    client = app.app.test_client()
+    payload = {"kind": "weekly", **period, "request_id": uuid.uuid4().hex,
+               "database_token": service.manual_options()["database_token"]}
+    response = client.post("/api/reports/manual", json={**payload, "fresh_material": "false"})
+    assert response.json["error"] == "report_material_option_invalid"
+    response = client.post("/api/reports/manual", json={**payload, "fresh_material": True})
+    assert response.status_code == 202
+    with closing(db()) as conn:
+        ident = response.json["report"]["id"]
+        assert conn.execute("SELECT fresh_material FROM periodic_reports WHERE id=?", (ident,)).fetchone()[0] == 1

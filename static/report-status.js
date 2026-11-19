@@ -28,6 +28,7 @@ const errors = {
   report_window_invalid: "请选择有效的起止时间，结束时间须晚于开始时间，且不能晚于当前时间。",
   report_window_changed: "新闻窗口规则已更新，请刷新页面后重新选择日期。",
   report_manual_conflict: "本次请求已用于另一份报告，请重新打开新增日报。",
+  report_material_option_invalid: "重新取材选项无效，请重新选择。",
   report_delete_running: "报告仍在生成，请完成后再删除。",
   report_deleted: "这份报告已删除，如需重新生成，请重新打开新增日报。",
   report_model_failed: "生成失败，请检查模型与 Agent 设置后重试。",

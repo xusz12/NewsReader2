@@ -26,8 +26,9 @@ def service(db, monkeypatch):
     return pr.Service(db, lambda: settings('codex', 'astra'), lambda: None, runner)
 
 
-def create(service, kind='evening', start=START, end=END, request_id=None):
-    return service.create_manual(kind, start, end, request_id or uuid.uuid4().hex, service.manual_options()['database_token'])
+def create(service, kind='evening', start=START, end=END, request_id=None, fresh_material=False):
+    return service.create_manual(kind, start, end, request_id or uuid.uuid4().hex, service.manual_options()['database_token'],
+                                 fresh_material=fresh_material)
 
 
 def rows(db):
@@ -151,6 +152,62 @@ def test_failure_does_not_poison_shared_material_and_retries_keep_bound_model(se
     assert service.run_one()
     assert seen[0]['runtime'] == 'codex' and seen[0]['codex']['model'] == 'astra'
     assert len({row['snapshot_id'] for row in rows(db)}) == 1
+
+
+def test_fresh_report_includes_late_news_and_keeps_its_material_on_retry(service, db):
+    token = service.manual_options()['database_token']
+    original = create(service)
+    assert service.run_one()
+    with closing(db()) as conn:
+        news(conn, 'late', '2026-10-29T18:00:00+08:00')
+        news(conn, 'outside', END)
+    request_id = uuid.uuid4().hex
+    fresh = create(service, request_id=request_id, fresh_material=True)
+    assert create(service, request_id=request_id, fresh_material=True)['id'] == fresh['id']
+    with pytest.raises(ValueError, match='report_manual_conflict'):
+        create(service, request_id=request_id)
+    def fail_model(*args):
+        raise RuntimeError('report_model_capacity_unknown')
+    service.runner = fail_model
+    assert service.run_one()
+    comparison = create(service)
+    service.runner = runner
+    assert service.run_one()
+    with closing(db()) as conn:
+        saved = {row['id']: row for row in rows(db)}
+        assert saved[original['id']]['snapshot_id'] == saved[comparison['id']]['snapshot_id']
+        assert [s['id'] for s in pr.stored_snapshot(conn, saved[comparison['id']])['sources']] == ['original']
+        assert saved[fresh['id']]['status'] == 'failed'
+        assert [s['id'] for s in pr.stored_snapshot(conn, saved[fresh['id']])['sources']] == ['original', 'late']
+        news(conn, 'even-later', '2026-10-29T19:00:00+08:00')
+    assert service.clear_snapshots(token)['removed_count'] == 1
+    restarted = pr.Service(db, service.settings, lambda: None, runner)
+    restarted.retry(fresh['id'], token)
+    assert restarted.run_one()
+    with closing(db()) as conn:
+        retried = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (fresh['id'],)).fetchone()
+        assert retried['status'] == 'done'
+        assert retried['snapshot_json'] == saved[fresh['id']]['snapshot_json']
+    next_report = create(restarted)
+    assert restarted.run_one()
+    with closing(db()) as conn:
+        normal = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (next_report['id'],)).fetchone()
+        assert [s['id'] for s in pr.stored_snapshot(conn, normal)['sources']] == ['original', 'late', 'even-later']
+
+
+def test_fresh_monthly_report_captures_important_flags_independently(service, db):
+    original = create(service, kind='monthly')
+    assert service.run_one()
+    with closing(db()) as conn, conn:
+        conn.execute("INSERT INTO item_state(item_id,important_at,updated_at) VALUES ('original',?,?)", (END, END))
+    fresh = create(service, kind='monthly', fresh_material=True)
+    assert service.run_one()
+    with closing(db()) as conn:
+        saved = {row['id']: row for row in rows(db)}
+        original_source = pr.stored_snapshot(conn, saved[original['id']])['sources'][0]
+        fresh_source = pr.stored_snapshot(conn, saved[fresh['id']])['sources'][0]
+        assert original_source.get('monthly_role') != 'important'
+        assert fresh_source['monthly_role'] == 'important'
 
 
 def test_scheduled_jobs_bind_when_enqueued(service, db):

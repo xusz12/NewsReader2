@@ -47,13 +47,19 @@ export class AnchoredPopover {
     const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
     const width = viewport?.width || innerWidth, height = viewport?.height || innerHeight;
     const gap = 8, margin = 12;
+    this.panel.style.maxWidth = `${Math.max(0,width-margin*2)}px`;
+    if (this.panel.classList.contains("maximized")) {
+      this.panel.style.maxHeight = `${Math.max(0,height-margin*2)}px`;
+      this.panel.style.left = `${left+(width-this.panel.offsetWidth)/2}px`;
+      this.panel.style.top = `${top+margin}px`;
+      return;
+    }
     const below = Math.max(0, top + height - margin - anchor.bottom - gap);
     const above = Math.max(0, anchor.top - gap - top - margin);
     const natural = this.panel.scrollHeight + 2;
     const openBelow = below >= Math.min(natural, 480) || below >= above;
     const available = openBelow ? below : above;
     this.panel.style.maxHeight = `${available}px`;
-    this.panel.style.maxWidth = `${Math.max(0,width-margin*2)}px`;
     this.panel.style.left = `${Math.max(left+margin, Math.min(anchor.right-this.panel.offsetWidth,left+width-this.panel.offsetWidth-margin))}px`;
     this.panel.style.top = `${openBelow ? anchor.bottom+gap : anchor.top-gap-Math.min(natural,available)}px`;
   }

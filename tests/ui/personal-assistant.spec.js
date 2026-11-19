@@ -107,6 +107,9 @@ test("停止与失败有明确状态，关窗继续运行，草稿不会丢失",
   await page.locator("#personalAssistantSend").click();
   await expect(page.getByRole("button",{name:"停止回复",exact:true})).toBeEnabled();
   await page.locator("#personalAssistantInput").fill("下一条讨论的草稿");
+  await page.locator("#personalAssistantExpand").click();
+  await expect(page.getByRole("button",{name:"停止回复",exact:true})).toBeEnabled();
+  await expect(page.locator("#personalAssistantMessages")).toContainText("慢慢整理资料");
   await page.locator("#personalAssistantClose").click();
   await page.locator("#personalAssistantBtn").click();
   await expect(page.locator("#personalAssistantInput")).toHaveValue("下一条讨论的草稿");
@@ -148,6 +151,24 @@ for (const width of [320,390,920,921,1279,1280,1440]) test(`个人助手在主�
     expect(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
     await expect(page.locator("#personalAssistantSend")).toBeVisible();
     await expect(page.locator("#personalAssistantInput")).toBeVisible();
+    const stream=page.locator("#personalAssistantMessages");
+    const compact=await stream.boundingBox();
+    const input=page.locator("#personalAssistantInput");
+    await input.fill("正在整理的草稿");
+    await panel.getByRole("button",{name:"扩大窗口"}).click();
+    const restore=panel.getByRole("button",{name:"还原窗口"});
+    await expect(restore).toBeFocused();
+    const expanded=await stream.boundingBox();
+    expect(expanded.height).toBeGreaterThan(compact.height);
+    if(width>=920) expect(expanded.width).toBeGreaterThan(compact.width);
+    const largePanel=await panel.boundingBox();
+    expect(largePanel.x).toBeGreaterThanOrEqual(0);
+    expect(largePanel.x+largePanel.width).toBeLessThanOrEqual(width);
+    expect(largePanel.y+largePanel.height).toBeLessThanOrEqual(900);
+    await expect(input).toHaveValue("正在整理的草稿");
+    if(width===390||width===1440) await page.screenshot({path:`.ui-artifacts/personal-expanded-${width}-${theme}-${colorScheme}.png`});
+    await restore.press("Enter");
+    expect(await panel.boundingBox()).toEqual(bounds);
     if(width===390||width===1440) await page.screenshot({path:`.ui-artifacts/personal-${width}-${theme}-${colorScheme}.png`});
     await page.locator("#personalAssistantClose").click();
     await expect(page.locator("#personalAssistantBtn")).toBeFocused();
@@ -160,6 +181,7 @@ for (const width of [320,390,920,921,1279,1280,1440]) test(`个人助手在主�
 
 test("大字号、手机键盘缩小视口与输入法不触发误发送", async({page,request})=>{
   await page.setViewportSize({width:390,height:844});await ready(page);await open(page);
+  await page.locator("#personalAssistantExpand").click();
   await page.locator("#personalAssistantInput").fill("一段很长的想法\n".repeat(10));
   await page.locator("#personalAssistantInput").dispatchEvent("keydown",{key:"Enter",code:"Enter",isComposing:true});
   expect((await (await request.get("/api/personal-assistant/threads")).json()).threads).toHaveLength(0);

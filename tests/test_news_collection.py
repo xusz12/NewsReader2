@@ -806,12 +806,13 @@ def test_application_start_resumes_collection_without_a_browser_request(api, ser
     assert not any(thread.is_alive() for thread in service.threads)
 
 
-def test_manual_report_does_not_start_collection(api, monkeypatch):
+@pytest.mark.parametrize("fresh_material", [False, True])
+def test_manual_report_does_not_start_collection(api, monkeypatch, fresh_material):
     module, client = api
-    monkeypatch.setattr(module.runtime.jobs.reports, "create_manual", lambda *_: {"id": "report"})
+    monkeypatch.setattr(module.runtime.jobs.reports, "create_manual", lambda *args, **kwargs: {"id": "report"})
     monkeypatch.setattr(module.runtime.jobs.reports, "start", lambda: None)
     monkeypatch.setattr(module.runtime.jobs.collection, "start", lambda: pytest.fail("report must not start collection"))
-    assert client.post("/api/reports/manual", json={"kind": "morning"}).status_code == 202
+    assert client.post("/api/reports/manual", json={"kind": "morning", "fresh_material": fresh_material}).status_code == 202
 
 
 def test_translation_concurrency_settings_save_reload_and_preserve_schedule(api):

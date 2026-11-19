@@ -12,6 +12,7 @@ import {
   storage,
   persist,
   icon,
+  bindAgentWindowSize,
 } from "./ui.js";
 const activeStatuses = ["queued", "pending", "running", "streaming", "stopping"];
 export class AgentPanel {
@@ -29,15 +30,7 @@ export class AgentPanel {
       if (!event.target.closest("button")) this.toggle();
     });
     $("#agentDockToggleBtn").onclick = () => this.toggle();
-    $("#agentExpandToggleBtn").onclick = () => {
-      $("#agentDock").classList.toggle("maximized");
-      $("#agentExpandToggleBtn").setAttribute(
-        "aria-label",
-        $("#agentDock").classList.contains("maximized")
-          ? "还原窗口"
-          : "扩大窗口",
-      );
-    };
+    bindAgentWindowSize($("#agentDock"), $("#agentExpandToggleBtn"));
     $("#agentNewBtn").onclick = (event) =>
       busy(event.currentTarget, () => this.newSession());
     $("#archiveAgentBtn").onclick = () => this.archive();

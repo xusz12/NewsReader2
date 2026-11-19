@@ -1915,14 +1915,6 @@ details[open] > .reader-sources-summary .reader-source-chevron { transform: rota
   height: calc(100% - 40px);
 }
 
-.agent-dock.maximized #agentExpandToggleBtn .icon-expand {
-  display: none !important;
-}
-
-.agent-dock.maximized #agentExpandToggleBtn .icon-shrink {
-  display: block !important;
-}
-
 .agent-dock.minimized {
   height: 42px;
   overflow: hidden;
@@ -4448,6 +4440,7 @@ button:disabled {
 /* Conversation variant of the shared anchored overlay. Message, composer and
    header styling comes from the existing Agent components in every theme. */
 .anchored-popover.agent-conversation { width: var(--agent-dock-width); height: var(--agent-dock-height); padding: 0; gap: 0; overflow: hidden; }
+.anchored-popover.agent-conversation.maximized { width: var(--reading-width); height: 100dvh; }
 .agent-conversation .agent-header { cursor: default; }
 .agent-conversation .agent-context { flex-shrink: 0; }
 .agent-conversation .agent-title-line strong { overflow: hidden; text-overflow: ellipsis; }

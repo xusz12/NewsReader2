@@ -19,7 +19,7 @@ def report_request_error(exc):
                     "report_manual_conflict", "report_delete_running", "report_deleted", "report_model_unconfigured",
                     "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed",
                     "report_model_dependencies_missing", "report_window_changed", "report_read_unavailable",
-                    "report_sources_unread"}:
+                    "report_sources_unread", "report_material_option_invalid"}:
         code = "report_preview_invalid"
     return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
 
@@ -74,9 +74,13 @@ def register(app, db, jobs, store, worker):
             return jsonify(ok=False, error="invalid_payload"), 400
         try:
             if "selection" in body:
-                report = jobs.reports.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"), body.get("database_token"), body.get("schedule_times"), body.get("model_override"), body.get("window"))
+                report = jobs.reports.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"),
+                    body.get("database_token"), body.get("schedule_times"), body.get("model_override"), body.get("window"),
+                    fresh_material=body.get("fresh_material", False))
             else:
-                report = jobs.reports.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"), body.get("request_id"), body.get("database_token"), body.get("model_override"))
+                report = jobs.reports.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"),
+                    body.get("request_id"), body.get("database_token"), body.get("model_override"),
+                    fresh_material=body.get("fresh_material", False))
         except (ValueError, LookupError, RuntimeError) as exc:
             return report_request_error(exc)
         jobs.reports.start()

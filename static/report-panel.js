@@ -29,7 +29,7 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.5.16";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.6.3";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);
@@ -440,7 +440,7 @@ export class ReportPanel {
   async openCreation() {
     this.popover.show();
     if (this.creation) {this.renderCreation(); $("#reportCreationKind")?.focus({preventScroll:true}); void this.refreshCreationModel(); return;}
-    const draft = {periods:null,kind:"",start:"",end:"",requestId:requestId(),submitting:false,error:""};
+    const draft = {periods:null,kind:"",start:"",end:"",freshMaterial:false,requestId:requestId(),submitting:false,error:""};
     this.creation = draft;
     this.renderCreation();
     this.creationHost.querySelector("[data-creation-cancel]").focus({preventScroll:true});
@@ -475,9 +475,9 @@ export class ReportPanel {
     if (draft && !draft.submitting && ["reportRuntime","reportModel","reportEffort"].includes(input.name)) {
       this.changeModelChoice(input); return;
     }
-    if (!draft || draft.submitting || !["reportCreationKind","reportSelection"].includes(input.name)) return;
-    const key = {reportCreationKind:"kind",reportSelection:"selection"}[input.name];
-    const value = input.value;
+    if (!draft || draft.submitting || !["reportCreationKind","reportSelection","freshMaterial"].includes(input.name)) return;
+    const key = {reportCreationKind:"kind",reportSelection:"selection",freshMaterial:"freshMaterial"}[input.name];
+    const value = key === "freshMaterial" ? input.checked : input.value;
     if (draft[key] === value) return;
     draft[key] = value; draft.requestId = requestId(); draft.error = "";
     if (key === "kind") {
@@ -504,7 +504,10 @@ export class ReportPanel {
     }
     this.creationHost.innerHTML = heading + `<form class="popover-form" id="reportCreationForm"><div class="field-item"><p class="muted catchup-runtime" id="reportCreationModel" aria-live="polite"></p><button class="reader-tool-btn" type="button" data-creation-model-reload hidden>重新读取模型</button></div><details id="reportTemporaryModel" ${draft.modelExpanded?'open':''}><summary class="reader-tool-btn">临时模型设置</summary><div class="section-stack" id="reportModelChoices"></div></details><label class="field-item"><span class="field-label">报告类型</span><select class="field-select" id="reportCreationKind" name="reportCreationKind" aria-label="报告类型">${draft.periods.map(p=>`<option value="${e(p.kind)}" ${p.kind===draft.kind?'selected':''}>${e(p.kind_label)}</option>`).join("")}</select></label>
       <div id="reportPeriodFields">${this.creationFields()}</div>
-      <p class="field-label" id="reportCreationPeriod"></p><p class="error-state" id="reportCreationError" role="alert"></p><div class="button-row"><button class="btn-secondary" type="button" data-creation-cancel>取消</button><button class="btn-primary" type="submit" ${!draft.kind?'disabled':''}>开始生成</button></div></form>`;
+      <p class="field-label" id="reportCreationPeriod"></p>
+      <label class="settings-toggle settings-switch"><span>重新取材</span><input type="checkbox" role="switch" name="freshMaterial" aria-describedby="reportMaterialHint" ${draft.freshMaterial?'checked':''}></label>
+      <p class="muted" id="reportMaterialHint">开启后，本报告会重新读取所选时段内已入库的新闻。</p>
+      <p class="error-state" id="reportCreationError" role="alert"></p><div class="button-row"><button class="btn-secondary" type="button" data-creation-cancel>取消</button><button class="btn-primary" type="submit" ${!draft.kind?'disabled':''}>开始生成</button></div></form>`;
     this.renderModelChoices(); this.renderCreationPeriod(); this.renderCreationModel(); this.mountCalendar(); this.selects.refresh(this.creationHost);
     if (draft.submitting) this.setCreationBusy();
   }
@@ -668,8 +671,11 @@ export class ReportPanel {
     if (!form.reportValidity()) return;
     draft.submitting = true; this.setCreationBusy();
     try {
-      const range = {selection:draft.selection,window:draft.windows[draft.kind]};
-      const data = await api("/api/reports/manual", {method:"POST",body:{kind:draft.kind,...range,request_id:draft.requestId,database_token:draft.token,...(draft.modelOverride ? {model_override:draft.modelOverride} : {})}});
+      const data = await api("/api/reports/manual", {method:"POST", body:{
+        kind:draft.kind, selection:draft.selection, window:draft.windows[draft.kind],
+        fresh_material:draft.freshMaterial, request_id:draft.requestId, database_token:draft.token,
+        ...(draft.modelOverride ? {model_override:draft.modelOverride} : {})
+      }});
       if (this.creation !== draft) return;
       const show = this.popover.open && this.isVisible();
       this.popover.close(true); this.creation = null;

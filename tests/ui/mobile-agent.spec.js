@@ -151,6 +151,12 @@ test('the mobile overlay follows reader/settings navigation and desktop resizing
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.locator('#detailPanelFeed > #agentDock')).toHaveCount(1);
   await expect(input).toHaveAttribute('rows', '1');
+  const dock = page.locator('#agentDock');
+  const compact = await dock.boundingBox();
+  await dock.getByRole('button', {name:'扩大窗口'}).click();
+  expect((await dock.boundingBox()).width).toBeGreaterThan(compact.width);
+  await dock.getByRole('button', {name:'还原窗口'}).click();
+  expect(await dock.boundingBox()).toEqual(compact);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('body > #agentDock')).toHaveCount(1);
   await expect(input).toHaveValue('切换页面不丢草稿');

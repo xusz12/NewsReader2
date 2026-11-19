@@ -1,14 +1,14 @@
 {
-  "checked_at": "2026-11-19T16:22:56.891585+00:00",
-  "fingerprint": "53c060ca64fe7042bfa8ca1e4c275beb7bc9656715ab433de099d1c3701e8857",
-  "newsreader_version": "0.6.2",
+  "checked_at": "2026-11-19T16:47:54.769057+00:00",
+  "fingerprint": "162a3d55255a6380e02eb471ae91cf7f64bcd4ddb718cee7fa78f2840cc5a99a",
+  "newsreader_version": "0.6.3",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 18.24,
+      "seconds": 6.38,
       "error": "",
       "samples": [
         {
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.37,
+      "seconds": 5.41,
       "error": "",
       "samples": [
+        {
+          "title": "FCC votes to ban Chinese telecoms from direct access to US phone numbers",
+          "url": "https://www.reuters.com/world/fcc-votes-ban-chinese-telecoms-direct-access-us-phone-numbers-2026-11-19/",
+          "time": "2026-11-20 00:29:48",
+          "source_name": "Reuters"
+        },
         {
           "title": "Mexico's Sheinbaum hopes to seal trade deal in next meeting with Trump",
           "url": "https://www.reuters.com/world/china/mexicos-sheinbaum-hopes-seal-trade-deal-next-meeting-with-trump-2026-11-19/",
           "time": "2026-11-20 00:17:33",
-          "source_name": "Reuters"
-        },
-        {
-          "title": "Putin defends his 'Yalta', as 3-way summit draws parallels to post-war carve-up",
-          "url": "https://www.reuters.com/world/china/putin-defends-his-yalta-3-way-summit-draws-parallels-post-war-carve-up-2026-11-19/",
-          "time": "2026-11-19 23:24:28",
           "source_name": "Reuters"
         }
       ]
@@ -52,7 +52,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.17,
+      "seconds": 4.83,
       "error": "",
       "samples": [
         {
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.56,
+      "seconds": 5.46,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic set to be worth $1.9 trillion in strong Nasdaq debut",
-          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
-          "time": "2026-11-19 19:08:59",
+          "title": "Take-Two set to shatter sales records as 'GTA VI' launches to massive fanfare",
+          "url": "https://www.reuters.com/lifestyle/take-two-set-shatter-sales-records-gta-vi-launches-massive-fanfare-2026-11-19/",
+          "time": "2026-11-20 00:28:55",
           "source_name": "Reuters"
         },
         {
-          "title": "US weekly jobless claims edge up; labor market remains resilient",
-          "url": "https://www.reuters.com/world/us/us-weekly-jobless-claims-increase-slightly-2026-11-19/",
-          "time": "2026-11-19 21:44:04",
+          "title": "Anthropic on course to break $2 trillion barrier as shares set to soar in debut",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.4,
+      "seconds": 5.46,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic set to be worth $1.9 trillion in strong Nasdaq debut",
-          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
-          "time": "2026-11-19 19:08:59",
+          "title": "Take-Two set to shatter sales records as 'GTA VI' launches to massive fanfare",
+          "url": "https://www.reuters.com/lifestyle/take-two-set-shatter-sales-records-gta-vi-launches-massive-fanfare-2026-11-19/",
+          "time": "2026-11-20 00:28:55",
           "source_name": "Reuters"
         },
         {
-          "title": "Google picks Bezos' Blue Origin to launch AI computing satellites in 2029",
-          "url": "https://www.reuters.com/business/media-telecom/google-picks-bezos-blue-origin-launch-ai-computing-satellites-2029-2026-11-19/",
-          "time": "2026-11-19 22:04:44",
+          "title": "Anthropic on course to break $2 trillion barrier as shares set to soar in debut",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 3.15,
+      "seconds": 2.89,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic’s Safety Pledges Questioned by Tech Leaders, Scientists",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-19/tech-leaders-experts-question-anthropic-safety-pledges-video",
-          "time": "2026-11-19 21:54:57",
+          "title": "European Stocks Decline in Longest Losing Streak Since August",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-19/european-stocks-rebound-as-anthropic-ipo-revives-the-ai-trade",
+          "time": "2026-11-19 16:17:24",
           "source_name": "Bloomberg"
         },
         {
-          "title": "US Was Warned of Telecoms Risk Years Before Salt Typhoon Hack",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-19/us-was-warned-of-telecoms-risk-years-before-salt-typhoon-hack",
-          "time": "2026-11-19 21:00:14",
+          "title": "Alibaba Sees Cloud Rebound After In-House Chips Offset US Curbs",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-19/alibaba-s-revenue-beats-estimates-during-china-s-ai-boom",
+          "time": "2026-11-19 18:13:14",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,7 +140,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.82,
+      "seconds": 1.56,
       "error": "",
       "samples": [
         {
@@ -150,7 +150,7 @@
           "source_name": "TechCrunch"
         },
         {
-          "title": "U.K government forced to disclose secret Apple backdoor order",
+          "title": "UK government forced to disclose secret Apple backdoor order",
           "url": "https://techcrunch.com/2026/11/19/u-k-government-forced-to-disclose-secret-apple-backdoor-order/",
           "time": "2026-11-19 23:32:20",
           "source_name": "TechCrunch"
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.91,
+      "seconds": 1.58,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.78,
+      "seconds": 1.57,
       "error": "",
       "samples": [
         {
@@ -228,7 +228,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 8,
-      "seconds": 1.58,
+      "seconds": 1.75,
       "error": "",
       "samples": [
         {
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.84,
+      "seconds": 1.92,
       "error": "",
       "samples": [
         {
@@ -276,7 +276,7 @@
       "ok": true,
       "title": "Gazans return to battered camp after Israel says it concluded tank raid",
       "length": 4050,
-      "seconds": 6.64,
+      "seconds": 3.27,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -287,17 +287,17 @@
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-19/us-was-warned-of-telecoms-risk-years-before-salt-typhoon-hack",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-19/european-stocks-rebound-as-anthropic-ipo-revives-the-ai-trade",
       "ok": true,
-      "title": "US Was Warned of Telecoms Risk Years Before Salt Typhoon Hack",
-      "length": 11561,
-      "seconds": 31.88,
+      "title": "European Stocks Drop, Set For Longest Losing Streak Since August",
+      "length": 2369,
+      "seconds": 25.12,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "8c63cd82a7649e526f7cb594736eb182c3a087452deeafff8baf27267fd8a37d",
-      "preview": "The US government was warned four years ago that security weaknesses in national telecommunications networks had created a “perilous” situation and left the cou"
+      "content_sha256": "ab0169acd5d51b5d00c58d795dfb1070900a4ad215dbdb3bdf996174f547d725",
+      "preview": "European stocks fell for a fourth straight day, weighed down by defensive sectors, as investors awaited the start of trading in Anthropic PBC’s shares after a b"
     },
     {
       "name": "TechCrunch",
@@ -306,7 +306,7 @@
       "ok": true,
       "title": "At Nasdaq opening bell, Anthropic CEO recommits to pacing AI development",
       "length": 8195,
-      "seconds": 1.9,
+      "seconds": 2.18,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -321,7 +321,7 @@
       "ok": true,
       "title": "Mouse fight club might explain why we like to watch violent things",
       "length": 6087,
-      "seconds": 15.83,
+      "seconds": 15.87,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 15.82,
+      "seconds": 3.42,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.2,
+      "seconds": 3.17,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 13.68,
+      "seconds": 11.79,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 8.27,
+      "seconds": 6.53,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.35,
+      "seconds": 7.28,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-19T16:22:59.169021+00:00"
+    "checked_at": "2026-11-19T16:47:56.934400+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-19T16:23:12.145623+00:00"
+    "checked_at": "2026-11-19T16:48:04.613884+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-19T16:26:54.206045+00:00",
+    "checked_at": "2026-11-19T16:50:36.835250+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true
