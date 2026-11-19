@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.5.17</title>
+    <title>News Reader v0.5.18</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.5.17" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.5.17" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.5.18" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.5.18" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.5.17"
+      href="/static/style.css?v=0.5.18"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.5.17</span>
+            <span class="brand-version">v0.5.18</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -974,7 +974,26 @@
             <span id="upstreamLoadMessage"></span>
             <button type="button" data-upstream-retry hidden>重新读取</button>
           </div>
-          <div id="upstreamErrorsContent" role="region" aria-label="采集记录" aria-live="polite"></div>
+          <div id="upstreamErrorsContent" role="region" aria-label="采集记录">
+            <section id="upstreamHeatmap" class="field-item upstream-heatmap" aria-labelledby="upstreamHeatmapTitle" hidden>
+              <div class="button-row upstream-heatmap-head">
+                <strong id="upstreamHeatmapTitle">运行热力图</strong>
+                <span class="muted" data-heat-range></span>
+              </div>
+              <div class="upstream-heat-scroll"></div>
+              <span class="sr-only" id="upstreamHeatmapKeys">左右方向键切换周，上下方向键切换星期，按回车查看当天记录。</span>
+              <div class="button-row upstream-heatmap-foot">
+                <span class="muted" data-heat-point></span>
+                <div class="upstream-heatmap-legend">
+                  <span><i class="upstream-heat-tile" data-status="empty" aria-hidden="true"></i>无记录</span>
+                  <span><i class="upstream-heat-tile" data-status="success" aria-hidden="true"></i>无报错</span>
+                  <span><i class="upstream-heat-tile" data-status="warning" aria-hidden="true"></i>1–3 次</span>
+                  <span><i class="upstream-heat-tile" data-status="failed" aria-hidden="true"></i>≥4 次</span>
+                </div>
+              </div>
+            </section>
+            <div id="upstreamDailyRecords" aria-live="polite"></div>
+          </div>
         </div>
       </section>
       <dialog class="catchup-dialog" id="summaryModal" aria-labelledby="summaryModalTitle">
@@ -1029,9 +1048,9 @@
         </button>
       </div>
     </div>
-    <script src="/static/error_ui.js?v=0.5.17"></script>
+    <script src="/static/error_ui.js?v=0.5.18"></script>
     <script
-      src="/static/app.js?v=0.5.17"
+      src="/static/app.js?v=0.5.18"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

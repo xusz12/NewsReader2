@@ -173,6 +173,8 @@ test('every settings subpage swipes back to its category and preserves the origi
 test('settings swipe preserves the draft while ignoring editing and canceled gestures', async ({ page }) => {
   await page.goto('/');
   await openSettings(page);
+  const categories = page.locator('.settings-category-card');
+  const categoryLabels = await categories.allTextContents();
   await page.locator('[data-settings-tab="deepseek"]').click();
   const input = page.locator('input[name="llm.translation.model"]');
   await input.fill('settings-swipe-draft');
@@ -184,7 +186,7 @@ test('settings swipe preserves the draft while ignoring editing and canceled ges
   }
   await swipe(page, { target: '.settings-main' });
   await expect(page.locator('#detailPanelSettings')).toBeHidden();
-  await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
+  await expect(categories.filter({ visible: true })).toHaveText(categoryLabels);
   await page.locator('[data-settings-tab="deepseek"]').click();
   await expect(input).toHaveValue('settings-swipe-draft');
   await expect(page.locator('#settingsStatus')).toHaveClass(/dirty-state/);

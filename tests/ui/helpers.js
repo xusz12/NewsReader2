@@ -4,6 +4,14 @@ export async function chooseTheme(page, value) {
   await page.getByRole('option', { name: label, exact: true }).click();
 }
 
+export function collectionHeatmap(day, today, errorsByDay) {
+  const dayMs = 86400000;
+  const blocks = Math.floor(Math.max(0, Date.parse(today) - Date.parse(day)) / (365 * dayMs));
+  const end = Date.parse(today) - blocks * 365 * dayMs;
+  const isoDay = ms => new Date(ms).toISOString().slice(0, 10);
+  return { start: isoDay(end - 364 * dayMs), end: isoDay(end), errors_by_day: errorsByDay };
+}
+
 export async function openNavigation(page) {
   const menu = page.locator('#openNavBtn');
   if (await menu.isVisible() && !(await page.locator('#leftNavDrawer').evaluate(node => node.classList.contains('drawer-open')))) {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme } from './helpers.js';
+import { chooseTheme, collectionHeatmap } from './helpers.js';
 
 const today = '2026-10-19';
 const entries = [
@@ -7,8 +7,9 @@ const entries = [
   { label: 'Reuters world', error: 'HTTP 403 Forbidden\n<script>window.upstreamInjected=true</script>\nAccess denied < & >' },
   { label: 'Reuters world', error: 'connect ETIMEDOUT\nUnable to connect to the upstream source.' },
 ];
-function payload(day = today, rows = entries) {
-  return { ok: true, day, today, unresolved_count: rows.length,
+function payload(day = today, rows = entries, currentDay = today) {
+  return { ok: true, day, today: currentDay, unresolved_count: rows.length,
+    heatmap: collectionHeatmap(day, currentDay, { [day]: rows.length || null }),
     stats: { fetched_count: rows.length * 5, duplicate_count: rows.length * 4,
       ingested_count: rows.length, error_count: rows.length, duplicate_unknown: 0 },
     records: rows.map((entry, index) => ({ ...entry, run_id: `fixture-${index}`, batch_started_at: `${day}T${index ? '12:40:05' : '13:58:12'}+08:00`, date: day, time: index ? '12:40:05' : '13:58:12',
@@ -32,11 +33,17 @@ test('collection records use live counts, information filters and escaped copyab
   await expect(page.locator('.upstream-stat-label')).toHaveText(['抓取', '去重', '纳入数据库', '错误']);
   await expect(page.locator('.upstream-stat-value')).toHaveText(['15 条', '12 条', '3 条', '3 条']);
   await expect(page.locator('.upstream-dim-btn')).toHaveText(['全部信息', '仅错误与提示']);
-  await expect(page.locator('.upstream-error-card time')).toHaveText(['13:58:12', '12:40:05', '12:40:05']);
+  await expect(page.locator('.upstream-card-head .upstream-source-title')).toHaveText([
+    '2026-10-19 13:58:12 采集', '2026-10-19 12:40:05 采集', '2026-10-19 12:40:05 采集',
+  ]);
+  await expect(page.locator('[data-upstream-details] time')).toHaveCount(0);
+  await expect(page.locator('.upstream-log-box, [data-upstream-copy]')).toHaveCount(0);
+  await expect(page.locator('#upstreamErrorsContent')).not.toContainText('Access denied');
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   expect(await page.evaluate(() => window.upstreamInjected)).toBeUndefined();
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
+  await expect(page.locator('.upstream-log-box pre')).toHaveText(entries.map(row => row.error));
   await expect(page.locator('.upstream-stat-value')).toHaveText(['15 条', '12 条', '3 条', '3 条']);
   await page.locator('[data-upstream-copy]').nth(1).click();
   await expect(page.locator('.upstream-copy-feedback').nth(1)).toHaveText('日志已复制');
@@ -111,12 +118,15 @@ test('historical queries, stale responses and read failures never replace the cu
   await page.unrouteAll({ behavior: 'wait' });
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
-  await page.route('**/api/error-stats?*', route => route.fulfill(fail ? { status: 500, json: { ok: false, error: 'request_failed' } } : { json: { ...payload(currentDay, rows), today: currentDay } }));
+  await page.route('**/api/error-stats?*', route => route.fulfill(fail ? { status: 500, json: { ok: false, error: 'request_failed' } } : { json: payload(currentDay, rows, currentDay) }));
   fail = true;
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toHaveText('?');
   await expect(page.locator('[data-upstream-retry]')).toBeVisible();
-  expect(await page.locator('#upstreamErrorsPanel').boundingBox()).toEqual(dialogBox);
+  const errorBox = await page.locator('#upstreamErrorsPanel').boundingBox();
+  expect({ ...errorBox, height: dialogBox.height }).toEqual(dialogBox);
+  expect(errorBox.height).toBeGreaterThanOrEqual(dialogBox.height);
+  expect(errorBox.height).toBeLessThanOrEqual(640);
   fail = false; rows = [];
   await page.locator('#upstreamTodayBtn').click();
   await expect(page.locator('#upstreamErrorBadge')).toBeHidden();
@@ -134,6 +144,7 @@ for (const width of [1440, 320]) {
   test(`date changes retain visible results and scroll while loading at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await start(page);
+    await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
     const pending = [];
     await page.route('**/api/error-stats?*', route => {
       if (new URL(route.request().url()).searchParams.get('details') === '1') pending.push(route);
@@ -199,7 +210,7 @@ for (const width of [1440, 320]) {
   });
 }
 
-test('upstream entry and diagnostic dialog fit desktop and narrow screens in each theme', async ({ page }) => {
+test('upstream entry and diagnostic dialog fit desktop and narrow screens in each theme', async ({ page, browserName }) => {
   await start(page);
   for (const theme of ['light', 'dark', 'eink']) {
     await page.locator('#closeUpstreamErrorsBtn').click();
@@ -232,7 +243,8 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     expect(Math.max(...dimensions) - Math.min(...dimensions)).toBeLessThan(1);
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${theme}.png` });
   }
-  for (const [width, mobileTheme] of [[390, 'light'], [390, 'dark'], [390, 'eink'], [360, 'light'], [320, 'light']]) {
+  const mobilePadding = new Map();
+  for (const [width, mobileTheme] of [[470, 'light'], [390, 'light'], [390, 'dark'], [390, 'eink'], [360, 'light'], [320, 'light']]) {
     await page.locator('#closeUpstreamErrorsBtn').click();
     await page.setViewportSize({ width, height: 844 });
     await chooseTheme(page, mobileTheme);
@@ -257,7 +269,17 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     });
     expect(Math.abs(alignedControls.leftGap)).toBeLessThan(1);
     expect(Math.abs(alignedControls.rightGap)).toBeLessThan(1);
-    await expect(page.locator('#upstreamTodayBtn')).toHaveCSS('width', '40px');
+    const actions = page.locator('#upstreamCalendarBtn, #upstreamTodayBtn, .upstream-dim-btn, [data-upstream-details] summary');
+    const insets = await actions.evaluateAll(nodes => nodes.map(node => getComputedStyle(node).padding));
+    expect(new Set(insets).size).toBe(1);
+    mobilePadding.set(width, await actions.first().evaluate(node => parseFloat(getComputedStyle(node).paddingInlineStart)));
+    const heights = await page.locator('.upstream-date-input, #upstreamPreviousDayBtn, #upstreamNextDayBtn, #upstreamTodayBtn, .upstream-dim-btn, [data-upstream-details] summary').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
+    expect(Math.max(...heights)).toBeLessThanOrEqual(26);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(24);
+    const extraHeight = await actions.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height - parseFloat(getComputedStyle(node).lineHeight)));
+    expect(Math.max(...extraHeight)).toBeLessThanOrEqual(7);
+    expect(await controls.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await expect(page.locator('.upstream-date-shortcuts button:visible')).toHaveCount(3);
     await expect(page.locator('#upstreamPreviousDayBtn')).toBeVisible();
     await expect(page.locator('#upstreamNextDayBtn')).toBeVisible();
@@ -272,8 +294,11 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await page.screenshot({ path: `.ui-artifacts/upstream-diagnostics-${width}-${mobileTheme}.png` });
     // Keyboard focus skips yesterday/the day before and keeps arrows and today reachable.
     await page.locator('#upstreamErrorDate').focus();
-    for (let step = 0; step < 3; step++) await page.keyboard.press('Tab');
-    await expect(page.locator('#upstreamTodayBtn')).toBeFocused();
+    const nextControl = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
+    for (const id of ['upstreamCalendarBtn', 'upstreamPreviousDayBtn', 'upstreamTodayBtn']) {
+      await page.keyboard.press(nextControl);
+      await expect(page.locator(`#${id}`)).toBeFocused();
+    }
     const todayBox = await page.locator('#upstreamTodayBtn').boundingBox();
     const controlsBox = await controls.boundingBox();
     expect(todayBox.x).toBeGreaterThanOrEqual(controlsBox.x);
@@ -283,6 +308,9 @@ test('upstream entry and diagnostic dialog fit desktop and narrow screens in eac
     await page.locator('[data-calendar-today]').click();
     await expect(page.locator('#upstreamCalendar')).toBeHidden();
   }
+  expect(mobilePadding.get(470)).toBeGreaterThan(mobilePadding.get(390));
+  expect(mobilePadding.get(390)).toBeGreaterThan(mobilePadding.get(360));
+  expect(mobilePadding.get(360)).toBeGreaterThan(mobilePadding.get(320));
 });
 
 for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]]) {
@@ -311,9 +339,10 @@ for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]])
     await page.locator('[data-calendar-today]').click();
     await expect(calendar).toBeHidden();
 
-    rows = [{ label: 'Long upstream source', error: 'connection timed out\n'.repeat(80) }, ...Array.from({ length: 12 }, () => entries[0])];
+    rows = [{ label: 'Reuters · ' + 'InternationalTechnology'.repeat(3), error: 'connection timed out\n'.repeat(80) }, ...Array.from({ length: 12 }, () => entries[0])];
     await page.locator('#upstreamTodayBtn').click();
     await expect(page.locator('.upstream-error-card')).toHaveCount(13);
+    await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
     const fullBox = await panel.boundingBox();
     expect(fullBox.y).toBe(emptyBox.y);
     expect(fullBox.height).toBeGreaterThanOrEqual(emptyBox.height);
@@ -322,6 +351,11 @@ for (const [width, height] of [[1440, 900], [390, 844], [320, 568], [844, 390]])
     expect(fullBox.y + fullBox.height).toBeLessThanOrEqual(height - 12);
     expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     const log = page.locator('.upstream-log-box pre').first();
+    const head = page.locator('.upstream-log-head').first();
+    const label = await head.locator('span').boundingBox();
+    const copy = await head.getByRole('button').boundingBox();
+    expect(label.x + label.width).toBeLessThanOrEqual(copy.x);
+    expect(Math.abs(label.y + label.height / 2 - copy.y - copy.height / 2)).toBeLessThan(1);
     expect(await log.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
     await log.evaluate(node => { node.scrollTop = node.scrollHeight; });
     expect(await log.evaluate(node => node.scrollTop + node.clientHeight)).toBeGreaterThanOrEqual(await log.evaluate(node => node.scrollHeight - 1));

@@ -171,6 +171,9 @@ test('upstream errors support dates, escaped details, retry and popover keyboard
   await start(page);
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('#upstreamErrorsContent')).toContainText('Reuters world');
+  await expect(page.locator('#upstreamErrorsContent')).not.toContainText('Failed to fetch');
+  await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
+  await expect(page.locator('.upstream-log-box pre')).toHaveText('<script>alert(1)</script> Failed to fetch');
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   await page.keyboard.press('s');
   await expect(page.locator('[data-id="ui-064"]')).toHaveAttribute('aria-current', 'true');

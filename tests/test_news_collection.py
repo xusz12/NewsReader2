@@ -721,6 +721,7 @@ def test_collection_history_cross_midnight_and_deleted_items_keep_ingestion_tota
     assert current["stats"]["ingested_count"] == 1
     assert current["records"][0]["kind"] == "publication"
     assert current["records"][0]["time"] == "00:01:00"
+    assert current["heatmap"]["errors_by_day"] == {"2026-11-09": 0, "2026-11-10": 0}
     with closing(service.connect()) as conn, conn:
         conn.execute("UPDATE news_identities SET deleted=1")
         conn.execute("DELETE FROM collection_items")
@@ -730,6 +731,34 @@ def test_collection_history_cross_midnight_and_deleted_items_keep_ingestion_tota
     history = service.errors("2026-11-10")
     assert history["stats"]["duplicate_count"] == history["stats"]["ingested_count"] == 1
     assert not query(service, "SELECT * FROM collection_items")
+
+
+def test_collection_heatmap_counts_each_failure_on_its_record_day(service, monkeypatch):
+    at = datetime.fromisoformat("2024-02-26T11:00:00+08:00")
+    monkeypatch.setattr(collection, "now", lambda: at)
+    service.request()
+    service.collect_once()
+    service.collector = lambda _: {"ok": False, "items": [], "error_code": "TIMEOUT"}
+    for day, count in [(28, 3), (29, 4)]:
+        at = at.replace(day=day, hour=23, minute=59)
+        for _ in range(count):
+            run_id = service.request()
+            service.collect_once()
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_run_sources SET started_at=NULL WHERE run_id=?", (run_id,))
+    at = datetime.fromisoformat("2024-03-01T00:01:00+08:00")
+    service.collector = lambda _: {"ok": True, "items": []}
+    service.request()
+    service.collect_once()
+    history = service.errors("2024-02-28")
+    assert history["unresolved_count"] == 0
+    assert history["heatmap"] == {
+        "start": "2023-03-03", "end": "2024-03-01",
+        "errors_by_day": {"2024-02-26": 0, "2024-02-28": 3, "2024-02-29": 4, "2024-03-01": 0}}
+    assert history["stats"]["error_count"] == 3
+    assert service.errors("2024-03-01")["heatmap"] == history["heatmap"]
+    assert service.errors("2023-03-02")["heatmap"] == {
+        "start": "2022-03-03", "end": "2023-03-02", "errors_by_day": {}}
 
 
 def test_collection_history_migrates_old_counts_without_guessing_or_changing_news(service):
@@ -769,7 +798,7 @@ def test_collection_history_api_dates_and_lightweight_badge(api, service, monkey
     assert response.json["records"][0]["status"] == "done"
     assert response.json["stats"]["fetched_count"] == 1
     light = client.get("/api/error-stats?details=0").json
-    assert light["unresolved_count"] == 0 and "records" not in light
+    assert light["unresolved_count"] == 0 and "records" not in light and "heatmap" not in light
     for day in ("2026-02-30", "2026-1-1", "<script>", "2026-11-09T00:00:00"):
         assert client.get("/api/error-stats", query_string={"day": day}).status_code == 400
     empty = client.get("/api/error-stats?day=2026-01-01").json

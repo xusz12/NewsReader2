@@ -1,14 +1,14 @@
 {
-  "checked_at": "2026-11-18T15:14:03.556834+00:00",
-  "fingerprint": "38fc804a5e580114af97fb20c70d54eedb6febd5ba8a3cb073836aebda27269e",
-  "newsreader_version": "0.5.16",
+  "checked_at": "2026-11-19T04:17:15.751251+00:00",
+  "fingerprint": "8d9abcec4170a7f1de17abb6d496c6c5c52b106340eb6156b4358d8868c1207a",
+  "newsreader_version": "0.5.18",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.39,
+      "seconds": 9.26,
       "error": "",
       "samples": [
         {
@@ -18,7 +18,7 @@
           "source_name": "Reuters"
         },
         {
-          "title": "Israeli military begins a new thrust in Gaza, witnesses say",
+          "title": "Israel launches ground operation in central Gaza, dozens flee",
           "url": "https://www.reuters.com/world/middle-east/israeli-military-begins-new-thrust-gaza-kills-three-people-2026-11-18/",
           "time": "2026-11-18 21:01:28",
           "source_name": "Reuters"
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 3.15,
+      "seconds": 4.13,
       "error": "",
       "samples": [
         {
-          "title": "Sheinbaum says Mexico-US trade talks 'very far along' after meeting Trump at APEC",
-          "url": "https://www.reuters.com/world/americas/mexicos-sheinbaum-says-she-had-very-good-meeting-with-trump-2026-11-18/",
-          "time": "2026-11-18 21:09:19",
+          "title": "Hong Kong drops case against Chinese sea captain over Baltic pipeline damage",
+          "url": "https://www.reuters.com/world/china/hong-kong-drops-case-against-chinese-sea-captain-over-baltic-pipeline-damage-2026-11-19/",
+          "time": "2026-11-19 11:36:15",
           "source_name": "Reuters"
         },
         {
-          "title": "IAEA says North Korea is expanding uranium-enrichment plant at Yongbyon",
-          "url": "https://www.reuters.com/world/china/iaea-says-north-korea-is-expanding-uranium-enrichment-plant-yongbyon-2026-11-18/",
-          "time": "2026-11-18 21:38:48",
+          "title": "Russia is integral part of Asia-Pacific, Putin tells APEC leaders",
+          "url": "https://www.reuters.com/world/china/russia-is-integral-part-asia-pacific-putin-tells-apec-leaders-2026-11-19/",
+          "time": "2026-11-19 11:34:23",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 3.33,
+      "seconds": 4.31,
       "error": "",
       "samples": [
         {
-          "title": "Drone attacks nearly halve Russia's November oil refining, sources say",
-          "url": "https://www.reuters.com/business/energy/drone-attacks-nearly-halve-russias-november-oil-refining-sources-say-2026-11-18/",
-          "time": "2026-11-18 22:58:39",
+          "title": "Trump says historic summit with Xi, Putin already a 'win' before event",
+          "url": "https://www.reuters.com/world/china/trumps-historic-meeting-with-xi-putin-headlines-asia-trip-2026-11-18/",
+          "time": "2026-11-19 07:05:40",
           "source_name": "Reuters"
         },
         {
-          "title": "Xi and Putin blast sanctions as Trump lands in China",
-          "url": "https://www.reuters.com/world/chinas-xi-calls-free-open-trade-apec-summit-2026-11-18/",
-          "time": "2026-11-18 11:21:19",
+          "title": "Iran fires at Kuwait after US strike on Iranian island",
+          "url": "https://www.reuters.com/world/middle-east/bahrain-warns-potential-threat-urges-residents-seek-safety-2026-11-17/",
+          "time": "2026-11-18 07:15:22",
           "source_name": "Reuters"
         }
       ]
@@ -74,17 +74,17 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 3.78,
+      "seconds": 17.52,
       "error": "",
       "samples": [
         {
-          "title": "US pending home sales tumble to record low in October",
-          "url": "https://www.reuters.com/business/us-pending-home-sales-tumble-record-low-october-2026-11-18/",
-          "time": "2026-11-18 23:03:32",
+          "title": "Anthropic clinches biggest IPO ever with $81 billion offering",
+          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
+          "time": "2026-11-19 05:26:21",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia gains, lifts battered AI stocks as forecast eases post-Huang uncertainty",
+          "title": "Nvidia retreats as strong outlook fails to dispel uncertainty",
           "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
           "time": "2026-11-18 19:12:33",
           "source_name": "Reuters"
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.96,
+      "seconds": 4.37,
       "error": "",
       "samples": [
         {
-          "title": "Nvidia gains, lifts battered AI stocks as forecast eases post-Huang uncertainty",
-          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
-          "time": "2026-11-18 19:12:33",
+          "title": "Anthropic clinches biggest IPO ever with $81 billion offering",
+          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
+          "time": "2026-11-19 05:26:21",
           "source_name": "Reuters"
         },
         {
-          "title": "Trump administration weighs forcing US firms to disclose Chinese AI use",
-          "url": "https://www.reuters.com/world/china/trump-administration-weighs-forcing-us-firms-disclose-chinese-ai-use-2026-11-18/",
-          "time": "2026-11-18 19:02:29",
+          "title": "Nvidia retreats as strong outlook fails to dispel uncertainty",
+          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
+          "time": "2026-11-18 19:12:33",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.95,
+      "seconds": 3.79,
       "error": "",
       "samples": [
         {
-          "title": "Why GTA VI Took 13 Years and $1 Billion to Make",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-12/why-gta-6-took-13-years-and-1-billion-to-make",
-          "time": "2026-11-13 06:01:01",
+          "title": "Trump Warns Against Regulations That Would ‘Stifle’ AI Industry",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-19/trump-warns-against-regulations-that-would-stifle-ai-industry",
+          "time": "2026-11-19 11:52:54",
           "source_name": "Bloomberg"
         },
         {
-          "title": "NYC Comptroller Says Pensions Are Ready to Fight for AI Safety",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-18/nyc-comptroller-says-pensions-are-ready-to-fight-for-ai-safety",
-          "time": "2026-11-18 22:50:03",
+          "title": "GFTN's Mohanty on Fintech, Anthropic IPO",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-19/gftn-s-mohanty-on-fintech-anthropic-ipo-video",
+          "time": "2026-11-19 11:44:53",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.59,
+      "seconds": 1.45,
       "error": "",
       "samples": [
         {
-          "title": "British hackers face prison for GTA 6 data breach and crypto thefts",
-          "url": "https://techcrunch.com/2026/11/18/british-hackers-face-prison-for-gta-6-data-breach-and-crypto-thefts/",
-          "time": "2026-11-18 22:55:13",
+          "title": "Microsoft CEO Satya Nadella explains why he asked 60K employees to quit",
+          "url": "https://techcrunch.com/2026/11/18/microsoft-ceo-satya-nadella-explains-why-he-asked-60k-employees-to-quit/",
+          "time": "2026-11-19 08:42:56",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Nvidia clarifies when it will — and won’t —keep financing neoclouds",
-          "url": "https://techcrunch.com/2026/11/18/nvidia-clarifies-when-it-will-and-wont-keep-financing-neoclouds/",
-          "time": "2026-11-18 21:00:00",
+          "title": "Elon Musk says: ‘I’m not MAGA’",
+          "url": "https://techcrunch.com/2026/11/18/elon-musk-says-im-not-maga/",
+          "time": "2026-11-19 08:40:49",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.1,
+      "seconds": 2.01,
       "error": "",
       "samples": [
         {
-          "title": "Tesla’s $30,000 Cybercab comes with a $299 monthly catch",
-          "url": "https://arstechnica.com/cars/2026/11/tesla-will-sell-you-a-cybercab-for-30000-then-charge-299-a-month-to-use-it/",
-          "time": "2026-11-18 22:01:45",
+          "title": "Ted Cruz-led committee approves Trump FCC nominee 15-0 as Democrats boycott vote",
+          "url": "https://arstechnica.com/tech-policy/2026/11/ted-cruz-led-committee-approves-trump-fcc-nominee-15-0-as-democrats-boycott-vote/",
+          "time": "2026-11-19 07:25:04",
           "source_name": "Ars Technica"
         },
         {
-          "title": "Voyager 1 at one light-day: Historian revisits Golden Record's forgotten details",
-          "url": "https://arstechnica.com/space/2026/11/voyager-1-at-one-light-day-historian-revisits-golden-records-forgotten-details/",
-          "time": "2026-11-18 20:15:44",
+          "title": "Ukraine blew up Putin’s bridge using relay drones to bypass Starlink limits",
+          "url": "https://arstechnica.com/gadgets/2026/11/ukraine-blew-up-putins-bridge-using-relay-drones-to-bypass-starlink-limits/",
+          "time": "2026-11-19 07:10:39",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.78,
+      "seconds": 1.68,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.86,
+      "seconds": 1.72,
       "error": "",
       "samples": [
         {
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 9,
-      "seconds": 1.64,
+      "valid_count": 10,
+      "seconds": 1.84,
       "error": "",
       "samples": [
         {
-          "title": "俄罗斯总统新闻秘书佩斯科夫：11月19日未计划举行俄罗斯总统普京与美国总统特朗普的双边会谈。普京与特朗普今日未进行实质性交谈。 https://t.co/fe0fpPDJEX",
-          "url": "https://x.com/fxtrader/status/2123071509589832088?s=20",
-          "time": "2026-11-18 23:11",
+          "title": "日本首相高市早苗与俄罗斯总统普京，于周三在APEC峰会间隙进行了30分钟的会晤，两国领导人在七年以来首次面对面接触。 https://t.co/UBA3GtP1fH",
+          "url": "https://x.com/fxtrader/status/2123268145431605429?s=20",
+          "time": "2026-11-19 12:12",
           "source_name": "外汇交易员"
         },
         {
-          "title": "Metacritic对《GTA6》评分已出炉，给出99的高分，追平任天堂N64平台1998年推出的《塞尔达传说：时之笛》，并列电子游戏史上评分最高的作品。 IGN、TechRadar Gaming、Edge和Game Informer也都给出最高评价。 $TTWO Take-Two股价周三大涨6%。 https://t.co/Ee6bCxXejE",
-          "url": "https://x.com/fxtrader/status/2123063694783558066?s=20",
-          "time": "2026-11-18 22:40",
+          "title": "一度以为是整活视频。《GTA 6》上线首日，玩家发现游戏内置的车载电台精选了林子祥的《敢爱敢做》（翻唱自Starship的《Nothing's Gonna Stop Us Now》），为GTA系列第一首华语歌曲。 #观察 前有盆栽哥采样王菲的《季候风》，后有这首歌，看来8、90年代的复古香港文化又要重新流行一段时间。 https://t.co/Ag5FP7JXyZ",
+          "url": "https://x.com/fxtrader/status/2123252855146782765?s=20",
+          "time": "2026-11-19 11:11",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.73,
+      "seconds": 1.68,
       "error": "",
       "samples": [
         {
@@ -276,7 +276,7 @@
       "ok": true,
       "title": "Saudis preparing for Yemen campaign to last well into 2027",
       "length": 4811,
-      "seconds": 15.95,
+      "seconds": 9.22,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -287,47 +287,47 @@
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-18/nyc-comptroller-says-pensions-are-ready-to-fight-for-ai-safety",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-19/trump-warns-against-regulations-that-would-stifle-ai-industry",
       "ok": true,
-      "title": "NYC Comptroller Says Pensions Are Ready to Fight for AI Safety",
-      "length": 2051,
-      "seconds": 32.39,
+      "title": "Trump Warns Against Regulations That Would ‘Stifle’ AI Industry",
+      "length": 2188,
+      "seconds": 31.88,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "1e23d21a8b56c11f1799085a007ecc04fe49f45509bc041ad79ab256be1cb475",
-      "preview": "Mark Levine, New York City’s comptroller, said “it’s disappointing” that Anthropic PBC is moving ahead with its initial public offering this week despite calls "
+      "content_sha256": "a41d80852e93d6d3ef5bd032c2710f861578c2d4da1f5b2e10b0391eef32bcd2",
+      "preview": "President Donald Trump warned that any “robust” regulation of artificial intelligence, or super intelligence as he terms it, would “stifle” development — even a"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/18/british-hackers-face-prison-for-gta-6-data-breach-and-crypto-thefts/",
+      "url": "https://techcrunch.com/2026/11/18/microsoft-ceo-satya-nadella-explains-why-he-asked-60k-employees-to-quit/",
       "ok": true,
-      "title": "British hackers face prison for GTA 6 data breach and crypto thefts",
-      "length": 2586,
-      "seconds": 2.16,
+      "title": "Microsoft CEO Satya Nadella explains why he asked 60K employees to quit",
+      "length": 3002,
+      "seconds": 1.99,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "f96a352b7a86894c1e92266307be4ccbed4dd8958725bdb5034c94e3b699a4e6",
-      "preview": "Two British hackers are facing lengthy prison sentences for separate hacks as part of their roles in long-running, prolific cybercriminal hacking groups. The tw"
+      "content_sha256": "a4f8b44505fa74a4121660c86679eeee23eb9f445282a732234ade4947c721bf",
+      "preview": "Microsoft CEO Satya Nadella explained Wednesday why he offered buyouts to 60,000 of his employees in October, essentially urging them to voluntarily quit instea"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/cars/2026/11/tesla-will-sell-you-a-cybercab-for-30000-then-charge-299-a-month-to-use-it/",
+      "url": "https://arstechnica.com/tech-policy/2026/11/ted-cruz-led-committee-approves-trump-fcc-nominee-15-0-as-democrats-boycott-vote/",
       "ok": true,
-      "title": "Tesla’s $30,000 Cybercab comes with a $299 monthly catch",
-      "length": 5731,
-      "seconds": 15.92,
+      "title": "Ted Cruz-led committee approves Trump FCC nominee 15-0 as Democrats boycott vote",
+      "length": 8070,
+      "seconds": 15.87,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "459e33d4fa2ba203c7b288457902963e1a337cee628280e1fc1effd70cb4115b",
-      "preview": "There is always a catch. Or in the case of Tesla’s self-driving Cybercab, several.\n\nLast Friday night, Tesla said it had invited “select customers” to purchase "
+      "content_sha256": "27a98655bbb7344effa04bbdf28c441ee364cd8ec9e53fa59ac693b6c02c72ab",
+      "preview": "A Senate committee chaired by Ted Cruz (R-Texas) voted today to approve a Federal Communications Commission nominee, despite accusations that the nominee gave f"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 15.94,
+      "seconds": 2.97,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.16,
+      "seconds": 3.11,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 13.2,
+      "seconds": 16.06,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 10.31,
+      "seconds": 7.6,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 13.12,
+      "seconds": 10.98,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-18T15:14:06.096456+00:00"
+    "checked_at": "2026-11-19T04:17:18.063555+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-18T15:14:10.327766+00:00"
+    "checked_at": "2026-11-19T04:17:42.430213+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-18T15:17:16.568637+00:00",
+    "checked_at": "2026-11-19T04:21:04.221710+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

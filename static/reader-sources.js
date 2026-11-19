@@ -59,9 +59,13 @@ export function bindSourceGroups(scrollArea) {
   });
 }
 
+export function sourceDetailsSummary(label) {
+  return `<summary class="reader-tool-btn reader-sources-summary">${e(label)}<svg class="reader-source-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>`;
+}
+
 export function readerSources(sources, {className = "", name = "", label = "来源", dateLabel,
   items = {}, cardAction} = {}) {
-  return `<details class="reader-sources ${className}" ${name ? `name="${e(name)}"` : ""}><summary class="reader-tool-btn">${e(label)} · ${sources.length}篇<svg class="reader-source-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="reader-source-list"><ul>${chronologicalSources(sources, items).map(source => {
+  return `<details class="reader-sources ${className}" ${name ? `name="${e(name)}"` : ""}>${sourceDetailsSummary(`${label} · ${sources.length}篇`)}<div class="reader-source-list"><ul>${chronologicalSources(sources, items).map(source => {
     const item = items[source.ref], url = sourceURL(source.url);
     const title = e(source.title), date = dateLabel ? dateLabel(source) : source.date || "日期未知";
     const link = item ? `<button class="news-card-open reader-source-open" type="button" data-source-item="${e(item.id)}">${title}</button>`

@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings } from './helpers.js';
+import { chooseTheme, collectionHeatmap, openSettings } from './helpers.js';
 
 const today = '2026-11-09';
+const dailyErrors = { '2026-11-02': 0, '2026-11-03': 1, '2026-11-04': 3, '2026-11-05': 4, '2026-11-06': 7 };
 const records = [
   { label: 'Reuters · World', time: '18:00:00', fetched_count: 25, duplicate_count: 20, ingested_count: 5 },
   { label: 'Bloomberg · Tech', time: '18:00:04', fetched_count: 0, duplicate_count: 0, ingested_count: 0,
@@ -16,7 +17,9 @@ const records = [
   batch_started_at: row.kind === 'publication' ? '2026-11-08T23:58:00+08:00' : '2026-11-09T18:00:00+08:00', ...row }));
 
 function payload(rows = records, day = today) {
+  const errorCount = rows.reduce((sum, row) => sum + row.error_count, 0);
   return { ok: true, today, day, unresolved_count: 1, records: rows,
+    heatmap: collectionHeatmap(day, today, { ...dailyErrors, [day]: rows.length ? errorCount : null }),
     stats: { ...Object.fromEntries(['fetched_count', 'duplicate_count', 'ingested_count', 'error_count']
       .map(key => [key, rows.reduce((sum, row) => sum + (row[key] || 0), 0)])),
       duplicate_unknown: rows.filter(row => row.duplicate_count === null).length } };
@@ -42,6 +45,7 @@ test('real collection API exposes queued runs even with zero errors', async ({ p
   await expect(page.locator('#pipelineStatus')).toContainText('尚未采集');
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-empty')).toContainText('当天没有记录');
+  await expect(page.locator('#upstreamHeatmap button[aria-pressed="true"]')).toHaveAccessibleName(/无采集记录/);
   await expect(page.locator('.upstream-stat-value')).toHaveText(['0 条', '0 条', '0 条', '0 条']);
   await page.locator('#closeUpstreamErrorsBtn').click();
   await openSettings(page);
@@ -52,6 +56,7 @@ test('real collection API exposes queued runs even with zero errors', async ({ p
   await expect(page.locator('#pipelineStatus')).toContainText('正在采集', {timeout:12000});
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
+  await expect(page.locator('#upstreamHeatmap button[aria-pressed="true"]')).toHaveAccessibleName(/0 次报错/);
   await expect(page.locator('.upstream-card-head > .card-tag')).toHaveText('等待采集');
   await page.getByText('来源明细（12）', { exact: true }).click();
   await expect(page.locator('[data-upstream-source] .card-tag')).toHaveText(Array(12).fill('等待采集'));
@@ -59,6 +64,101 @@ test('real collection API exposes queued runs even with zero errors', async ({ p
   await expect(page.locator('.upstream-error-card')).toHaveCount(0);
   await expect(page.locator('.upstream-empty')).toContainText('当天没有错误或提示');
   await expect(page.locator('#upstreamErrorBadge')).toBeHidden();
+});
+
+test('annual heatmap aligns weekdays across weeks and opens the selected day', async ({ page }) => {
+  await mockHistory(page, params => {
+    const day = params.get('day') || today;
+    const count = dailyErrors[day];
+    const rows = day === today ? records : count == null ? [] : count === 0 ? [records[0]]
+      : Array.from({ length: count }, (_, i) => ({ ...records[1], source_id: `failed-${i}` }));
+    return payload(rows, day);
+  });
+  await page.goto('/');
+  await page.locator('#upstreamErrorsBtn').click();
+  const group = page.getByRole('grid', { name: '运行热力图' });
+  const day = date => group.getByRole('button', { name: new RegExp(`^${date}`) });
+  await expect(group.getByRole('button')).toHaveCount(365);
+  await expect(group.locator('tbody tr')).toHaveCount(7);
+  await expect(group.locator('tbody tr').first().locator('td')).toHaveCount(53);
+  await expect(group.locator('button:not(:empty)')).toHaveCount(0);
+  const wed = await day('2026-11-04').boundingBox();
+  const thu = await day('2026-11-05').boundingBox();
+  const priorWeek = await day('2026-10-28').boundingBox();
+  expect(wed.x).toBe(thu.x);
+  expect(wed.y).toBeLessThan(thu.y);
+  expect(priorWeek.y).toBe(wed.y);
+  expect(priorWeek.x).toBeLessThan(wed.x);
+  expect(Math.abs(wed.width - wed.height)).toBeLessThan(1);
+  for (const [date, status] of [['01', 'empty'], ['02', 'success'], ['03', 'warning'], ['04', 'warning'], ['05', 'failed']]) {
+    await expect(day(`2026-11-${date}`)).toHaveAttribute('data-status', status);
+  }
+  await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
+  await day('2026-11-04').click();
+  const currentErrors = page.locator('.upstream-stat-value').last();
+  await expect(currentErrors).toHaveText('3 条');
+  await expect(day('2026-11-04')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(day('2026-11-05')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(currentErrors).toHaveText('4 条');
+  await expect(day('2026-11-05')).toHaveAttribute('aria-pressed', 'true');
+  await expect(day('2026-11-05')).toBeFocused();
+  await expect(page.locator('#upstreamErrorDate')).toHaveValue('2026-11-05');
+  await expect(page.getByRole('button', { name: '仅错误与提示', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.route('**/api/error-stats?details=1&day=2026-11-01', route => route.fulfill({ status: 500, json: { error: 'request_failed' } }), { times: 1 });
+  await day('2026-11-01').click();
+  await expect(page.locator('#upstreamLoadMessage')).toContainText('仍显示 2026-11-05');
+  await expect(day('2026-11-05')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-upstream-retry]').click();
+  await expect(day('2026-11-01')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.upstream-empty')).toContainText('当天没有记录');
+  await page.locator('#upstreamPreviousDayBtn').click();
+  await expect(day('2026-10-31')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#upstreamErrorDate').fill('2024-02-29');
+  await page.locator('#upstreamErrorDate').press('Enter');
+  await expect(day('2024-02-29')).toHaveAttribute('aria-pressed', 'true');
+  await expect(day(today)).toHaveCount(0);
+});
+
+test('year grid fits desktop and opens the latest weeks on a narrow screen', async ({ page }) => {
+  const data = payload(records.map(row => ({ ...row, error: row.error ? 'HTTP 429 · 来源请求限流' : '' })));
+  for (let offset = 1; offset < 310; offset++) {
+    const date = new Date(Date.parse(today) - offset * 86400000).toISOString().slice(0, 10);
+    const sample = (offset * 67 + Math.floor(offset / 7) * 19) % 101;
+    if (sample >= 13) data.heatmap.errors_by_day[date] = sample < 19 ? 4 : sample < 34 ? 2 : 0;
+  }
+  await mockHistory(page, () => data);
+  await page.goto('/');
+  await chooseTheme(page, 'light');
+  await page.locator('#upstreamErrorsBtn').click();
+  const chart = page.locator('#upstreamHeatmap');
+  const scroller = chart.locator('.upstream-heat-scroll');
+  const current = chart.locator('[data-heat-day][aria-pressed="true"]');
+  await expect(current).toHaveAttribute('data-heat-day', today);
+  expect(await scroller.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await chart.screenshot({ path: '.ui-artifacts/collection-heatmap-desktop.png' });
+  await page.locator('#upstreamErrorsPanel').screenshot({ path: '.ui-artifacts/collection-heatmap-panel.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => scroller.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
+  const viewport = await scroller.boundingBox();
+  const latestCell = await current.boundingBox();
+  expect(latestCell.x + latestCell.width).toBeLessThanOrEqual(viewport.x + viewport.width);
+  await chart.screenshot({ path: '.ui-artifacts/collection-heatmap-mobile.png' });
+  const table = await scroller.locator('table').elementHandle();
+  await scroller.evaluate(node => { node.scrollLeft = 0; });
+  const response = page.waitForResponse(r => r.url().includes('/api/error-stats?details=1'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await response;
+  await expect(page.locator('#upstreamErrorsContent')).toHaveAttribute('aria-busy', 'false');
+  expect(await table.evaluate(node => node.isConnected)).toBe(true);
+  expect(await scroller.evaluate(node => node.scrollLeft)).toBe(0);
+  await page.locator('#closeUpstreamErrorsBtn').click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await chooseTheme(page, 'dark');
+  await page.locator('#upstreamErrorsBtn').click();
+  await expect(current).toHaveAttribute('data-heat-day', today);
+  await chart.screenshot({ path: '.ui-artifacts/collection-heatmap-dark.png' });
 });
 
 test('successes, zero additions, duplicates and delayed publication have clear counts', async ({ page }) => {
@@ -71,11 +171,15 @@ test('successes, zero additions, duplicates and delayed publication have clear c
   await expect(page.locator('.upstream-error-card')).toHaveCount(2);
   await expect(page.locator('.upstream-log-box')).toHaveCount(0);
   await expect(page.locator('.upstream-stat-value')).toHaveText(['45 条', '38 条', '7 条', '0 条']);
-  await page.getByText('来源明细（4）', { exact: true }).click();
+  await page.getByText('来源明细（2）', { exact: true }).click();
+  const table = page.getByRole('table', { name: /来源明细/ });
+  await expect(table.getByRole('columnheader')).toHaveText(['来源', '抓取', '去重', '纳入条数']);
+  await expect(table).not.toContainText(/\d{2}:\d{2}:\d{2}/);
   const waiting = page.locator('[data-upstream-source="source-4"]');
   await expect(waiting).toContainText('等待整批入库');
-  await expect(waiting).toContainText('纳入数据库 0 条');
-  await expect(page.locator('[data-upstream-source="source-2"]')).toContainText('抓取 0 条 · 去重 0 条 · 纳入数据库 0 条');
+  await expect(waiting.getByRole('cell').last()).toHaveText('0 条');
+  await expect(page.locator('[data-upstream-source="source-2"], [data-upstream-source="source-3"]')).toHaveCount(0);
+  await expect(table.getByRole('rowheader')).toHaveCount(2);
   await expect(page.locator('.upstream-error-card').filter({ hasText: 'X · ilyasut' })).toContainText('跨日入库');
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(0);
@@ -86,7 +190,7 @@ test('successes, zero additions, duplicates and delayed publication have clear c
 });
 
 test('historical unknown counts remain explicit and a recovered badge does not hide errors', async ({ page }) => {
-  const old = records.map(row => ({ ...row, duplicate_count: null }));
+  const old = records.map(row => ({ ...row, duplicate_count: null, ingested_count: null }));
   await mockHistory(page, () => ({ ...payload(old), unresolved_count: 0 }));
   await page.goto('/');
   await page.locator('#upstreamErrorsBtn').click();
@@ -94,11 +198,30 @@ test('historical unknown counts remain explicit and a recovered badge does not h
   await expect(page.locator('.upstream-stat-value').nth(1)).toHaveText('未记录');
   await expect(page.locator('.upstream-stat-value').nth(1).locator('..')).toHaveAttribute('title', /未保存去重数，无法还原完整数量/);
   await expect(page.locator('.collection-record-summary').first()).toContainText('去重 未记录');
+  await page.getByText('来源明细（6）', { exact: true }).click();
+  await expect(page.locator('[data-upstream-source="source-0"]').getByRole('cell')).toHaveText(['25', '未记录', '未记录']);
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
   await expect(page.locator('.upstream-log-box')).toHaveCount(1);
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   expect(await page.evaluate(() => window.collectionInjected)).toBeUndefined();
+});
+
+test('a completed batch with only zero additions keeps its totals and drops the empty disclosure on refresh', async ({ page }) => {
+  let status = 'running';
+  await mockHistory(page, () => payload([{ ...records[3], status }]));
+  await page.goto('/');
+  await page.locator('#upstreamErrorsBtn').click();
+  const batch = page.locator('[data-upstream-batch="evening"]');
+  await batch.locator('summary').click();
+  await expect(batch.getByRole('rowheader')).toContainText('采集中');
+  await batch.locator('summary').focus();
+  status = 'done';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(batch.locator('details')).toHaveCount(0);
+  await expect(batch.locator('.collection-record-summary')).toHaveText('抓取 12 条 · 去重 12 条 · 纳入数据库 0 条 · 错误 0 条');
+  await expect(page.locator('.upstream-stat-value')).toHaveText(['12 条', '12 条', '0 条', '0 条']);
+  await expect(page.getByRole('button', { name: '全部信息', exact: true })).toBeFocused();
 });
 
 test('automatic refresh updates attention records while keeping the selected view and scroll', async ({ page }) => {
@@ -129,7 +252,7 @@ test('automatic refresh updates attention records while keeping the selected vie
   await expect(page.locator('.upstream-stat-value').nth(2)).toHaveText('9 条');
   await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
   await page.getByRole('button', { name: '全部信息', exact: true }).click();
-  await expect(page.locator('[data-upstream-source="source-4"]')).toContainText('纳入数据库 2 条');
+  await expect(page.locator('[data-upstream-source="source-4"]').getByRole('cell').last()).toHaveText('2 条');
   const scroll = await page.locator('#upstreamErrorsContent').evaluate(node => { node.scrollTop = 80; window.historyCard = node.querySelector('article'); return node.scrollTop; });
   const before = detailRequests;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -146,22 +269,31 @@ test('sources share their collection batch and distinct runs remain separate at 
   await page.locator('#upstreamErrorsBtn').click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   const batch = page.locator('[data-upstream-batch="evening"]');
-  await expect(batch.locator('.upstream-source-title')).toHaveText('2026-11-09 18:00:00 采集');
+  await expect(batch.locator('.upstream-card-head .upstream-source-title')).toHaveText('2026-11-09 18:00:00 采集');
   await expect(batch.locator('.collection-record-summary')).toHaveText('抓取 45 条 · 去重 38 条 · 纳入数据库 5 条 · 错误 1 条');
   await expect(batch.locator('details')).not.toHaveAttribute('open', '');
-  await expect(batch.locator('.upstream-log-box')).toContainText('等待下次采集');
-  await expect(batch.locator('.upstream-log-box button')).toHaveText('复制日志');
+  await expect(batch.locator('.upstream-log-box')).toHaveCount(0);
+  await expect(batch).not.toContainText('TIMEOUT');
   await expect(page.getByRole('button', { name: '按时间分类' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '按来源分类' })).toHaveCount(0);
   await batch.locator('summary').click();
-  await expect(batch.locator('[data-upstream-source]')).toHaveCount(6);
+  await expect(batch.locator('[data-upstream-source]')).toHaveCount(4);
+  const failedSource = batch.locator('[data-upstream-source="source-1"]');
+  await expect(failedSource.getByRole('rowheader')).toContainText('采集错误');
+  await expect(failedSource.locator('.status-text')).toHaveAttribute('data-status', 'failed');
   await expect(batch.locator('[data-upstream-source="source-0"]')).toBeVisible();
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
+  await expect(batch.locator('.upstream-log-box')).toContainText('等待下次采集');
+  await expect(batch.locator('.upstream-log-box pre')).toHaveText(records[1].error);
+  await expect(batch.locator('.upstream-log-box button')).toHaveText('复制日志');
+  await expect(failedSource.getByRole('rowheader')).toContainText('连接超时');
   await expect(batch.locator('details')).toHaveAttribute('open', '');
   await page.getByRole('button', { name: '全部信息', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
   await expect(batch.locator('details')).toHaveAttribute('open', '');
+  await expect(batch).not.toContainText('连接超时');
+  await expect(page.locator('[data-upstream-copy]')).toHaveCount(0);
 });
 
 test('translation notices retry only their source and keep acquisition errors and expanded details', async ({ page }) => {
@@ -179,7 +311,7 @@ test('translation notices retry only their source and keep acquisition errors an
     await page.goto('/');
     await page.locator('#upstreamErrorsBtn').click();
     await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
-    await page.getByText('来源明细（6）', { exact: true }).click();
+    await page.getByText('来源明细（4）', { exact: true }).click();
     const retry = page.getByRole('button', { name: '重试翻译 · Reuters · Technology', exact: true });
     await retry.focus();
     await page.keyboard.press('Enter');
@@ -215,7 +347,7 @@ test('publication notices provide one batch retry and retain actionable feedback
   await expect(page.locator('.upstream-log-box')).toHaveCount(0);
   await expect(page.locator('.upstream-stat-value').last()).toHaveText('0 条');
   const retry = page.getByRole('button', { name: '重试入库', exact: true });
-  await retry.click();
+  await retry.press('Enter');
   await expect(page.locator('.collection-record-notice [role="alert"]')).toBeVisible();
   await expect(retry).toBeEnabled();
   await expect(retry).toBeFocused();
@@ -229,6 +361,70 @@ for (const [surface, options] of [
   ['mobile', { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }],
 ]) test.describe(surface, () => {
   test.use(options);
+  test('expanded source details keep names and actual additions aligned on desktop and phones', async ({ page }) => {
+    const rows = [
+      { ...records[0], time: '18:00:30', fetched_count: 28, duplicate_count: 14, filtered_count: 2, ingested_count: 12 },
+      { ...records[4], filtered_count: 0, notices: [] },
+      { ...records[3], fetched_count: 9, duplicate_count: 3, filtered_count: 1, ingested_count: 5 },
+      { ...records[2], fetched_count: 10, duplicate_count: 7, filtered_count: 3 },
+      { ...records[1], error: 'HTTP 429 · 来源请求限流', filtered_count: 0 },
+    ];
+    await mockHistory(page, () => payload(rows));
+    await page.goto('/');
+    await chooseTheme(page, 'light');
+    await page.locator('#upstreamErrorsBtn').click();
+    const details = page.locator('[data-upstream-details="evening"]');
+    await details.locator('summary').focus();
+    await page.keyboard.press('Enter');
+    const table = details.getByRole('table', { name: /来源明细/ });
+    await expect(details.locator('summary')).toHaveText('来源明细（4）');
+    await expect(table.getByRole('row', { name: /TechCrunch/ })).toHaveCount(0);
+    const headers = table.getByRole('columnheader');
+    const source = table.getByRole('row').filter({ hasText: 'Reuters · World' });
+    const desktop = surface === 'desktop';
+    await expect(headers).toHaveText(desktop ? ['来源', '抓取', '去重', '过滤', '纳入条数'] : ['来源', '纳入条数']);
+    await expect(source.getByRole('cell')).toHaveText(desktop ? ['28', '14', '2', '12 条'] : ['12 条']);
+    const secondary = source.locator('.collection-source-meta');
+    if (desktop) await expect(secondary).toBeHidden();
+    else {
+      await expect(secondary).toBeVisible();
+      await expect(secondary).toHaveText('抓取 28 · 去重 14 · 过滤 2');
+    }
+    await expect(table).not.toContainText(/\d{2}:\d{2}:\d{2}/);
+    const card = details.locator('.data-table-card');
+    expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await headers.first().click();
+    await page.locator('[data-upstream-batch="evening"]').screenshot({ path: `.ui-artifacts/collection-source-details-${surface}.png` });
+    if (!desktop) {
+      await page.locator('#upstreamErrorsContent').evaluate(node => { node.scrollTop = 0; });
+      await page.locator('#upstreamErrorsPanel').screenshot({ path: '.ui-artifacts/collection-compact-controls-mobile.png' });
+      await page.getByRole('button', { name: '仅错误与提示', exact: true }).tap();
+      const log = page.locator('.upstream-log-box');
+      const copy = log.getByRole('button', { name: /复制.*日志/ });
+      await expect(copy).toBeVisible();
+      expect((await copy.boundingBox()).height).toBe(24);
+      const contentHeight = (await log.locator('pre').boundingBox()).height;
+      expect((await log.boundingBox()).height - contentHeight).toBeLessThanOrEqual(44);
+      await log.screenshot({ path: '.ui-artifacts/collection-compact-error-mobile.png' });
+      await page.getByRole('button', { name: '全部信息', exact: true }).tap();
+      await page.setViewportSize({ width: 320, height: 844 });
+    }
+    rows[0].label = '很长的来源名称 · ' + 'InternationalTechnology'.repeat(4);
+    rows[0].fetched_count = 1016;
+    rows[0].ingested_count = 1000;
+    await page.locator('#upstreamTodayBtn').click();
+    const longSource = table.getByRole('row').filter({ hasText: 'InternationalTechnology' });
+    await expect(longSource.getByRole('cell').last()).toHaveText('1000 条');
+    const bounds = await longSource.evaluate(row => ({
+      name: row.querySelector('strong').getBoundingClientRect().right,
+      count: row.querySelector('td:last-child strong').getBoundingClientRect().left,
+      table: row.closest('.data-table-card').getBoundingClientRect().right,
+      end: row.querySelector('td:last-child').getBoundingClientRect().right,
+    }));
+    expect(bounds.name).toBeLessThan(bounds.count);
+    expect(bounds.end).toBeLessThanOrEqual(bounds.table);
+  });
+
   for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'dark'], ['system', 'light'], ['system', 'dark'], ['eink', 'light']]) {
     test(`collection history fits ${theme}/${colorScheme} and every reading size`, async ({ page }) => {
       await mockHistory(page);
@@ -245,6 +441,13 @@ for (const [surface, options] of [
         await expect(page.locator('.upstream-stat-value')).toHaveText(['45 条', '38 条', '7 条', '1 条']);
         await expect(page.locator('.collection-record-summary').first()).toHaveCSS('font-size', '12px');
         await expect(page.locator('#upstreamErrorsTitle')).toHaveCSS('font-size', '16px');
+        const tiles = page.locator('.upstream-heatmap-legend .upstream-heat-tile');
+        await expect(tiles).toHaveCount(4);
+        const fills = await tiles.evaluateAll(nodes => nodes.map(node => {
+          const style = getComputedStyle(node);
+          return [style.backgroundColor, style.borderStyle].join(' ');
+        }));
+        expect(new Set(fills).size).toBe(4);
         const panel = page.locator('#upstreamErrorsPanel');
         const bounds = await panel.boundingBox();
         expect(bounds.x).toBeGreaterThanOrEqual(12);
@@ -253,6 +456,27 @@ for (const [surface, options] of [
         expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(options.viewport.width);
         if (size === 'standard') await page.screenshot({ path: `.ui-artifacts/v051-history-${surface}-${theme}-${colorScheme}.png` });
+        const details = page.locator('[data-upstream-details="evening"]');
+        if (!(await details.evaluate(node => node.open))) await details.locator('summary').click();
+        const source = details.locator('[data-upstream-source="source-0"]');
+        await expect(source.getByRole('rowheader').locator('strong')).toHaveText('Reuters · World');
+        await expect(source.getByRole('cell').last().locator('strong')).toHaveText('5 条');
+        await expect(source.getByRole('cell').last()).toHaveCSS('text-align', 'end');
+        const name = source.getByRole('rowheader').locator('strong');
+        const count = source.locator('.metric-value');
+        const bodyFont = await page.locator('body').evaluate(node => getComputedStyle(node).fontFamily);
+        for (const field of [name, count, page.locator('#upstreamErrorDate'), page.locator('#upstreamErrorsTitle'), page.locator('.upstream-stat-value').first()]) {
+          await expect(field).toHaveCSS('font-family', bodyFont);
+        }
+        await expect(count).toHaveCSS('font-size', await name.evaluate(node => getComputedStyle(node).fontSize));
+        const failed = details.locator('[data-upstream-source="source-1"]');
+        const errorName = failed.getByRole('rowheader').locator('strong');
+        const color = await errorName.evaluate(node => getComputedStyle(node).color);
+        await expect(failed.locator('.card-tag')).toHaveCSS('color', color);
+        await expect(page.locator('[data-upstream-batch="evening"] .upstream-card-head [data-status="failed"]')).toHaveCSS('color', color);
+        if (theme !== 'eink') await expect(name).not.toHaveCSS('color', color);
+        await expect(failed.locator('.card-tag')).toHaveText('采集错误');
+        expect(await details.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
         await page.locator('#closeUpstreamErrorsBtn').click();
       }
     });

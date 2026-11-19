@@ -4,7 +4,7 @@ Only publication writes items. No Markdown, daily sidecar or agent scheduling.
 """
 from contextlib import closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 import hashlib
 import json
@@ -175,6 +175,26 @@ def source_error(result):
     # Never persist raw CLI output, browser cookies, headers or stack traces.
     code = str(result.get("error_code") or "COLLECTION_FAILED")
     return code if re.fullmatch(r"[A-Z0-9_]{1,80}", code) else "COLLECTION_FAILED"
+
+
+def collection_heatmap(conn, day, today):
+    days_ago = max(0, (today - date.fromisoformat(day)).days)
+    last = today - timedelta(days=days_ago // 365 * 365)
+    first = date.fromordinal(max(date.min.toordinal(), last.toordinal() - 364))
+    counts = dict(conn.execute("""
+        SELECT day, SUM(errors) FROM (
+            SELECT substr(started_at, 1, 10) AS day, status = 'failed' AS errors
+            FROM collection_run_sources WHERE started_at >= :start AND started_at < :end
+            UNION ALL
+            SELECT substr(r.created_at, 1, 10), s.status = 'failed'
+            FROM collection_run_sources s JOIN collection_runs r ON r.id = s.run_id
+            WHERE s.started_at IS NULL AND r.created_at >= :start AND r.created_at < :end
+            UNION ALL
+            SELECT substr(ingested_at, 1, 10), 0
+            FROM collection_run_sources WHERE ingested_at >= :start AND ingested_at < :end
+        ) GROUP BY day
+    """, {"start": first.isoformat(), "end": f"{last.isoformat()}T24:00:00"}))
+    return {"start": first.isoformat(), "end": last.isoformat(), "errors_by_day": counts}
 
 
 class Service:
@@ -579,12 +599,14 @@ class Service:
             unresolved = conn.execute("""SELECT COUNT(*) FROM collection_run_sources s WHERE s.rowid=(
                 SELECT MAX(n.rowid) FROM collection_run_sources n WHERE n.source_id=s.source_id AND n.status IN ('done','failed'))
                 AND s.status='failed'""").fetchone()[0]
-            payload = {"ok":True,"day":day,"today":now().date().isoformat(),"unresolved_count":unresolved}
+            today = now().date()
+            payload = {"ok":True,"day":day,"today":today.isoformat(),"unresolved_count":unresolved}
             if not details:
                 translation_count = conn.execute("""SELECT COUNT(*) FROM (
                     SELECT run_id,source_id FROM collection_items WHERE status='failed' GROUP BY run_id,source_id)""").fetchone()[0]
                 publication_count = conn.execute("SELECT COUNT(*) FROM collection_runs WHERE publication_status='failed'").fetchone()[0]
                 return {**payload,"notice_count":translation_count + publication_count}
+            payload["heatmap"] = collection_heatmap(conn, day, today)
             active_notices = {}
             for failure in conn.execute("""SELECT i.run_id,i.source_id,i.error,COUNT(*) AS count,
                        s.config_json,COALESCE(s.started_at,r.created_at) AS started_at
