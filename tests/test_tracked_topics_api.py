@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import preferences
+
 from legacy_news_seed import seed_news, confirm_all_read
 import importlib
 import json
@@ -112,7 +114,7 @@ def test_tracked_topics_backfill_incremental_and_overrides(tmp_path: Path, monke
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 

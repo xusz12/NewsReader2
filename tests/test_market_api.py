@@ -486,7 +486,7 @@ def test_market_tag_delete_removes_associations_and_blocks_default_reseed(tmp_pa
     trend_payload = client.get("/api/market-trends?days=7").get_json()
     assert all(row["tag_key"] != "AI" for row in trend_payload["rows"])
 
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM article_market_tags WHERE tag='AI'").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM market_trend_notes WHERE tag='AI'").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM market_tag_deleted_keys WHERE key='AI'").fetchone()[0] == 1
@@ -557,7 +557,7 @@ def test_market_tag_merge_moves_links_and_notes_and_dedupes_urls(tmp_path: Path,
     assert tag_detail["tag_key"] == "AI"
     assert any(note["tag_key"] == "AI" for note in tag_detail["trend_notes"])
 
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM market_tag_definitions WHERE key=?", (source_key,)).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM article_market_tags WHERE tag=?", (source_key,)).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM market_trend_notes WHERE tag=?", (source_key,)).fetchone()[0] == 0

@@ -144,7 +144,7 @@ def test_schedule_edits_during_pause_do_not_bypass_skipping(service, db, monkeyp
 
 def test_api_validates_identity_payload_and_sanitizes_storage_errors(service, db, monkeypatch):
     import app
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     client = app.app.test_client()
     for payload in (None, [], {}, {"paused": "false"}, {"paused": 1}):
         assert client.post("/api/reports/schedule-pause", json=payload).status_code == 400

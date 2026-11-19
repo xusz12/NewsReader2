@@ -85,7 +85,7 @@ def select_codex(app, monkeypatch, config=None):
     config = CONFIG if config is None else config
     settings = app.default_app_settings()
     settings['agent'].update(runtime='codex', codex=dict(config))
-    monkeypatch.setattr(app, 'load_app_settings', lambda: settings)
+    monkeypatch.setattr(configuration, 'load_app_settings', lambda: settings)
     return settings
 
 
@@ -142,12 +142,12 @@ def test_settings_defaults_persistence_and_invalid_runtime(tmp_path, monkeypatch
     assert settings.load_app_settings()['agent']['codex']==CONFIG
     assert settings.load_app_settings()['agent']['runtime']=='codex'
     import app
-    monkeypatch.setattr(app,'load_app_settings',settings.load_app_settings)
+    monkeypatch.setattr(configuration,'load_app_settings',settings.load_app_settings)
     assert configuration.current_runtime_settings()['agent']['runtime']=='codex'
-    assert app.validate_runtime_settings(value)['agent']==value['agent']
+    assert app.catalogs.validate_runtime_settings(value)['agent']==value['agent']
     for bad in ('other',[],{}):
         value['agent']['runtime']=bad
-        with pytest.raises(ValueError): app.validate_runtime_settings(value)
+        with pytest.raises(ValueError): app.catalogs.validate_runtime_settings(value)
 
 
 @pytest.mark.parametrize('mode,error',[('empty','codex_empty_answer'),('missing','codex_protocol_error'),
@@ -163,7 +163,7 @@ def test_background_failure_no_session_promotion_and_safe_retry(tmp_path,monkeyp
     payload=app.load_agent_payload(item['id']);job=payload['jobs'][-1]
     assert (job['status'],job['error'])==('failed',error)
     assert 'DO_NOT_EXPOSE' not in json.dumps(payload)
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         assert conn.execute('SELECT executor_session_id FROM agent_sessions').fetchone()[0]==''
     monkeypatch.setenv('CODEX_TEST_MODE','success')
     assert client.post(f"/api/news/{item['id']}/agent/jobs/{first['job_id']}/retry").status_code==202
@@ -314,7 +314,7 @@ def test_failed_archive_leaves_saved_note_and_session_unchanged(tmp_path, monkey
     select_codex(app, monkeypatch)
     first = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'first'}).get_json()
     assert app.process_pending_agent_once()
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES(?,?,?,?)',
                      (item['url'], '保留的旧笔记', database.now_ts(), database.now_ts()))
         conn.commit()
@@ -324,7 +324,7 @@ def test_failed_archive_leaves_saved_note_and_session_unchanged(tmp_path, monkey
         'agent_session_id': first['session']['id'],
         'messages': [{'role': 'user', 'content': 'question'}, {'role': 'assistant', 'content': 'answer'}]})
     assert failed.status_code == 502 and failed.get_json()['error'] == 'codex_empty_answer'
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert conn.execute('SELECT note FROM article_notes WHERE url=?', (item['url'],)).fetchone()[0] == '保留的旧笔记'
     assert app.load_agent_payload(item['id']) == before
 
@@ -338,7 +338,7 @@ def test_missing_or_orphaned_native_mapping_fails_without_starting_new_turn(tmp_
     assert app.process_pending_agent_once()
     session_id = first['session']['id']
     if orphan:
-        with app.agent_db_conn() as conn:
+        with app.data.agent_connect() as conn:
             conn.execute("UPDATE agent_sessions SET executor_session_id='' WHERE id=?", (session_id,))
             conn.commit()
     else:
@@ -435,10 +435,10 @@ def test_codex_background_timeout_does_not_promote_session(tmp_path, monkeypatch
     assert app.process_pending_agent_once()
     saved = app.load_agent_payload(item['id'])
     assert saved['jobs'][-1]['status'] == 'failed' and saved['jobs'][-1]['error'] == 'agent_timeout'
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         assert conn.execute('SELECT executor_session_id FROM agent_sessions WHERE id=?', (saved['session']['id'],)).fetchone()[0] == ''
     assert not app.AGENT_PROCESSES
-    assert not list(app.AGENT_RUNTIME_DIR.glob('*/codex-session.json'))
+    assert not list(app.data.agent_dir.glob('*/codex-session.json'))
 
 
 @pytest.mark.parametrize('mode,error', [

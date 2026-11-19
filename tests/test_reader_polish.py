@@ -11,7 +11,7 @@ def test_original_highlights_persist_and_old_schema_migrates_once(fixture):
     app, client, item, *_ = fixture
     path = f"/api/news/{item['id']}"
     body = '📌 原文第一段\n\n第二段 **重点** 与后续判断。'
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('UPDATE article_details SET content=? WHERE url=?', (body, item['url']))
         # Emulate the previous CHECK constraint, without discarding an existing annotation.
         sql = conn.execute("SELECT sql FROM sqlite_master WHERE name='article_highlights'").fetchone()[0]
@@ -20,10 +20,10 @@ def test_original_highlights_persist_and_old_schema_migrates_once(fixture):
         conn.execute("""INSERT INTO article_highlights(id,url,body_kind,content_hash,start_offset,end_offset,selected_text,color,annotation_text,created_at,updated_at)
             VALUES(7,?,'ai_zh','old-hash',0,2,'历史','pink','保留批注','2026-10-01','2026-10-02')""", (item['url'],))
     app.ensure_db()
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         schema_version = conn.execute('PRAGMA schema_version').fetchone()[0]
     app.ensure_db()
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert conn.execute('PRAGMA schema_version').fetchone()[0] == schema_version
         old = conn.execute('SELECT * FROM article_highlights WHERE id=7').fetchone()
         assert old['annotation_text'] == '保留批注' and old['color'] == 'pink'
@@ -32,7 +32,7 @@ def test_original_highlights_persist_and_old_schema_migrates_once(fixture):
     assert result.status_code == 201
     ident = result.json['highlight']['id']
     assert client.get(path + '/detail').json['highlight_surfaces']['original']['highlights'][0]['id'] == ident
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('UPDATE article_details SET content=? WHERE url=?', ('新增引言。\n\n' + body, item['url']))
     moved = client.get(path + '/highlights?body_kind=original').json['highlights'][0]
     assert moved['status'] == 'active'

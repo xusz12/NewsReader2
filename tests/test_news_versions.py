@@ -233,7 +233,7 @@ def test_unknown_legacy_duplicate_count_stays_unknown_and_empty_failed_batch_can
 @pytest.fixture
 def reader_service(api):
     module,client=api
-    svc=collection.Service(module.db_conn,configuration.current_runtime_settings,sources=[SOURCE])
+    svc=collection.Service(module.data.connect,configuration.current_runtime_settings,sources=[SOURCE])
     yield module,client,svc
     svc.stop()
 

@@ -26,7 +26,7 @@ def test_clear_favorites_covers_all_pages_and_preserves_other_states(tmp_path, m
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     path = f'/api/news/{item["id"]}/state'
     before = client.patch(path, json={'favorite': True, 'important': True, 'read': True, 'read_later': True}).json
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         for index in range(1001):
             row = {**template, 'id': f'favorite-{index}'}

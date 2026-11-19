@@ -1,5 +1,7 @@
 """Provider contracts, persistence and credentials; no real model calls."""
 
+from nr import preferences
+
 from nr import configuration
 import json
 import io
@@ -17,12 +19,12 @@ def api_fixture(tmp_path, monkeypatch):
     for name in ("DEEPSEEK_API_KEY", "TYPESAFE_API_KEY", "OPENCODE_API_KEY", "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     secrets = {}
-    monkeypatch.setattr(app, "has_secret", lambda name: name in secrets)
-    monkeypatch.setattr(app, "read_secret", lambda name: secrets.get(name))
-    monkeypatch.setattr(app, "write_secret", lambda name, value: secrets.__setitem__(name, value))
-    monkeypatch.setattr(app, "delete_secret", lambda name: secrets.pop(name, None))
-    monkeypatch.setattr(app, "pi_chat_settings_snapshot", lambda *args: {"service": {}, "catalog": {}})
-    monkeypatch.setattr(app, "urlopen", lambda *a, **kw: pytest.fail("Unexpected network call"))
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: name in secrets)
+    monkeypatch.setattr(preferences, 'read_secret', lambda name: secrets.get(name))
+    monkeypatch.setattr(preferences, 'write_secret', lambda name, value: secrets.__setitem__(name, value))
+    monkeypatch.setattr(preferences, 'delete_secret', lambda name: secrets.pop(name, None))
+    monkeypatch.setattr(preferences, 'pi_chat_settings_snapshot', lambda *args: {"service": {}, "catalog": {}})
+    monkeypatch.setattr(preferences, 'urlopen', lambda *a, **kw: pytest.fail("Unexpected network call"))
     return app, client, secrets
 
 
@@ -45,7 +47,7 @@ def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, t
     saved = client.put('/api/settings', json={'llm': initial['llm'], 'api_models': initial['api_models']})
     assert saved.status_code == 200
     assert saved.json['api_models']['jev']['model'] == 'jev-custom'
-    assert app.load_app_settings()['api_models']['jev']['model'] == 'jev-custom'
+    assert configuration.load_app_settings()['api_models']['jev']['model'] == 'jev-custom'
     # Clients predating API management must not clear the new configuration.
     client.put('/api/settings', json={'llm': initial['llm']})
     assert client.get('/api/settings').json['api_models']['jev']['model'] == 'jev-custom'
@@ -54,13 +56,13 @@ def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, t
 
 def test_concurrency_persists_and_applies_live_without_starting_a_stopped_service(api_fixture):
     app, client, _ = api_fixture
-    llm = app.load_app_settings()['llm']
+    llm = configuration.load_app_settings()['llm']
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-test', 'concurrency': 16}}})
     assert saved.status_code == 200
-    assert app.load_app_settings()['classification']['concurrency'] == 16
-    assert app.CLASSIFICATION_SERVICE.gate.snapshot()['configured_concurrency'] == 16
-    assert app.CLASSIFICATION_SERVICE.gate.snapshot()['effective_concurrency'] == 16
-    assert app.CLASSIFICATION_SERVICE.threads == []
+    assert configuration.load_app_settings()['classification']['concurrency'] == 16
+    assert app.background.classification.gate.snapshot()['configured_concurrency'] == 16
+    assert app.background.classification.gate.snapshot()['effective_concurrency'] == 16
+    assert app.background.classification.threads == []
     # A model-only write from an older client preserves the new setting.
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
     assert saved.status_code == 200
@@ -70,50 +72,50 @@ def test_concurrency_persists_and_applies_live_without_starting_a_stopped_servic
 
 def test_unread_only_persists_applies_live_and_survives_legacy_writes(api_fixture):
     app, client, _ = api_fixture
-    llm = app.load_app_settings()['llm']
+    llm = configuration.load_app_settings()['llm']
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': True}}})
     assert saved.status_code == 200
-    assert app.load_app_settings()['classification']['unread_only'] is True
-    assert app.CLASSIFICATION_SERVICE.unread_only is True
-    assert app.CLASSIFICATION_SERVICE.threads == []
+    assert configuration.load_app_settings()['classification']['unread_only'] is True
+    assert app.background.classification.unread_only is True
+    assert app.background.classification.threads == []
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
     assert saved.status_code == 200 and saved.json['classification']['unread_only'] is True
     assert client.get('/api/news/classification').json['unread_only'] is True
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': False}}})
-    assert saved.status_code == 200 and app.CLASSIFICATION_SERVICE.unread_only is False
+    assert saved.status_code == 200 and app.background.classification.unread_only is False
 
 
 @pytest.mark.parametrize('value', [None, 0, 1, 'true', 'false', [], {}])
 def test_invalid_unread_only_is_not_saved(api_fixture, value):
     app, client, _ = api_fixture
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'jev': {'unread_only': value}}})
     assert result.status_code == 400 and result.json['error'] == 'invalid_classification_unread_only'
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('concurrency', [0, 33, -1, True, '8', 1.5, None])
 def test_invalid_classification_concurrency_is_not_saved(api_fixture, concurrency):
     app, client, _ = api_fixture
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'jev': {'concurrency': concurrency}}})
     assert result.status_code == 400
     assert result.json['error'] == 'invalid_classification_concurrency'
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('value', [None, [], {'jev': []}, {'jev': {'model': 42}}, {'jev': {'model': 'a' * 121}}, {'jev': {'model': 'bad\nname'}}])
 def test_invalid_config_does_not_persist(api_fixture, value):
     app, client, _ = api_fixture
-    initial = app.load_app_settings()
+    initial = configuration.load_app_settings()
     result = client.put('/api/settings', json={'llm': initial['llm'], 'api_models': value})
     assert result.status_code == 400
-    assert app.load_app_settings() == initial
+    assert configuration.load_app_settings() == initial
 
 
 def test_jev_key_isolated_masked_environment_precedence(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
-    original = app.load_app_settings()
+    original = configuration.load_app_settings()
     key = 'ts-test-secret-middle-1234'
     saved = client.put('/api/settings/secrets/jev', json={'key': key})
     assert saved.status_code == 200
@@ -122,12 +124,12 @@ def test_jev_key_isolated_masked_environment_precedence(api_fixture, monkeypatch
     assert saved.json['api_status']['jev']['masked_key'] == 'ts-t••••••••1234'
     assert saved.json['api_status']['deepseek']['configured'] is False
     monkeypatch.setenv('TYPESAFE_API_KEY', 'environment-secret-value')
-    assert app.provider_secret_value('jev') == 'environment-secret-value'
+    assert preferences.provider_secret_value('jev') == 'environment-secret-value'
     removed = client.delete('/api/settings/secrets/jev')
     assert removed.status_code == 200 and secrets == {}
     assert removed.json['api_status']['jev']['environment_override'] is True
     assert removed.json['api_status']['jev']['configured'] is True
-    assert app.load_app_settings() == original
+    assert configuration.load_app_settings() == original
 
 
 def test_jev_catalog_uses_native_names_and_bearer(api_fixture, monkeypatch):
@@ -137,7 +139,7 @@ def test_jev_catalog_uses_native_names_and_bearer(api_fixture, monkeypatch):
     def open_request(request, timeout):
         calls.append(request)
         return Reply({'models': [{'name': 'jev-latest'}, {'name': 'jev-version'}, {'name': 'jev-latest'}, {'name': 4}, None]})
-    monkeypatch.setattr(app, 'urlopen', open_request)
+    monkeypatch.setattr(preferences, 'urlopen', open_request)
     result = client.post('/api/settings/apis/jev/models', json={})
     assert result.status_code == 200
     assert [o['value'] for o in result.json['catalog']['options']] == ['jev-latest', 'jev-version']
@@ -153,12 +155,12 @@ def test_jev_catalog_uses_native_names_and_bearer(api_fixture, monkeypatch):
 def test_shared_probe_dispatches_native_protocol_without_saving(api_fixture, monkeypatch, provider, model, answer, url):
     app, client, secrets = api_fixture
     secrets[model_apis.API_PROVIDERS[provider]['secret_name']] = 'isolated-key'
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     calls = []
     def open_request(request, timeout):
         calls.append(request)
         return Reply(answer)
-    monkeypatch.setattr(app, 'urlopen', open_request)
+    monkeypatch.setattr(preferences, 'urlopen', open_request)
     result = client.post(f'/api/settings/apis/{provider}/test', json={'model': model})
     assert result.status_code == 200
     assert result.json['provider'] == provider
@@ -171,7 +173,7 @@ def test_shared_probe_dispatches_native_protocol_without_saving(api_fixture, mon
         assert 'state' in payload and 'messages' not in payload
     else:
         assert payload['messages'][0]['content'] == 'Reply OK.'
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('answer', [{}, {'answers': {}}, {'answers': {'other': {'type': 'noul', 'noul': .9}}},
@@ -182,7 +184,7 @@ def test_shared_probe_dispatches_native_protocol_without_saving(api_fixture, mon
 def test_jev_probe_rejects_invalid_native_answers(api_fixture, monkeypatch, answer):
     app, client, secrets = api_fixture
     secrets['TYPESAFE_API_KEY'] = 'test-key'
-    monkeypatch.setattr(app, 'urlopen', lambda *args, **kw: Reply(answer))
+    monkeypatch.setattr(preferences, 'urlopen', lambda *args, **kw: Reply(answer))
     response = client.post('/api/settings/apis/jev/test', json={})
     assert response.status_code == 502
     assert response.json['error'] == 'empty_model_response'
@@ -193,7 +195,7 @@ def test_probe_error_redacted(api_fixture, monkeypatch, failure, status):
     app, client, secrets = api_fixture
     secrets['TYPESAFE_API_KEY'] = 'PRIVATE_KEY'
     def fail(*a, **kw): raise failure
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     response = client.post('/api/settings/apis/jev/test', json={})
     assert response.status_code == status
     assert 'PRIVATE_KEY' not in response.text
@@ -215,7 +217,7 @@ def test_missing_keys_and_bad_payloads_never_call_provider(api_fixture):
 def test_catalog_failure_does_not_report_fallback_as_fetched(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
     secrets['TYPESAFE_API_KEY'] = 'PRIVATE_KEY'
-    monkeypatch.setattr(app, 'urlopen', lambda *a, **kw: Reply({'models': []}))
+    monkeypatch.setattr(preferences, 'urlopen', lambda *a, **kw: Reply({'models': []}))
     response = client.post('/api/settings/apis/jev/models', json={})
     assert response.status_code == 502 and response.json['error'] == 'models_unavailable'
 
@@ -239,7 +241,7 @@ def test_opencode_model_and_key_survive_legacy_client_writes(api_fixture, monkey
     assert legacy.json['api_models']['opencode-go']['model'] == 'custom-model'
     assert key not in resolve_app_settings_path().read_text()
     monkeypatch.setenv('OPENCODE_API_KEY', 'environment-key')
-    assert app.provider_secret_value('opencode-go') == 'environment-key'
+    assert preferences.provider_secret_value('opencode-go') == 'environment-key'
     removed = client.delete('/api/settings/secrets/opencode-go')
     assert removed.status_code == 200 and secrets == {}
     assert removed.json['api_status']['opencode-go']['configured'] is True
@@ -257,7 +259,7 @@ def test_opencode_catalog_and_explicit_model_selection(api_fixture, monkeypatch)
     def models(request, timeout):
         calls.append(request)
         return Reply({'data': [{'id': 'model-a'}, {'id': 'model-b'}, {'id': 'model-a'}, {'id': 2}, None]})
-    monkeypatch.setattr(app, 'urlopen', models)
+    monkeypatch.setattr(preferences, 'urlopen', models)
     result = client.post('/api/settings/apis/opencode-go/models', json={})
     assert result.status_code == 200
     assert [r['value'] for r in result.json['catalog']['options']] == ['model-a', 'model-b']
@@ -281,21 +283,21 @@ def test_opencode_catalog_hides_free_models_and_preserves_paid_ids():
 def test_filtered_empty_catalog_succeeds_without_restoring_saved_free_model(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'isolated-key'
-    settings = app.load_app_settings()
+    settings = configuration.load_app_settings()
     settings['api_models']['opencode-go']['model'] = 'big-pickle'
-    app.save_app_settings(settings)
-    monkeypatch.setattr(app, 'urlopen', lambda *args, **kwargs: Reply({'data': [{'id': 'big-pickle'}, {'id': 'example-free'}]}))
+    preferences.save_app_settings(settings)
+    monkeypatch.setattr(preferences, 'urlopen', lambda *args, **kwargs: Reply({'data': [{'id': 'big-pickle'}, {'id': 'example-free'}]}))
     response = client.post('/api/settings/apis/opencode-go/models', json={})
     assert response.status_code == 200
     assert response.json['service']['models_endpoint_reachable'] is True
     assert response.json['catalog']['options'] == []
-    assert app.managed_api_snapshot('opencode-go', 'big-pickle')['catalog']['options'] == []
-    assert app.load_app_settings()['api_models']['opencode-go']['model'] == 'big-pickle'
+    assert preferences.managed_api_snapshot('opencode-go', 'big-pickle')['catalog']['options'] == []
+    assert configuration.load_app_settings()['api_models']['opencode-go']['model'] == 'big-pickle'
 
 
 def test_pi_catalog_hides_only_opencode_free_candidates(api_fixture):
     app, _, _ = api_fixture
-    providers, models = app.parse_pi_model_catalog('''provider model
+    providers, models = preferences.parse_pi_model_catalog('''provider model
 opencode big-pickle
 opencode example-free
 opencode paid-model
@@ -327,7 +329,7 @@ def test_probe_429_distinguishes_limit_types_without_leaking_response(api_fixtur
         calls.append(request)
         body = {'error': {'type': upstream_type, 'message': 'PRIVATE_KEY account@example.com usage limit exhausted'}}
         raise HTTPError(request.full_url, 429, 'PRIVATE_KEY', headers, io.BytesIO(json.dumps(body).encode()))
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     response = client.post('/api/settings/apis/opencode-go/test', json={'model': 'selected-model'})
     assert response.status_code == 502
     assert response.json['reason'] == reason
@@ -405,7 +407,7 @@ def test_opencode_catalog_and_probe_work_when_default_urllib_signature_is_reject
             transport(Request(address + '/models'), timeout=5)
         assert caught.value.code == 403
         caught.value.close()
-        monkeypatch.setattr(app, 'urlopen', transport)
+        monkeypatch.setattr(preferences, 'urlopen', transport)
         monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address + '/models')
         monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'test_url', address + '/chat/completions')
         catalog = client.post('/api/settings/apis/opencode-go/models', json={})
@@ -425,24 +427,24 @@ def test_opencode_catalog_and_probe_work_when_default_urllib_signature_is_reject
 def test_opencode_failures_are_redacted_and_leave_settings_intact(api_fixture, monkeypatch, failure):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'PRIVATE_KEY'
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     def fail(*a, **kw): raise failure
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     for action in ('test', 'models'):
         result = client.post(f'/api/settings/apis/opencode-go/{action}', json={'model': 'chosen-model'})
         assert result.status_code in (502, 504)
         assert result.json['ok'] is False
         assert 'PRIVATE_KEY' not in result.text
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('value', [None, [], {'model': 7}, {'model': 'bad\nmodel'}, {'model': 'x' * 121}])
 def test_invalid_opencode_config_is_atomic(api_fixture, value):
     app, client, _ = api_fixture
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     result = client.put('/api/settings', json={'llm': before['llm'], 'api_models': {'opencode-go': value}})
     assert result.status_code == 400
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 def test_managed_go_key_does_not_enable_pi_providers_and_preserves_explicit_environment(monkeypatch):

@@ -358,8 +358,8 @@ def test_retry_token_and_immutable_completed_report(db):
 
 def test_api_empty_new_install_no_generation_endpoint(db,monkeypatch):
     import app
-    monkeypatch.setattr(app,"db_conn",db)
-    monkeypatch.setattr(app,"REPORT_SERVICE",pr.Service(db,lambda:SETTINGS,lambda:None,runner))
+    monkeypatch.setattr(app.data,'connect',db)
+    monkeypatch.setattr(app.background,'reports',pr.Service(db,lambda:SETTINGS,lambda:None,runner))
     client=app.app.test_client()
     response=client.get("/api/reports?kind=daily")
     assert response.status_code == 200 and response.json["items"] == []
@@ -446,7 +446,7 @@ def test_retry_reports_actionable_model_error_without_losing_saved_work(db, monk
         token = conn.execute("SELECT database_token FROM periodic_report_meta").fetchone()[0]
     def unavailable(config): raise RuntimeError(error)
     monkeypatch.setattr(pr.report_model, "capacity", unavailable)
-    monkeypatch.setattr(app, "REPORT_SERVICE", pr.Service(db, lambda: SETTINGS, lambda: None, runner))
+    monkeypatch.setattr(app.background, 'reports', pr.Service(db, lambda: SETTINGS, lambda: None, runner))
     response = app.app.test_client().post('/api/reports/' + job["id"] + '/retry', json={"database_token": token})
     assert response.status_code == 409 and response.json["error"] == error
     with closing(db()) as conn:

@@ -26,12 +26,12 @@ BODY = ("An actual article paragraph with enough content to pass validation. " *
 def reader(tmp_path, monkeypatch):
     import app
 
-    monkeypatch.setattr(app, "DB_PATH", tmp_path / "news.sqlite3")
-    monkeypatch.setattr(app, "MEDIA_CACHE_DIR", tmp_path / "media")
+    monkeypatch.setattr(app.data, 'path', tmp_path / "news.sqlite3")
+    monkeypatch.setattr(app.data, 'media_dir', tmp_path / "media")
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setattr(database, 'now_ts', lambda: STAMP)
-    with app.db_conn() as conn:
-        apply_schema(conn, app.SCHEMA_PATH)
+    with app.data.connect() as conn:
+        apply_schema(conn, app.data.schema_path)
     return app
 
 

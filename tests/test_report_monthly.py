@@ -324,15 +324,15 @@ def test_monthly_schema_upgrade_is_idempotent_and_preserves_completed_reports(se
 def test_monthly_api_returns_current_and_background_citations_and_durable_counts(service, db, monkeypatch, tmp_path):
     import app
     monkeypatch.setattr(pr, 'now', lambda: pr.local('2026-11-12T12:00:00+08:00'))
-    monkeypatch.setattr(app, 'REPORT_SERVICE', service)
+    monkeypatch.setattr(app.background, 'reports', service)
     def api_db():
         conn = db()
         conn.create_function('is_bloomberg_video_url', 1, lambda url: int(pr.is_bloomberg_video_url(url)))
         conn.create_function('feed_source_subkey', 4, app.feed_source_subkey_sql)
         return conn
-    monkeypatch.setattr(app, 'db_conn', api_db)
-    monkeypatch.setattr(app, 'AGENT_DB_PATH', tmp_path / 'agent.sqlite3')
-    monkeypatch.setattr(app, 'AGENT_RUNTIME_DIR', tmp_path / 'agent-runtime')
+    monkeypatch.setattr(app.data, 'connect', api_db)
+    monkeypatch.setattr(app.data, 'agent_path', tmp_path / 'agent.sqlite3')
+    monkeypatch.setattr(app.data, 'agent_dir', tmp_path / 'agent-runtime')
     app.ensure_agent_db()
     monkeypatch.setattr(service, 'start', lambda: None)
     with closing(db()) as conn:

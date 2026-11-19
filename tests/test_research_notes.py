@@ -28,12 +28,12 @@ def test_quote_metadata_round_trip_and_delete_cleanup(fixture):
     assert client.get(path + '/detail').json['notes'][-1] == entry
     assert '我的判断' in response.json['note']['note']
     assert client.delete(path + '/notes/' + entry['id']).json['note_count'] == 1
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM article_note_metadata').fetchone()[0] == 0
     client.post(path + '/notes', json={'note': '带译文', 'quote': {'text': '译文片段', 'source': 'translated'}})
     client.put(path + '/note', json={'note': '旧客户端整体替换'})
     assert client.get(path + '/detail').json['notes'][0]['author'] == 'user'
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM article_note_metadata').fetchone()[0] == 0
 
 
@@ -82,7 +82,7 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
 
 def test_old_entries_upgrade_without_changing_text_or_times(fixture):
     app, client, item, *_ = fixture
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('DROP TRIGGER article_note_metadata_cleanup')
         conn.execute('DROP TABLE article_note_metadata')
         # Existing clients can still write all five positional values.

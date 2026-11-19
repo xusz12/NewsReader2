@@ -1,6 +1,8 @@
 """Original SQLite layouts must survive startup and either DailyNews input format."""
 from __future__ import annotations
 
+from nr import preferences
+
 import hashlib
 import json
 from pathlib import Path
@@ -70,7 +72,7 @@ def test_existing_database_and_daily_input_keep_history(tmp_path: Path, monkeypa
         "AGENT_RUNTIME_DIR": tmp_path / "agent",
     }.items():
         monkeypatch.setattr(app, key, path)
-    monkeypatch.setattr(app, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app.ensure_db()
     app.ensure_db()  # Repeated startup must not duplicate or erase history.
     client = app.app.test_client()
@@ -91,7 +93,7 @@ def test_existing_database_and_daily_input_keep_history(tmp_path: Path, monkeypa
             assert any(item["id"] == ITEM_ID for item in news["items"])
 
     verify_reading_data()
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         first = reindex(conn, daily_root)
         second = reindex(conn, daily_root)
         assert first.upserted == 1

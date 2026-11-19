@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import preferences
+
 from nr import reviews
 
 from legacy_news_seed import seed_news, confirm_all_read
@@ -28,7 +30,7 @@ def _setup_review_env(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     seed_news(client, json={})
@@ -56,7 +58,7 @@ def test_review_schema_migration_idempotent(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     app_module.ensure_db()  # second call should not error
 
@@ -984,7 +986,7 @@ def test_review_news_reminders_migration_compatible(tmp_path: Path, monkeypatch)
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     # Insert a legacy reminder directly
     conn = sqlite3.connect(str(db_path))
@@ -999,7 +1001,7 @@ def test_review_news_reminders_migration_compatible(tmp_path: Path, monkeypatch)
     conn.close()
     # Reload and ensure_db again
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     r = client.get("/api/reminders?filter=all")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import preferences
+
 from nr import database
 
 from legacy_news_seed import seed_news, confirm_all_read
@@ -31,7 +33,7 @@ def test_global_search_mvp(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: name == "DEEPSEEK_API_KEY")
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: name == "DEEPSEEK_API_KEY")
     app_module.ensure_db()
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
@@ -40,7 +42,7 @@ def test_global_search_mvp(tmp_path: Path, monkeypatch):
     alpha = next(item for item in items if item["title"] == "AlphaTitle")
 
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         with conn:
             conn.execute(
@@ -165,7 +167,7 @@ def test_feed_and_non_feed_sorting_split(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -223,7 +225,7 @@ def test_read_later_cross_date_order_matches_feed_old_to_new(tmp_path: Path, mon
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: name == "DEEPSEEK_API_KEY")
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: name == "DEEPSEEK_API_KEY")
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -283,7 +285,7 @@ def test_feed_unread_cursor_paging_survives_auto_read_shrink(tmp_path: Path, mon
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
@@ -355,7 +357,7 @@ def test_feed_unread_reverse_sort_keeps_cursor_direction(tmp_path: Path, monkeyp
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
@@ -410,7 +412,7 @@ def test_news_sort_order_switches_default_and_reverse_by_collection(tmp_path: Pa
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
@@ -508,7 +510,7 @@ def test_unified_ideas_feed_combines_article_and_trend_notes(tmp_path: Path, mon
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
@@ -604,7 +606,7 @@ def test_search_range_and_time_filters(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: name == "DEEPSEEK_API_KEY")
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: name == "DEEPSEEK_API_KEY")
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -634,7 +636,7 @@ def test_search_range_and_time_filters(tmp_path: Path, monkeypatch):
             ts,
         )
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.executemany(
             """
@@ -1196,7 +1198,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
         ("read", "manual.md", 3, "2026-07-31 09:02:00", "2026-07-31", "09:02", "Reuters · China", "rss", "Reuters", "Read feed item", "s", "https://www.reuters.com/world/china/read", ts, ts),
         ("later", "manual.md", 4, "2026-07-31 09:03:00", "2026-07-31", "09:03", "Reuters · China", "rss", "Reuters", "Read later queue", "s", "https://www.reuters.com/world/china/later", ts, ts),
     ]
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         with conn:
             conn.executemany(
@@ -1218,7 +1220,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
 
     settings = app_module.default_app_settings()
     settings["feed"]["hidden_source_subkeys"] = ["reuters/middle-east"]
-    app_module.save_app_settings(settings)
+    preferences.save_app_settings(settings)
     client = app_module.app.test_client()
 
     idea_id = _create_standalone_idea(client, "待复盘角标想法")
@@ -1250,7 +1252,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
     }
 
     settings["feed"]["hidden_source_subkeys"] = []
-    app_module.save_app_settings(settings)
+    preferences.save_app_settings(settings)
     restored = client.get("/api/nav-summary").get_json()["summary"]
     assert restored["feed_unread"] == 2
     assert restored["read_later_unread"] == 1
@@ -1275,7 +1277,7 @@ def test_standalone_idea_crud_and_merge(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 

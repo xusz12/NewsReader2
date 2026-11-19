@@ -1,3 +1,9 @@
+
+from nr import preferences
+
+from nr import configuration
+
+from nr import tasks
 import io
 import json
 import sqlite3
@@ -190,15 +196,15 @@ def test_settings_credentials_catalog_probe_and_status_follow_selected_provider(
     assert initial['classification']['provider'] == 'jev'
     result = client.put('/api/settings', json={'llm': initial['llm'], 'classification': {'provider': 'openai-decisions'}})
     assert result.status_code == 200
-    assert app.classification_config() == ('openai-key', 'gpt-6-luna', 'openai-decisions')
+    assert tasks.classification_config() == ('openai-key', 'gpt-6-luna', 'openai-decisions')
     assert client.get('/api/news/classification').json['provider_label'] == 'OpenAI Decisions'
     secrets.pop('OPENAI_API_KEY')
-    assert app.classification_config() == ('', 'gpt-6-luna', 'openai-decisions')
+    assert tasks.classification_config() == ('', 'gpt-6-luna', 'openai-decisions')
     assert not client.get('/api/topics').json['matching_configured']
     assert not client.get('/api/tasks/progress').json['topics']['matching_configured']
     secrets['OPENAI_API_KEY'] = 'openai-key'
     monkeypatch.setenv('OPENAI_API_KEY', 'environment-key')
-    assert app.classification_config()[0] == 'environment-key'
+    assert tasks.classification_config()[0] == 'environment-key'
     monkeypatch.delenv('OPENAI_API_KEY')
     calls = []
     def send(request, **kwargs):
@@ -206,7 +212,7 @@ def test_settings_credentials_catalog_probe_and_status_follow_selected_provider(
         if request.data:
             return Reply(decisions_response(json.loads(request.data)['questions']))
         return Reply({'data': [{'id': 'gpt-6-luna'}, {'id': 'unrelated-model'}]})
-    monkeypatch.setattr(app, 'urlopen', send)
+    monkeypatch.setattr(preferences, 'urlopen', send)
     catalog = client.post('/api/settings/apis/openai-decisions/models').json
     assert [m['value'] for m in catalog['catalog']['options']] == ['gpt-6-luna']
     assert client.post('/api/settings/apis/openai-decisions/test', json={}).status_code == 200
@@ -214,7 +220,7 @@ def test_settings_credentials_catalog_probe_and_status_follow_selected_provider(
     assert calls[-1].get_header('Authorization') == 'Bearer openai-key'
     assert client.post('/api/settings/apis/openai-decisions/test', json={'model': 'unrelated-model'}).status_code == 400
     assert client.put('/api/settings', json={'llm': initial['llm'], 'classification': {'concurrency': 2}}).json['classification']['provider'] == 'openai-decisions'
-    assert 'openai-key' not in json.dumps(app.load_app_settings())
+    assert 'openai-key' not in json.dumps(configuration.load_app_settings())
 
 
 def test_combined_classification_and_multiple_independent_topic_answers(env, monkeypatch):
@@ -296,7 +302,7 @@ def test_background_loop_dispatches_selected_provider(conn, monkeypatch):
 @pytest.mark.parametrize('provider', [None, [], {}, 'deepseek', 'unknown'])
 def test_invalid_provider_cannot_mutate_settings(api_fixture, provider):
     app, client, _ = api_fixture
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     result = client.put('/api/settings', json={'llm': before['llm'], 'classification': {'provider': provider}})
     assert result.status_code == 400
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before

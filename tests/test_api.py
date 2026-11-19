@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import preferences
+
 from nr import configuration, database
 
 from api_fixtures import _isolate_app_settings, _install_fake_oar, _setup_agent_api_fixture
@@ -96,7 +98,7 @@ def test_api_news_and_reindex(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -294,7 +296,7 @@ def test_apply_schema_adds_favorite_at_and_read_later_done_at_and_migrates_legac
     app_module.ensure_db()
     app_module.ensure_db()
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(item_state)").fetchall()}
         assert "favorite_at" in cols
@@ -384,7 +386,7 @@ def test_twitter_read_later_enqueues_pending_detail_job(tmp_path: Path, monkeypa
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=?, summary=? WHERE id=?",
             ("Twitter", "Twitter", "twitter", "Tweet summary context.", item["id"]),
@@ -422,7 +424,7 @@ def test_detail_api_includes_ai_fields(tmp_path: Path, monkeypatch):
     item = client.get("/api/news").get_json()["items"][0]
     item_id = item["id"]
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         ts = database.now_ts()
         with conn:
@@ -569,7 +571,7 @@ def test_bloomberg_video_pages_are_hidden_server_side_without_deleting_history(t
     assert indexed.status_code == 200
     assert indexed.json["upserted"] == 12 and indexed.json["skipped_videos"] == 3
 
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 12
         # Simulate video records imported by older versions. Query filters must
         # still protect every surface without requiring a destructive migration.
@@ -656,7 +658,7 @@ def test_bloomberg_video_pages_are_hidden_server_side_without_deleting_history(t
     assert visible_checkpoint.status_code == 200
     assert client.get("/api/reading-checkpoint?scope=feed").get_json()["checkpoint"]["url"] == normal_url
 
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute(
             """
             INSERT OR REPLACE INTO reading_checkpoints(scope, item_id, url, title, updated_at)
@@ -747,7 +749,7 @@ def test_deepseek_failure_uses_pi_fallback_and_persists_result(tmp_path: Path, m
     importlib.reload(app_module)
     app_module.ensure_db()
     stamp = "2026-06-04 17:00:00"
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         with conn:
             conn.execute(
                 """
@@ -780,7 +782,7 @@ def test_deepseek_failure_uses_pi_fallback_and_persists_result(tmp_path: Path, m
     monkeypatch.setattr(app_module, "generate_pi_fallback_translation", succeed_fallback)
     assert app_module.process_pending_ai_once() is True
 
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         ai_row = conn.execute(
             "SELECT model, body_zh, raw_json FROM article_ai WHERE url=?",
             ("https://example.com/pi-fallback",),
@@ -819,7 +821,7 @@ def test_process_pending_jobs_once_twitter_success_and_comment_summary(tmp_path:
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
             ("Twitter", "Twitter", "twitter", item["id"]),
@@ -882,7 +884,7 @@ def test_process_pending_jobs_once_twitter_article_failure_does_not_fail_detail(
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
             ("Twitter", "Twitter", "twitter", item["id"]),
@@ -1035,7 +1037,7 @@ def test_process_pending_ai_once_twitter_generates_body_only(tmp_path: Path, mon
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute("UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?", ("Twitter", "Twitter", "twitter", item["id"]))
         conn.execute(
             """
@@ -1094,7 +1096,7 @@ def test_process_pending_jobs_once_twitter_success_does_not_enqueue_ai_job(tmp_p
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute("UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?", ("Twitter", "Twitter", "twitter", item["id"]))
         app_module.enqueue_detail_job(conn, item["id"], item["url"], "Twitter")
         conn.commit()
@@ -1187,9 +1189,9 @@ def test_release_notes_parser_scans_all_sections_and_filters_invalid_entries(tmp
 """,
         encoding="utf-8",
     )
-    monkeypatch.setattr(app_module, "CHANGELOG_PATH", changelog)
+    monkeypatch.setattr(app_module.release, 'changelog_path', changelog)
 
-    notes = app_module.parse_release_notes()
+    notes = app_module.release.parse_release_notes()
 
     assert [note["version"] for note in notes] == ["v2.2.6", "v2.2.5", "v2.2.3"]
     assert notes[0]["date"] == "2026-10-02"
@@ -1215,7 +1217,7 @@ def test_release_notes_api_returns_current_version_first(tmp_path: Path, monkeyp
     assert payload["ok"] is True
     assert payload["items"]
     first = payload["items"][0]
-    manifest = json.loads((Path(app_module.BASE_DIR) / "version.json").read_text(encoding="utf-8"))
+    manifest = json.loads((Path(app_module.data.root) / "version.json").read_text(encoding="utf-8"))
     assert first["version"] == manifest["version"]
     assert first["date"]
     assert first["lines"]
@@ -1242,7 +1244,7 @@ def test_feed_source_subkey_visibility_settings_only_filter_feed(tmp_path: Path,
         ("3", "manual.md", 3, "2026-07-30 09:02:00", "2026-07-30", "09:02", "MacroMargin", "twitter", "X", "X hidden", "s", "https://x.com/MacroMargin/status/1", ts, ts),
         ("4", "manual.md", 4, "2026-07-30 09:03:00", "2026-07-30", "09:03", "Reuters · Middle East", "rss", "Reuters", "ME important", "s", "https://www.reuters.com/world/middle-east/important", ts, ts),
     ]
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         with conn:
             conn.executemany(
@@ -1261,7 +1263,7 @@ def test_feed_source_subkey_visibility_settings_only_filter_feed(tmp_path: Path,
 
     settings = app_module.default_app_settings()
     settings["feed"]["hidden_source_subkeys"] = ["reuters/middle-east", "x/macromargin"]
-    app_module.save_app_settings(settings)
+    preferences.save_app_settings(settings)
     client = app_module.app.test_client()
 
     feed = client.get("/api/news?collection=feed&read_filter=all&per=10").get_json()
@@ -1295,7 +1297,7 @@ def test_feed_source_subkey_visibility_settings_only_filter_feed(tmp_path: Path,
         json={"collection": "feed", "read_filter": "unread", "source_filter": "all"},
     ).get_json()
     assert marked == {"ok": True, "marked": 1}
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         states = {
             row["item_id"]: row["read_at"]
@@ -1331,7 +1333,7 @@ def test_feed_source_subkeys_use_collection_source_for_x_and_merge_bloomberg(tmp
         ("b2", "manual.md", 5, "2026-07-30 09:04:00", "2026-07-30", "09:04", "Bloomberg · Tech", None, None, "Bloomberg display tech", "s", "https://www.bloomberg.com/news/articles/2", ts, ts),
         ("b3", "manual.md", 6, "2026-07-30 09:05:00", "2026-07-30", "09:05", "Bloomberg · Economics", None, None, "Bloomberg economics", "s", "https://www.bloomberg.com/news/articles/3", ts, ts),
     ]
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         with conn:
             conn.executemany(
@@ -1348,7 +1350,7 @@ def test_feed_source_subkeys_use_collection_source_for_x_and_merge_bloomberg(tmp
 
     settings = app_module.default_app_settings()
     settings["feed"]["hidden_source_subkeys"] = ["x/aiandcloud", "bloomberg/bloomberg_tech"]
-    app_module.save_app_settings(settings)
+    preferences.save_app_settings(settings)
     client = app_module.app.test_client()
 
     settings_payload = client.get("/api/settings").get_json()
@@ -1371,7 +1373,7 @@ def test_feed_source_subkeys_use_collection_source_for_x_and_merge_bloomberg(tmp
     assert {item["id"] for item in feed["items"]} == {"x1", "x2", "x3", "b3"}
 
     settings["feed"]["hidden_source_subkeys"] = ["x/jakevin7"]
-    app_module.save_app_settings(settings)
+    preferences.save_app_settings(settings)
     feed = client.get("/api/news?collection=feed&read_filter=all&per=20").get_json()
     assert feed["total"] == 5
     assert {item["id"] for item in feed["items"]} == {"x2", "x3", "b1", "b2", "b3"}
@@ -1491,7 +1493,7 @@ def test_settings_translation_resolved_default_model_respects_env(tmp_path: Path
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     monkeypatch.setattr(app_module.shutil, "which", lambda name: None)
     app_module.ensure_db()
     client = app_module.app.test_client()
@@ -1515,9 +1517,9 @@ def test_deepseek_model_catalog_fallback_keeps_saved_model(tmp_path: Path, monke
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "urlopen", lambda request, timeout=0: (_ for _ in ()).throw(app_module.HTTPError(app_module.DEEPSEEK_MODELS_URL, 503, "boom", None, None)))
+    monkeypatch.setattr(preferences, 'urlopen', lambda request, timeout=0: (_ for _ in ()).throw(app_module.HTTPError(preferences.DEEPSEEK_MODELS_URL, 503, "boom", None, None)))
 
-    snapshot = app_module.deepseek_settings_snapshot("deepseek-custom-x")
+    snapshot = preferences.deepseek_settings_snapshot("deepseek-custom-x")
     assert snapshot["service"]["configured"] is True
     assert snapshot["service"]["models_endpoint_reachable"] is False
     assert snapshot["service"]["used_fallback"] is True
@@ -1554,7 +1556,7 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     monkeypatch.setattr(app_module.shutil, "which", lambda name: None)
     app_module.ensure_db()
     client = app_module.app.test_client()
@@ -1604,9 +1606,9 @@ def test_settings_secret_api_save_and_delete(tmp_path: Path, monkeypatch):
 
     saved = {}
 
-    monkeypatch.setattr(app_module, "has_secret", lambda name: name in saved)
-    monkeypatch.setattr(app_module, "write_secret", lambda name, value: saved.__setitem__(name, value))
-    monkeypatch.setattr(app_module, "delete_secret", lambda name: saved.pop(name, None))
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: name in saved)
+    monkeypatch.setattr(preferences, 'write_secret', lambda name, value: saved.__setitem__(name, value))
+    monkeypatch.setattr(preferences, 'delete_secret', lambda name: saved.pop(name, None))
 
     initial = client.get("/api/settings").get_json()
     assert initial["api_status"]["deepseek"]["configured"] is False
@@ -1667,9 +1669,9 @@ def test_settings_secret_api_keychain_failure_does_not_leak_key(tmp_path: Path, 
     client = app_module.app.test_client()
 
     def raise_failure(name, value):
-        raise app_module.SecretStoreError("write_failed")
+        raise preferences.SecretStoreError("write_failed")
 
-    monkeypatch.setattr(app_module, "write_secret", raise_failure)
+    monkeypatch.setattr(preferences, 'write_secret', raise_failure)
 
     res = client.put("/api/settings/secrets/deepseek", json={"key": "sk-sensitive-value"})
     assert res.status_code == 500
@@ -1689,9 +1691,9 @@ def test_parse_pi_providers():
         "ollama    minimax-m3:cloud   524.3K   16.4K    yes       yes\n"
         "ollama    qwen3.5:4b         262.1K   16.4K    yes       yes\n"
     )
-    assert app_module.parse_pi_providers(stdout) == ["deepseek", "ollama"]
-    assert app_module.parse_pi_providers("") == []
-    assert app_module.parse_pi_providers("provider  model\n") == []
+    assert preferences.parse_pi_providers(stdout) == ["deepseek", "ollama"]
+    assert preferences.parse_pi_providers("") == []
+    assert preferences.parse_pi_providers("provider  model\n") == []
 
 
 def test_parse_pi_model_catalog():
@@ -1708,17 +1710,17 @@ def test_parse_pi_model_catalog():
         "broken-row\n"
         "ollama    qwen3.5:4b         262.1K   16.4K    yes       yes\n"
     )
-    providers, grouped = app_module.parse_pi_model_catalog(stdout)
+    providers, grouped = preferences.parse_pi_model_catalog(stdout)
     assert providers == ["deepseek", "ollama"]
     assert grouped == {
         "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
         "ollama": ["minimax-m3:cloud", "qwen3.5:4b"],
     }
     # 表头/空行/畸形行（不足两列）/空输出都安全跳过；两列以上的行取前两列。
-    assert app_module.parse_pi_model_catalog("provider  model\n") == ([], {})
-    assert app_module.parse_pi_model_catalog("") == ([], {})
-    assert app_module.parse_pi_model_catalog("onlyprovider\n") == ([], {})
-    providers_two, grouped_two = app_module.parse_pi_model_catalog("deepseek  deepseek-v4-pro  1M  384K  yes  no\n")
+    assert preferences.parse_pi_model_catalog("provider  model\n") == ([], {})
+    assert preferences.parse_pi_model_catalog("") == ([], {})
+    assert preferences.parse_pi_model_catalog("onlyprovider\n") == ([], {})
+    providers_two, grouped_two = preferences.parse_pi_model_catalog("deepseek  deepseek-v4-pro  1M  384K  yes  no\n")
     assert providers_two == ["deepseek"]
     assert grouped_two == {"deepseek": ["deepseek-v4-pro"]}
 
@@ -1732,7 +1734,7 @@ def _pi_catalog_fixture(monkeypatch, app_module, rows):
 def test_pi_chat_settings_snapshot_detects_providers(monkeypatch):
     import app as app_module
     _pi_catalog_fixture(monkeypatch, app_module, [("deepseek", "deepseek-v4-flash"), ("ollama", "minimax-m3:cloud")])
-    catalog = app_module.pi_chat_settings_snapshot("minimax-m3:cloud", "deepseek")["catalog"]
+    catalog = preferences.pi_chat_settings_snapshot("minimax-m3:cloud", "deepseek")["catalog"]
     assert catalog["saved_provider"] == "deepseek"
     assert catalog["resolved_default_provider"] == catalog["resolved_default_model"] == ""
     assert catalog["source"] == "pi-model-registry"
@@ -1747,7 +1749,7 @@ def test_pi_chat_settings_snapshot_error_does_not_reuse_candidates(monkeypatch):
     def fail():
         raise RuntimeError("private error")
     monkeypatch.setattr(app_module.pi_models, "catalog", fail)
-    catalog = app_module.pi_chat_settings_snapshot("old-model", "custom-provider")["catalog"]
+    catalog = preferences.pi_chat_settings_snapshot("old-model", "custom-provider")["catalog"]
     assert catalog["provider_options"] == catalog["options"] == []
     assert catalog["saved_provider"] == "custom-provider"
     assert catalog["saved_model"] == "old-model"
@@ -1758,13 +1760,13 @@ def test_pi_chat_settings_snapshot_error_does_not_reuse_candidates(monkeypatch):
 def test_pi_chat_settings_snapshot_removes_logged_out_provider_even_when_saved(monkeypatch):
     import app as app_module
     _pi_catalog_fixture(monkeypatch, app_module, [("deepseek", "deepseek-v4-pro"), ("ollama", "local")])
-    assert len(app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]["provider_options"]) == 2
+    assert len(preferences.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]["provider_options"]) == 2
     _pi_catalog_fixture(monkeypatch, app_module, [("ollama", "local")])
-    catalog = app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
+    catalog = preferences.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
     assert [option["value"] for option in catalog["provider_options"]] == ["ollama"]
     assert catalog["options"] == [] and "deepseek" not in catalog["model_options_by_provider"]
     _pi_catalog_fixture(monkeypatch, app_module, [])
-    empty = app_module.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
+    empty = preferences.pi_chat_settings_snapshot("deepseek-v4-pro", "deepseek")["catalog"]
     assert empty["provider_options"] == [] and empty["model_options_by_provider"] == {}
     assert empty["error"] == "" and empty["source"] == "pi-model-registry"
     assert empty["saved_provider"] == "deepseek"
@@ -1772,7 +1774,7 @@ def test_pi_chat_settings_snapshot_removes_logged_out_provider_even_when_saved(m
 
 def test_run_pi_chat_success(tmp_path: Path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, "AGENT_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / "runtime")
     captured = {}
     def fake_run(command, request, env, timeout):
         captured.update(command=command, request=request, env=env)
@@ -1792,7 +1794,7 @@ def test_run_pi_chat_success(tmp_path: Path, monkeypatch):
 
 def test_run_pi_chat_archive_success(tmp_path: Path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, "AGENT_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / "runtime")
     calls = []
     def fake_run(command, request, env, timeout):
         calls.append((command, request, env))
@@ -1813,7 +1815,7 @@ def test_run_pi_chat_archive_success(tmp_path: Path, monkeypatch):
 
 def test_run_pi_chat_archive_empty_raises(tmp_path: Path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, "AGENT_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / "runtime")
     monkeypatch.setattr(app_module, "run_oar_once", lambda *args: "")
     with pytest.raises(RuntimeError, match="pi_empty_archive"):
         app_module.run_pi_chat_archive(title="News", source="Reuters", published_at="2026-06-11",
@@ -1853,7 +1855,7 @@ def test_news_chat_dispatches_to_pi_when_configured(tmp_path: Path, monkeypatch)
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         ts = database.now_ts()
         with conn:
             conn.execute(
@@ -1904,7 +1906,7 @@ def test_news_chat_dispatches_to_pi_when_configured(tmp_path: Path, monkeypatch)
 
 def test_pi_chat_first_and_follow_up_reuse_the_same_session(tmp_path: Path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, "AGENT_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / "runtime")
     calls = []
     def fake_run(command, request, env, timeout):
         calls.append((command, request))
@@ -1993,7 +1995,7 @@ def test_news_chat_pi_timeout_maps_to_provider_timeout(tmp_path: Path, monkeypat
     assert seed_news(client, json={}).status_code == 200
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         ts = database.now_ts()
         with conn:
             conn.execute(
@@ -2123,7 +2125,7 @@ def test_detail_api_returns_twitter_media_images_and_hides_raw_json(tmp_path: Pa
         {"media_images": [{"url": "https://pbs.twimg.com/media/a.jpg", "source": "tweet"}]},
         ensure_ascii=False,
     )
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2170,7 +2172,7 @@ def test_detail_api_non_twitter_has_no_media_images(tmp_path: Path, monkeypatch)
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             """
@@ -2212,7 +2214,7 @@ def test_detail_retry_twitter_with_detail_requeues_detail_job(tmp_path: Path, mo
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2233,7 +2235,7 @@ def test_detail_retry_twitter_with_detail_requeues_detail_job(tmp_path: Path, mo
     assert retry.status_code == 200
     assert retry.get_json()["ok"] is True
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         job = conn.execute("SELECT status FROM detail_jobs WHERE url=?", (url,)).fetchone()
         assert job is not None
@@ -2266,7 +2268,7 @@ def test_detail_retry_twitter_with_detail_mode_ai_requeues_ai_job(tmp_path: Path
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2300,7 +2302,7 @@ def test_detail_retry_twitter_with_detail_mode_ai_requeues_ai_job(tmp_path: Path
     assert retry.status_code == 200
     assert retry.get_json()["ok"] is True
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         job = conn.execute("SELECT status FROM ai_jobs WHERE url=?", (url,)).fetchone()
         assert job is not None
@@ -2339,7 +2341,7 @@ def test_detail_retry_non_twitter_with_detail_still_requeues_ai_job(tmp_path: Pa
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             """
@@ -2369,7 +2371,7 @@ def test_detail_retry_non_twitter_with_detail_still_requeues_ai_job(tmp_path: Pa
     assert retry.status_code == 200
     assert retry.get_json()["ok"] is True
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         job = conn.execute("SELECT status FROM ai_jobs WHERE url=?", (url,)).fetchone()
         assert job is not None
@@ -2442,7 +2444,7 @@ def test_detail_api_sanitizes_twitter_media_images_and_hides_raw_json(tmp_path: 
         },
         ensure_ascii=False,
     )
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2492,7 +2494,7 @@ def test_detail_retry_twitter_resets_detail_job_attempts_and_timestamps(tmp_path
 
     item = client.get("/api/news?per=20").get_json()["items"][0]
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2519,7 +2521,7 @@ def test_detail_retry_twitter_resets_detail_job_attempts_and_timestamps(tmp_path
     retry = client.post(f"/api/news/{item['id']}/detail/retry")
     assert retry.status_code == 200
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         job = conn.execute("SELECT status, attempts, last_error, started_at, finished_at FROM detail_jobs WHERE url=?", (url,)).fetchone()
         assert job["status"] == "pending"
@@ -2569,7 +2571,7 @@ def test_cache_twitter_image_downloads_and_records(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(app_module, "_download_media_file", fake_download)
 
     url = "https://pbs.twimg.com/media/sample.jpg"
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         result = app_module._cache_twitter_image(conn, url)
         conn.commit()
@@ -2580,7 +2582,7 @@ def test_cache_twitter_image_downloads_and_records(tmp_path: Path, monkeypatch):
     assert result["cached_url"].startswith("/api/media-cache/")
     cache_key = result["cache_key"]
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         row = conn.execute("SELECT * FROM media_cache WHERE url=?", (url,)).fetchone()
         assert row["status"] == "success"
@@ -2591,7 +2593,7 @@ def test_cache_twitter_image_downloads_and_records(tmp_path: Path, monkeypatch):
         conn.close()
 
     # Second call should return existing cache without re-downloading.
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         result2 = app_module._cache_twitter_image(conn, url)
     finally:
@@ -2615,7 +2617,7 @@ def test_cache_twitter_image_failure_records_failed_status(tmp_path: Path, monke
     monkeypatch.setattr(app_module, "_download_media_file", fake_download)
 
     url = "https://pbs.twimg.com/media/missing.jpg"
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         result = app_module._cache_twitter_image(conn, url)
         conn.commit()
@@ -2623,7 +2625,7 @@ def test_cache_twitter_image_failure_records_failed_status(tmp_path: Path, monke
         conn.close()
 
     assert result is None
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         row = conn.execute("SELECT status, last_error FROM media_cache WHERE url=?", (url,)).fetchone()
         assert row["status"] == "failed"
@@ -2649,7 +2651,7 @@ def test_cleanup_media_cache_removes_old_files_and_records(tmp_path: Path, monke
     new_file.parent.mkdir(parents=True, exist_ok=True)
     new_file.write_bytes(b"new")
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         ts = database.now_ts()
         old_ts = (datetime.now() - timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
@@ -2673,7 +2675,7 @@ def test_cleanup_media_cache_removes_old_files_and_records(tmp_path: Path, monke
     finally:
         conn.close()
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         rows = conn.execute("SELECT url FROM media_cache").fetchall()
         assert [r["url"] for r in rows] == ["https://pbs.twimg.com/media/new.jpg"]
@@ -2693,7 +2695,7 @@ def test_run_opencli_twitter_detail_caches_images(monkeypatch, tmp_path):
     app_module.ensure_db()
     # Media belongs to an indexed article; a deleted/unowned article must not
     # create orphan cache files when an in-flight download completes.
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         conn.execute("""INSERT INTO items(id,source_file,item_order,published_at,date,title,url,created_at,updated_at)
             VALUES ('media-item','fixture.md',1,'2026-06-11 09:00:00','2026-06-11','Media fixture',
                     'https://x.com/example/status/123','2026-06-11','2026-06-11')""")
@@ -2775,7 +2777,7 @@ def test_detail_api_returns_cached_urls_for_twitter_images(tmp_path: Path, monke
         },
         ensure_ascii=False,
     )
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             "UPDATE items SET source=?, source_name=?, source_type=? WHERE id=?",
@@ -2826,7 +2828,7 @@ def test_media_cache_route_serves_cached_file(tmp_path: Path, monkeypatch):
     full_path.write_bytes(b"cached-data")
 
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             """
@@ -2877,7 +2879,7 @@ def test_media_cache_route_blocks_traversal_and_sibling_prefix(tmp_path: Path, m
     app_module.ensure_db()
 
     ts = database.now_ts()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         conn.execute(
             """
@@ -2909,7 +2911,7 @@ def test_cleanup_media_cache_does_not_delete_outside_files(tmp_path: Path, monke
     outside_file = tmp_path / "outside.jpg"
     outside_file.write_bytes(b"outside")
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         old_ts = (datetime.now() - timedelta(days=31)).strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
@@ -2926,7 +2928,7 @@ def test_cleanup_media_cache_does_not_delete_outside_files(tmp_path: Path, monke
         conn.close()
 
     assert outside_file.exists()
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         row = conn.execute("SELECT url FROM media_cache WHERE cache_key=?", ("0" * 64,)).fetchone()
         assert row is None
@@ -2954,7 +2956,7 @@ def test_cache_twitter_image_rejects_non_whitelisted_url(tmp_path: Path, monkeyp
 
     monkeypatch.setattr(app_module, "_download_media_file", fake_download)
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         assert app_module._cache_twitter_image(conn, "https://example.com/image.jpeg") is None
         assert app_module._cache_twitter_image(conn, "http://pbs.twimg.com/media/a.jpg") is None
@@ -3119,7 +3121,7 @@ def test_settings_save_normalizes_deprecated_deepseek_model(tmp_path: Path, monk
     import app as app_module
 
     importlib.reload(app_module)
-    normalized = app_module.validate_runtime_settings(
+    normalized = app_module.catalogs.validate_runtime_settings(
         {"llm": {"translation": {"provider": "deepseek", "model": "deepseek-chat"}}}
     )
     assert normalized["llm"]["translation"]["model"] == "deepseek-v4-flash"
@@ -3155,7 +3157,7 @@ def test_agent_session_new_and_clear_are_real_and_idempotent(tmp_path: Path, mon
     )
     assert old_job.status_code == 202
     old_job_id = old_job.get_json()["job_id"]
-    with app_module.agent_db_conn() as conn:
+    with app_module.data.agent_connect() as conn:
         with conn:
             conn.execute(
                 "UPDATE agent_jobs SET status='failed', error='old_error', finished_at=?, updated_at=? WHERE id=?",
@@ -3211,7 +3213,7 @@ def test_oar_empty_terminal_does_not_promote_streamed_text(tmp_path: Path, monke
     assert job["answer_text"] == "完成"
     payload = app_module.load_agent_payload(item["id"])
     assert payload["messages"][-1]["status"] == "failed"
-    with app_module.agent_db_conn() as conn:
+    with app_module.data.agent_connect() as conn:
         assert conn.execute("SELECT executor_session_id FROM agent_sessions").fetchone()[0] == ""
     runtime = app_module.agent_session_runtime_dir(app_module._full_pi_executor_session_id(payload["session"]["id"]))
     assert not (runtime / "session.json").exists()
@@ -3347,7 +3349,7 @@ def test_agent_existing_temp_db_is_migrated_before_session_use(tmp_path: Path, m
 
 def test_agent_legacy_pi_session_switches_with_one_time_visible_history(tmp_path: Path, monkeypatch):
     app_module, _client, item, _db_path, _agent_db_path = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         detail = conn.execute("SELECT * FROM article_details WHERE url=?", (item["url"],)).fetchone()
     context = app_module.build_agent_context(item, detail)
     legacy_id = "newsreader-agent-legacy-session"
@@ -3438,7 +3440,7 @@ def test_agent_ttl_setting_persists_and_ui_exposes_cleanup_controls(tmp_path: Pa
     )
     assert saved.status_code == 200
     assert saved.get_json()["agent"]["session_ttl_hours"] == 24
-    assert app_module.load_app_settings()["agent"]["session_ttl_hours"] == 24
+    assert configuration.load_app_settings()["agent"]["session_ttl_hours"] == 24
 
 
 def test_database_settings_connect_selected_db_in_fresh_process(tmp_path: Path, monkeypatch):
@@ -3466,7 +3468,7 @@ def test_database_settings_connect_selected_db_in_fresh_process(tmp_path: Path, 
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         assert conn.execute("SELECT value FROM switch_marker").fetchone()[0] == "initial"
     saved = client.put("/api/settings", json=payload)
     assert saved.status_code == 200
@@ -3476,17 +3478,17 @@ def test_database_settings_connect_selected_db_in_fresh_process(tmp_path: Path, 
     refreshed = client.get("/api/settings").get_json()["database"]
     assert refreshed["configured_path"] == str(selected_db.resolve())
     assert refreshed["path"] == str(initial_db.resolve())
-    with app_module.db_conn() as conn:
+    with app_module.data.connect() as conn:
         assert conn.execute("SELECT value FROM switch_marker").fetchone()[0] == "initial"
 
     fresh_process = subprocess.run(
         [sys.executable, "-c", textwrap.dedent("""
             import json
-            from app import DB_PATH, db_conn, database_runtime_snapshot
-            with db_conn() as conn:
+            from app import data, catalogs
+            with data.connect() as conn:
                 marker = conn.execute("SELECT value FROM switch_marker").fetchone()[0]
-            print(json.dumps({"path": str(DB_PATH.resolve()), "marker": marker,
-                              "database": database_runtime_snapshot()}))
+            print(json.dumps({"path": str(data.path.resolve()), "marker": marker,
+                              "database": catalogs.database_runtime_snapshot()}))
         """)],
         cwd=project_root, env=os.environ.copy(), capture_output=True, text=True, timeout=15, check=True,
     )
@@ -3525,9 +3527,9 @@ def test_database_settings_roundtrip_and_restart_uses_saved_existing_sqlite(tmp_
     assert saved.get_json()["database"]["path"] == str(initial_db)
 
     importlib.reload(app_module)
-    assert app_module.DB_PATH == selected_db
-    assert app_module.MEDIA_CACHE_DIR == selected_db.parent / "media-cache"
-    assert app_module.AGENT_DB_PATH == selected_db.parent / "agent_sessions.sqlite3"
+    assert app_module.data.path == selected_db
+    assert app_module.data.media_dir == selected_db.parent / "media-cache"
+    assert app_module.data.agent_path == selected_db.parent / "agent_sessions.sqlite3"
 
     project_root = Path(__file__).resolve().parents[1]
     child_env = os.environ.copy()
@@ -3539,7 +3541,7 @@ def test_database_settings_roundtrip_and_restart_uses_saved_existing_sqlite(tmp_
         [
             sys.executable,
             "-c",
-            "from app import DB_PATH; print(DB_PATH.expanduser().resolve())",
+            "from app import data; print(data.path.expanduser().resolve())",
         ],
         cwd=project_root,
         env=child_env,
@@ -3565,7 +3567,7 @@ def test_default_database_is_created_when_no_database_exists(tmp_path: Path, mon
     import app as app_module
 
     importlib.reload(app_module)
-    assert app_module.DB_PATH == project_db
+    assert app_module.data.path == project_db
     assert not project_db.exists()
     app_module.ensure_db()
     assert project_db.is_file()
@@ -3647,7 +3649,7 @@ def test_database_native_picker_returns_json_on_unexpected_failure(tmp_path: Pat
     app_module.ensure_db()
     client = app_module.app.test_client()
     monkeypatch.delenv("NEWS_READER_DB_PATH", raising=False)
-    monkeypatch.setattr(app_module, "choose_existing_database_path", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(app_module.catalogs, 'choose_existing_database_path', lambda: (_ for _ in ()).throw(RuntimeError("boom")))
 
     response = client.post("/api/settings/database/pick")
     assert response.status_code == 500
@@ -3742,7 +3744,7 @@ def test_oar_timeout_and_stop_cleanup(tmp_path, monkeypatch):
     payload = app_module.load_agent_payload(item['id'])
     assert payload['jobs'][-1]['status'] == 'failed'
     assert payload['jobs'][-1]['error'] == 'agent_timeout'
-    assert not list(app_module.AGENT_RUNTIME_DIR.glob('*/config-*'))
+    assert not list(app_module.data.agent_dir.glob('*/config-*'))
     monkeypatch.setattr(app_module, 'AGENT_JOB_TIMEOUT_SECONDS', 10)
     # The short timeout can expire before the first fake runtime writes its log.
     # Wait for this invocation, not an assumed second line in an existing file.
@@ -3761,7 +3763,7 @@ def test_oar_timeout_and_stop_cleanup(tmp_path, monkeypatch):
     assert started
     assert app_module.load_agent_payload(item['id'])['jobs'][-1]['status'] == 'stopped'
     assert not app_module.AGENT_PROCESSES
-    assert not list(app_module.AGENT_RUNTIME_DIR.glob('*/config-*'))
+    assert not list(app_module.data.agent_dir.glob('*/config-*'))
 
 
 def test_oar_stop_wins_completion_race(tmp_path, monkeypatch):
@@ -3781,7 +3783,7 @@ def test_oar_stop_wins_completion_race(tmp_path, monkeypatch):
 
 def test_oar_sync_legacy_id_is_imported_not_discarded(tmp_path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, 'AGENT_RUNTIME_DIR', tmp_path / 'runtime')
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / 'runtime')
     requests = []
     def fake_run(command, request, env, timeout):
         requests.append(request)
@@ -3801,7 +3803,7 @@ def test_oar_sync_legacy_id_is_imported_not_discarded(tmp_path, monkeypatch):
 
 def test_pi_archive_uses_oar_and_cleans_private_state(tmp_path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, 'AGENT_RUNTIME_DIR', tmp_path / 'runtime')
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / 'runtime')
     states = []
     def fake_run(command, request, env, timeout):
         state = Path(request['state_dir'])
@@ -3819,7 +3821,7 @@ def test_pi_archive_uses_oar_and_cleans_private_state(tmp_path, monkeypatch):
 
 def test_legacy_background_session_always_reports_oar(tmp_path, monkeypatch):
     import app as app_module
-    monkeypatch.setattr(app_module, 'AGENT_RUNTIME_DIR', tmp_path / 'runtime')
+    monkeypatch.setattr(app_module.data, 'agent_dir', tmp_path / 'runtime')
     session_id = 'fixture-legacy-label'
     state = app_module.agent_session_runtime_dir(app_module._full_pi_executor_session_id(session_id))
     state.mkdir(parents=True)

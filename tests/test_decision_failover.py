@@ -1,3 +1,5 @@
+
+from nr import configuration
 import io
 import json
 import sqlite3
@@ -264,7 +266,7 @@ def test_settings_persistence_and_live_route_when_primary_key_missing(api_fixtur
     assert put({'fallback_enabled': 'false'}).status_code == 400
     assert put({'fallback_enabled': True}).status_code == 200
     assert put({'concurrency': 2}).json['classification']['fallback_enabled']
-    assert app.load_app_settings()['classification']['provider'] == 'jev'
+    assert configuration.load_app_settings()['classification']['provider'] == 'jev'
     progress = client.get('/api/news/classification').json
     assert progress['configured'] and progress['using_backup'] and progress['active_provider'] == 'openai-decisions'
     assert client.get('/api/topics').json['matching_configured']
@@ -312,12 +314,12 @@ def test_late_failure_cannot_reopen_recovered_primary(conn):
 def test_saved_settings_route_a_background_worker_and_report_actual_provider(api_fixture, monkeypatch):
     app, client, keys = api_fixture
     keys.update(TYPESAFE_API_KEY='first-key', OPENAI_API_KEY='second-key')
-    body = {'llm': app.load_app_settings()['llm'], 'classification': {'concurrency':1, 'fallback_enabled':True}}
+    body = {'llm': configuration.load_app_settings()['llm'], 'classification': {'concurrency':1, 'fallback_enabled':True}}
     assert client.put('/api/settings', json=body).status_code == 200
-    with closing(app.db_conn()) as db:
+    with closing(app.data.connect()) as db:
         enqueue(db, 'live-routing-fixture')
     calls = []
-    worker = app.CLASSIFICATION_SERVICE
+    worker = app.background.classification
     def send(req, **kwargs):
         calls.append((req.full_url, req.get_header('Authorization')))
         if req.full_url.startswith('https://api.typesafe.ai/'):
@@ -332,7 +334,7 @@ def test_saved_settings_route_a_background_worker_and_report_actual_provider(api
         assert not worker.threads[0].is_alive()
         assert calls == [('https://api.typesafe.ai/v1/systemone', 'Bearer first-key'),
                          ('https://api.openai.com/v1/decisions', 'Bearer second-key')]
-        with closing(app.db_conn()) as db:
+        with closing(app.data.connect()) as db:
             assert db.execute("SELECT COUNT(*) FROM item_classifications WHERE status='done' AND provider='openai-decisions'").fetchone()[0] == 1
         progress = client.get('/api/news/classification').json
         assert progress['using_backup'] and progress['provider'] == 'jev' and progress['provider_label'] == 'OpenAI Decisions'

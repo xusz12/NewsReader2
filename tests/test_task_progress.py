@@ -1,5 +1,7 @@
 """Header observation uses queue metadata, never news text or model execution."""
 
+from nr import preferences
+
 from nr import configuration
 from contextlib import closing
 import json
@@ -97,26 +99,26 @@ def test_reports_keep_real_phases_retries_and_bounded_rows(db):
 
 def test_progress_api_does_not_start_work_and_hides_internal_errors(db,monkeypatch):
     import app
-    monkeypatch.setattr(app,'db_conn',db)
-    monkeypatch.setattr(app,'provider_has_configured_key',lambda provider:False)
+    monkeypatch.setattr(app.data,'connect',db)
+    monkeypatch.setattr(preferences,'provider_has_configured_key',lambda provider:False)
     def forbidden(*args,**kwargs):raise AssertionError('Observation started work')
-    monkeypatch.setattr(app.CLASSIFICATION_SERVICE,'start',forbidden)
-    monkeypatch.setattr(app,'provider_secret_value',forbidden)
-    monkeypatch.setattr(app.REPORT_SERVICE,'start',forbidden)
-    monkeypatch.setattr(app.TOPIC_SERVICE,'start',forbidden)
+    monkeypatch.setattr(app.background.classification,'start',forbidden)
+    monkeypatch.setattr(preferences,'provider_secret_value',forbidden)
+    monkeypatch.setattr(app.background.reports,'start',forbidden)
+    monkeypatch.setattr(app.background.topics,'start',forbidden)
     monkeypatch.setattr(configuration,'current_runtime_settings',forbidden)
     with app.app.test_client() as client:
         result=client.get('/api/tasks/progress')
         assert result.status_code==200 and not result.get_json()['topics']['matching_configured']
         def broken():raise sqlite3.OperationalError('private path /secret/db')
-        monkeypatch.setattr(app,'db_conn',broken)
+        monkeypatch.setattr(app.data,'connect',broken)
         failure=client.get('/api/tasks/progress')
         assert failure.status_code==503 and failure.get_json()=={'ok':False,'error':'task_progress_unavailable'}
 
 
 def test_clear_covers_unlisted_failures_preserves_retries_and_new_errors(db, monkeypatch):
     import app
-    monkeypatch.setattr(app, 'db_conn', db)
+    monkeypatch.setattr(app.data, 'connect', db)
     source = due(db)['id']
     with closing(db()) as conn, conn:
         columns = [r[1] for r in conn.execute('PRAGMA table_info(periodic_reports)')]

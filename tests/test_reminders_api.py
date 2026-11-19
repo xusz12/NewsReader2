@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import preferences
+
 from legacy_news_seed import seed_news, confirm_all_read
 import importlib
 from pathlib import Path
@@ -25,7 +27,7 @@ def test_news_reminders_crud_and_snapshot_summary(tmp_path: Path, monkeypatch):
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -118,7 +120,7 @@ def test_reminder_snapshot_survives_stale_item_deletion(tmp_path: Path, monkeypa
     import app as app_module
 
     importlib.reload(app_module)
-    monkeypatch.setattr(app_module, "has_secret", lambda name: False)
+    monkeypatch.setattr(preferences, 'has_secret', lambda name: False)
     app_module.ensure_db()
     client = app_module.app.test_client()
 
@@ -161,7 +163,7 @@ def test_apply_schema_creates_news_reminders_table_and_indexes(tmp_path: Path, m
     app_module.ensure_db()
     app_module.ensure_db()
 
-    conn = app_module.db_conn()
+    conn = app_module.data.connect()
     try:
         tables = {
             row["name"]

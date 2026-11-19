@@ -123,7 +123,7 @@ def test_history_is_bounded_and_endpoint_cannot_start_work(service, db, monkeypa
     assert recent[0]["id"] == custom["id"]
     assert sum(row["kind"] == "morning" for row in recent) == 19
     import app
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     monkeypatch.setattr(service, "start", lambda: pytest.fail("Status route must not start work"))
     before = snapshot(db)
     client = app.app.test_client()

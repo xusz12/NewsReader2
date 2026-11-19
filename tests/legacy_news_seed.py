@@ -10,7 +10,7 @@ from legacy_news_scanner import reindex
 
 def seed_news(client, json=None):
     import app
-    with closing(app.db_conn()) as conn:
+    with closing(app.data.connect()) as conn:
         stats = reindex(conn, Path(os.environ["NEWS_READER_DAILY_NEWS_DIR"]), full=bool((json or {}).get("full")))
         matched = tracked_topics.run_tracked_topics_incremental(conn)
         conn.commit()

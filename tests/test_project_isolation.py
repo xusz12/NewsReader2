@@ -22,10 +22,10 @@ def test_keychain_operations_use_independent_account(monkeypatch):
 
 def test_agent_runtime_is_scoped_to_project(monkeypatch, tmp_path):
     monkeypatch.delenv("NEWS_READER_AGENT_RUNTIME_DIR", raising=False)
-    monkeypatch.setattr(app, "BASE_DIR", tmp_path / "first")
-    first = app.resolve_agent_runtime_dir()
-    monkeypatch.setattr(app, "BASE_DIR", tmp_path / "second")
-    assert app.resolve_agent_runtime_dir() != first
+    monkeypatch.setattr(app.data, 'root', tmp_path / "first")
+    first = app.data.resolve_agent_runtime_dir()
+    monkeypatch.setattr(app.data, 'root', tmp_path / "second")
+    assert app.data.resolve_agent_runtime_dir() != first
     assert first.name == "agent"
     assert first.parent.name.startswith("newsreader-workbench-")
     assert updater.PROJECT_RUNTIME_DIR.name.startswith("newsreader-workbench-")

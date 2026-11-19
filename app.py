@@ -125,55 +125,15 @@ from settings import (
 )
 
 
-BASE_DIR = Path(__file__).resolve().parent
-SCHEMA_PATH = BASE_DIR / "schema.sql"
-STATIC_DIR = BASE_DIR / "static"
-DB_PATH = resolve_db_path()
-CHANGELOG_PATH = BASE_DIR / "CHANGELOG.md"
-VERSION_PATH = BASE_DIR / "version.json"
-UPDATE_CHECK_URL = github_tags_url(UPDATE_REPOSITORY_URL)
-UPDATE_CHECK_TTL = 300
-UPDATE_TOKEN_TTL = 600
-UPDATE_CHECK_LOCK = threading.Lock()
-UPDATE_CHECK_CACHE: dict | None = None
-UPDATE_TOKENS: dict[str, dict] = {}
-UPDATE_LAUNCH_LOCK = threading.Lock()
-UPDATE_PROCESS: subprocess.Popen | None = None
-REPORT_SNAPSHOT_LOCK = threading.RLock()
+from nr import preferences, reports, services, summaries, tasks, topics, updates
 
+data = database.Database()
+catalogs = preferences.Preferences(data)
+release = updates.Updates(data)
 
-def resolve_media_cache_dir() -> Path:
-    env = os.environ.get("NEWS_READER_MEDIA_CACHE_DIR")
-    if env:
-        return Path(env).expanduser().resolve()
-    return DB_PATH.parent / "media-cache"
-
-
-MEDIA_CACHE_DIR = resolve_media_cache_dir()
-
-
-def resolve_agent_session_db_path() -> Path:
-    env = os.environ.get("NEWS_READER_AGENT_DB_PATH")
-    if env:
-        return Path(env).expanduser().resolve()
-    return DB_PATH.parent / "agent_sessions.sqlite3"
-
-
-def resolve_agent_runtime_dir() -> Path:
-    env = os.environ.get("NEWS_READER_AGENT_RUNTIME_DIR")
-    if env:
-        return Path(env).expanduser().resolve()
-    # CLI 会话文件放在系统临时目录，不让默认运行态目录落入仓库或常规备份。
-    project_id = hashlib.sha256(str(BASE_DIR).encode()).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"newsreader-workbench-{project_id}" / "agent"
-
-
-AGENT_DB_PATH = resolve_agent_session_db_path()
-AGENT_RUNTIME_DIR = resolve_agent_runtime_dir()
-
-app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+app = Flask(__name__, static_folder=str(data.static_dir), static_url_path="/static")
 app.after_request(compress_static_response)
-PERSONAL_ASSISTANT_SERVICE = personal_assistant.register(app, lambda: DB_PATH, load_app_settings)
+PERSONAL_ASSISTANT_SERVICE = personal_assistant.register(app, lambda: data.path, configuration.load_app_settings)
 
 DETAIL_LOCK = threading.Lock()
 CHAT_LOCKS: dict[str, threading.Lock] = {}
@@ -212,46 +172,9 @@ AGENT_JOB_TIMEOUT_SECONDS = 300
 AGENT_STREAM_POLL_SECONDS = 0.5
 AGENT_WORKER_COUNT = 2
 AGENT_ERROR_MAX_LENGTH = 500
-RELEASE_NOTE_HEADING_RE = re.compile(r"^###\s+(?P<date>\d{4}-\d{2}-\d{2})\s+—\s+(?P<title>.+?)\s*$")
-VERSION_RE = re.compile(r"\bv\d+(?:\.\d+){1,3}\b", re.IGNORECASE)
-SECRET_PROVIDER_MAP = {
-    **{provider: config["secret_name"] for provider, config in model_apis.API_PROVIDERS.items()},
-    "openai": "OPENAI_API_KEY",
-}
-DEEPSEEK_MODEL_FALLBACKS = [
-    "deepseek-v4-flash",
-    "deepseek-v4-pro",
-]
-
-SETTINGS_MODEL_OPTION_LIMIT = 40
-DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
-
-
 # Preparing a body is independent of the user's reading queue.
-def db_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=15)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.create_function("feed_source_subkey", 4, feed_source_subkey_sql, deterministic=True)
-    except TypeError:  # pragma: no cover - older sqlite/python fallback
-        conn.create_function("feed_source_subkey", 4, feed_source_subkey_sql)
-    try:
-        conn.create_function("is_bloomberg_video_url", 1, lambda url: int(is_bloomberg_video_url(url)), deterministic=True)
-    except TypeError:  # pragma: no cover - older sqlite/python fallback
-        conn.create_function("is_bloomberg_video_url", 1, lambda url: int(is_bloomberg_video_url(url)))
-    return conn
-
-
-def agent_db_conn() -> sqlite3.Connection:
-    AGENT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(AGENT_DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
 def agent_session_ttl_hours() -> int:
-    raw = load_app_settings()
+    raw = configuration.load_app_settings()
     agent = raw.get("agent") if isinstance(raw, dict) else None
     value = agent.get("session_ttl_hours") if isinstance(agent, dict) else None
     return int(value) if value in AGENT_SESSION_TTL_OPTIONS else AGENT_DEFAULT_SESSION_TTL_HOURS
@@ -266,14 +189,14 @@ def agent_expiry_for(timestamp: str) -> str:
 
 
 def agent_session_runtime_dir(session_id: str) -> Path:
-    return AGENT_RUNTIME_DIR / session_id
+    return data.agent_dir / session_id
 
 
 def _remove_agent_runtime_dir(session_id: str) -> None:
     if not session_id:
         return
     path = agent_session_runtime_dir(session_id).resolve()
-    root = AGENT_RUNTIME_DIR.resolve()
+    root = data.agent_dir.resolve()
     if path == root or root not in path.parents:
         return
     try:
@@ -284,9 +207,9 @@ def _remove_agent_runtime_dir(session_id: str) -> None:
 
 
 def ensure_agent_db() -> None:
-    AGENT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    AGENT_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    conn = agent_db_conn()
+    data.agent_path.parent.mkdir(parents=True, exist_ok=True)
+    data.agent_dir.mkdir(parents=True, exist_ok=True)
+    conn = data.agent_connect()
     try:
         conn.executescript(
             """
@@ -366,7 +289,7 @@ def ensure_agent_db() -> None:
 
 def cleanup_agent_sessions(conn: sqlite3.Connection | None = None) -> int:
     owns_connection = conn is None
-    local_conn = conn or agent_db_conn()
+    local_conn = conn or data.agent_connect()
     removed = 0
     try:
         rows = local_conn.execute(
@@ -400,7 +323,7 @@ def cleanup_agent_sessions(conn: sqlite3.Connection | None = None) -> int:
 def mark_agent_jobs_interrupted() -> int:
     """把服务重启前未结束的工作标为 interrupted，避免伪装成仍在运行。"""
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         stamp = database.now_ts()
         with conn:
@@ -448,7 +371,7 @@ def mark_agent_jobs_interrupted() -> int:
 def refresh_agent_session_expiries() -> None:
     """让设置页修改的 TTL 立即作用于现有会话，而不是只作用于下一次提问。"""
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         rows = conn.execute(
             "SELECT id, last_activity_at FROM agent_sessions WHERE status IN ('active', 'archived')"
@@ -464,11 +387,11 @@ def refresh_agent_session_expiries() -> None:
 
 
 def ensure_db() -> None:
-    MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    conn = db_conn()
+    data.media_dir.mkdir(parents=True, exist_ok=True)
+    conn = data.connect()
     try:
         conn.execute("PRAGMA journal_mode=WAL")
-        apply_schema(conn, SCHEMA_PATH)
+        apply_schema(conn, data.schema_path)
         news_collection.initialize(conn)
         collection_environment.initialize(conn)
         if "title" not in {row[1] for row in conn.execute("PRAGMA table_info(standalone_ideas)")}:
@@ -483,778 +406,9 @@ def ensure_db() -> None:
         conn.commit()
     finally:
         conn.close()
-    with closing(db_conn()) as conn:
+    with closing(data.connect()) as conn:
         periodic_reports.initialize(conn)
     ensure_agent_db()
-
-
-def categorize_release_note(title: str) -> str:
-    lowered = title.lower()
-    if "fix:" in lowered or lowered.startswith("fix"):
-        return "FIX"
-    if "feat:" in lowered or lowered.startswith("feat"):
-        return "NEW"
-    return "IMPROVE"
-
-
-def parse_release_notes() -> list[dict]:
-    """Parse versioned entries from the whole CHANGELOG in file order.
-
-    CHANGELOG.md is the single source for the settings-page release notes.  Do
-    not depend on a particular section heading: version entries may be placed
-    before or after ``## What's Changed`` as the file evolves.
-    """
-    if not CHANGELOG_PATH.exists():
-        return []
-
-    lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
-    notes: list[dict] = []
-    seen_versions: set[str] = set()
-    current: dict | None = None
-
-    def finalize_current() -> None:
-        nonlocal current
-        if current is None:
-            return
-        version = str(current.get("version") or "").lower()
-        # Only publish standard version entries with actual release content.
-        # This excludes headings such as "待发布" and empty placeholders.
-        if version and current["lines"] and version not in seen_versions:
-            notes.append(current)
-            seen_versions.add(version)
-        current = None
-
-    for raw_line in lines:
-        line = raw_line.rstrip()
-        # A level-2/3 heading always terminates the previous entry.  A
-        # non-version heading is intentionally ignored rather than becoming a
-        # release note itself.
-        if re.match(r"^#{2,3}\s+", line):
-            match = RELEASE_NOTE_HEADING_RE.match(line)
-            finalize_current()
-            if not match:
-                continue
-            title = match.group("title").strip()
-            version_match = VERSION_RE.search(title)
-            current = {
-                "date": match.group("date"),
-                "title": title,
-                "version": version_match.group(0) if version_match else "",
-                "category": categorize_release_note(title),
-                "lines": [],
-            }
-            continue
-        if current is None or not line.strip():
-            continue
-        cleaned = line.strip()
-        # Release groups use level-4 Markdown headings; the settings view is
-        # plain text, so expose readable labels rather than Markdown markers.
-        group_labels = {"#### feat": "新增功能", "#### improve": "体验优化", "#### fix": "问题修复"}
-        cleaned = group_labels.get(cleaned.lower(), cleaned)
-        if cleaned.startswith("- "):
-            cleaned = cleaned[2:].strip()
-        cleaned = cleaned.replace("**", "")
-        current["lines"].append(cleaned)
-
-    finalize_current()
-    return notes
-
-
-def provider_secret_name(provider: str) -> str:
-    secret_name = SECRET_PROVIDER_MAP.get(model_apis.canonical_provider(provider))
-    if not secret_name:
-        raise ValueError("unsupported_provider")
-    return secret_name
-
-
-def provider_has_configured_key(provider: str) -> bool:
-    secret_name = provider_secret_name(provider)
-    if (os.getenv(secret_name) or "").strip():
-        return True
-    try:
-        return has_secret(secret_name)
-    except SecretStoreError:
-        return False
-
-
-def provider_secret_value(provider: str) -> str:
-    secret_name = provider_secret_name(provider)
-    value = (os.getenv(secret_name) or "").strip()
-    if value:
-        return value
-    try:
-        return (read_secret(secret_name) or "").strip()
-    except SecretStoreError:
-        return ""
-
-
-def save_provider_secret(provider: str, value: object) -> None:
-    secret_name = provider_secret_name(provider)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("empty_key")
-    write_secret(secret_name, value.strip())
-
-
-def remove_provider_secret(provider: str) -> None:
-    secret_name = provider_secret_name(provider)
-    delete_secret(secret_name)
-
-
-def build_model_option(value: str, *, label: str = "", description: str = "", source: str = "") -> dict:
-    normalized = (value or "").strip()
-    if not normalized:
-        raise ValueError("empty_model_value")
-    return {
-        "value": normalized,
-        "label": (label or normalized).strip(),
-        "description": (description or "").strip(),
-        "source": (source or "").strip(),
-    }
-
-
-def merge_model_options(options: list[dict], saved_model: str) -> list[dict]:
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for item in options:
-        if not isinstance(item, dict):
-            continue
-        value = (item.get("value") or "").strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        merged.append(
-            {
-                "value": value,
-                "label": (item.get("label") or value).strip(),
-                "description": (item.get("description") or "").strip(),
-                "source": (item.get("source") or "").strip(),
-            }
-        )
-    saved = (saved_model or "").strip()
-    if saved and saved not in seen:
-        merged.append(build_model_option(saved, description="当前已保存模型", source="saved"))
-    return merged[:SETTINGS_MODEL_OPTION_LIMIT]
-
-
-def trim_settings_error(value: object, limit: int = 160) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit - 1]}…"
-
-
-def fallback_model_options(values: list[str], *, source: str) -> list[dict]:
-    return [build_model_option(value, source=source) for value in values]
-
-
-def sort_deepseek_model_ids(model_ids: list[str]) -> list[str]:
-    priority = {name: index for index, name in enumerate(DEEPSEEK_MODEL_FALLBACKS)}
-    return sorted(
-        {model_id.strip() for model_id in model_ids if model_id and model_id.strip()},
-        key=lambda model_id: (priority.get(model_id, len(priority)), model_id),
-    )
-
-
-def parse_deepseek_model_options(payload: object) -> list[dict]:
-    if not isinstance(payload, dict):
-        return []
-    rows = payload.get("data")
-    if not isinstance(rows, list):
-        return []
-    ids: list[str] = []
-    seen: set[str] = set()
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        model_id = normalize_deepseek_model((row.get("id") or "").strip())
-        if model_id and model_id not in seen:
-            seen.add(model_id)
-            ids.append(model_id)
-    return [build_model_option(model_id, source="official") for model_id in sort_deepseek_model_ids(ids)]
-
-
-def deepseek_settings_snapshot(saved_model: str) -> dict:
-    resolved_default_model = resolve_translation_default_model()
-    configured = provider_has_configured_key("deepseek")
-    options = fallback_model_options(DEEPSEEK_MODEL_FALLBACKS, source="fallback") if configured else []
-    status_text = "尚未配置 API 密钥，保存密钥后可获取模型。"
-    last_error = ""
-    models_endpoint_reachable = None
-    used_fallback = configured
-    source = "fallback" if configured else "unavailable"
-    api_key = ""
-
-    if configured:
-        api_key = provider_secret_value("deepseek")
-        if not api_key:
-            status_text = "检测到已配置 key，但当前读取失败，使用默认候选。"
-            last_error = "read_failed"
-        else:
-            request = Request(
-                DEEPSEEK_MODELS_URL,
-                headers=model_apis.request_headers(api_key),
-            )
-            try:
-                with urlopen(request, timeout=5) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-                parsed_options = parse_deepseek_model_options(payload)
-                if parsed_options:
-                    options = parsed_options
-                    models_endpoint_reachable = True
-                    used_fallback = False
-                    source = "official"
-                    status_text = "官方 /models 可访问。"
-                else:
-                    models_endpoint_reachable = False
-                    last_error = "empty_models"
-                    status_text = "官方 /models 返回空列表，使用默认候选。"
-            except HTTPError as exc:
-                models_endpoint_reachable = False
-                last_error = f"http_{exc.code}"
-                status_text = f"官方 /models 访问失败（HTTP {exc.code}），使用默认候选。"
-            except URLError as exc:
-                models_endpoint_reachable = False
-                last_error = trim_settings_error(getattr(exc, "reason", exc))
-                status_text = "官方 /models 暂不可达，使用默认候选。"
-            except Exception as exc:  # pragma: no cover - env-specific
-                models_endpoint_reachable = False
-                last_error = trim_settings_error(exc)
-                status_text = "官方 /models 检查失败，使用默认候选。"
-
-    return {
-        "service": {
-            "configured": configured,
-            "masked_key": (api_key[:4] + "••••••••" + api_key[-4:]) if len(api_key) > 12 else ("••••••••" if configured else ""),
-            "environment_override": bool(os.getenv("DEEPSEEK_API_KEY", "").strip()),
-            "models_endpoint_reachable": models_endpoint_reachable,
-            "used_fallback": used_fallback,
-            "last_error": last_error,
-            "status_text": status_text,
-        },
-        "catalog": {
-            "source": source,
-            "saved_model": (saved_model or "").strip(),
-            "resolved_default_model": resolved_default_model,
-            "custom_allowed": True,
-            "default_label": resolved_default_model,
-            "options": merge_model_options(options, saved_model),
-        },
-    }
-
-
-PI_CHAT_MODEL_FALLBACKS = [DEFAULT_PI_CHAT_MODEL]
-PI_CHAT_PROVIDER_FALLBACKS = [DEFAULT_PI_CHAT_PROVIDER]
-
-
-def parse_pi_model_catalog(stdout: str) -> tuple[list[str], dict[str, list[str]]]:
-    """解析 `pi --list-models` 表格 provider/model 两列。
-
-    跳过表头、空行与不足两列的畸形行；provider 与 provider 内 model 均去重保序。
-    """
-    providers: list[str] = []
-    models_by_provider: dict[str, list[str]] = {}
-    seen_providers: set[str] = set()
-    seen_models: dict[str, set[str]] = {}
-    for line in (stdout or "").splitlines():
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        provider = parts[0].strip()
-        model = parts[1].strip()
-        if not provider or not model or provider.lower() == "provider":
-            continue
-        if model_apis.is_hidden_model(provider, model):
-            continue
-        if provider not in seen_providers:
-            seen_providers.add(provider)
-            providers.append(provider)
-            models_by_provider[provider] = []
-            seen_models[provider] = set()
-        if model not in seen_models[provider]:
-            seen_models[provider].add(model)
-            models_by_provider[provider].append(model)
-    return providers, models_by_provider
-
-
-def parse_pi_providers(stdout: str) -> list[str]:
-    """解析 `pi --list-models` 表格第一列 provider，去重保序；跳过表头与畸形行。"""
-    providers, _ = parse_pi_model_catalog(stdout)
-    return providers
-
-
-def pi_chat_settings_snapshot(saved_model: str, saved_provider: str = "") -> dict:
-    options = {}
-    error = notice = ""
-    try:
-        result = pi_models.catalog()
-        error, notice = result.get("error", ""), result.get("notice", "")
-        for option in result["options"]:
-            options.setdefault(option["provider"], []).append({**option, "source": "pi-model-registry"})
-    except RuntimeError:
-        error = "Pi 模型目录读取失败。"
-    # Saved absent values are preserved by the form, not presented as discovered models.
-    return {"service": {"last_error": error, "status_text": error or "目录仅表示候选，不证明调用成功。"},
-            "catalog": {"source": "unavailable" if error else "pi-model-registry", "error": error, "notice": notice,
-                        "saved_model": saved_model, "saved_provider": saved_provider,
-                        "resolved_default_model": "", "resolved_default_provider": "",
-                        "default_label": "请选择模型", "custom_allowed": False,
-                        "options": options.get(saved_provider, []),
-                        "provider_options": [build_model_option(p, source="pi-model-registry") for p in options],
-                        "model_options_by_provider": options}}
-
-
-def build_feed_source_settings_snapshot(hidden_keys: list[str], conn=None) -> dict:
-    hidden = set(normalize_hidden_source_subkeys(hidden_keys or []))
-    groups: dict[str, dict] = {}
-    owns_connection = conn is None
-    conn = conn or db_conn()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT items.url, items.source_type, items.source, items.source_name, st.read_at
-            FROM items
-            LEFT JOIN item_state st ON st.item_id = items.id
-            WHERE {visible_news_sql()}
-            """
-        ).fetchall()
-    finally:
-        if owns_connection:
-            conn.close()
-
-    for row in rows:
-        item = derive_source_subkey(row["url"], row["source_type"], row["source"], row["source_name"])
-        if not item:
-            continue
-        source_key = item["source_key"]
-        group = groups.setdefault(
-            source_key,
-            {"source_key": source_key, "label": item["source_label"], "items": {}},
-        )
-        bucket = group["items"].setdefault(
-            item["key"],
-            {
-                "key": item["key"],
-                "label": item["label"],
-                "count": 0,
-                "unread_count": 0,
-                "hidden": item["key"] in hidden,
-            },
-        )
-        bucket["count"] += 1
-        if row["read_at"] is None:
-            bucket["unread_count"] += 1
-
-    known_order = ["reuters", "bloomberg", "techcrunch", "ars", "x"]
-    ordered_groups = []
-    known_item_keys: set[str] = set()
-    for source_key in sorted(groups.keys(), key=lambda key: (known_order.index(key) if key in known_order else len(known_order), groups[key]["label"].lower())):
-        group = groups[source_key]
-        items = list(group["items"].values())
-        items.sort(key=lambda item: (item["label"].lower(), item["key"]))
-        known_item_keys.update(item["key"] for item in items)
-        ordered_groups.append({"source_key": source_key, "label": group["label"], "items": items})
-    visible_hidden_keys = [key for key in normalize_hidden_source_subkeys(hidden_keys or []) if key in known_item_keys]
-    return {"hidden_source_subkeys": visible_hidden_keys, "groups": ordered_groups}
-
-
-@app.post("/api/settings/x-accounts/test")
-def api_settings_x_account_test():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_x_handle"), 400
-    try:
-        handle = x_accounts.normalize_handle(body.get("handle"))
-        revision = body.get("x_accounts_revision")
-        def check_context():
-            with closing(db_conn()) as conn:
-                x_accounts.check_revision(conn, revision)
-                if conn.execute("SELECT 1 FROM x_accounts WHERE handle=?", (handle,)).fetchone():
-                    raise ValueError("duplicate_x_account")
-        check_context()
-        # Do not hold a database transaction while waiting on the browser.
-        result = x_accounts.test_account(handle, news_collection.acquire_source)
-        check_context()
-        return jsonify(ok=True, **result)
-    except ValueError as exc:
-        code = str(exc)
-        status = 409 if code == "x_accounts_changed" else 400 if code in {"invalid_x_handle", "duplicate_x_account"} else 422
-        return jsonify(ok=False, error=code), status
-    except Exception:
-        app.logger.exception("X account content test failed")
-        return jsonify(ok=False, error="x_account_test_failed"), 500
-
-
-@app.route("/api/settings/sources/<path:source_key>", methods=["GET", "DELETE"])
-@app.route("/api/settings/x-accounts/<x_handle>", methods=["GET", "DELETE"])
-def api_settings_source(source_key=None, x_handle=None):
-    if x_handle is not None:
-        try:
-            x_handle = x_accounts.normalize_handle(x_handle)
-        except ValueError:
-            return jsonify(ok=False, error="invalid_x_handle"), 400
-        source_key = "x/" + x_handle
-    key = normalize_source_subkey_key(source_key)
-    if not key or key != source_key:
-        return jsonify(ok=False, error="invalid_source_key"), 400
-    deleting = request.method == "DELETE"
-    body = request.get_json(silent=True) if deleting else None
-    if deleting and x_handle and (not isinstance(body, dict) or type(body.get("delete_history")) is not bool):
-        return jsonify(ok=False, error="invalid_x_removal"), 400
-    if deleting and (not isinstance(body, dict) or not isinstance(body.get("confirmation_token"), str)
-                     or not re.fullmatch(r"[0-9a-f]{64}", body["confirmation_token"])):
-        return jsonify(ok=False, error="source_confirmation_required"), 400
-    staged, committed = None, False
-    try:
-        ensure_agent_db()
-        with REPORT_SNAPSHOT_LOCK, closing(db_conn()) as conn:
-            agent_schema = source_deletion.attach_agent(conn, AGENT_DB_PATH, DB_PATH)
-            conn.execute("BEGIN IMMEDIATE" if deleting else "BEGIN")
-            try:
-                empty_source = None
-                if x_handle:
-                    account = conn.execute("SELECT * FROM x_accounts WHERE handle=?", (x_handle,)).fetchone()
-                    if not account:
-                        return jsonify(ok=False, error="x_account_not_found"), 404
-                    empty_source = {"label": account["name"] + " (@" + x_handle + ")", "source_label": "X"}
-                    if deleting:
-                        x_accounts.check_revision(conn, body.get("x_accounts_revision"))
-                plan = source_deletion.Plan(conn, key, database_path=DB_PATH, agent_schema=agent_schema,
-                    scope=agent_library_scope(), media_root=MEDIA_CACHE_DIR, runtime_root=AGENT_RUNTIME_DIR, empty_source=empty_source)
-                if not deleting:
-                    return jsonify(ok=True, source=plan.preview, **(x_accounts.snapshot(conn) if x_handle else {}))
-                if body["confirmation_token"] != plan.preview["confirmation_token"]:
-                    raise source_deletion.SourceDeletionError("source_data_changed")
-                delete_history = not x_handle or body["delete_history"]
-                if delete_history:
-                    staged = source_deletion.StagedFiles(plan)
-                    staged.stage()
-                    plan.delete_rows()
-                if x_handle:
-                    x_accounts.remove(conn, x_handle, delete_history=delete_history)
-                accounts = x_accounts.snapshot(conn) if x_handle else {}
-                remaining_sources = build_feed_source_settings_snapshot(
-                    configuration.current_runtime_settings()["feed"].get("hidden_source_subkeys") or [], conn=conn)
-                conn.commit()
-                committed = True
-            except Exception:
-                conn.rollback()
-                raise
-        for job_id in (plan.process_ids if delete_history else []):
-            _terminate_agent_process(job_id)
-        warning = ""
-        try:
-            if staged:
-                staged.cleanup()
-        except OSError:
-            app.logger.exception("Source data deleted but staged cache cleanup failed")
-            warning = "新闻数据已删除，部分隔离缓存未能清理，请检查缓存目录的写入权限。"
-        COLLECTION_SERVICE.wake.set()
-        return jsonify(ok=True, deleted=plan.preview if delete_history else None,
-                       deleted_item_ids=plan.item_ids if delete_history else [], warning=warning,
-                       feed_source_subkeys=remaining_sources, **accounts)
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 409
-    except source_deletion.SourceDeletionError as exc:
-        return jsonify(ok=False, error=exc.code), exc.status
-    except (OSError, sqlite3.Error):
-        app.logger.exception("Source deletion failed")
-        return jsonify(ok=False, error="source_delete_failed"), 500
-    finally:
-        if staged and not committed:
-            staged.restore()
-
-
-def _database_path_from_payload(payload: object, current_settings: dict) -> str:
-    database = payload.get("database") if isinstance(payload, dict) else None
-    if not isinstance(database, dict) or "path" not in database:
-        return str(current_settings.get("database", {}).get("path") or "").strip()
-    value = database.get("path")
-    if not isinstance(value, str):
-        raise ValueError("invalid_database_path")
-    return value.strip()
-
-
-def validate_existing_database_path(value: str) -> str:
-    candidate = Path(value).expanduser()
-    if not candidate.is_absolute():
-        candidate = (BASE_DIR / candidate).resolve()
-    else:
-        candidate = candidate.resolve()
-    if not candidate.is_file():
-        raise ValueError("database_path_must_exist")
-    if not os.access(candidate, os.R_OK):
-        raise ValueError("database_path_not_readable")
-    if not os.access(candidate, os.W_OK):
-        raise ValueError("database_path_not_writable")
-    try:
-        if candidate.read_bytes()[:16] != b"SQLite format 3\x00":
-            raise ValueError("database_path_not_sqlite")
-        uri = f"file:{candidate.as_posix()}?mode=ro"
-        with sqlite3.connect(uri, uri=True, timeout=5) as conn:
-            conn.execute("PRAGMA schema_version").fetchone()
-    except (OSError, sqlite3.Error):
-        raise ValueError("database_path_not_sqlite") from None
-    return str(candidate)
-
-
-def choose_existing_database_path() -> str:
-    """Open the host-native file chooser and return a validated SQLite path."""
-    if sys.platform != "darwin" or shutil.which("osascript") is None:
-        raise ValueError("database_picker_unavailable")
-
-    script = """
-try
-    set selectedFile to choose file with prompt "选择已有 NewsReader SQLite 数据库"
-    return POSIX path of selectedFile
-on error number -128
-    return "__CANCELLED__"
-end try
-"""
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        raise ValueError("database_picker_failed") from None
-    if result.returncode != 0:
-        raise ValueError("database_picker_failed")
-    selected = result.stdout.strip()
-    if not selected or selected == "__CANCELLED__":
-        raise ValueError("database_picker_cancelled")
-    return validate_existing_database_path(selected)
-
-
-def database_runtime_snapshot(settings: dict | None = None) -> dict:
-    settings = settings or configuration.current_runtime_settings()
-    env_value = os.environ.get("NEWS_READER_DB_PATH", "").strip()
-    configured = str(settings.get("database", {}).get("path") or "").strip()
-    return {
-        "path": str(DB_PATH.expanduser().resolve()),
-        "configured_path": configured,
-        "environment_override": bool(env_value),
-        "environment_variable": "NEWS_READER_DB_PATH",
-        "editable": not bool(env_value),
-        "native_picker_available": bool(sys.platform == "darwin" and shutil.which("osascript")),
-        "restart_required": True,
-        "notice": (
-            "当前由环境变量 NEWS_READER_DB_PATH 控制，设置页不能覆盖。"
-            if env_value
-            else "选择已有 SQLite 文件后，重启 NewsReader 才会切换；不会迁移或复制数据。"
-        ),
-    }
-
-
-def managed_api_snapshot(provider: str, saved_model: str = "", *, refresh: bool = False) -> dict:
-    provider = model_apis.canonical_provider(provider)
-    if provider == "deepseek":
-        return deepseek_settings_snapshot(saved_model)
-    config = model_apis.API_PROVIDERS[provider]
-    key = provider_secret_value(provider)
-    configured = bool(key) or provider_has_configured_key(provider)
-    default_model = config.get("default_model", "")
-    options = fallback_model_options([default_model], source="fallback") if configured and default_model else []
-    service = {
-        "configured": configured,
-        "masked_key": (key[:4] + "••••••••" + key[-4:]) if len(key) > 12 else ("••••••••" if configured else ""),
-        "environment_override": bool(os.getenv(config["secret_name"], "").strip()),
-        "models_endpoint_reachable": None,
-        "status_text": "点击获取模型以读取可用目录。" if configured else "尚未配置 API 密钥。",
-    }
-    source = "fallback" if options else "unavailable"
-    if refresh and configured and not key:
-        service.update(models_endpoint_reachable=False, reason="key_read_failed",
-                       status_text="读取已保存的 API 密钥失败，请重新保存密钥后重试。")
-    elif refresh and configured:
-        service["models_endpoint_reachable"] = False
-        try:
-            probe = Request(config["models_url"], headers=model_apis.request_headers(key, provider))
-            with urlopen(probe, timeout=model_apis.MODEL_CATALOG_TIMEOUT_SECONDS) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-                parsed = model_apis.parse_model_options(provider, payload)
-            # A valid directory may contain only free or incompatible models.
-            empty_filtered = provider in {"opencode", "opencode-go", "openai-decisions"} and isinstance(payload, dict) and isinstance(payload.get("data"), list) and all(
-                isinstance(row, dict) and isinstance(row.get("id"), str) and row["id"].strip() for row in payload["data"])
-            if not parsed and not empty_filtered:
-                raise ValueError("empty_models")
-            options, source = parsed, "official"
-            service.update(models_endpoint_reachable=True, status_text="模型目录已获取。")
-        except HTTPError as exc:
-            details = model_apis.http_error_details(exc)
-            service.update(status_text=f"获取模型失败（HTTP {exc.code}）。{details['message']}",
-                           **{name: value for name, value in details.items() if name != "message"})
-        except (URLError, OSError) as exc:
-            # urllib wraps connect/TLS timeouts in URLError.reason; reads may
-            # raise TimeoutError directly. Neither indicates invalid credentials.
-            cause = exc.reason if isinstance(exc, URLError) else exc
-            if isinstance(cause, TimeoutError):
-                service.update(reason="connection_timeout", status_text=(
-                    f"模型目录请求超时（{model_apis.MODEL_CATALOG_TIMEOUT_SECONDS} 秒，"
-                    "含连接、HTTPS 握手或响应读取），请检查网络后重试。"))
-            else:
-                service.update(reason="network_error", status_text="无法连接模型目录服务，请检查网络或代理设置后重试。")
-        except ValueError:
-            service.update(reason="response_parse_failed", status_text="模型目录响应解析失败：返回内容不是有效的 JSON 或模型目录格式，请稍后重试。")
-        except Exception:
-            service.update(reason="catalog_error", status_text="暂时无法获取模型目录，请稍后重试。")
-    return {"service": service, "catalog": {
-        "source": source, "saved_model": saved_model, "custom_allowed": True,
-        "resolved_default_model": config["default_model"],
-        "options": merge_model_options(options, "" if model_apis.is_hidden_model(provider, saved_model) else saved_model),
-    }}
-
-
-def serialize_runtime_settings() -> dict:
-    settings = configuration.current_runtime_settings()
-    with closing(db_conn()) as conn:
-        accounts = x_accounts.snapshot(conn)
-    translation_model = (settings["llm"]["translation"].get("model") or "").strip()
-    pi_chat_model = (settings["llm"]["pi_chat"].get("model") or "").strip()
-    pi_chat_provider = (settings["llm"]["pi_chat"].get("provider") or "").strip()
-    deepseek_snapshot = deepseek_settings_snapshot(translation_model)
-    api_snapshots = {
-        provider: managed_api_snapshot(provider, settings["api_models"][provider]["model"])
-        for provider in model_apis.API_PROVIDERS if provider != "deepseek"
-    }
-    pi_snapshot = pi_chat_settings_snapshot(pi_chat_model, pi_chat_provider)
-    feed_source_snapshot = build_feed_source_settings_snapshot(settings["feed"].get("hidden_source_subkeys") or [])
-    return {
-        **accounts,
-        "api_status": {
-            "deepseek": deepseek_snapshot["service"],
-            **{provider: snapshot["service"] for provider, snapshot in api_snapshots.items()},
-            "pi": pi_snapshot["service"],
-            "codex": {},
-        },
-        "model_catalogs": {
-            "translation": deepseek_snapshot["catalog"],
-            **{provider: snapshot["catalog"] for provider, snapshot in api_snapshots.items()},
-            "pi_chat": pi_snapshot["catalog"],
-            "codex": model_catalogs.cached_catalog(settings["agent"]["codex"]),
-        },
-        "llm": settings["llm"],
-        "api_models": settings["api_models"],
-        "classification": settings["classification"],
-        "api_providers": [{"id": provider, **config} for provider, config in model_apis.API_PROVIDERS.items()],
-        "feed": settings["feed"],
-        "feed_source_subkeys": feed_source_snapshot,
-        "tracked": settings["tracked"],
-        "agent": settings["agent"],
-        "feature_models": settings["feature_models"],
-        "collection": settings["collection"],
-        "report_schedule": settings["report_schedule"],
-        "report_windows": settings["report_windows"],
-        "report_window_times": dict(periodic_reports.report_schedule.WINDOW_TIMES),
-        "feature_model_catalogs": {feature: model_catalogs.cached_catalog(config["codex"])
-                                   for feature, config in settings["feature_models"].items()},
-        "news_summary": settings["news_summary"],
-        "database": database_runtime_snapshot(settings),
-        "restart_notice": "翻译 / 总结与 chat 的新请求通常立即生效；涉及 app.py 本版改动，终验前请重启 Flask。",
-    }
-
-
-def validate_runtime_settings(payload: object) -> dict:
-    if not isinstance(payload, dict):
-        raise ValueError("invalid_payload")
-    current_settings = configuration.current_runtime_settings()
-    llm = payload.get("llm")
-    if not isinstance(llm, dict):
-        raise ValueError("invalid_llm_settings")
-
-    translation = llm.get("translation")
-    if not isinstance(translation, dict):
-        raise ValueError("invalid_llm_settings")
-
-    translation = model_apis.normalize_translation(translation, defaults=current_settings["llm"]["translation"])
-    translation["model"] = normalize_deepseek_model(translation["model"])
-    pi_chat = pi_models.normalize_config(llm.get("pi_chat", {}), current_settings["llm"]["pi_chat"])
-    if pi_chat != current_settings["llm"]["pi_chat"] and pi_chat.get("reasoning_effort"):
-        pi_chat = pi_models.validate_effort(pi_chat)
-
-    feed_payload = payload.get("feed") if isinstance(payload.get("feed"), dict) else None
-    hidden_source_subkeys = normalize_hidden_source_subkeys(
-        feed_payload.get("hidden_source_subkeys") if feed_payload is not None else current_settings["feed"].get("hidden_source_subkeys")
-    )
-    agent_payload = payload.get("agent") if isinstance(payload.get("agent"), dict) else {}
-    ttl = agent_payload.get("session_ttl_hours", current_settings["agent"]["session_ttl_hours"])
-    if ttl not in AGENT_SESSION_TTL_OPTIONS:
-        raise ValueError("invalid_agent_session_ttl")
-
-    runtime = agent_payload.get("runtime", current_settings["agent"].get("runtime", "pi"))
-    if not isinstance(runtime, str) or runtime not in {"pi", "codex"}:
-        raise ValueError("invalid_agent_runtime")
-    codex_config = codex_client.normalize_config(agent_payload.get("codex", current_settings["agent"]["codex"]))
-    if codex_config != current_settings["agent"]["codex"]:
-        codex_config = model_catalogs.validate_effort(codex_config)
-    feature_models = normalize_feature_models(payload.get("feature_models", {}), current_settings)
-    for feature, config in feature_models.items():
-        if config["codex"] != current_settings["feature_models"][feature]["codex"]:
-            config["codex"] = model_catalogs.validate_effort(config["codex"])
-        if config["pi"] != current_settings["feature_models"][feature]["pi"] and config["pi"].get("reasoning_effort"):
-            config["pi"] = pi_models.validate_effort(config["pi"])
-
-    configured_db_path = _database_path_from_payload(payload, current_settings)
-    if os.environ.get("NEWS_READER_DB_PATH", "").strip():
-        # The environment override is authoritative; do not let an explicit
-        # settings request pretend it will change the active database.
-        current_configured_db_path = str(current_settings.get("database", {}).get("path") or "").strip()
-        if configured_db_path != current_configured_db_path:
-            raise ValueError("database_path_controlled_by_environment")
-        configured_db_path = current_configured_db_path
-    elif configured_db_path:
-        configured_db_path = validate_existing_database_path(configured_db_path)
-
-    if "news_summary" in payload and not isinstance(payload["news_summary"], dict):
-        raise ValueError("invalid_summary_limits")
-    summary_limits = news_summaries.selection.limits(payload.get("news_summary", current_settings["news_summary"]))
-    api_models = payload.get("api_models")
-    legacy_classification = api_models.get("jev") if isinstance(api_models, dict) else None
-    normalized = {
-        "collection": news_collection.normalize_schedule(payload.get("collection", {}), current_settings["collection"]),
-        "report_schedule": periodic_reports.report_schedule.normalize(payload.get("report_schedule", {}), current_settings["report_schedule"]),
-        "report_windows": periodic_reports.report_schedule.normalize_windows(payload.get("report_windows", {}), current_settings["report_windows"]),
-        "feature_models": feature_models,
-        "api_models": model_apis.normalize_api_models(payload.get("api_models", current_settings["api_models"]), defaults=current_settings["api_models"]),
-        "classification": normalize_classification(payload.get("classification", {}),
-            defaults=current_settings["classification"], legacy=legacy_classification),
-        "news_summary": summary_limits,
-        "llm": {
-            "translation": translation,
-            "pi_chat": pi_chat,
-        },
-        "feed": {
-            "hidden_source_subkeys": hidden_source_subkeys,
-        },
-        "tracked": current_settings["tracked"],
-        "agent": {
-            "session_ttl_hours": int(ttl),
-            "runtime": runtime,
-            "codex": codex_config,
-        },
-        "database": {
-            "path": configured_db_path,
-        },
-    }
-    if any(normalized[key] != current_settings[key] for key in ("report_schedule", "report_windows")):
-        periodic_reports.report_schedule.validate_windows(normalized["report_schedule"], normalized["report_windows"])
-    report_changed_at = periodic_reports.now()
-    normalized["report_schedule_history"] = periodic_reports.report_schedule.changed_history(
-        current_settings, normalized["report_schedule"], report_changed_at)
-    normalized["report_window_history"] = periodic_reports.report_schedule.changed_window_history(
-        current_settings, normalized["report_windows"], report_changed_at)
-    return normalized
-
-
-def current_pi_chat_config() -> dict[str, str]:
-    llm = configuration.current_runtime_settings()["llm"]
-    pi_chat = llm.get("pi_chat", {})
-    return {
-        "provider": (pi_chat.get("provider") or "").strip(),
-        "model": (pi_chat.get("model") or "").strip(),
-    }
 
 
 def chat_lock(item_id: str) -> threading.Lock:
@@ -1753,7 +907,7 @@ def _serialize_agent_session(row: sqlite3.Row | dict | None) -> dict | None:
 
 def load_agent_payload(item_id: str) -> dict:
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         cleanup_agent_sessions(conn)
         session = _agent_active_session(conn, item_id)
@@ -1850,7 +1004,7 @@ def _agent_oar_request(job: dict, session: dict, context: dict, history: list[di
 
 
 def _update_agent_progress(job_id: str, progress: str) -> None:
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         with conn:
             conn.execute("UPDATE agent_jobs SET progress=?, updated_at=? WHERE id=? AND cancel_requested=0 AND status IN ('running', 'streaming') AND progress<>?",
@@ -1862,7 +1016,7 @@ def _update_agent_progress(job_id: str, progress: str) -> None:
 def _update_agent_job_output(job_id: str, session_id: str, output: str, *, status: str = "streaming") -> None:
     if not output:
         return
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         now = database.now_ts()
         with conn:
@@ -1884,7 +1038,7 @@ def _update_agent_job_output(job_id: str, session_id: str, output: str, *, statu
 
 
 def _agent_cancel_requested(job_id: str) -> bool:
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         row = conn.execute("SELECT cancel_requested FROM agent_jobs WHERE id=?", (job_id,)).fetchone()
         return not row or bool(row["cancel_requested"])
@@ -1940,7 +1094,7 @@ def run_agent_job(job: dict, session: dict, context: dict, history: list[dict]) 
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,
-            cwd=str(BASE_DIR),
+            cwd=str(data.root),
             env=env,
             bufsize=0,
             start_new_session=True,
@@ -2081,7 +1235,7 @@ def run_agent_job(job: dict, session: dict, context: dict, history: list[dict]) 
         if _runtime_dir and config_id:
             cleanup_oar_config(_runtime_dir, config_id)
 
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
@@ -2153,7 +1307,7 @@ def run_agent_job(job: dict, session: dict, context: dict, history: list[dict]) 
 
 def process_pending_agent_once() -> bool:
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         cleanup_agent_sessions(conn)
         # 多 worker 时必须在写事务中领取任务，避免两个 worker 同时执行同一 job。
@@ -2235,7 +1389,7 @@ def start_agent_worker() -> None:
 
 
 def _load_visible_agent_article(item_id: str) -> tuple[dict | None, dict | None]:
-    conn = db_conn()
+    conn = data.connect()
     try:
         if item_id.startswith(report_reader.ID_PREFIX):
             item = report_reader.subject(conn, item_id)
@@ -2301,7 +1455,7 @@ def _agent_payload_for_session(conn: sqlite3.Connection, session: sqlite3.Row | 
 
 
 def agent_library_scope() -> str:
-    return agent_notifications.library_scope(DB_PATH)
+    return agent_notifications.library_scope(data.path)
 
 
 def _agent_active_session(conn: sqlite3.Connection, item_id: str, session_id: str = "") -> sqlite3.Row | None:
@@ -2555,7 +1709,7 @@ def _agent_error_response(error: str) -> tuple[dict, int]:
 @app.get("/api/agent/notifications")
 def api_agent_notifications():
     ensure_agent_db()
-    with closing(agent_db_conn()) as conn, conn:
+    with closing(data.agent_connect()) as conn, conn:
         cleanup_agent_sessions(conn)
         scope = agent_library_scope()
         return jsonify(ok=True, db_scope=scope, notifications=agent_notifications.unread(conn, scope))
@@ -2567,7 +1721,7 @@ def api_agent_notification_target(notification_id: str):
     if request.args.get("db_scope") != scope:
         return jsonify(ok=False, error="notification_library_changed"), 409
     ensure_agent_db()
-    with closing(agent_db_conn()) as conn, conn:
+    with closing(data.agent_connect()) as conn, conn:
         cleanup_agent_sessions(conn)
         notice = conn.execute("SELECT * FROM agent_notifications WHERE id=? AND db_scope=?", (notification_id, scope)).fetchone()
         if not notice:
@@ -2604,7 +1758,7 @@ def api_agent_notifications_read():
     dismiss = body.get("dismiss") is True
     ensure_agent_db()
     try:
-        with closing(agent_db_conn()) as conn, conn:
+        with closing(data.agent_connect()) as conn, conn:
             cleanup_agent_sessions(conn)
             conn.execute("BEGIN IMMEDIATE")
             if not dismiss:
@@ -2632,7 +1786,7 @@ def api_agent_session(item_id: str):
     if not item:
         return jsonify({"ok": False, "error": "item_not_found"}), 404
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         cleanup_agent_sessions(conn)
         requested_session = request.args.get("session_id", "").strip()
@@ -2666,7 +1820,7 @@ def api_agent_session_create(item_id: str):
     body = request.get_json(silent=True)
     force_new = isinstance(body, dict) and bool(body.get("new_session") or body.get("reset"))
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     process_ids: list[str] = []
     try:
         cleanup_agent_sessions(conn)
@@ -2723,7 +1877,7 @@ def api_agent_model_options(item_id):
     if not item:
         return jsonify(ok=False, error="item_not_found"), 404
     ensure_agent_db()
-    with closing(agent_db_conn()) as conn:
+    with closing(data.agent_connect()) as conn:
         session = _agent_active_session(conn, item_id, request.args.get("session_id", ""))
     try:
         choices = _agent_model_choices(session)
@@ -2745,7 +1899,7 @@ def api_agent_model_update(item_id):
     if not item:
         return jsonify(ok=False, error="item_not_found"), 404
     ensure_agent_db()
-    with closing(agent_db_conn()) as conn:
+    with closing(data.agent_connect()) as conn:
         session = _agent_active_session(conn, item_id)
         expected = body.get("session_id") or ""
         if expected != (session["id"] if session else ""):
@@ -2791,7 +1945,7 @@ def api_agent_session_clear(item_id: str):
     if not item:
         return jsonify({"ok": False, "error": "item_not_found"}), 404
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     process_ids: list[str] = []
     try:
         with conn:
@@ -2809,7 +1963,7 @@ def api_agent_session_clear(item_id: str):
 @app.delete("/api/agent/sessions")
 def api_agent_sessions_clear_all():
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     process_ids: list[str] = []
     try:
         with conn:
@@ -2847,7 +2001,7 @@ def _create_agent_job_response(item_id: str, body: object, *, retry_job_id: str 
         payload, status = _agent_error_response(str(exc))
         return jsonify(payload), status
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         cleanup_agent_sessions(conn)
         conn.execute("BEGIN IMMEDIATE")
@@ -2904,7 +2058,7 @@ def api_agent_job_get(item_id: str, job_id: str):
     if not item:
         return jsonify({"ok": False, "error": "item_not_found"}), 404
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         cleanup_agent_sessions(conn)
         job = _agent_job_for_item(conn, item_id, job_id)
@@ -2922,7 +2076,7 @@ def api_agent_job_stop(item_id: str, job_id: str):
     if not item:
         return jsonify({"ok": False, "error": "item_not_found"}), 404
     ensure_agent_db()
-    conn = agent_db_conn()
+    conn = data.agent_connect()
     try:
         # Serialize with worker claim and finalization before inspecting status.
         conn.execute("BEGIN IMMEDIATE")
@@ -2961,7 +2115,7 @@ def _agent_stream_generator(item_id: str, job_id: str):
     last_signature = None
     last_keepalive = time.monotonic()
     while True:
-        conn = agent_db_conn()
+        conn = data.agent_connect()
         try:
             job = _agent_job_for_item(conn, item_id, job_id)
             if not job:
@@ -3283,7 +2437,7 @@ def _media_cache_relative_path(cache_key: str, ext: str = "") -> str:
 def _is_path_within_media_cache_dir(full_path: Path) -> bool:
     try:
         resolved = full_path.resolve()
-        root = MEDIA_CACHE_DIR.resolve()
+        root = data.media_dir.resolve()
         return resolved == root or root in resolved.parents
     except Exception:
         return False
@@ -3325,7 +2479,7 @@ def _cleanup_media_cache(conn: sqlite3.Connection) -> None:
     ).fetchall()
     for row in rows:
         try:
-            full_path = (MEDIA_CACHE_DIR / row["relative_path"]).resolve()
+            full_path = (data.media_dir / row["relative_path"]).resolve()
             if _is_path_within_media_cache_dir(full_path) and full_path.exists():
                 full_path.unlink()
         except Exception:
@@ -3340,13 +2494,13 @@ def _cache_twitter_image(conn: sqlite3.Connection, url: str, *, article_url: str
         return None
     cache_key = _media_cache_key_for_url(url)
     relative_path = _media_cache_relative_path(cache_key)
-    dest_path = MEDIA_CACHE_DIR / relative_path
+    dest_path = data.media_dir / relative_path
     existing = conn.execute(
         "SELECT status, relative_path FROM media_cache WHERE url=?",
         (url,),
     ).fetchone()
     if existing and existing["status"] == "success":
-        existing_path = MEDIA_CACHE_DIR / existing["relative_path"]
+        existing_path = data.media_dir / existing["relative_path"]
         if existing_path.exists():
             return {"cache_key": cache_key, "cached_url": f"/api/media-cache/{cache_key}", "status": "success"}
     ok, mime_type, size = _download_media_file(url, dest_path)
@@ -3374,7 +2528,7 @@ def _cache_twitter_image(conn: sqlite3.Connection, url: str, *, article_url: str
     ext = _extension_for_mime_type(mime_type)
     if ext:
         relative_path = _media_cache_relative_path(cache_key, ext)
-        final_path = MEDIA_CACHE_DIR / relative_path
+        final_path = data.media_dir / relative_path
         if final_path != dest_path:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(dest_path), str(final_path))
@@ -3546,7 +2700,7 @@ def run_opencli_twitter_detail(url: str) -> tuple[bool, dict, str]:
     content = "\n".join(part for part in lines if part is not None).strip()
     cached_images: list[dict] = []
     if media_images:
-        conn = db_conn()
+        conn = data.connect()
         try:
             for image in media_images:
                 cached = _cache_twitter_image(conn, image["url"], article_url=url)
@@ -3694,7 +2848,7 @@ def recover_interrupted_detail_jobs() -> int:
     Preserve attempts across restarts, including legacy running rows without an
     owner. A second app sharing the DB must leave another live worker alone.
     """
-    conn = db_conn()
+    conn = data.connect()
     recovered = 0
     try:
         with conn:
@@ -3720,7 +2874,7 @@ def recover_interrupted_detail_jobs() -> int:
 
 
 def process_pending_jobs_once() -> bool:
-    conn = db_conn()
+    conn = data.connect()
     try:
         # Claim atomically, and count the attempt before invoking the subprocess
         # so a crash cannot reset the retry budget.
@@ -3899,7 +3053,7 @@ def generate_news_translation(settings: dict, *, title: str, source: str, conten
 
 
 def process_pending_ai_once() -> bool:
-    conn = db_conn()
+    conn = data.connect()
     try:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -4021,525 +3175,14 @@ def start_detail_worker() -> None:
 
 @app.get("/")
 def index():
-    return send_from_directory(STATIC_DIR, "index.html")
-
-
-@app.get("/api/news/status")
-def api_news_status():
-    raw_ids = (request.args.get("ids") or "").strip()
-    if not raw_ids:
-        return jsonify({"ok": False, "error": "missing_ids"}), 400
-    ids = [x.strip() for x in raw_ids.split(",") if x.strip()]
-    if not ids:
-        return jsonify({"ok": False, "error": "invalid_ids"}), 400
-    if len(ids) > 50:
-        return jsonify({"ok": False, "error": "too_many_ids"}), 400
-
-    placeholders = ",".join(["?"] * len(ids))
-    conn = db_conn()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT items.id,
-                   st.favorite_at,
-                   st.read_later_at,
-                   st.read_later_done_at,
-                   (
-                     SELECT COUNT(*)
-                     FROM news_reminders nr
-                     WHERE nr.item_id = items.id AND nr.status = 'active'
-                   ) AS active_reminder_count,
-                   (
-                     SELECT COUNT(*)
-                     FROM news_reminders nr
-                     WHERE nr.item_id = items.id
-                       AND nr.status = 'active'
-                       AND nr.remind_at <= datetime('now', 'localtime')
-                   ) AS due_reminder_count,
-                   (
-                     SELECT MIN(nr.remind_at)
-                     FROM news_reminders nr
-                     WHERE nr.item_id = items.id AND nr.status = 'active'
-                   ) AS next_remind_at,
-                   dj.status AS detail_status,
-                   dj.last_error AS detail_error,
-                   CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS detail_ready,
-                   aj.status AS ai_status,
-                   aa.conclusion_zh AS ai_conclusion_zh
-            FROM items
-            LEFT JOIN item_state st ON st.item_id = items.id
-            LEFT JOIN news_item_detail_jobs dj ON dj.item_id=items.id
-            LEFT JOIN news_item_details ad ON ad.item_id=items.id
-            LEFT JOIN news_item_ai_jobs aj ON aj.item_id=items.id
-            LEFT JOIN news_item_ai aa ON aa.item_id=items.id
-            WHERE items.id IN ({placeholders})
-              AND {visible_news_sql()}
-            """,
-            ids,
-        ).fetchall()
-        items = [dict(r) for r in rows]
-        news_versions.attach(conn, items)
-    finally:
-        conn.close()
-    return jsonify({"ok": True, "items": items})
-
-
-@app.get("/api/error-stats")
-def api_error_stats():
-    day = (request.args.get("day") or news_collection.now().date().isoformat()).strip()
-    try:
-        if datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d") != day:
-            raise ValueError()
-    except ValueError:
-        return jsonify({"ok": False, "error": "invalid_day"}), 400
-    return jsonify(COLLECTION_SERVICE.errors(day, details=request.args.get("details") != "0"))
-
-
-def _version_manifest() -> dict:
-    try:
-        payload = json.loads(VERSION_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        payload = {}
-    version = payload.get("version") if isinstance(payload, dict) else None
-    return {"version": version if isinstance(version, str) else "v0.0.0", "repository": UPDATE_REPOSITORY_URL}
-
-
-def _current_commit() -> str:
-    try:
-        result = subprocess.run(["git", "-C", str(BASE_DIR), "rev-parse", "HEAD"], text=True,
-                                capture_output=True, check=False, timeout=3)
-        return result.stdout.strip() if result.returncode == 0 else ""
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-
-def _stable_version(tag: object) -> tuple[int, ...] | None:
-    if not isinstance(tag, str) or not re.fullmatch(r"v\d+(?:\.\d+){2,3}", tag):
-        return None
-    return tuple(int(part) for part in tag[1:].split("."))
-
-
-def _update_preflight() -> dict:
-    """Re-read local conditions on every check; never cache worktree readiness."""
-    blockers = []
-    state = None
-    try:
-        state = update_git_state(BASE_DIR)
-        if not state["clean"]:
-            blockers.append("dirty_worktree")
-        if state["detached"]:
-            blockers.append("detached_head")
-    except (OSError, RuntimeError):
-        blockers.append("git_state_unavailable")
-    managed = os.getenv("NEWS_READER_MANAGED") == "1"
-    if not managed:
-        blockers.append("managed_launcher_required")
-    return {"managed_launcher": managed, "can_update": not blockers,
-            "blockers": blockers, "worktree": state}
-
-
-def _fetch_update_check(*, force: bool = False) -> dict:
-    global UPDATE_CHECK_CACHE
-    now = time.time()
-    current = _version_manifest()["version"]
-    current_commit = _current_commit()
-    if not UPDATE_CHECK_URL:
-        return {
-            "ok": True, "enabled": False, "status": "not_configured",
-            "current_version": current, "current_commit": current_commit,
-            "latest": None, "available": False, "repository": UPDATE_REPOSITORY_URL,
-            "message": "独立项目尚未配置更新仓库，在线更新未启用。",
-        }
-    with UPDATE_CHECK_LOCK:
-        cached = (not force and UPDATE_CHECK_CACHE
-                  and UPDATE_CHECK_CACHE.get("repository") == UPDATE_REPOSITORY_URL
-                  and now - UPDATE_CHECK_CACHE.get("checked_at", 0) < UPDATE_CHECK_TTL)
-        if not cached:
-            stable = []
-            # Some macOS Python installs have no default CA bundle. Add trusted
-            # public roots while retaining system / SSL_CERT_FILE certificates.
-            context = ssl.create_default_context()
-            context.load_verify_locations(cafile=certifi.where())
-            # Do not assume the API order matches numeric versions. Read all pages.
-            for page in range(1, 11):
-                req = Request(UPDATE_CHECK_URL + f"&page={page}", headers={
-                    "Accept": "application/vnd.github+json", "User-Agent": "news-reader-updater"})
-                with urlopen(req, timeout=8, context=context) as response:
-                    tags = json.loads(response.read().decode("utf-8"))
-                if not isinstance(tags, list):
-                    raise ValueError("invalid_update_manifest")
-                for item in tags:
-                    if not isinstance(item, dict):
-                        continue
-                    tag = item.get("name")
-                    parsed = _stable_version(tag)
-                    commit = ((item.get("commit") or {}).get("sha") if isinstance(item.get("commit"), dict) else "")
-                    if parsed and isinstance(commit, str) and re.fullmatch(r"[0-9a-fA-F]{40}", commit):
-                        stable.append({"tag": tag, "version": tag, "commit": commit.lower(),
-                                       "numeric": parsed + (0,) * (4 - len(parsed))})
-                if len(tags) < 100:
-                    break
-            else:
-                raise ValueError("too_many_update_tags")
-            latest = max(stable, key=lambda item: item["numeric"], default=None)
-            UPDATE_CHECK_CACHE = {"checked_at": time.time(), "repository": UPDATE_REPOSITORY_URL,
-                                  "latest": latest}
-        latest = UPDATE_CHECK_CACHE["latest"]
-        current_numeric = _stable_version(current) or (0,)
-        current_numeric += (0,) * (4 - len(current_numeric))
-        available = bool(latest and latest["numeric"] > current_numeric)
-        status = ("no_releases" if latest is None else "update_available" if available
-                  else "ahead" if latest["numeric"] < current_numeric else "up_to_date")
-        payload = {
-            "ok": True, "enabled": True, "status": status,
-            "current_version": current, "current_commit": current_commit,
-            "latest": {k: v for k, v in latest.items() if k != "numeric"} if latest else None,
-            "available": available, "checked_at": int(UPDATE_CHECK_CACHE["checked_at"]),
-            "repository": UPDATE_REPOSITORY_URL,
-        }
-    return {**payload, **_update_preflight()}
-
-
-@app.get("/api/version")
-def api_version():
-    manifest = _version_manifest()
-    payload = {"ok": True, **manifest, "commit": _current_commit()}
-    instance_id = os.getenv("NEWS_READER_INSTANCE_ID")
-    if instance_id:
-        payload["instance_id"] = instance_id
-    return jsonify(payload)
-
-
-@app.get("/api/update/check")
-def api_update_check():
-    try:
-        payload = _fetch_update_check(force=request.args.get("force") == "1")
-    except (OSError, ValueError, HTTPError, URLError, TimeoutError) as exc:
-        return jsonify({"ok": False, "error": "update_check_failed", "detail": trim_settings_error(exc)}), 502
-    if not payload.get("enabled") or not payload.get("available") or not payload.get("can_update"):
-        return jsonify(payload)
-    token = uuid.uuid4().hex
-    with UPDATE_CHECK_LOCK:
-        now = time.time()
-        for expired in [key for key, value in UPDATE_TOKENS.items() if value["expires_at"] <= now]:
-            UPDATE_TOKENS.pop(expired, None)
-        # Bound memory even if checks are repeated without applying an update.
-        while len(UPDATE_TOKENS) >= 128:
-            UPDATE_TOKENS.pop(next(iter(UPDATE_TOKENS)))
-        UPDATE_TOKENS[token] = {"expires_at": now + UPDATE_TOKEN_TTL, "payload": payload}
-    return jsonify({**payload, "check_token": token, "token_expires_in": UPDATE_TOKEN_TTL})
-
-
-@app.get("/api/update/status")
-def api_update_status():
-    try:
-        payload = json.loads(UPDATE_STATE_PATH.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        payload = {"status": "idle"}
-    except (OSError, ValueError):
-        return jsonify({"ok": False, "error": "update_status_unavailable"}), 503
-    if not isinstance(payload, dict):
-        return jsonify({"ok": False, "error": "update_status_unavailable"}), 503
-    return jsonify({"ok": True, **payload})
-
-
-@app.post("/api/update/apply")
-def api_update_apply():
-    if not UPDATE_REPOSITORY_URL:
-        return jsonify({"ok": False, "error": "update_repository_not_configured"}), 409
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "invalid_payload"}), 400
-    token = body.get("check_token")
-    if not isinstance(token, str):
-        return jsonify({"ok": False, "error": "missing_check_token"}), 400
-    with UPDATE_CHECK_LOCK:
-        record = UPDATE_TOKENS.pop(token, None)
-    if not record or record["expires_at"] < time.time():
-        return jsonify({"ok": False, "error": "expired_check_token"}), 409
-    payload = record["payload"]
-    latest = payload.get("latest") or {}
-    if not payload.get("available"):
-        return jsonify({"ok": False, "error": "no_update_available"}), 409
-    if os.getenv("NEWS_READER_MANAGED") != "1":
-        return jsonify({"ok": False, "error": "managed_launcher_required"}), 409
-    if payload.get("current_commit") != _current_commit():
-        return jsonify({"ok": False, "error": "current_commit_changed"}), 409
-    if any(body.get(key) != latest.get(key) for key in ("tag", "version", "commit")):
-        return jsonify({"ok": False, "error": "update_target_mismatch"}), 409
-    preflight = _update_preflight()
-    if preflight["blockers"]:
-        return jsonify({"ok": False, "error": preflight["blockers"][0]}), 409
-    run_id = uuid.uuid4().hex
-    try:
-        port = int((os.getenv("NEWS_READER_PORT") or "8080").strip())
-    except ValueError:
-        port = 8080
-    health_url = local_health_url(os.getenv("NEWS_READER_HOST") or "127.0.0.1", port)
-    if os.getenv("NEWS_READER_SUPERVISOR_SOCKET"):
-        try:
-            response = request_supervisor(
-                "start_update", pid=os.getpid(), run_id=run_id,
-                tag=latest["tag"], version=latest["version"],
-                commit=latest["commit"], health_url=health_url,
-                instance_id=os.getenv("NEWS_READER_INSTANCE_ID", ""),
-            )
-        except RuntimeError:
-            return jsonify({"ok": False, "error": "updater_launch_failed"}), 503
-        if response.get("ok") is not True:
-            error = response.get("error") or "updater_launch_failed"
-            status = 409 if error == "update_in_progress" else 503
-            return jsonify({"ok": False, "error": error}), status
-    else:
-        command = [sys.executable, str(BASE_DIR / "updater.py"), "--repo", str(BASE_DIR), "--run-id", run_id,
-                   "--tag", latest["tag"], "--version", latest["version"], "--commit", latest["commit"],
-                   "--pid", str(os.getpid()), "--health-url", health_url]
-        global UPDATE_PROCESS
-        with UPDATE_LAUNCH_LOCK:
-            if UPDATE_PROCESS is not None and UPDATE_PROCESS.poll() is None:
-                return jsonify({"ok": False, "error": "update_in_progress"}), 409
-            try:
-                UPDATE_PROCESS = subprocess.Popen(command, cwd=BASE_DIR, start_new_session=True,
-                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except OSError:
-                return jsonify({"ok": False, "error": "updater_launch_failed"}), 503
-    return jsonify({"ok": True, "status": "updating", "target": latest, "run_id": run_id}), 202
-
-
-@app.get("/api/release-notes")
-def api_release_notes():
-    return jsonify({"ok": True, "items": parse_release_notes()})
-
-
-@app.post("/api/settings/apis/<provider>/models")
-@app.post("/api/settings/translation/models")
-def api_translation_models(provider: str = "deepseek"):
-    provider = model_apis.canonical_provider(provider)
-    if provider not in model_apis.API_PROVIDERS:
-        return jsonify(ok=False, error="unsupported_provider"), 400
-    snapshot = managed_api_snapshot(provider, refresh=True)
-    if not snapshot["service"]["configured"]:
-        return jsonify(ok=False, error="missing_api_key"), 400
-    service = snapshot["service"]
-    if service.get("models_endpoint_reachable") is not True:
-        details = {name: service[name] for name in ("reason", "upstream_status", "retry_after_seconds") if name in service}
-        status = 504 if details.get("reason") == "connection_timeout" else 502
-        return jsonify(ok=False, error="models_unavailable", message=service["status_text"], **details), status
-    return jsonify(ok=True, **snapshot)
-
-
-@app.post("/api/settings/apis/<provider>/test")
-@app.post("/api/settings/translation/test")
-def api_translation_test(provider: str = "deepseek"):
-    provider = model_apis.canonical_provider(provider)
-    if provider not in model_apis.API_PROVIDERS:
-        return jsonify(ok=False, error="unsupported_provider"), 400
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    config = model_apis.API_PROVIDERS[provider]
-    model = body.get("model", "")
-    if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
-        return jsonify(ok=False, error="invalid_model"), 400
-    model = model.strip() or (resolve_translation_default_model() if provider == "deepseek" else config["default_model"])
-    key = provider_secret_value(provider)
-    if not key:
-        return jsonify(ok=False, error="missing_api_key"), 400
-    if not model:
-        return jsonify(ok=False, error="invalid_model", message="请先选择或填写测试模型。"), 400
-    try:
-        probe_body = model_apis.probe_payload(provider, model)
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
-    probe = Request(config["test_url"],
-                    data=json.dumps(probe_body).encode(),
-                    headers={**model_apis.request_headers(key, provider), "Content-Type": "application/json"}, method="POST")
-    started = time.monotonic()
-    try:
-        with urlopen(probe, timeout=30) as response:
-            result = json.loads(response.read().decode())
-        if not model_apis.valid_probe_response(provider, result):
-            return jsonify(ok=False, error="empty_model_response"), 502
-        return jsonify(ok=True, message="模型连接成功", provider=provider, model=model, elapsed_ms=round((time.monotonic()-started)*1000))
-    except HTTPError as exc:
-        details = model_apis.http_error_details(exc)
-        details["message"] = f"模型测试失败（HTTP {exc.code}）。{details['message']}"
-        return jsonify(ok=False, error="api_test_failed", **details), 502
-    except TimeoutError:
-        return jsonify(ok=False, error="api_test_timeout", message="模型连接测试超时。"), 504
-    except Exception:
-        return jsonify(ok=False, error="api_test_failed", message="模型连接测试失败。"), 502
-
-
-@app.post("/api/settings/models")
-def api_settings_models():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    if body.get("runtime") == "codex":
-        try:
-            config = codex_client.normalize_config(body.get("codex", {}))
-        except ValueError as exc:
-            return jsonify(ok=False, error=str(exc)), 400
-        return jsonify(ok=True, catalog=model_catalogs.safe_catalog(config))
-    if body.get("runtime") == "pi":
-        return jsonify(ok=True, catalog=pi_chat_settings_snapshot("", "")["catalog"])
-    return jsonify(ok=False, error="invalid_agent_runtime"), 400
-
-
-@app.post("/api/settings/connection-test")
-def api_settings_connection_test():
-    body = request.get_json(silent=True)
-    try:
-        if isinstance(body, dict) and body.get("runtime") == "codex":
-            body = {**body, "codex": model_catalogs.validate_effort(body.get("codex", {}))}
-        result = connection_tests.test_connection(body)
-        return jsonify(ok=True, **result)
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 400
-    except connection_tests.Busy:
-        return jsonify(ok=False, error="connection_test_busy"), 409
-
-
-@app.get("/api/settings")
-def api_settings():
-    return jsonify({"ok": True, **serialize_runtime_settings()})
-
-
-@app.post("/api/settings/database/pick")
-def api_settings_database_pick():
-    if os.environ.get("NEWS_READER_DB_PATH", "").strip():
-        return jsonify({"ok": False, "error": "database_path_controlled_by_environment"}), 400
-    try:
-        path = choose_existing_database_path()
-    except ValueError as exc:
-        error = str(exc)
-        status = 409 if error == "database_picker_cancelled" else 501 if error == "database_picker_unavailable" else 400
-        return jsonify({"ok": False, "error": error}), status
-    except Exception:
-        app.logger.exception("database picker failed unexpectedly")
-        return jsonify({"ok": False, "error": "database_picker_failed"}), 500
-    return jsonify({"ok": True, "path": path})
-
-
-@app.put("/api/settings")
-def api_settings_update():
-    body = request.get_json(silent=True) or {}
-    try:
-        normalized = validate_runtime_settings(body)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    # Account revisions protect drafts from concurrent edits/removals and bind
-    # them to the library. The legacy settings file never owns subscriptions.
-    try:
-        with NEWS_SUMMARY_SERVICE.lock, REPORT_SNAPSHOT_LOCK, CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn, conn:
-            conn.execute("BEGIN IMMEDIATE")
-            if "x_accounts" in body:
-                x_accounts.save(conn, body["x_accounts"], body.get("x_accounts_revision"))
-            save_app_settings(normalized)
-            CLASSIFICATION_SERVICE.configure(**normalized["classification"])
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "x_accounts_changed" else 400
-    REPORT_SERVICE.schedule_wake.set()
-    COLLECTION_SERVICE.wake.set()
-    refresh_agent_session_expiries()
-    return jsonify({"ok": True, **serialize_runtime_settings()})
-
-
-@app.put("/api/settings/tracked-default-rule-params")
-def api_settings_tracked_default_rule_params_update():
-    body = request.get_json(silent=True) or {}
-    params = body.get("default_rule_params")
-    if not isinstance(params, dict):
-        return jsonify({"ok": False, "error": "invalid_default_rule_params"}), 400
-    settings = configuration.current_runtime_settings()
-    settings["tracked"]["default_rule_params"] = tracked_default_rule_params(params)
-    save_app_settings(settings)
-    return jsonify({"ok": True, **serialize_runtime_settings()})
-
-
-@app.put("/api/settings/secrets/<provider>")
-def api_settings_secret_save(provider: str):
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        save_provider_secret(provider, body.get("key"))
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except SecretStoreError as exc:
-        status = 503 if exc.code == "keychain_unavailable" else 500
-        return jsonify({"ok": False, "error": exc.code}), status
-    return jsonify({"ok": True, **serialize_runtime_settings()})
-
-
-@app.delete("/api/settings/secrets/<provider>")
-def api_settings_secret_delete(provider: str):
-    try:
-        remove_provider_secret(provider)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
-    except SecretStoreError as exc:
-        status = 503 if exc.code == "keychain_unavailable" else 500
-        return jsonify({"ok": False, "error": exc.code}), status
-    return jsonify({"ok": True, **serialize_runtime_settings()})
-
-
-@app.get("/api/collection")
-def api_collection_status():
-    return jsonify({"ok": True, **COLLECTION_SERVICE.status()})
-
-
-@app.post("/api/collection")
-def api_collection_request():
-    return jsonify({"ok": True, "run_id": COLLECTION_SERVICE.request()}), 202
-
-
-@app.get("/api/collection/environment")
-def api_collection_environment():
-    with closing(db_conn()) as conn:
-        return jsonify(ok=True, checks=collection_environment.latest(conn))
-
-
-@app.post("/api/collection/environment/check")
-def api_collection_environment_check():
-    body = request.get_json(silent=True)
-    if body is None and not request.content_length:
-        body = {}
-    if not isinstance(body, dict) or set(body) - {"target"} or body.get("target", "environment") not in ("environment", "x"):
-        return jsonify(ok=False, error="invalid_environment_check"), 400
-    try:
-        target = body.get("target", "environment")
-        # Resolve the database before probing, so a later settings change cannot
-        # move an in-flight check's result into another library.
-        with closing(db_conn()) as conn:
-            result = collection_environment.check(target)
-            results = collection_environment.remember(conn, target, result)
-        return jsonify(ok=True, **result, results=results)
-    except collection_environment.Busy:
-        return jsonify(ok=False, error="collection_environment_busy"), 409
-
-
-@app.post("/api/collection/retry-translation")
-def api_collection_retry():
-    body = request.get_json(silent=True)
-    if body is None and not request.content_length:
-        body = {}
-    if not isinstance(body, dict) or set(body) - {"run_id", "source_id", "stage"} or (body and not body.get("run_id")):
-        return jsonify({"ok": False, "error": "collection_retry_invalid"}), 400
-    try:
-        count = COLLECTION_SERVICE.retry(**body)
-    except (ValueError, TypeError) as exc:
-        code = str(exc) if isinstance(exc, ValueError) else "collection_retry_invalid"
-        return jsonify({"ok": False, "error": code}), 404 if code == "collection_retry_target_missing" else 400
-    return jsonify({"ok": True, "retried": count}), 202
+    return send_from_directory(data.static_dir, "index.html")
 
 
 @app.get("/api/media-cache/<cache_key>")
 def api_media_cache(cache_key: str):
     if not _MEDIA_CACHE_KEY_RE.match(cache_key):
         return jsonify({"ok": False, "error": "invalid_cache_key"}), 400
-    conn = db_conn()
+    conn = data.connect()
     try:
         row = conn.execute(
             "SELECT relative_path, mime_type FROM media_cache WHERE cache_key=? AND status='success'",
@@ -4549,13 +3192,13 @@ def api_media_cache(cache_key: str):
         conn.close()
     if not row:
         return jsonify({"ok": False, "error": "not_found"}), 404
-    full_path = (MEDIA_CACHE_DIR / row["relative_path"]).resolve()
+    full_path = (data.media_dir / row["relative_path"]).resolve()
     if not _is_path_within_media_cache_dir(full_path):
         return jsonify({"ok": False, "error": "invalid_path"}), 400
     if not full_path.exists():
         return jsonify({"ok": False, "error": "file_missing"}), 404
     return send_from_directory(
-        str(MEDIA_CACHE_DIR),
+        str(data.media_dir),
         row["relative_path"],
         mimetype=row["mime_type"] or None,
     )
@@ -4563,7 +3206,7 @@ def api_media_cache(cache_key: str):
 
 @app.get("/api/news/<item_id>/detail")
 def api_news_detail(item_id: str):
-    conn = db_conn()
+    conn = data.connect()
     try:
         item = conn.execute(
             f"""
@@ -4748,9 +3391,9 @@ def api_news_chat(item_id: str):
     session_id = (body.get("session_id") or "").strip()
     requested_model = (body.get("model") or "").strip()
     reset = bool(body.get("reset"))
-    pi_config = current_pi_chat_config()
+    pi_config = preferences.current_pi_chat_config()
 
-    conn = db_conn()
+    conn = data.connect()
     try:
         item = conn.execute(
             "SELECT id, title, url, source, source_name, source_type, summary, published_at FROM items WHERE id=?",
@@ -4867,10 +3510,10 @@ def api_news_chat_archive(item_id: str):
             return jsonify({"ok": False, "error": "empty_archive_source"}), 400
 
     requested_model = (body.get("model") or "").strip()
-    pi_config = current_pi_chat_config()
+    pi_config = preferences.current_pi_chat_config()
     pi_model = requested_model or pi_config["model"]
 
-    conn = db_conn()
+    conn = data.connect()
     try:
         item = reader_subject(conn, item_id)
         if not item:
@@ -4890,7 +3533,7 @@ def api_news_chat_archive(item_id: str):
         sync_session_id = str(body.get("session_id") or "")
         if active_session_id:
             ensure_agent_db()
-            ac = agent_db_conn()
+            ac = data.agent_connect()
             try:
                 ac.execute("BEGIN")
                 saved = _agent_active_session(ac, item_id, active_session_id)
@@ -4970,7 +3613,7 @@ def api_news_chat_archive(item_id: str):
 
     stamp = database.now_ts()[:16]
     block = f"【Chat 归档｜{stamp}】\n{summary}"
-    conn = db_conn()
+    conn = data.connect()
     try:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -5009,7 +3652,7 @@ def api_news_chat_archive(item_id: str):
 
 @app.post("/api/news/<item_id>/detail/retry")
 def api_news_detail_retry(item_id: str):
-    conn = db_conn()
+    conn = data.connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT id, url, source, source_type FROM items WHERE id=?", (item_id,)).fetchone()
@@ -5050,545 +3693,40 @@ import math
 from datetime import date as date_cls
 
 # Separate summary history in the selected news database; no writes at import.
-def news_summary_feed_scope(conn):
-    """Hidden sources remain summary candidates; global videos are excluded."""
-    conn.create_function("feed_source_subkey", 4, feed_source_subkey_sql)
-    conn.create_function("is_bloomberg_video_url", 1, lambda url: int(is_bloomberg_video_url(url)))
-    visible_where, visible_args = _build_news_where_clause("", "unread", "feed", "all")
-    visible_count = conn.execute(
-        "SELECT COUNT(DISTINCT items.id) FROM items LEFT JOIN item_state st ON st.item_id=items.id "
-        + visible_where, visible_args,
-    ).fetchone()[0]
-    return "WHERE " + visible_news_sql() + " AND st.read_at IS NULL", [], {"feed_visible_unread_count": visible_count}
-
-
-NEWS_SUMMARY_SERVICE = news_summaries.Service(lambda: DB_PATH, configuration.current_runtime_settings, lambda: str(resolve_db_path().expanduser().resolve()), scope_getter=news_summary_feed_scope)
-
-
-def _summary_error(exc):
-    code = str(exc) if str(exc) in news_summaries.ERRORS or str(exc) in {"invalid_request_id", "invalid_runtime"} else "summary_save_failed"
-    return jsonify({"ok": False, "error": code, "message": news_summaries.ERRORS.get(code, "请求格式不正确。")}), 409 if code in {"summary_database_changed", "summary_empty"} else 400
-
-
-@app.get("/api/news-summaries")
-def api_news_summaries():
-    try:
-        offset = max(0, min(1000000, int(request.args.get("offset", "0"))))
-        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.listing(offset, request.args.get("q", "").strip()[:500], request.args.get("recent") == "1")})
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.route("/api/news-summaries/scope", methods=["GET", "POST"])
-def api_news_summary_scope():
-    try:
-        limits = None
-        if request.method == "POST":
-            body = request.get_json(silent=True)
-            if not isinstance(body, dict) or not isinstance(body.get("news_summary"), dict):
-                raise ValueError("invalid_summary_limits")
-            limits = body["news_summary"]
-        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.overview(limits)})
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.post("/api/news-summaries/prepare")
-def api_news_summary_prepare():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "invalid_request_body"}), 400
-    try:
-        return jsonify({"ok": True, **NEWS_SUMMARY_SERVICE.prepare(body.get("request_id"), body.get("database_token"))})
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.post("/api/news-summaries/previews/<preview_id>/discard")
-def api_news_summary_discard_preview(preview_id):
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "invalid_request_body"}), 400
-    try:
-        NEWS_SUMMARY_SERVICE.discard_preview(preview_id, body.get("database_token"))
-        return jsonify({"ok": True})
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.post("/api/news-summaries")
-def api_news_summary_create():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "invalid_request_body"}), 400
-    try:
-        if not isinstance(body.get("preview_id"), str) or not body["preview_id"]:
-            raise ValueError("summary_preview_invalid")
-        job, created = NEWS_SUMMARY_SERVICE.create(body.get("request_id"), body.get("database_token"), body["preview_id"])
-        return jsonify({"ok": True, "job": job, "created": created}), 202
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.get("/api/news-summaries/jobs/<job_id>")
-def api_news_summary_job(job_id):
-    try:
-        job = NEWS_SUMMARY_SERVICE.job(job_id)
-        return (jsonify({"ok": True, "job": job}) if job else (jsonify({"ok": False, "error": "summary_not_found"}), 404))
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.post("/api/news-summaries/jobs/<job_id>/cancel")
-def api_news_summary_cancel(job_id):
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"ok": False, "error": "invalid_request_body"}), 400
-    try:
-        job = NEWS_SUMMARY_SERVICE.cancel(job_id, body.get("database_token"))
-        return (jsonify({"ok": True, "job": job}) if job else (jsonify({"ok": False, "error": "summary_not_found"}), 404))
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-@app.get("/api/news-summaries/<summary_id>")
-def api_news_summary_detail(summary_id):
-    try:
-        detail = NEWS_SUMMARY_SERVICE.detail(summary_id, lambda conn, sources: reader_sources.source_items(
-            conn, [source for source in sources if not is_bloomberg_video_url(source.get("url"))]))
-        return (jsonify({"ok": True, "summary": detail}) if detail else (jsonify({"ok": False, "error": "summary_not_found"}), 404))
-    except (ValueError, OSError, sqlite3.Error) as exc:
-        return _summary_error(exc)
-
-
-def classification_config(provider=None) -> tuple[str, str, str]:
-    settings = configuration.current_runtime_settings()
-    if provider is None:
-        provider = settings["classification"]["provider"]
-    model = settings["api_models"][provider]["model"] or model_apis.API_PROVIDERS[provider]["default_model"]
-    return provider_secret_value(provider), model, provider
-
-
-def decision_service_status():
-    service = CLASSIFICATION_SERVICE
-    with service.lock:
-        primary = service.provider
-        backup = decision_protocol.alternate(primary)
-        primary_key = provider_has_configured_key(primary)
-        route = primary
-        waiting = False
-        if service.fallback_enabled and (not primary_key or service.gate.last_error or service.gate.cooling()):
-            backup_key = provider_has_configured_key(backup)
-            backup_lane = service.lanes[backup]
-            waiting = not backup_key or bool(backup_lane.last_error) or backup_lane.cooling()
-            if not waiting:
-                route = backup
-        else:
-            backup_key = False
-        label = model_apis.API_PROVIDERS[route]["label"]
-        return {"provider": primary, "preferred_label": model_apis.API_PROVIDERS[primary]["label"],
-                "provider_label": label, "active_provider": None if waiting else route,
-                "fallback_enabled": service.fallback_enabled, "using_backup": route != primary,
-                "waiting_for_service": waiting, "configured": primary_key or backup_key,
-                "error": service.error, "throttle": service.lanes[route].snapshot()}
-
-
-
-TOPIC_SERVICE = topic_tracking.Service(db_conn, configuration.current_runtime_settings)
-
-
-COLLECTION_SERVICE = news_collection.Service(db_conn, configuration.current_runtime_settings, enqueue_detail=enqueue_detail_job)
-REPORT_SERVICE = periodic_reports.Service(db_conn, configuration.current_runtime_settings, index_lock=REPORT_SNAPSHOT_LOCK)
-
-
-@app.get("/api/reports")
-def api_reports():
-    try:
-        offset = int(request.args.get("offset", "0"))
-        limit = int(request.args.get("limit", "30"))
-        if offset < 0 or not 1 <= limit <= 200:
-            raise ValueError("invalid_report_pagination")
-        result = REPORT_SERVICE.listing(request.args.get("kind", "daily"), offset, limit, request.args.get("group"))
-    except ValueError:
-        return jsonify(ok=False, error="invalid_report_query"), 400
-    return jsonify(ok=True, **result)
-
-
-@app.get("/api/reports/preview-options")
-def api_report_preview_options():
-    return jsonify(ok=True, **REPORT_SERVICE.preview_options())
-
-@app.get("/api/reports/manual-options")
-def api_report_manual_options():
-    return jsonify(ok=True, **REPORT_SERVICE.manual_options())
-
-
-@app.post("/api/reports/model-options")
-def api_report_model_options():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        kind = body.get("kind", "morning")
-        if not isinstance(kind, str) or kind not in periodic_reports.KINDS:
-            raise ValueError("report_model_selection_invalid")
-        catalog = periodic_reports.report_model.catalog(REPORT_SERVICE.settings(), body.get("runtime"),
-            periodic_reports.report_model_feature(kind))
-        return jsonify(ok=True, catalog=catalog)
-    except (ValueError, RuntimeError) as exc:
-        return report_request_error(exc)
-
-
-@app.post("/api/reports/manual")
-def api_report_create_manual():
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        if "selection" in body:
-            report = REPORT_SERVICE.create_selected(body.get("kind"), body.get("selection"), body.get("request_id"), body.get("database_token"), body.get("schedule_times"), body.get("model_override"), body.get("window"))
-        else:
-            report = REPORT_SERVICE.create_manual(body.get("kind"), body.get("period_start"), body.get("period_end"), body.get("request_id"), body.get("database_token"), body.get("model_override"))
-    except (ValueError, LookupError, RuntimeError) as exc:
-        return report_request_error(exc)
-    REPORT_SERVICE.start()
-    return jsonify(ok=True, report=report), 202
-
-
-@app.delete("/api/reports/<report_id>")
-def api_report_delete(report_id):
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        REPORT_SERVICE.delete(report_id, body.get("database_token"))
-    except (ValueError, LookupError) as exc:
-        return report_request_error(exc)
-    clear_report_agent(report_id)
-    return jsonify(ok=True)
-
-
 def clear_report_agent(report_id):
     ensure_agent_db()
-    with closing(agent_db_conn()) as conn, conn:
+    with closing(data.agent_connect()) as conn, conn:
         jobs = _delete_agent_sessions_for_item(conn, report_reader.ID_PREFIX + report_id)
     for job_id in jobs:
         _terminate_agent_process(job_id)
 
 
-@app.get("/api/reports/schedule-status")
-def api_report_schedule_status():
-    try:
-        return jsonify(ok=True, **REPORT_SERVICE.observation())
-    except (sqlite3.Error, OSError, ValueError):
-        return jsonify(ok=False, error="report_schedule_unavailable"), 503
+report_lock = threading.RLock()
+background = services.BackgroundServices(
+    classification=news_classification.Service(data.connect, tasks.classification_config, topic_queue=topic_tracking.MatchQueue(), backup_config=tasks.classification_config),
+    collection=news_collection.Service(data.connect, configuration.current_runtime_settings, enqueue_detail=enqueue_detail_job),
+    reports=periodic_reports.Service(data.connect, configuration.current_runtime_settings, index_lock=report_lock),
+    summaries=news_summaries.Service(lambda: data.path, configuration.current_runtime_settings, lambda: str(resolve_db_path().expanduser().resolve()), scope_getter=summaries.news_summary_feed_scope),
+    topics=topic_tracking.Service(data.connect, configuration.current_runtime_settings),
+    report_lock=report_lock,
+)
+background.classification.configure(**configuration.current_runtime_settings()["classification"])
 
+preferences.register(app, data, background, catalogs, _terminate_agent_process, agent_library_scope, ensure_agent_db, refresh_agent_session_expiries)
+reports.register(app, data, background, agent_context_metadata, build_agent_context, clear_report_agent, load_agent_payload)
+summaries.register(app, background)
+tasks.register(app, data, background)
+topics.register(app, data, background)
+updates.register(app, data, release)
 
-@app.post("/api/reports/schedule-pause")
-def api_report_schedule_pause():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict) or not isinstance(body.get("paused"), bool):
-        return jsonify(ok=False, error="invalid_report_pause"), 400
-    try:
-        result = REPORT_SERVICE.set_schedule_paused(body["paused"], body.get("database_token"))
-        return jsonify(ok=True, **result)
-    except ValueError as exc:
-        return report_request_error(exc)
-    except (sqlite3.Error, OSError):
-        return jsonify(ok=False, error="report_pause_unavailable"), 503
-
-
-@app.post("/api/reports/snapshots/clear")
-def api_report_snapshots_clear():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        return jsonify(ok=True, **REPORT_SERVICE.clear_snapshots(body.get("database_token")))
-    except ValueError as exc:
-        return report_request_error(exc)
-    except RuntimeError:
-        return jsonify(ok=False, error="report_materials_busy"), 409
-    except (sqlite3.Error, OSError):
-        return jsonify(ok=False, error="report_snapshot_clear_failed"), 503
-
-
-@app.get("/api/tasks/progress")
-def api_task_progress():
-    try:
-        with closing(db_conn()) as conn:
-            result = task_progress.snapshot(conn)
-        decision = decision_service_status()
-        result['topics'].update(matching_configured=decision['configured'], matching_provider_label=decision['provider_label'],
-                                matching_error=decision["error"], matching_waiting=decision["waiting_for_service"],
-                                using_backup=decision["using_backup"])
-        return jsonify(ok=True, **result)
-    except (sqlite3.Error, OSError, ValueError):
-        return jsonify(ok=False, error="task_progress_unavailable"), 503
-
-
-@app.post("/api/tasks/progress/dismiss")
-def api_task_progress_dismiss():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_task_notices"), 400
-    try:
-        with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn, conn:
-            task_progress.dismiss(conn, body.get("database_token"), body.get("notices"),
-                                  unread_only=CLASSIFICATION_SERVICE.unread_only, batch_id=body.get("batch_id"))
-        return jsonify(ok=True)
-    except ValueError as exc:
-        return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "task_database_changed" else 400
-    except (sqlite3.Error, OSError):
-        return jsonify(ok=False, error="task_notice_clear_failed"), 503
-
-
-def report_request_error(exc):
-    code = str(exc)
-    if code not in {"report_preview_invalid", "report_preview_conflict", "report_database_changed",
-                    "report_preview_only", "report_preview_running", "report_not_found", "report_window_invalid",
-                    "report_manual_conflict", "report_delete_running", "report_deleted", "report_model_unconfigured",
-                    "report_model_selection_invalid", "report_reasoning_unsupported", "report_model_catalog_failed",
-                    "report_model_dependencies_missing", "report_window_changed", "report_read_unavailable",
-                    "report_sources_unread"}:
-        code = "report_preview_invalid"
-    return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
-
-
-@app.post("/api/reports/previews")
-def api_report_create_preview():
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        report = REPORT_SERVICE.create_preview(body.get("kind"), body.get("scheduled_at"), body.get("request_id"), body.get("database_token"))
-    except (ValueError, LookupError, RuntimeError) as exc:
-        return report_request_error(exc)
-    REPORT_SERVICE.start()
-    return jsonify(ok=True, report=report), 202
-
-
-@app.delete("/api/reports/<report_id>/preview")
-def api_report_delete_preview(report_id):
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        REPORT_SERVICE.delete_preview(report_id, body.get("database_token"))
-    except (ValueError, LookupError) as exc:
-        return report_request_error(exc)
-    clear_report_agent(report_id)
-    return jsonify(ok=True)
-
-
-@app.get("/api/reports/<report_id>")
-def api_report_detail(report_id):
-    with closing(db_conn()) as conn:
-        row = conn.execute("SELECT * FROM periodic_reports WHERE id=?", (report_id,)).fetchone()
-        if not row:
-            return jsonify(ok=False, error="report_not_found"), 404
-        token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
-        report = periodic_reports.serialize(row, detail=True)
-        if report["status"] == "done":
-            item = report_reader.subject(conn, report_reader.ID_PREFIX + report_id)
-            context = build_agent_context(item, {"content": report_reader.context_text(item)})
-            report["reader"] = {"item": {k: v for k, v in item.items() if k not in {"content", "sources"}},
-                                "body": item["content"],
-                                **highlights.load_article_highlights_response(conn, item["url"], "original", item["id"]),
-                                **article_notes_response(conn, item["id"], item["url"]),
-                                "agent": {**load_agent_payload(item["id"]), "context_available": True,
-                                          **agent_context_metadata(context)}}
-            report["source_items"] = reader_sources.source_items(conn, report["content"]["sources"], visible_news_sql())
-        return jsonify(ok=True, database_token=token, report=report)
-
-
-@app.post("/api/reports/<report_id>/read")
-def api_report_read(report_id):
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        with closing(db_conn()) as conn, conn:
-            report = report_reader.complete_reading(conn, report_id, body.get("database_token"), visible_news_sql())
-    except (ValueError, LookupError) as exc:
-        return report_request_error(exc)
-    return jsonify(ok=True, database_token=body["database_token"], report=report)
-
-
-@app.post("/api/reports/<report_id>/retry")
-def api_report_retry(report_id):
-    body = request.get_json(silent=True) or {}
-    if not isinstance(body, dict):
-        return jsonify(ok=False, error="invalid_payload"), 400
-    try:
-        REPORT_SERVICE.retry(report_id, body.get("database_token"))
-    except LookupError:
-        return jsonify(ok=False, error="report_not_found"), 404
-    except (ValueError, RuntimeError) as exc:
-        code = str(exc)
-        if code not in {"report_database_changed", "report_model_unconfigured", "report_model_capacity_unknown", "report_model_dependencies_missing"}:
-            code = "report_retry_unavailable"
-        return jsonify(ok=False, error=code), 409
-    REPORT_SERVICE.start()
-    return jsonify(ok=True), 202
-
-
-CLASSIFICATION_SERVICE = news_classification.Service(db_conn, classification_config, topic_queue=topic_tracking.MatchQueue(),
-                                                    backup_config=classification_config)
-CLASSIFICATION_SERVICE.configure(**configuration.current_runtime_settings()["classification"])
-
-
-def _topic_error(exc):
-    code = str(exc)
-    messages = {**news_summaries.ERRORS, **topic_tracking.ERRORS}
-    if code not in messages:
-        code = "topic_invalid_input" if isinstance(exc, (ValueError, TypeError)) else "topic_runtime_failed"
-    return jsonify(ok=False, error=code, message=messages.get(code, "主题处理失败。")), (
-        404 if code == "topic_not_found" else 409 if code in {"topic_busy", "topic_not_draft", "topic_not_ready", "topic_archived", "topic_retry_required", "topic_refine_cooldown", "topic_definition_changed", "topic_draft_changed", "topic_preview_pending", "topic_preview_changed", "topic_refinement_not_found"} else 400)
-
-
-@app.route("/api/topics", methods=["GET", "POST"])
-def api_event_topics():
-    try:
-        if request.method == "GET":
-            decision = decision_service_status()
-            return jsonify(ok=True, topics=TOPIC_SERVICE.listing(), matching_configured=decision['configured'],
-                           matching_provider_label=decision['provider_label'],
-                           matching_error=decision["error"], matching_waiting=decision["waiting_for_service"])
-        body = request.get_json(silent=True)
-        if not isinstance(body, dict):
-            raise ValueError("topic_invalid_input")
-        return jsonify(ok=True, topic=TOPIC_SERVICE.create(body)), 202
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.get("/api/topics/<topic_id>")
-def api_event_topic(topic_id):
-    try:
-        offset = int(request.args.get("offset", 0))
-        limit = int(request.args.get("limit", 40))
-        if not 0 <= offset <= 1000000 or not 1 <= limit <= 400:
-            raise ValueError("topic_invalid_input")
-        return jsonify(ok=True, **TOPIC_SERVICE.detail(topic_id, offset=offset, limit=limit, node_id=request.args.get("node") or None))
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/initialize")
-def api_event_topic_initialize(topic_id):
-    try:
-        return jsonify(ok=True, topic=TOPIC_SERVICE.initialize(topic_id, request.get_json(silent=True))), 202
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.patch("/api/topics/<topic_id>/definition")
-def api_event_topic_definition(topic_id):
-    try:
-        return jsonify(ok=True, topic=TOPIC_SERVICE.revise_definition(topic_id, request.get_json(silent=True)))
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/messages")
-def api_event_topic_message(topic_id):
-    try:
-        return jsonify(ok=True, topic=TOPIC_SERVICE.discuss(topic_id, request.get_json(silent=True))), 202
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/retry")
-def api_event_topic_retry(topic_id):
-    try:
-        TOPIC_SERVICE.retry(topic_id)
-        CLASSIFICATION_SERVICE.resume()
-        return jsonify(ok=True), 202
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/seen")
-def api_event_topic_seen(topic_id):
-    body = request.get_json(silent=True) or {}
-    observed = body.get("observed_at") if isinstance(body, dict) else None
-    if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not 0 <= observed <= time.time():
-        return _topic_error(ValueError("topic_invalid_input"))
-    with closing(db_conn()) as conn, conn:
-        conn.execute("UPDATE event_topics SET seen_at=MAX(seen_at,?) WHERE id=?", (observed, topic_id))
-    return jsonify(ok=True)
-
-
-@app.post("/api/topics/<topic_id>/archive")
-def api_event_topic_archive(topic_id):
-    try:
-        body = request.get_json(silent=True)
-        if not isinstance(body, dict):
-            raise ValueError("topic_invalid_input")
-        TOPIC_SERVICE.set_archived(topic_id, body.get("archived"))
-        return jsonify(ok=True)
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/refine")
-def api_event_topic_refine(topic_id):
-    try:
-        TOPIC_SERVICE.refine(topic_id)
-        return jsonify(ok=True), 202
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.post("/api/topics/<topic_id>/refinements/<version_id>/<action>")
-def api_event_topic_refinement(topic_id, version_id, action):
-    try:
-        TOPIC_SERVICE.change_refinement(topic_id, version_id, action)
-        return jsonify(ok=True)
-    except (ValueError, TypeError, OSError, sqlite3.Error) as exc:
-        return _topic_error(exc)
-
-
-@app.delete("/api/topics/<topic_id>")
-def api_event_topic_delete(topic_id):
-    with closing(db_conn()) as conn, conn:
-        conn.execute("DELETE FROM topic_node_items WHERE node_id IN (SELECT id FROM topic_nodes WHERE topic_id=?)", (topic_id,))
-        for table in ("topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "topic_refinements"):
-            conn.execute(f"DELETE FROM {table} WHERE topic_id=?", (topic_id,))
-        conn.execute("DELETE FROM event_topics WHERE id=?", (topic_id,))
-    return jsonify(ok=True)
-
-
-@app.get("/api/news/classification")
-def api_classification_status():
-    with CLASSIFICATION_SERVICE.lock, closing(db_conn()) as conn:
-        progress = news_classification.status(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
-        token = conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0]
-    return jsonify(ok=True, **progress, database_token=token, enabled=CLASSIFICATION_SERVICE.enabled,
-                   **decision_service_status(),
-                   categories=[{"value": k, "label": v} for k, v in news_classification.CATEGORIES.items()])
-
-
-@app.post("/api/news/classification/retry")
-def api_classification_retry():
-    with CLASSIFICATION_SERVICE.lock:
-        if not CLASSIFICATION_SERVICE.enabled:
-            return jsonify(ok=False, error="classification_disabled"), 409
-        with closing(db_conn()) as conn:
-            retried = news_classification.retry_failed(conn, unread_only=CLASSIFICATION_SERVICE.unread_only)
-        CLASSIFICATION_SERVICE.resume()
-    return jsonify(ok=True, retried=retried)
-
-
-highlights.register(app, db_conn, reader_subject, database.now_ts)
-ideas.register(app, lambda: db_conn())
-market.register(app, lambda: db_conn())
-read_state.register(app, lambda: db_conn(), enqueue_detail_job)
-reading.register(app, lambda: db_conn())
-reminders.register(app, lambda: db_conn())
-reviews.register(app, lambda: db_conn())
-tracked_topics.register(app, lambda: db_conn())
+highlights.register(app, data.connect, reader_subject, database.now_ts)
+ideas.register(app, lambda: data.connect())
+market.register(app, lambda: data.connect())
+read_state.register(app, lambda: data.connect(), enqueue_detail_job)
+reading.register(app, lambda: data.connect())
+reminders.register(app, lambda: data.connect())
+reviews.register(app, lambda: data.connect())
+tracked_topics.register(app, lambda: data.connect())
 
 
 def main() -> None:
@@ -5596,11 +3734,7 @@ def main() -> None:
     trading_calendar.SERVICE.start()
     start_detail_worker()
     start_agent_worker()
-    CLASSIFICATION_SERVICE.configure(**configuration.current_runtime_settings()["classification"])
-    CLASSIFICATION_SERVICE.start()
-    TOPIC_SERVICE.start()
-    REPORT_SERVICE.start()
-    COLLECTION_SERVICE.start()
+    background.start(configuration.current_runtime_settings()["classification"])
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:

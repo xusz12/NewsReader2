@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from nr import preferences
+
+from nr import summaries
+
 from nr import configuration
 import sqlite3, json, threading, time, uuid, subprocess, sys, os
 from pathlib import Path
@@ -509,9 +513,9 @@ def test_summary_sources_use_live_flags_from_the_archive_database(setup, monkeyp
     monkeypatch.setenv("NEWS_READER_DB_PATH", str(p))
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "absent.json"))
     import app as module
-    monkeypatch.setattr(module, "NEWS_SUMMARY_SERVICE", service)
+    monkeypatch.setattr(module.background, 'summaries', service)
     # The detail resolver must use the service's captured connection, not a new app DB.
-    monkeypatch.setattr(module, "DB_PATH", tmp_path / "other.sqlite3")
+    monkeypatch.setattr(module.data, 'path', tmp_path / "other.sqlite3")
     with sqlite3.connect(p) as conn:
         sources = json.loads(conn.execute("SELECT sources_json FROM news_summaries WHERE id=?", (job["id"],)).fetchone()[0])
         source = next(s for s in sources if s["id"] == "1")
@@ -542,7 +546,7 @@ def test_api_surface(setup, monkeypatch, tmp_path):
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "absent.json"))
     import app as module
 
-    monkeypatch.setattr(module, "NEWS_SUMMARY_SERVICE", s)
+    monkeypatch.setattr(module.background, 'summaries', s)
     client = module.app.test_client()
     x = client.get("/api/news-summaries").get_json()
     token = x["database_token"]
@@ -782,10 +786,10 @@ def test_settings_save_serializes_with_summary_commit(setup, monkeypatch, tmp_pa
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "absent.json"))
     import app as module
 
-    monkeypatch.setattr(module, "NEWS_SUMMARY_SERVICE", s)
+    monkeypatch.setattr(module.background, 'summaries', s)
     monkeypatch.setattr(
-        module,
-        "validate_runtime_settings",
+        module.catalogs,
+        'validate_runtime_settings',
         lambda body: {"database": {"path": "new-route"}, "classification": {"enabled": True, "concurrency": 8, "unread_only": False}},
     )
 
@@ -793,9 +797,9 @@ def test_settings_save_serializes_with_summary_commit(setup, monkeypatch, tmp_pa
         assert s.lock._is_owned()
         state["route"] = "route-b"
 
-    monkeypatch.setattr(module, "save_app_settings", save)
+    monkeypatch.setattr(preferences, 'save_app_settings', save)
     monkeypatch.setattr(module, "refresh_agent_session_expiries", lambda: None)
-    monkeypatch.setattr(module, "serialize_runtime_settings", lambda: {})
+    monkeypatch.setattr(module.catalogs, 'serialize_runtime_settings', lambda: {})
     gate.clear()
     j = create(s)
     assert entered.wait(2)
@@ -1040,8 +1044,8 @@ def test_limits_settings_api_rejects_invalid(setup,monkeypatch,tmp_path,bad):
     monkeypatch.setenv("NEWS_READER_DB_PATH",str(p))
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH",str(tmp_path/"runtime.json"))
     import app as module
-    monkeypatch.setattr(module,"NEWS_SUMMARY_SERVICE",s)
-    monkeypatch.setattr(module,"has_secret",lambda *a:False)
+    monkeypatch.setattr(module.background,'summaries',s)
+    monkeypatch.setattr(preferences,'has_secret',lambda *a:False)
     monkeypatch.setattr(module,"refresh_agent_session_expiries",lambda:None)
     client=module.app.test_client()
     payload={"llm":client.get("/api/settings").get_json()["llm"],"news_summary":bad}
@@ -1054,8 +1058,8 @@ def test_limits_settings_api_persist_and_unrelated_save(setup,monkeypatch,tmp_pa
     monkeypatch.setenv("NEWS_READER_DB_PATH",str(p))
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH",str(tmp_path/"runtime.json"))
     import app as module
-    monkeypatch.setattr(module,"NEWS_SUMMARY_SERVICE",s)
-    monkeypatch.setattr(module,"has_secret",lambda *a:False)
+    monkeypatch.setattr(module.background,'summaries',s)
+    monkeypatch.setattr(preferences,'has_secret',lambda *a:False)
     monkeypatch.setattr(module,"refresh_agent_session_expiries",lambda:None)
     client=module.app.test_client()
     payload=client.get("/api/settings").get_json()
@@ -1128,7 +1132,7 @@ def test_feed_scope_includes_hidden_source_and_protects_videos_and_arrivals(setu
     settings["feed"] = {"hidden_source_subkeys": ["x/fxtrader"]}
     settings["news_summary"] = {"max_days": 30, "max_items": 1}
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
-    s.scope_getter = app.news_summary_feed_scope
+    s.scope_getter = summaries.news_summary_feed_scope
     with sqlite3.connect(p) as c:
         for i in range(4, 35):
             add(c, i, dt="2026-10-02")
@@ -1145,7 +1149,7 @@ def test_feed_scope_includes_hidden_source_and_protects_videos_and_arrivals(setu
     assert x["scope"]["excluded_count"] == 29
     assert not set(material["all_ids"]) & {"31", "32", "33"}
     with s.connection(p) as c:
-        where, args, counts = app.news_summary_feed_scope(c)
+        where, args, counts = summaries.news_summary_feed_scope(c)
         count = c.execute("SELECT COUNT(DISTINCT items.id) FROM items LEFT JOIN item_state st ON st.item_id=items.id " + where, args).fetchone()[0]
     assert count == 30
     assert counts["feed_visible_unread_count"] == 29
@@ -1234,8 +1238,8 @@ def test_scope_api_reports_hidden_sources_without_changing_unread(setup, monkeyp
     settings = s.settings_getter()
     settings["feed"] = {"hidden_source_subkeys": ["x/fxtrader"]}
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
-    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", s)
-    s.scope_getter = app.news_summary_feed_scope
+    monkeypatch.setattr(app.background, 'summaries', s)
+    s.scope_getter = summaries.news_summary_feed_scope
     with sqlite3.connect(p) as c:
         c.execute("UPDATE items SET url='https://x.com/fxtrader/status/1',source_type='x',source='x',source_name='fxtrader' WHERE id='1'")
     response = app.app.test_client().get('/api/news-summaries/scope')
@@ -1257,7 +1261,7 @@ def test_draft_scope_recalculates_inclusive_dates_counts_and_never_saves(setup, 
 
     monkeypatch.setattr(ns.selection, "date", Today)
     p, _, s, _, _, calls, add, _ = setup
-    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", s)
+    monkeypatch.setattr(app.background, 'summaries', s)
     s.settings_getter()["news_summary"] = {"max_days": 20, "max_items": 6000}
     with sqlite3.connect(p) as c:
         add(c, 4, dt="2026-10-03")
@@ -1298,7 +1302,7 @@ def test_draft_scope_recalculates_inclusive_dates_counts_and_never_saves(setup, 
 @pytest.mark.parametrize("body", [None, [], {}, {"news_summary": None}, {"news_summary": {"max_days": 0}}, {"news_summary": {"max_items": 1.5}}, {"news_summary": {"max_days": True}}, {"news_summary": {"max_items": "4"}}])
 def test_draft_scope_rejects_invalid_limits(setup, monkeypatch, body):
     import app
-    monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", setup[2])
+    monkeypatch.setattr(app.background, 'summaries', setup[2])
     response = app.app.test_client().post('/api/news-summaries/scope', json=body)
     assert response.status_code == 400
     assert response.get_json()["error"] == "invalid_summary_limits"

@@ -1,3 +1,5 @@
+
+from nr import updates
 import json
 import subprocess
 from pathlib import Path
@@ -143,16 +145,16 @@ def test_network_error_preserves_head(remote_repo, monkeypatch):
 
 def test_status_api_and_unmanaged_apply(tmp_path, monkeypatch):
     import app
-    monkeypatch.setattr(app, "UPDATE_REPOSITORY_URL", "https://github.com/example/workbench.git")
-    monkeypatch.setattr(app, "UPDATE_STATE_PATH", tmp_path / "status.json")
+    monkeypatch.setattr(updates, 'UPDATE_REPOSITORY_URL', "https://github.com/example/workbench.git")
+    monkeypatch.setattr(updates, 'UPDATE_STATE_PATH', tmp_path / "status.json")
     client = app.app.test_client()
     assert client.get("/api/update/status").json["status"] == "idle"
-    app.UPDATE_STATE_PATH.write_text(json.dumps({"status": "rolled_back", "error": "health_check_failed"}))
+    updates.UPDATE_STATE_PATH.write_text(json.dumps({"status": "rolled_back", "error": "health_check_failed"}))
     assert client.get("/api/update/status").json["error"] == "health_check_failed"
     monkeypatch.delenv("NEWS_READER_MANAGED", raising=False)
     token = "test-unmanaged-token"
-    app.UPDATE_TOKENS[token] = {"expires_at": app.time.time() + 100, "payload": {
-        "available": True, "current_commit": app._current_commit(),
+    app.release.tokens[token] = {"expires_at": app.time.time() + 100, "payload": {
+        "available": True, "current_commit": app.release._current_commit(),
         "latest": {"tag": "v2.1.4.7", "version": "v2.1.4.7", "commit": "0" * 40},
     }}
     response = client.post("/api/update/apply", json={"check_token": token, "tag": "v2.1.4.7", "version": "v2.1.4.7", "commit": "0" * 40})
@@ -162,9 +164,9 @@ def test_status_api_and_unmanaged_apply(tmp_path, monkeypatch):
 
 def test_check_network_timeout_returns_explicit_error(monkeypatch):
     import app
-    monkeypatch.setattr(app, "UPDATE_CHECK_URL", "https://api.github.com/repos/example/workbench/tags?per_page=100")
-    monkeypatch.setattr(app, "UPDATE_CHECK_CACHE", None)
-    monkeypatch.setattr(app, "urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
+    monkeypatch.setattr(app.release, 'check_url', "https://api.github.com/repos/example/workbench/tags?per_page=100")
+    monkeypatch.setattr(app.release, 'check_cache', None)
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
     response = app.app.test_client().get("/api/update/check")
     assert response.status_code == 502
     assert response.json["error"] == "update_check_failed"
@@ -172,13 +174,13 @@ def test_check_network_timeout_returns_explicit_error(monkeypatch):
 
 def test_unconfigured_project_never_checks_or_starts_updates(monkeypatch):
     import app
-    monkeypatch.setattr(app, "UPDATE_REPOSITORY_URL", "")
-    monkeypatch.setattr(app, "UPDATE_CHECK_URL", "")
-    monkeypatch.setattr(app, "UPDATE_CHECK_CACHE", {"checked_at": app.time.time(), "payload": {"available": True}})
+    monkeypatch.setattr(updates, 'UPDATE_REPOSITORY_URL', "")
+    monkeypatch.setattr(app.release, 'check_url', "")
+    monkeypatch.setattr(app.release, 'check_cache', {"checked_at": app.time.time(), "payload": {"available": True}})
     def unexpected(*args, **kwargs):
         pytest.fail("An unconfigured project must not contact a remote or start an updater")
-    monkeypatch.setattr(app, "urlopen", unexpected)
-    monkeypatch.setattr(app, "_current_commit", lambda: "a" * 40)
+    monkeypatch.setattr(updates, 'urlopen', unexpected)
+    monkeypatch.setattr(app.release, '_current_commit', lambda: "a" * 40)
     monkeypatch.setattr(app.subprocess, "Popen", unexpected)
     client = app.app.test_client()
     payload = client.get("/api/update/check").get_json()
@@ -217,15 +219,15 @@ def test_repository_configuration_has_no_fallback(tmp_path):
 @pytest.fixture
 def update_api(monkeypatch, tmp_path):
     import app
-    monkeypatch.setattr(app, "UPDATE_REPOSITORY_URL", "https://github.com/example/workbench.git")
-    monkeypatch.setattr(app, "UPDATE_CHECK_URL", "https://api.github.com/repos/example/workbench/tags?per_page=100")
-    monkeypatch.setattr(app, "UPDATE_CHECK_CACHE", None)
-    monkeypatch.setattr(app, "UPDATE_TOKENS", {})
-    monkeypatch.setattr(app, "UPDATE_STATE_PATH", tmp_path / "state.json")
-    monkeypatch.setattr(app, "_version_manifest", lambda: {"version": "v0.0.6"})
-    monkeypatch.setattr(app, "_current_commit", lambda: "a" * 40)
+    monkeypatch.setattr(updates, 'UPDATE_REPOSITORY_URL', "https://github.com/example/workbench.git")
+    monkeypatch.setattr(app.release, 'check_url', "https://api.github.com/repos/example/workbench/tags?per_page=100")
+    monkeypatch.setattr(app.release, 'check_cache', None)
+    monkeypatch.setattr(app.release, 'tokens', {})
+    monkeypatch.setattr(updates, 'UPDATE_STATE_PATH', tmp_path / "state.json")
+    monkeypatch.setattr(app.release, '_version_manifest', lambda: {"version": "v0.0.6"})
+    monkeypatch.setattr(app.release, '_current_commit', lambda: "a" * 40)
     state = {"clean": True, "detached": False, "head": "a" * 40, "branch": "main"}
-    monkeypatch.setattr(app, "update_git_state", lambda repo: dict(state))
+    monkeypatch.setattr(updates, 'update_git_state', lambda repo: dict(state))
     monkeypatch.setenv("NEWS_READER_MANAGED", "1")
     return app, app.app.test_client(), state
 
@@ -248,7 +250,7 @@ def test_check_pagination_numeric_sort_and_force_refresh(update_api, monkeypatch
         tag("v0.0.10"), tag("v0.0.99-rc1"), {"name": "v0.1.0", "commit": None},
     ]), tag_response([tag("v0.0.11")])]
     fetch = Mock(side_effect=responses)
-    monkeypatch.setattr(app, "urlopen", fetch)
+    monkeypatch.setattr(updates, 'urlopen', fetch)
     first = client.get("/api/update/check").json
     assert first["latest"]["version"] == "v0.0.10"
     assert first["can_update"] and first["check_token"]
@@ -268,7 +270,7 @@ def test_check_pagination_numeric_sort_and_force_refresh(update_api, monkeypatch
 ])
 def test_no_update_states_do_not_issue_tokens(update_api, monkeypatch, tags, status):
     app, client, _ = update_api
-    monkeypatch.setattr(app, "urlopen", lambda *args, **kwargs: tag_response(tags))
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: tag_response(tags))
     result = client.get("/api/update/check").json
     assert result["status"] == status
     assert not result["available"]
@@ -279,7 +281,7 @@ def test_check_reports_detached_and_unmanaged(update_api, monkeypatch):
     app, client, state = update_api
     state["detached"] = True
     monkeypatch.delenv("NEWS_READER_MANAGED")
-    monkeypatch.setattr(app, "urlopen", lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
     result = client.get("/api/update/check").json
     assert result["available"]
     assert result["blockers"] == ["detached_head", "managed_launcher_required"]
@@ -288,7 +290,7 @@ def test_check_reports_detached_and_unmanaged(update_api, monkeypatch):
 
 def test_apply_rechecks_worktree_before_launch_and_consumes_token(update_api, monkeypatch):
     app, client, state = update_api
-    monkeypatch.setattr(app, "urlopen", lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
     checked = client.get("/api/update/check").json
     state["clean"] = False
     launch = Mock(side_effect=AssertionError("dirty worktree must not launch"))
@@ -304,10 +306,10 @@ def test_apply_rechecks_worktree_before_launch_and_consumes_token(update_api, mo
 
 def test_check_cleans_expired_tokens(update_api, monkeypatch):
     app, client, _ = update_api
-    app.UPDATE_TOKENS["expired"] = {"expires_at": 0, "payload": {}}
-    monkeypatch.setattr(app, "urlopen", lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
+    app.release.tokens["expired"] = {"expires_at": 0, "payload": {}}
+    monkeypatch.setattr(updates, 'urlopen', lambda *args, **kwargs: tag_response([tag("v0.0.7")]))
     checked = client.get("/api/update/check").json
-    assert list(app.UPDATE_TOKENS) == [checked["check_token"]]
+    assert list(app.release.tokens) == [checked["check_token"]]
 
 
 def test_update_check_loads_trusted_roots_without_disabling_tls(update_api, monkeypatch):
@@ -317,7 +319,7 @@ def test_update_check_loads_trusted_roots_without_disabling_tls(update_api, monk
     assert context.cert_store_stats()["x509_ca"] == 0
     monkeypatch.setattr(app.ssl, "create_default_context", lambda: context)
     fetch = Mock(return_value=tag_response([]))
-    monkeypatch.setattr(app, "urlopen", fetch)
+    monkeypatch.setattr(updates, 'urlopen', fetch)
     assert client.get("/api/update/check").status_code == 200
     used_context = fetch.call_args.kwargs["context"]
     assert used_context.cert_store_stats()["x509_ca"] > 0

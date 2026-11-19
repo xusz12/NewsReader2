@@ -46,7 +46,7 @@ def test_result_notification_is_persistent_atomic_and_deduplicated(fixture, monk
     row, = first['notifications']
     assert row['kind'] == kind
     assert row['session_id'] == submitted['session']['id']
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         message = conn.execute('SELECT * FROM agent_messages WHERE id=?', (row['message_id'],)).fetchone()
         assert message['job_id'] == submitted['job_id']
         assert message['status'] == ('succeeded' if kind == 'reply' else 'failed')
@@ -58,7 +58,7 @@ def test_result_notification_is_persistent_atomic_and_deduplicated(fixture, monk
     assert len(target.json['agent']['jobs']) == 1  # Reading never creates a session or job.
     assert confirm(client, first).status_code == 200
     assert listed(client)['notifications'] == []
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         module.agent_notifications.record(conn, submitted['job_id'])
     assert listed(client)['notifications'] == []
 
@@ -87,7 +87,7 @@ def test_stop_and_historical_jobs_do_not_notify_but_restart_does(fixture):
     assert module.mark_agent_jobs_interrupted() == 0
     assert listed(client)['notifications'] == []
     historical = submit(fixture)
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET notify_enabled=0, db_scope='' WHERE id=?", (historical['job_id'],))
     assert module.mark_agent_jobs_interrupted() == 1
     assert listed(client)['notifications'] == []
@@ -105,7 +105,7 @@ def test_finishing_job_uses_original_library_and_same_id_other_library_is_isolat
     scope_a = module.agent_library_scope()
     other = tmp_path / 'another-news.sqlite3'
     shutil.copy2(original, other)
-    monkeypatch.setattr(module, 'DB_PATH', other)
+    monkeypatch.setattr(module.data, 'path', other)
     assert module.process_pending_agent_once()
     scope_b = module.agent_library_scope()
     assert scope_a != scope_b
@@ -120,7 +120,7 @@ def test_finishing_job_uses_original_library_and_same_id_other_library_is_isolat
     assert other_session['id'] != submitted['session']['id']
     assert client.delete(path + '/session').status_code == 200
     assert client.delete('/api/agent/sessions').status_code == 200
-    monkeypatch.setattr(module, 'DB_PATH', original)
+    monkeypatch.setattr(module.data, 'path', original)
     assert client.get(path + '/session').json['session']['id'] == submitted['session']['id']
     assert len(listed(client)['notifications']) == 1
 
@@ -130,7 +130,7 @@ def test_expired_or_missing_target_preserves_notice_until_explicit_dismiss(fixtu
     submitted = submit(fixture)
     module.process_pending_agent_once()
     snapshot = listed(client)
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET expires_at='2000-01-01 00:00:00' WHERE id=?", (submitted['session']['id'],))
     url = f"/api/agent/notifications/{submitted['job_id']}/target"
     assert client.get(url, query_string={'db_scope': snapshot['db_scope']}).status_code == 410
@@ -140,7 +140,7 @@ def test_expired_or_missing_target_preserves_notice_until_explicit_dismiss(fixtu
     submit(fixture)
     module.process_pending_agent_once()
     snapshot = listed(client)
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         conn.execute('DELETE FROM items WHERE id=?', (item['id'],))
     row, = snapshot['notifications']
     assert client.get(f"/api/agent/notifications/{row['id']}/target", query_string={'db_scope': snapshot['db_scope']}).status_code == 404
@@ -156,7 +156,7 @@ def test_failed_notice_insert_rolls_back_saved_result(fixture, monkeypatch):
     monkeypatch.setattr(module.agent_notifications, 'record', unavailable)
     with pytest.raises(RuntimeError, match='fixture notification write failed'):
         module.process_pending_agent_once()
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         job = conn.execute('SELECT * FROM agent_jobs WHERE id=?', (submitted['job_id'],)).fetchone()
         message = conn.execute("SELECT * FROM agent_messages WHERE job_id=? AND role='assistant'", (submitted['job_id'],)).fetchone()
         assert job['status'] != 'succeeded' and message['status'] != 'succeeded'
@@ -167,7 +167,7 @@ def test_legacy_read_does_not_bind_and_first_followup_claims_only_session(fixtur
     module, client, item, *_ = fixture
     first = submit(fixture)
     module.process_pending_agent_once()
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute('DELETE FROM agent_notifications')
         conn.execute("UPDATE agent_sessions SET db_scope='' WHERE id=?", (first['session']['id'],))
         conn.execute("UPDATE agent_jobs SET db_scope='', notify_enabled=0")
@@ -178,7 +178,7 @@ def test_legacy_read_does_not_bind_and_first_followup_claims_only_session(fixtur
     continued = submit(fixture, session_id=first['session']['id'])
     assert continued['session']['id'] == first['session']['id']
     assert continued['session']['db_scope'] == module.agent_library_scope()
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         assert conn.execute('SELECT db_scope FROM agent_jobs WHERE id=?', (first['job_id'],)).fetchone()[0] == ''
     assert listed(client)['notifications'] == []
     module.process_pending_agent_once()
@@ -189,7 +189,7 @@ def test_two_libraries_cannot_claim_same_legacy_session(fixture, monkeypatch):
     module, client, item, *_ = fixture
     path = f"/api/news/{item['id']}/agent"
     session = client.post(path + '/session', json={}).json['session']
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET db_scope='' WHERE id=?", (session['id'],))
     local = threading.local()
     monkeypatch.setattr(module, 'agent_library_scope', lambda: local.scope)
@@ -200,7 +200,7 @@ def test_two_libraries_cannot_claim_same_legacy_session(fixture, monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as pool:
         codes = list(pool.map(follow, ['library-a', 'library-b']))
     assert sorted(codes) == [202, 409]
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM agent_jobs').fetchone()[0] == 1
         assert conn.execute('SELECT db_scope FROM agent_sessions').fetchone()[0] in ['library-a', 'library-b']
 
@@ -208,7 +208,7 @@ def test_two_libraries_cannot_claim_same_legacy_session(fixture, monkeypatch):
 def test_legacy_url_mismatch_is_not_read_or_claimed(fixture):
     module, client, item, *_ = fixture
     first = client.post(f"/api/news/{item['id']}/agent/session", json={}).json
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET db_scope='', url='https://example.com/other' WHERE id=?", (first['session']['id'],))
     assert client.get(f"/api/news/{item['id']}/agent/session").json['session'] is None
     result = client.post(f"/api/news/{item['id']}/agent/jobs", json={'session_id': first['session']['id'], 'question': '不能接错历史'})
@@ -219,7 +219,7 @@ def test_legacy_empty_session_retains_executor_on_first_claim(fixture, monkeypat
     import copy
     module, client, item, *_ = fixture
     original = client.post(f"/api/news/{item['id']}/agent/session", json={}).json['session']
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET db_scope='' WHERE id=?", (original['id'],))
     settings = copy.deepcopy(configuration.current_runtime_settings())
     settings['llm']['pi_chat']['model'] = 'changed-default'
@@ -245,7 +245,7 @@ def test_specified_read_only_session_does_not_substitute_current_session(fixture
     module, client, item, *_ = fixture
     first = submit(fixture)
     module.process_pending_agent_once()
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET status='archived' WHERE id=?", (first['session']['id'],))
     path = f"/api/news/{item['id']}/agent/session"
     current = client.post(path, json={}).json['session']
@@ -254,6 +254,6 @@ def test_specified_read_only_session_does_not_substitute_current_session(fixture
     assert exact.status_code == 200
     assert exact.json['session']['id'] == first['session']['id']
     assert exact.json['messages'][-1]['content'] == '完成'
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM agent_sessions').fetchone()[0] == 2
         assert conn.execute('SELECT COUNT(*) FROM agent_jobs').fetchone()[0] == 1

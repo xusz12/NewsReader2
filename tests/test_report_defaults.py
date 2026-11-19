@@ -60,14 +60,14 @@ def test_old_reports_migrate_once_and_partial_clients_preserve_each_group(tmp_pa
     loaded["feature_models"]["reports"]["pi"]["model"] = "daily-only"
     assert loaded["feature_models"]["reports_periodic"]["pi"]["model"] == "old-report"
     settings.save_app_settings(loaded)
-    changed = app.validate_runtime_settings({"llm": original["llm"],
+    changed = app.catalogs.validate_runtime_settings({"llm": original["llm"],
         "feature_models": {"reports_periodic": choices("new-periodic")}})
     settings.save_app_settings(changed)
     persisted = settings.load_app_settings()["feature_models"]
     assert persisted["reports"]["pi"]["model"] == "daily-only"
     assert persisted["reports_periodic"]["codex"]["model"] == "new-periodic"
     # Old clients omit all the new keys or even feature_models itself.
-    assert app.validate_runtime_settings({"llm": original["llm"]})["feature_models"] == persisted
+    assert app.catalogs.validate_runtime_settings({"llm": original["llm"]})["feature_models"] == persisted
 
 
 @pytest.mark.parametrize("kind", pr.KINDS)
@@ -140,7 +140,7 @@ def test_kind_catalog_and_temporary_override_use_its_model(configured, db, monke
     import app
     service, value = configured
     original = deepcopy(value)
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     monkeypatch.setattr(service, "start", lambda: None)
     seen = []
     def catalog(config):
@@ -169,7 +169,7 @@ def test_kind_catalog_and_temporary_override_use_its_model(configured, db, monke
 def test_options_exclude_custom_and_share_exactly_two_defaults(configured, monkeypatch):
     import app
     service, _ = configured
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     client = app.app.test_client()
     data = client.get('/api/reports/manual-options').json
     assert {p['kind'] for p in data['periods']} == set(pr.KINDS)

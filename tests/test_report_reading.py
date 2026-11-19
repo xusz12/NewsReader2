@@ -11,7 +11,7 @@ def fixture(tmp_path, monkeypatch):
         {"text": "📌 规模交付仍待验证。重复判断。", "refs": ["N1"]},
         {"text": "重复判断。", "refs": ["N1"]}]}], "briefs": [{"text": "简讯中的判断", "refs": ["N1"]}],
         "sources": [{"ref": "N1", "id": "stale-id", "url": item["url"], "title": "存档标题", "source_name": "媒体", "published_at": "2026-10-30T12:00:00+08:00"}], "reading_minutes": 1}
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         for ident in ("one", "two"):
             conn.execute("""INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,created_at,updated_at)
                 VALUES (?,?, 'evening', '日报', '2026-10-29T00:00:00+08:00','2026-10-30T00:00:00+08:00','2026-10-30T00:00:00+08:00','done',?,'2026-10-30','2026-10-30')""",
@@ -42,7 +42,7 @@ def test_highlights_quotes_notes_and_agent_are_report_scoped(fixture):
     assert client.delete('/api/news/report:two/highlights/' + str(mark['id'])).status_code == 404
     started = client.post(base + '/agent/jobs', json={'question':'报告依据是什么？','quote_text':'重复判断。','quote_source':'selection'})
     assert started.status_code == 202
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         saved = conn.execute('SELECT context_json FROM agent_sessions WHERE id=?', (started.json['session']['id'],)).fetchone()
     context = json.loads(saved[0])
     assert context['context_level'] == 'report'
@@ -55,7 +55,7 @@ def test_highlights_quotes_notes_and_agent_are_report_scoped(fixture):
 
 def test_unavailable_sources_and_reports_never_target_unrelated_news(fixture):
     app, client, item = fixture
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute("UPDATE items SET url='https://example.com/replaced' WHERE id=?", (item['id'],))
         conn.execute("UPDATE periodic_reports SET status='pending' WHERE id='two'")
     assert client.get('/api/reports/one').json['report']['source_items'] == {}
@@ -78,10 +78,10 @@ def test_deleting_report_cleans_its_reading_state_only(fixture):
     assert deleted.status_code == 200
     assert client.get('/api/reports/one').status_code == 404
     assert client.get('/api/news/'+item['id']+'/detail').json['notes'][0]['note'] == '新闻想法'
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM article_highlights WHERE url='newsreader-report:one'").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM article_notes WHERE url='newsreader-report:one'").fetchone()[0] == 0
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         assert not conn.execute('SELECT 1 FROM agent_sessions WHERE id=?',(session['id'],)).fetchone()
 
 
@@ -99,7 +99,7 @@ def test_reading_completion_is_explicit_persistent_and_report_scoped(fixture):
     completed_at = saved.json['report']['read_completed_at']
     assert completed_at
     assert client.post('/api/reports/one/read', json={'database_token': token}).json == saved.json
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         app.periodic_reports.initialize(conn)
     restored = client.get('/api/reports/one').json['report']
     assert restored['read_completed_at'] == completed_at
@@ -123,13 +123,13 @@ def test_reading_completion_is_explicit_persistent_and_report_scoped(fixture):
 def test_reading_completion_rejects_invalid_requests_without_mutation(fixture, target, token_kind, status, error):
     app, client, item = fixture
     token = client.get('/api/reports/one').json['database_token']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute("UPDATE periodic_reports SET status='failed' WHERE id='two'")
     body = {} if token_kind == 'missing' else {'database_token': token if token_kind == 'valid' else 'wrong'}
     response = client.post('/api/reports/' + target + '/read', json=body)
     assert response.status_code == status and response.json['error'] == error
     assert client.post('/api/reports/one/read', json=['invalid']).status_code == 400
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         assert not conn.execute('SELECT 1 FROM periodic_reports WHERE read_completed_at IS NOT NULL').fetchone()
     assert client.get('/api/news/' + item['id'] + '/detail').json['read_at'] is None
 
@@ -137,7 +137,7 @@ def test_reading_completion_rejects_invalid_requests_without_mutation(fixture, t
 def test_reading_completion_checks_briefs_but_not_unused_material(fixture):
     app, client, item = fixture
     token = client.get('/api/reports/one').json['database_token']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         base = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         content = json.loads(conn.execute("SELECT result_json FROM periodic_reports WHERE id='one'").fetchone()[0])
         for ref, ident in [('N2', 'brief'), ('N3', 'unused')]:
@@ -156,7 +156,7 @@ def test_reading_completion_checks_briefs_but_not_unused_material(fixture):
 def test_reading_completion_with_unavailable_sources_does_not_target_stale_ids(fixture):
     app, client, item = fixture
     token = client.get('/api/reports/one').json['database_token']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute("UPDATE items SET url='https://example.com/replaced' WHERE id=?", (item['id'],))
     assert client.post('/api/reports/one/read', json={'database_token': token}).status_code == 200
     assert client.get('/api/news/' + item['id'] + '/detail').json['read_at'] is None
@@ -165,7 +165,7 @@ def test_reading_completion_with_unavailable_sources_does_not_target_stale_ids(f
 def test_existing_reports_migrate_without_inventing_reading_completion(fixture):
     app, client, item = fixture
     client.patch('/api/news/' + item['id'] + '/state', json={'read': True})
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('ALTER TABLE periodic_reports DROP COLUMN read_completed_at')
         app.periodic_reports.initialize(conn)
         rows = conn.execute('SELECT read_completed_at FROM periodic_reports').fetchall()

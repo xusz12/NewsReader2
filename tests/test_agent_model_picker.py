@@ -24,7 +24,7 @@ def test_change_model_keeps_transcript_and_next_job_uses_choice(fixture, runtime
     selection = {'runtime':runtime, 'model':'chosen','reasoning_effort':'high', **({'provider':'test'} if runtime=='pi' else {})}
     request = {'session_id':first['session']['id'], 'selection':selection}
     assert client.patch(base+'/session/model', json=request).status_code == 409
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET status='succeeded'")
         conn.execute("UPDATE agent_messages SET content='已有回答' WHERE role='assistant'")
     before = client.get(base+'/session').json['messages']
@@ -39,7 +39,7 @@ def test_change_model_keeps_transcript_and_next_job_uses_choice(fixture, runtime
     assert next_job['job']['provider'] == runtime
     assert next_job['job']['model'] == 'chosen'
     assert next_job['messages'][0]['content'] == '第一轮问题'
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         saved = dict(conn.execute('SELECT * FROM agent_sessions WHERE id=?', (session['id'],)).fetchone())
     assert json.loads(saved['executor_config'])['reasoning_effort'] == 'high'
 
@@ -66,7 +66,7 @@ def test_retired_bound_config_is_visible_and_rejected_without_rewriting_history(
     first = client.post(base + '/jobs', json={'question': '保留的旧问题'}).json
     ident = first['session']['id']
     legacy = {**settings['agent']['codex'], field: 'retired'}
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET status='succeeded'")
         conn.execute('UPDATE agent_sessions SET executor_config=? WHERE id=?', (json.dumps(legacy), ident))
     loaded = client.get(base + '/session').json
@@ -77,7 +77,7 @@ def test_retired_bound_config_is_visible_and_rejected_without_rewriting_history(
         'selection': {'runtime': 'codex', 'model': 'chosen'}})
     assert response.status_code == 400 and response.json['error'] == 'codex_advanced_config_removed'
     assert client.get(base + '/session').json['messages'] == loaded['messages']
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         row = conn.execute('SELECT executor_config FROM agent_sessions WHERE id=?', (ident,)).fetchone()
         assert json.loads(row[0]) == legacy
     replacement = client.post(base + '/session', json={'new_session': True})
@@ -87,13 +87,13 @@ def test_retired_bound_config_is_visible_and_rejected_without_rewriting_history(
 def test_explicit_model_preserves_choice_but_refreshes_unused_context(fixture):
     app, client, base, settings = fixture
     selected = client.patch(base+'/session/model', json={'selection':{'runtime':'codex','model':'chosen','reasoning_effort':'low'}}).json['session']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('UPDATE article_details SET content=? WHERE url=?',('首次发送前已更新的全文',selected['url']))
     settings['agent']['codex']['model'] = 'another-default'
     started = client.post(base+'/jobs', json={'session_id':selected['id'],'question':'根据最新全文解释'})
     assert started.status_code == 202
     assert started.json['job']['model'] == 'chosen'
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         row = conn.execute('SELECT context_json FROM agent_sessions WHERE id=?',(selected['id'],)).fetchone()
     assert json.loads(row[0])['content'] == '首次发送前已更新的全文'
 
@@ -107,7 +107,7 @@ def test_temporary_model_is_scoped_to_one_session(fixture, default_runtime, temp
     settings['agent']['codex'].update(model='default-codex', reasoning_effort='low')
     settings['llm']['pi_chat'].update(provider='saved-provider', model='default-pi', reasoning_effort='low')
     saved_settings = copy.deepcopy(settings)
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         item = dict(conn.execute('SELECT * FROM items LIMIT 1').fetchone())
         item.update(id='other-news', url=item['url'] + '/other', source_file=item['source_file'] + '.other')
         conn.execute(f"INSERT INTO items ({','.join(item)}) VALUES ({','.join('?' for _ in item)})", tuple(item.values()))

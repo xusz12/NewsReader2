@@ -169,8 +169,8 @@ def test_manual_morning_not_skipped_by_restart_and_excluded_from_auto_latest(ser
 
 def test_manual_api_and_delete_scope(service, db, monkeypatch):
     import app
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
-    monkeypatch.setattr(app, "db_conn", db)
+    monkeypatch.setattr(app.background, 'reports', service)
+    monkeypatch.setattr(app.data, 'connect', db)
     monkeypatch.setattr(service, "start", lambda: None)
     client = app.app.test_client()
     data = client.get("/api/reports/manual-options").json
@@ -223,7 +223,7 @@ def test_existing_custom_report_still_runs_and_appears_in_daily(service, db):
 
 def test_api_resolves_selection_instead_of_accepting_conflicting_client_range(service, monkeypatch):
     import app
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     monkeypatch.setattr(service, "start", lambda: None)
     response = app.app.test_client().post("/api/reports/manual", json={"kind": "weekly", "selection": "2026-10-21",
         "period_start": "2026-01-01T00:00:00+08:00", "period_end": "2026-01-02T00:00:00+08:00",

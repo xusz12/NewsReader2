@@ -1,4 +1,8 @@
 """Catalog timeout and error regressions using isolated credentials/transports."""
+
+from nr import configuration
+
+from nr import preferences
 import io
 import json
 import threading
@@ -16,7 +20,7 @@ from test_model_apis import api_fixture
 def test_opencode_catalog_accepts_response_slower_than_five_seconds(api_fixture, monkeypatch):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'isolated-key'
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     requests = []
     models = [{'id': f'paid-{i}'} for i in range(70)] + [{'id': f'example-{i}-free'} for i in range(8)]
 
@@ -42,7 +46,7 @@ def test_opencode_catalog_accepts_response_slower_than_five_seconds(api_fixture,
     try:
         address = f'http://127.0.0.1:{server.server_port}/models'
         monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address)
-        monkeypatch.setattr(app, 'urlopen', build_opener(ProxyHandler({})).open)
+        monkeypatch.setattr(preferences, 'urlopen', build_opener(ProxyHandler({})).open)
         started = time.monotonic()
         result = client.post('/api/settings/apis/opencode/models', json={})
         assert result.status_code == 200, result.json
@@ -53,10 +57,10 @@ def test_opencode_catalog_accepts_response_slower_than_five_seconds(api_fixture,
         assert [row['value'] for row in parsed] == [f'paid-{i}' for i in range(70)]
         # Catalog merging retains its existing display limit after parsing.
         assert [row['value'] for row in result.json['catalog']['options']] == [
-            row['value'] for row in parsed[:app.SETTINGS_MODEL_OPTION_LIMIT]]
+            row['value'] for row in parsed[:preferences.SETTINGS_MODEL_OPTION_LIMIT]]
         assert requests == [('/models', 'Bearer isolated-key', 'news-reader-settings/1.0')]
         assert 'isolated-key' not in result.text
-        assert app.load_app_settings() == before
+        assert configuration.load_app_settings() == before
     finally:
         server.shutdown()
         server.server_close()
@@ -91,7 +95,7 @@ def test_opencode_stalled_tls_handshake_is_reported_as_timeout(api_fixture, monk
     try:
         address = f'https://127.0.0.1:{server.server_address[1]}/models'
         monkeypatch.setitem(model_apis.API_PROVIDERS['opencode-go'], 'models_url', address)
-        monkeypatch.setattr(app, 'urlopen', open_request)
+        monkeypatch.setattr(preferences, 'urlopen', open_request)
         result = client.post('/api/settings/apis/opencode/models', json={})
         assert len(failures) == 1 and isinstance(failures[0], TimeoutError)
         assert 'handshake' in str(failures[0]).lower()
@@ -120,7 +124,7 @@ def test_catalog_response_read_timeout_is_not_a_parse_error(api_fixture, monkeyp
             failure = TimeoutError('PRIVATE_KEY')
             raise URLError(failure) if wrapped else failure
 
-    monkeypatch.setattr(app, 'urlopen', lambda *a, **kw: Reply())
+    monkeypatch.setattr(preferences, 'urlopen', lambda *a, **kw: Reply())
     result = client.post('/api/settings/apis/opencode/models', json={})
     assert result.status_code == 504
     assert result.json['reason'] == 'connection_timeout'
@@ -135,15 +139,15 @@ def test_catalog_response_read_timeout_is_not_a_parse_error(api_fixture, monkeyp
 def test_catalog_invalid_response_is_reported_as_parse_failure(api_fixture, monkeypatch, body):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'PRIVATE_KEY'
-    before = app.load_app_settings()
-    monkeypatch.setattr(app, 'urlopen', lambda *a, **kw: io.BytesIO(body))
+    before = configuration.load_app_settings()
+    monkeypatch.setattr(preferences, 'urlopen', lambda *a, **kw: io.BytesIO(body))
     result = client.post('/api/settings/apis/opencode/models', json={})
     assert result.status_code == 502
     assert result.json['error'] == 'models_unavailable'
     assert result.json['reason'] == 'response_parse_failed'
     assert '解析失败' in result.json['message']
     assert 'PRIVATE_KEY' not in result.text
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('status,payload,reason,message', [
@@ -155,7 +159,7 @@ def test_catalog_invalid_response_is_reported_as_parse_failure(api_fixture, monk
 def test_catalog_http_errors_keep_upstream_reason(api_fixture, monkeypatch, status, payload, reason, message):
     app, client, secrets = api_fixture
     secrets['OPENCODE_API_KEY'] = 'PRIVATE_KEY'
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     calls = []
 
     def fail(*args, **kwargs):
@@ -163,7 +167,7 @@ def test_catalog_http_errors_keep_upstream_reason(api_fixture, monkeypatch, stat
         body = json.dumps({**payload, 'message': 'PRIVATE_KEY account@example.com'}).encode()
         raise HTTPError('url', status, 'PRIVATE_KEY', {'Retry-After': '90'}, io.BytesIO(body))
 
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     result = client.post('/api/settings/apis/opencode/models', json={})
     assert result.status_code == 502
     assert result.json['error'] == 'models_unavailable'
@@ -174,7 +178,7 @@ def test_catalog_http_errors_keep_upstream_reason(api_fixture, monkeypatch, stat
     assert f'HTTP {status}' in result.json['message']
     assert 'PRIVATE_KEY' not in result.text and 'account@example.com' not in result.text
     assert calls == [1]
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('failure', [URLError('DNS PRIVATE_KEY'), ConnectionRefusedError('PRIVATE_KEY')])
@@ -184,7 +188,7 @@ def test_catalog_network_errors_are_distinct_from_timeout_and_auth(api_fixture, 
 
     def fail(*args, **kwargs): raise failure
 
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     result = client.post('/api/settings/apis/opencode/models', json={})
     assert result.status_code == 502
     assert result.json['reason'] == 'network_error'

@@ -288,7 +288,7 @@ def test_manual_clear_rejects_stale_db_or_busy_index_and_rolls_back_failure(serv
 
 def test_manual_clear_api_validates_and_returns_new_storage(service, db, monkeypatch):
     import app
-    monkeypatch.setattr(app, "REPORT_SERVICE", service)
+    monkeypatch.setattr(app.background, 'reports', service)
     create(service)
     assert service.run_one()
     client = app.app.test_client()

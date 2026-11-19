@@ -239,7 +239,7 @@ def store_conversation(app, client, path, messages):
     response = client.post(path + '/agent/session', json={})
     assert response.status_code == 200
     session_id = response.json['session']['id']
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         stamp = database.now_ts()
         conn.executemany("""INSERT INTO agent_messages
             (session_id, role, content, quote_text, status, created_at, updated_at)

@@ -1,5 +1,7 @@
 """Translation routing uses isolated settings, deterministic models and local HTTP."""
 
+from nr import preferences
+
 from nr import configuration
 import json
 import threading
@@ -28,14 +30,14 @@ def test_legacy_settings_gain_routing_and_old_writes_preserve_switches(api_fixtu
     app, client, _ = api_fixture
     assert client.get('/api/settings').json['llm']['translation']['provider'] == 'deepseek'
     legacy = {'llm': {'translation': {'provider': 'deepseek', 'model': 'deepseek-custom'}}}
-    app.save_app_settings(legacy)
-    assert app.load_app_settings()['llm']['translation'] == {
+    preferences.save_app_settings(legacy)
+    assert configuration.load_app_settings()['llm']['translation'] == {
         'provider':'deepseek', 'model':'deepseek-custom', 'fallback_enabled':True, 'pi_fallback_enabled':True}
     value = config('opencode-go', False, False)
     response = client.put('/api/settings', json={'llm':value['llm'], 'api_models':value['api_models']})
     assert response.status_code == 200
     assert response.json['llm']['translation'] == value['llm']['translation']
-    assert app.load_app_settings()['api_models']['opencode-go']['model'] == 'go-custom'
+    assert configuration.load_app_settings()['api_models']['opencode-go']['model'] == 'go-custom'
     # A model-only older client may omit both new switches.
     response = client.put('/api/settings', json={'llm':{'translation':{'provider':'opencode-go','model':'deepseek-next'}}})
     assert response.status_code == 200
@@ -47,12 +49,12 @@ def test_legacy_settings_gain_routing_and_old_writes_preserve_switches(api_fixtu
     {'fallback_enabled':'true'}, {'fallback_enabled':1}, {'pi_fallback_enabled':None}])
 def test_invalid_routing_never_persists(api_fixture, update):
     app, client, _ = api_fixture
-    before = app.load_app_settings()
+    before = configuration.load_app_settings()
     value = deepcopy(before['llm'])
     value['translation'].update(update)
     response = client.put('/api/settings', json={'llm':value})
     assert response.status_code == 400
-    assert app.load_app_settings() == before
+    assert configuration.load_app_settings() == before
 
 
 @pytest.mark.parametrize('primary', ['deepseek','opencode-go'])
@@ -120,7 +122,7 @@ def test_worker_persists_only_complete_translation_and_preserves_original(api_fi
     value = config('opencode-go', True, False)
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: deepcopy(value))
     url, stamp = 'https://example.com/routing', '2026-11-01 08:00:00'
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('INSERT INTO article_details(url,title,source,content,content_length,fetched_at,updated_at) VALUES (?,?,?,?,?,?,?)',
                      (url,'Title','Reuters','original full body',18,stamp,stamp))
         conn.execute("INSERT INTO ai_jobs(url,status,queued_at,updated_at) VALUES (?,'pending',?,?)",(url,stamp,stamp))
@@ -133,7 +135,7 @@ def test_worker_persists_only_complete_translation_and_preserves_original(api_fi
     monkeypatch.setattr(app, 'generate_article_ai', api)
     assert app.process_pending_ai_once() is True
     assert calls == ['opencode-go','deepseek']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         result = conn.execute('SELECT * FROM article_ai WHERE url=?',(url,)).fetchone()
         job = conn.execute('SELECT status,last_error FROM ai_jobs WHERE url=?',(url,)).fetchone()
         assert conn.execute('SELECT content FROM article_details WHERE url=?',(url,)).fetchone()[0] == 'original full body'

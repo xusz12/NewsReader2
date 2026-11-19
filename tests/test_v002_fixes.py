@@ -1,5 +1,7 @@
 """Regressions for the v0.0.2 contracts, always against an isolated database."""
 
+from nr import preferences
+
 from nr import database
 import json
 from urllib.error import HTTPError
@@ -71,7 +73,7 @@ def test_translation_catalog_masks_key_and_probe_uses_selected_model(fixture, mo
     def urlopen(request, timeout):
         calls.append(request)
         return Reply({'data': [{'id': 'model-one'}]} if request.full_url.endswith('/models') else {'choices': [{'message': {'content': 'OK'}}]})
-    monkeypatch.setattr(app, 'urlopen', urlopen)
+    monkeypatch.setattr(preferences, 'urlopen', urlopen)
     catalog = client.post('/api/settings/translation/models', json={}).json
     assert catalog['service']['masked_key'] == 'sk-f••••••••9876'
     assert secret not in json.dumps(catalog)
@@ -80,7 +82,7 @@ def test_translation_catalog_masks_key_and_probe_uses_selected_model(fixture, mo
     assert result['ok'] and result['model'] == 'custom-model'
     assert json.loads(calls[-1].data)['model'] == 'custom-model'
     def fail(*args, **kwargs): raise HTTPError('url', 401, secret, None, None)
-    monkeypatch.setattr(app, 'urlopen', fail)
+    monkeypatch.setattr(preferences, 'urlopen', fail)
     result = client.post('/api/settings/translation/test', json={'model': 'custom-model'})
     assert result.status_code == 502
     assert secret not in result.text
@@ -91,14 +93,14 @@ def test_shared_database_respects_old_app_note_edits(fixture):
     app, client, item, *_ = fixture
     path = f"/api/news/{item['id']}"
     original = client.post(path + '/notes', json={'note': '第一条'}).json['notes'][0]['id']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('UPDATE article_notes SET note=? WHERE url=?', ('旧应用直接修改', item['url']))
     assert client.get(path + '/detail').json['notes'][0]['note'] == '旧应用直接修改'
     assert client.get('/api/news?collection=notes').json['items'][0]['note_count'] == 1
     assert client.delete(path + '/notes/' + original).status_code == 404
     added = client.post(path + '/notes', json={'note': '新追加'}).json
     assert [row['note'] for row in added['notes']] == ['旧应用直接修改', '新追加']
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('DELETE FROM article_notes WHERE url=?', (item['url'],))
     assert client.get(path + '/detail').json['notes'] == []
     added = client.post(path + '/notes', json={'note': '删除后重新添加'}).json
@@ -145,7 +147,7 @@ def test_agent_sse_reports_progress_changes_in_same_second(fixture, monkeypatch)
     job_id = created['job']['id']
     monkeypatch.setattr(app, 'AGENT_STREAM_POLL_SECONDS', 0)
     monkeypatch.setattr(database, 'now_ts', lambda: '2026-10-15 12:00:00')
-    with app.agent_db_conn() as conn:
+    with app.data.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET status='running' WHERE id=?", (job_id,))
     app._update_agent_progress(job_id, 'thinking')
     stream = app._agent_stream_generator(item['id'], job_id)

@@ -20,7 +20,7 @@ def test_pi_effort_persists_per_feature_and_reaches_task_snapshots(tmp_path, mon
     pi = {"provider": "fixture", "model": "model", "reasoning_effort": effort}
     value["llm"]["pi_chat"] = pi.copy()
     value["feature_models"] = {name: {"runtime": "pi", "pi": pi.copy()} for name in settings.MODEL_FEATURES}
-    saved = app.validate_runtime_settings(value)
+    saved = app.catalogs.validate_runtime_settings(value)
     settings.save_app_settings(saved)
     loaded = configuration.current_runtime_settings()
     assert loaded["llm"]["pi_chat"] == pi
@@ -46,7 +46,7 @@ def test_invalid_pi_effort_is_rejected(effort):
 def test_unsupported_effort_cannot_be_saved_or_tested(monkeypatch):
     import app, connection_tests
     value = settings.default_app_settings()
-    monkeypatch.setattr(app, "load_app_settings", lambda: value)
+    monkeypatch.setattr(configuration, 'load_app_settings', lambda: value)
     monkeypatch.setattr(pi_models, "metadata", lambda request: {"reasoning_efforts": ["off"]})
     selected = {"provider": "fixture", "model": "plain", "reasoning_effort": "high"}
     client = app.app.test_client()
@@ -57,7 +57,7 @@ def test_unsupported_effort_cannot_be_saved_or_tested(monkeypatch):
     for payload in ({"llm": {**value["llm"], "pi_chat": selected}},
                     {"llm": value["llm"], "feature_models": {"topics": {"pi": selected}}}):
         with pytest.raises(ValueError, match="invalid_pi_reasoning_effort"):
-            app.validate_runtime_settings(payload)
+            app.catalogs.validate_runtime_settings(payload)
 
 
 def test_sdk_catalog_reads_logout_and_model_capabilities_without_inference(tmp_path, monkeypatch):

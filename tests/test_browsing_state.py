@@ -18,7 +18,7 @@ def test_reverse_requests_fail_atomically(env, already_read, other):
     if already_read:
         assert client.patch(path, json={'read': True}).status_code == 200
     def snapshot():
-        with app.db_conn() as conn:
+        with app.data.connect() as conn:
             return {table: [tuple(row) for row in conn.execute(f'SELECT * FROM {table}')]
                     for table in ('item_state', 'detail_jobs', 'ai_jobs')}
     before = snapshot()
@@ -33,7 +33,7 @@ def test_repeated_acknowledgements_preserve_first_timestamp(env, action):
     app, client, item, path = env
     stamp = '2026-01-01 12:00:00'
     client.patch(path, json={'read': True, 'favorite': True})
-    with app.db_conn() as conn:
+    with app.data.connect() as conn:
         conn.execute('UPDATE item_state SET read_at=? WHERE item_id=?', (stamp, item['id']))
     if action == 'single':
         result = client.patch(path, json={'read': True})

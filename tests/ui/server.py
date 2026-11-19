@@ -1,5 +1,7 @@
 """Isolated UI fixture server: real SQLite/API, no model calls or background workers."""
 
+from nr import preferences
+
 from nr import database
 import json
 import os
@@ -99,15 +101,15 @@ def fixture_summary(config, prompt, cancel, diagnostics):
             "## 科技与流动性的发展脉络\n\n- **宏观政策**：材料讨论了准备金水平及短期融资压力。[[" + ref + "]]\n"
             "- **科技产业**：报道涉及先进制程试产与推理模型部署。[[" + ref + "]]\n\n"
             "## 继续观察\n\n当前材料不足以判断后续效果，需要继续跟踪披露。[[" + ref + "]]")
-module.NEWS_SUMMARY_SERVICE.runner = fixture_summary
+module.background.summaries.runner = fixture_summary
 # Do not inspect local credentials or call model catalogs in UI tests.
-module.provider_secret_value = lambda provider: ''
-module.provider_has_configured_key = lambda provider: False
-module.deepseek_settings_snapshot = lambda model: {
+preferences.provider_secret_value = lambda provider: ''
+preferences.provider_has_configured_key = lambda provider: False
+preferences.deepseek_settings_snapshot = lambda model: {
     'service': {'configured': False, 'status_text': '未配置密钥'},
     'catalog': {'options': []},
 }
-module.pi_chat_settings_snapshot = lambda *args: {
+preferences.pi_chat_settings_snapshot = lambda *args: {
     'service': {'configured': True},
     'catalog': {'provider_options': [{'value': 'test', 'label': 'Test provider'}], 'options': [{'value': 'test-model', 'label': 'Test model'}], 'model_options_by_provider': {'test': [{'value': 'test-model', 'label': 'Test model', 'reasoning_efforts': ['off', 'low', 'high']}]}},
 }
@@ -128,7 +130,7 @@ def fixture_archive(**kwargs):
 module.run_pi_chat_archive = fixture_archive
 module.run_codex_chat_archive = fixture_archive
 fixtures = json.loads((ROOT / 'tests/ui/articles.json').read_text())
-with module.db_conn() as conn:
+with module.data.connect() as conn:
     for index in range(65):
         item = fixtures[index % len(fixtures)]
         ident = f'ui-{index:03}'
@@ -150,11 +152,11 @@ with module.db_conn() as conn:
             conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES (?,?,?,?)',(url,'关注准备金变化与流动性传导。',published,published))
         if index == 4:
             conn.execute('INSERT INTO item_state(item_id,favorite_at,updated_at) VALUES (?,?,?)',(ident,published,published))
-with module.db_conn() as conn:
+with module.data.connect() as conn:
     # Existing fixture bodies represent the pre-upgrade reading queue. Exercise
     # its one-time migration; new prefetched fixtures below remain independent.
     conn.execute("DELETE FROM news_version_migrations WHERE name='explicit_read_later'")
-    module.apply_schema(conn, module.SCHEMA_PATH)
+    module.apply_schema(conn, module.data.schema_path)
     module.news_classification.enqueue(conn)
     for index in range(65):
         category = 'economy' if index < 40 else ['china', 'ai', 'politics', 'business', 'science', 'other'][(index - 40) % 6]
@@ -164,7 +166,7 @@ with module.db_conn() as conn:
 @module.app.post('/__test/reset-reading')
 def reset_reading():
     ids = (module.request.get_json(silent=True) or {}).get('item_ids')
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         if ids is None:
             conn.execute("UPDATE item_state SET read_at=NULL")
         else:
@@ -179,7 +181,7 @@ def set_summary_mode():
 @module.app.post('/__test/new-news')
 def new_news():
     body = module.request.get_json(silent=True) or {}
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         row = dict(conn.execute("SELECT * FROM items WHERE id='ui-000'").fetchone())
         row.update(id='ui-late-arrival', url='https://example.com/ui-late-arrival', title='快照创建后的新新闻')
         if body.get('published_at'):
@@ -189,7 +191,7 @@ def new_news():
 
 @module.app.post('/__test/reset-collection')
 def reset_collection():
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         for table in ('items', 'item_state', 'topic_ingestions'):
             key = 'id' if table == 'items' else 'item_id'
             conn.execute(f"DELETE FROM {table} WHERE {key}='ui-late-arrival'")
@@ -203,7 +205,7 @@ def reset_collection():
 def x_fixture():
     body = module.request.get_json(silent=True) or {}
     handle, ident, url = 'uixtestcache', 'ui-x-prefetch', 'https://x.com/uixtestcache/status/99001'
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         for table in ('article_details', 'article_ai', 'detail_jobs', 'ai_jobs', 'article_notes'):
             conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
         conn.execute('DELETE FROM items WHERE id=?', (ident,))
@@ -221,12 +223,12 @@ def x_fixture():
 
 @module.app.post('/__test/reset-summaries')
 def reset_summaries():
-    service = module.NEWS_SUMMARY_SERVICE
+    service = module.background.summaries
     service.context()
     for event, worker in list(service.workers.values()):
         event.set()
         worker.join(timeout=3)
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         conn.execute('DELETE FROM news_summaries')
         conn.execute('DELETE FROM news_summary_jobs')
         conn.execute('DELETE FROM news_summary_previews')
@@ -245,7 +247,7 @@ def agent_article():
     body = module.request.get_json()
     item, _ = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
     url = item['url']
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         if url not in agent_article_fixtures:
             agent_article_fixtures[url] = {
                 table: dict(row) if (row := conn.execute('SELECT * FROM ' + table + ' WHERE url=?', (url,)).fetchone()) else None
@@ -260,7 +262,7 @@ def agent_article():
 
 @module.app.post('/__test/reset-agent')
 def reset_agent():
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         for table in ['agent_notifications', 'agent_messages', 'agent_jobs', 'agent_sessions']:
             conn.execute('DELETE FROM ' + table)
     return {'ok': True}
@@ -269,7 +271,7 @@ def reset_agent():
 def complete_agent():
     body = module.request.get_json()
     item, detail = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
-    with module.agent_db_conn() as conn:
+    with module.data.agent_connect() as conn:
         conn.execute('BEGIN IMMEDIATE')
         if body.get('job_id'):
             job = conn.execute('SELECT * FROM agent_jobs WHERE id=?', (body['job_id'],)).fetchone()
@@ -326,14 +328,14 @@ def fixture_topic_research(config, prompt, cancel, diagnostics, *, web):
             return json.dumps({"reply":"已缩小到审核进程，保留其他规则。","definition":draft},ensure_ascii=False)
         return json.dumps({"reply":"一般股价波动不属于上市审核进展；当前定义保持不变。","definition":None},ensure_ascii=False)
     return json.dumps({"overview": "新新闻已整理。", "nodes": []}, ensure_ascii=False)
-module.TOPIC_SERVICE.runner = fixture_topic_research
+module.background.topics.runner = fixture_topic_research
 
 @module.app.post('/__test/topics')
 def fixture_topics():
     body = module.request.get_json(silent=True) or {}
     topic_fixture_mode["value"] = body.get("mode", "success")
     topic_fixture_mode.pop("chat_failed", None)
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         for table in ("topic_node_items", "topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "topic_refinements", "event_topics"):
             conn.execute("DELETE FROM " + table)
         module.topic_tracking.seed_ingestions(conn)
@@ -382,7 +384,7 @@ def fixture_topic_mode():
 def fixture_topic_update():
     body = module.request.get_json(silent=True) or {}
     ident = body.get('id', 'test-acquisition')
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         if body.get('news'):
             item_id = body.get('item_id')
             if item_id and not conn.execute('SELECT 1 FROM topic_checks WHERE topic_id=? AND item_id=?', (ident, item_id)).fetchone():
@@ -403,7 +405,7 @@ def fixture_topic_update():
 def fixture_bilingual():
     body = module.request.get_json(silent=True) or {}
     fixture = fixtures[63 % len(fixtures)]
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         url = conn.execute("SELECT url FROM items WHERE id='ui-063'").fetchone()[0]
         conn.execute('UPDATE article_details SET content=? WHERE url=?', (body.get('original', fixture['original']), url))
         conn.execute('UPDATE article_ai SET body_zh=?,conclusion_zh=?,key_points_zh=? WHERE url=?',
@@ -413,7 +415,7 @@ def fixture_bilingual():
     return {'ok': True}
 
 # Periodic reports never invoke a real model or scheduler in the fixture server.
-module.REPORT_SERVICE.start = lambda: None
+module.background.reports.start = lambda: None
 module.periodic_reports.now = lambda: module.periodic_reports.local('2026-10-30T16:00:00+08:00')
 module.periodic_reports.report_model.capacity = lambda config: {
     'context_window': 128000, 'input_tokens': 100000, 'output_tokens': 16000, 'source': 'ui-fixture'}
@@ -430,18 +432,18 @@ def fixture_report_model(config, prompt):
         {'text': '这是隔离测试服务器生成的合成内容。', 'refs': refs[:1]}]}], 'briefs': [], 'omitted': refs[1:]}, ensure_ascii=False)
 
 
-module.REPORT_SERVICE.runner = fixture_report_model
+module.background.reports.runner = fixture_report_model
 
 
 @module.app.post('/__test/reports/run')
 def fixture_run_report():
-    return {'ok': True, 'worked': module.REPORT_SERVICE.run_one()}
+    return {'ok': True, 'worked': module.background.reports.run_one()}
 
 
 @module.app.post('/__test/reports')
 def fixture_reports():
     body = module.request.get_json(silent=True) or {}
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         conn.execute('DELETE FROM periodic_report_schedule_pauses')
         conn.execute('DELETE FROM periodic_report_deletions')
         conn.execute('DELETE FROM periodic_report_steps')
@@ -512,7 +514,7 @@ def fixture_reports():
 
 @module.app.post('/__test/source-deletion')
 def source_deletion_fixture():
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         for index in range(3):
             ident, url = f'source-delete-{index}', f'https://reuters.com/test/source-delete-{index}'
             conn.execute('DELETE FROM items WHERE id=?', (ident,))
@@ -535,7 +537,7 @@ def news_versions_fixture():
     url = 'https://www.reuters.com/world/ui-title-versions/'
     titles = ['版本验收：原稿', '版本验收：第二次进展', '版本验收：最新进展']
     ids = [title_id(url, title) for title in titles]
-    with module.db_conn() as conn:
+    with module.data.connect() as conn:
         for table in ('news_title_versions', 'news_version_snapshots', 'item_state', 'topic_ingestions',
                       'collection_items', 'item_classifications', 'classification_progress_items'):
             conn.execute(f"DELETE FROM {table} WHERE item_id IN (?,?,?)", ids)
@@ -547,15 +549,15 @@ def news_versions_fixture():
     if (module.request.get_json(silent=True) or {}).get('clear'):
         return {'ok': True}
     for index,title in enumerate(titles):
-        with module.db_conn() as conn:
+        with module.data.connect() as conn:
             seed_title(conn,url,title,root=ids[0],previous=ids[index-1] if index else None,source_id='versions-ui')
         if index == 0:
-            with module.db_conn() as conn:
+            with module.data.connect() as conn:
                 conn.execute("INSERT INTO item_state(item_id,read_at,favorite_at,updated_at) VALUES (?,'original-read','original-favorite','old')", (ids[0],))
                 conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved original body.','2026-10-15 09:00:00','old')", (url,))
                 conn.execute("INSERT INTO article_ai(url,body_zh,generated_at,updated_at) VALUES (?,'原稿的已缓存正文。','2026-10-15 09:00:00','old')", (url,))
         if index == 1 and (module.request.get_json(silent=True) or {}).get('cache_middle'):
-            with module.db_conn() as conn:
+            with module.data.connect() as conn:
                 conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved middle version.','2026-10-15 10:00:00','old')", (url,))
     return {'ok':True,'ids':ids}
 
