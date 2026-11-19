@@ -1,4 +1,5 @@
 from contextlib import closing
+from dataclasses import dataclass
 from threading import Lock, RLock
 
 import collection_environment
@@ -11,9 +12,26 @@ import trading_calendar
 from database_schema import apply_schema
 from nr import (
     agent_jobs, agent_sessions, article_fetch, configuration, details, highlights,
-    market, news_chat, preferences, reminders, services, summaries, tasks, updates,
+    market, news_chat, preferences, reminders, summaries, tasks, updates,
 )
 from settings import resolve_db_path
+
+
+@dataclass
+class BackgroundServices:
+    classification: news_classification.Service
+    collection: news_collection.Service
+    reports: periodic_reports.Service
+    summaries: news_summaries.Service
+    topics: topic_tracking.Service
+    report_lock: RLock
+
+    def start(self, classification):
+        self.classification.configure(**classification)
+        self.classification.start()
+        self.topics.start()
+        self.reports.start()
+        self.collection.start()
 
 
 class Workbench:
@@ -29,7 +47,7 @@ class Workbench:
         self.chat = news_chat.NewsChat(self.sessions)
         report_lock = RLock()
         settings = configuration.current_runtime_settings
-        self.jobs = services.BackgroundServices(
+        self.jobs = BackgroundServices(
             classification=news_classification.Service(
                 db.connect, tasks.classification_config, topic_queue=topic_tracking.MatchQueue(),
                 backup_config=tasks.classification_config,
