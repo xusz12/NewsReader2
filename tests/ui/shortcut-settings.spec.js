@@ -245,9 +245,10 @@ for (const width of [320, 390, 921, 1440]) {
     for (const theme of ['light', 'dark', 'eink']) {
       await chooseTheme(page, theme);
       await openSettings(page);
-      await expect(page.locator('[data-settings-tab]').first()).toHaveAttribute('data-settings-tab', 'system');
-      await expect(page.locator('.settings-category-card:visible')).toHaveCount(10);
-      await expect(page.locator('[data-settings-tab]').last()).toHaveAttribute('data-settings-tab', 'help');
+      await expect(page.locator('#feedColSettings .settings-category-card:visible strong')).toHaveText([
+        '系统与版本', '个人助手', '模型与 Agent', 'API 管理', '新闻分类', '日报任务',
+        '信源与采集', 'X', '数据库与存储', '积压新闻总结范围', '快捷键', '帮助说明',
+      ]);
       await expect(page.locator('#feedColSettings, #detailPanelSettings').locator('#settingsSearchInput, .settings-eyebrow, .settings-category-meta, .settings-category-description, .settings-list-footer')).toHaveCount(0);
       const heights = await page.locator('.settings-category-card').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
       expect(Math.max(...heights)).toBeLessThanOrEqual(40);

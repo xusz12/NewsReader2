@@ -91,14 +91,23 @@ test('pending checks disable duplicates and survive navigation without saving dr
   } finally { release(); }
 });
 
-test('services show saved routing, distinguish configured from tested and reuse configuration pages', async ({page}) => {
+test('services show saved routing, distinguish configured from tested and reuse configuration pages', async ({page, request}) => {
+  const settings = await (await request.get('/api/settings')).json();
+  const preferred = settings.llm.translation.provider;
+  const alternative = settings.api_providers.find(service => service.translation_base_url && service.id !== preferred);
+  const firstService = page.locator('#collectionServices [data-collection-service]').first();
   await start(page);
-  await expect(page.locator('[data-collection-service="deepseek"]')).toContainText('缺少 API 密钥');
+  await expect(firstService).toHaveAttribute('data-collection-service', preferred);
+  await expect(firstService).toContainText('缺少 API 密钥');
   await expect(page.locator('#collectionServices')).toContainText('配置齐全不代表连接成功');
   await page.locator('#collectionApiSettingsBtn').click();
-  await page.locator('[name="llm.translation.provider"][value="opencode-go"]').check();
+  const alternateRadio = page.getByRole('radio', {name: alternative.label, exact:true});
+  await expect(alternateRadio).not.toBeChecked();
+  await alternateRadio.check();
+  await expect(alternateRadio).toBeChecked();
   await page.locator('[data-settings-tab="pipeline"]').click();
-  await expect(page.locator('[data-collection-service]').first()).toHaveAttribute('data-collection-service','deepseek');
+  await expect(firstService).toHaveAttribute('data-collection-service', preferred);
+  expect((await (await request.get('/api/settings')).json()).llm.translation.provider).toBe(preferred);
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   await page.locator('#collectionModelSettingsBtn').click();
   await expect(page.locator('#settingsDetailTitle')).toHaveText('模型与 Agent');

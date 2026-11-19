@@ -32,6 +32,18 @@ async function expectControlColor(page,tone) {
     return getComputedStyle(node).color===expected;
   },tone)).toBe(true);
 }
+async function changeChatModel(page) {
+  await section(page,'models');
+  await choosePicker(page,'Runtime','Codex','chat');
+  const chat = page.locator('[data-model-feature="chat"]');
+  const refresh = chat.getByRole('button', {name:'刷新模型目录', exact:true});
+  await refresh.click();
+  await expect(refresh).toBeEnabled();
+  const current = await chat.locator('select[name="agent.codex.model"]').inputValue();
+  const next = current === 'ui-catalog-b' ? 'ui-catalog-a' : 'ui-catalog-b';
+  await choosePicker(page,'模型',next,'chat');
+  return next;
+}
 async function observe(page) {
   const state={data:fixture(),failed:false,requests:0};
   await page.clock.install();
@@ -200,9 +212,7 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   const cleanup = page.locator('[data-schedule-kind="snapshot_cleanup"]');
   await expect(cleanup).toContainText('每 7 天');
   await expect(cleanup).toContainText('11/06 10:00');
-  await section(page,'models');
-  await choosePicker(page,'Runtime','Codex','chat');
-  await choosePicker(page,'模型','ui-catalog-b','chat');
+  const draftModel = await changeChatModel(page);
   await section(page,'schedules');
   await page.locator('[data-schedule-edit]').click();
   await expect(page.locator('[data-schedule-rules] [role="combobox"]:visible')).toHaveCount(33);
@@ -212,7 +222,7 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   await expect(page.locator('[data-schedule-kind="evening"] [data-schedule-rule]')).toHaveText('晚报 · 每天 21:30');
   await expect(page.locator('[data-schedule-rules] [role="combobox"]:visible')).toHaveCount(0);
   await section(page,'models');
-  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue('ui-catalog-b');
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue(draftModel);
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   await section(page,'schedules');
   const row=state.data.schedules.find(row=>row.kind==='snapshot_cleanup');
@@ -389,9 +399,7 @@ test('同日窗口起止顺序与生成截止校验，窗口 Picker 刷新保留
 
 test('自动刷新保留设置草稿，离开分类后停止，失败保留最后成功状态',async({page})=>{
   const state=await observe(page);
-  await section(page,'models');
-  await choosePicker(page,'Runtime','Codex','chat');
-  await choosePicker(page,'模型','ui-catalog-b','chat');
+  const draftModel = await changeChatModel(page);
   await section(page,'schedules');
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('2');
   state.data.queue.pending=4;
@@ -403,7 +411,7 @@ test('自动刷新保留设置草稿，离开分类后停止，失败保留最�
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('4');
   await expect(page.locator('[data-schedule-updated]')).toContainText('21:32');
   await section(page,'models');
-  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue('ui-catalog-b');
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue(draftModel);
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
   state.failed=false;await section(page,'schedules');

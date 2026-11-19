@@ -9,6 +9,15 @@ async function complete(request, data = {}) {
   expect(response.ok()).toBeTruthy();
   return response.json();
 }
+async function sendQuestion(page, itemId, question) {
+  await page.locator('#agentPromptInput').fill(question);
+  const [response] = await Promise.all([
+    page.waitForResponse(res => res.request().method() === 'POST' && new URL(res.url()).pathname === `/api/news/${itemId}/agent/jobs`),
+    page.locator('#agentSendBtn').click(),
+  ]);
+  expect(response.status()).toBe(202);
+  return (await response.json()).job;
+}
 async function snapshot(request) { return (await request.get('/api/agent/notifications')).json(); }
 async function wake(page) { await page.evaluate(() => window.dispatchEvent(new Event('focus'))); }
 async function start(page, width = 1440) {
@@ -109,9 +118,7 @@ test('streaming completes in the background; old scroll position and opening the
   await openNotice(page, initial.job_id);
   await expect.poll(async () => (await snapshot(request)).notifications.length).toBe(0);
   await page.locator('#agentChatStream').evaluate(node => node.scrollTop = 0);
-  await page.locator('#agentPromptInput').fill('新一轮研究');
-  await page.locator('#agentSendBtn').click();
-  const job = (await (await request.get('/api/news/ui-064/agent/session')).json()).jobs.at(-1);
+  const job = await sendQuestion(page, 'ui-064', '新一轮研究');
   expect(job.status).toBe('queued');
   await complete(request, { item_id: 'ui-064', job_id: job.id, answer: '刚完成的新回复，尚未滚动查看。' });
   await expect(page.locator(`[data-job-id="${job.id}"][data-role="assistant"]`)).toContainText('刚完成的新回复');
@@ -136,8 +143,7 @@ test('a non-foreground window cannot acknowledge a displayed reply until focus r
   const initial = await complete(request, { item_id: 'ui-064', answer: '开始研究' });
   await openNotice(page, initial.job_id);
   await expect.poll(async () => (await snapshot(request)).notifications.length).toBe(0);
-  await page.locator('#agentPromptInput').fill('请继续'); await page.locator('#agentSendBtn').click();
-  const job = (await (await request.get('/api/news/ui-064/agent/session')).json()).jobs.at(-1);
+  const job = await sendQuestion(page, 'ui-064', '请继续');
   const other = await context.newPage(); await other.goto('about:blank'); await other.bringToFront();
   await complete(request, { item_id: 'ui-064', job_id: job.id, answer: '切走窗口后完成' });
   await expect(page.locator(`[data-job-id="${job.id}"][data-role="assistant"]`)).toContainText('切走窗口后完成');

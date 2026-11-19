@@ -62,6 +62,16 @@ test('bulk confirmation preserves its original set when news arrives', async ({p
 
 test('translation retry stays visible until publication and never requests acquisition', async ({page}) => {
   let counts={pending:0,running:0,failed:2,done:0}, acquisitions=0;
+  async function refreshCounts(nextCounts) {
+    counts = nextCounts;
+    const refreshed = page.waitForResponse(async response => {
+      if (new URL(response.url()).pathname !== '/api/collection' || response.request().method() !== 'GET') return false;
+      const reported = (await response.json()).counts;
+      return Object.entries(nextCounts).every(([key, value]) => reported[key] === value);
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await refreshed;
+  }
   await page.route('**/api/collection',async route=>{
     if(route.request().method()==='POST') acquisitions++;
     const response=await route.fetch(), data=await response.json();
@@ -75,13 +85,11 @@ test('translation retry stays visible until publication and never requests acqui
   await page.locator('#retryCollectionTranslationBtn').click();
   await expect(page.locator('#collectionTranslationNotice')).toBeVisible();
   await expect(page.locator('#collectionTranslationText')).toContainText('2 条新闻正在翻译');
-  counts={pending:0,running:0,failed:0,ready:2,done:0};
-  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await refreshCounts({pending:0,running:0,failed:0,ready:2,done:0});
   await expect(page.locator('#collectionTranslationNotice')).toBeVisible();
   await expect(page.locator('#collectionTranslationText')).toContainText('2 条新闻已完成翻译');
   await expect(page.locator('#retryCollectionTranslationBtn')).toBeHidden();
-  counts={pending:0,running:0,failed:0,done:2};
-  await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+  await refreshCounts({pending:0,running:0,failed:0,done:2});
   await expect(page.locator('#collectionTranslationNotice')).toBeHidden();
   expect(acquisitions).toBe(0);
 });

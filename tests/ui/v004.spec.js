@@ -55,7 +55,7 @@ for (const [theme, scheme, palette] of [['light', 'light', 'light'], ['dark', 'l
     await expect(page.locator('#agentDock')).toHaveCSS('height', '520px');
     await expect(page.locator('#archiveAgentBtn')).toHaveText('');
     await expect(page.locator('#archiveAgentBtn')).toHaveAccessibleName('提炼结论追加到想法');
-    expect(await page.locator('.agent-header').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    expect(await page.locator('#agentDock .agent-header').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: `.ui-artifacts/v004-agent-${theme}-${scheme}.png`, animations: 'disabled' });
   });
 }

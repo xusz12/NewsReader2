@@ -180,8 +180,11 @@ test('Markdown paste, code fences and formatting shortcuts remain editable with 
   await expect(editor(page)).toHaveText('');
   await editor(page).press('ControlOrMeta+Shift+z');
   await expect(editor(page).locator('h2')).toHaveText('粘贴标题');
-  await editor(page).fill('');
+  await editor(page).press('ControlOrMeta+a');
+  await editor(page).press('Backspace');
+  await expect(editor(page)).toHaveText('');
   await editor(page).press('ControlOrMeta+Alt+0');
+  await expect(editor(page).locator(':scope > p:only-child')).toHaveText('');
   await editor(page).pressSequentially('```js');
   await editor(page).press('Enter');
   await editor(page).pressSequentially('const x = 1;');

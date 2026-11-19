@@ -336,11 +336,11 @@ test("从归档筛选新建并切换筛选仍保留草稿",async({page})=>{
   await expect(page.locator('[name="definition"]')).toHaveValue('手动定义不会被筛选覆盖');
 });
 
-test("360px手机顶部筛选与新建同排且支持触屏",async({browser})=>{
-  const context=await browser.newContext({viewport:{width:360,height:780},isMobile:true,hasTouch:true});
+test("360px手机顶部筛选与新建同排且支持触屏",async({baseURL,browser})=>{
+  const context=await browser.newContext({baseURL,viewport:{width:360,height:780},isMobile:true,hasTouch:true});
   const page=await context.newPage();
   try {
-    await page.goto('http://127.0.0.1:8765/');await openTopics(page);
+    await page.goto('/');await openTopics(page);
     const filters=page.locator('#topicFilters'), create=page.locator('#newTopicBtn');
     const left=await filters.boundingBox(), right=await create.boundingBox();
     expect(left.x+left.width).toBeLessThanOrEqual(right.x);
@@ -522,7 +522,7 @@ for (const width of [390,1280]) test('主题表单沿用设置控件、阅读字
   await page.setViewportSize({width,height:900});await page.goto('/');
   await openSettings(page);await page.locator('[data-settings-tab="classification"]').click();
   const inputStyle=await styles(page.locator('[name="classification.concurrency"]'),controlStyle);
-  const labelStyle=await styles(page.locator('#classificationSettings .field-label'),typography);
+  const labelStyle=await styles(page.locator('#classificationSettings').getByText('分类并发上限',{exact:true}),typography);
   if (width<=920) await page.locator('#settingsCategoryBackBtn').click();
   await page.locator('#closeSettingsBtn').click();await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
@@ -534,7 +534,7 @@ for (const width of [390,1280]) test('主题表单沿用设置控件、阅读字
   if (width<=920) await page.locator('#mobileReaderBackBtn').click();
   await page.locator('#newTopicBtn').click();
   expect(await styles(page.locator('[name="query"]'),controlStyle)).toEqual(inputStyle);
-  expect(await styles(page.locator('#topicCreateForm .field-label').first(),typography)).toEqual(labelStyle);
+  expect(await styles(page.locator('#topicCreateForm').getByText('事件或主题',{exact:true}),typography)).toEqual(labelStyle);
   const form=await page.locator('#topicCreateForm').boundingBox(), content=await page.locator('#topicContent').boundingBox();
   expect(form.width).toBeCloseTo(content.width,0);
   await page.screenshot({path:'.ui-artifacts/topics-shared-form-'+width+'.png'});
@@ -699,12 +699,12 @@ for(const width of [390,1280]) test('精简前警告可取消，成功后一个�
   expect((await blocked.json()).error).toBe('topic_refine_cooldown');
 });
 
-test("手机时间线支持原生横向滑动且不触发边缘返回",async({browser,request})=>{
+test("手机时间线支持原生横向滑动且不触发边缘返回",async({baseURL,browser,request})=>{
   await request.post('/__test/topics',{data:{long_timeline:true}});
-  const context=await browser.newContext({viewport:{width:360,height:800},isMobile:true,hasTouch:true});
+  const context=await browser.newContext({baseURL,viewport:{width:360,height:800},isMobile:true,hasTouch:true});
   const page=await context.newPage();
   try {
-    await page.goto('http://127.0.0.1:8765/');await openTopics(page);
+    await page.goto('/');await openTopics(page);
     await page.locator('[data-topic-id="test-acquisition"]').tap();
     const timeline=page.locator('.topic-timeline');
     await timeline.scrollIntoViewIfNeeded();
@@ -751,12 +751,12 @@ test("新闻分页刷新保留列表、焦点与阅读位置",async({page,reques
   await expect(page.locator('.topic-news')).toHaveCount(65);
 });
 
-test("手机触屏确认定义布局与输入草稿",async({browser,request})=>{
+test("手机触屏确认定义布局与输入草稿",async({baseURL,browser,request})=>{
   await request.post('/__test/topics',{data:{empty:true}});
-  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+  const context=await browser.newContext({baseURL,viewport:{width:390,height:844},isMobile:true,hasTouch:true});
   const page=await context.newPage();
   try {
-    await page.goto('http://127.0.0.1:8765/');await openTopics(page);
+    await page.goto('/');await openTopics(page);
     await page.locator('#newTopicBtn').tap();
     await page.locator('[name="query"]').fill('云杉芯片上市');
     await page.getByRole('button',{name:'搜索并生成定义'}).tap();

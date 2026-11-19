@@ -30,6 +30,8 @@ test.afterEach(async ({ page }) => {
 });
 
 test('adding from unread feed updates the card and counts without completing saved reading', async ({ page, request }) => {
+  const initial = await request.patch('/api/news/ui-064/state', { data: { read_later: false, read_later_done: true } });
+  expect(initial.ok()).toBe(true);
   await page.goto('/');
   await expect(card(page)).toBeVisible();
   await expect(later(page)).toHaveText('已看完');

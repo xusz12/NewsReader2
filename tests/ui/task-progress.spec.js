@@ -253,13 +253,24 @@ test('分类进度首次读取失败可以从入口发现并单独恢复',async(
   await page.goto('/');
   await expect(indicator(page).locator('.task-progress-alert')).toBeVisible();
   await expect(indicator(page)).toHaveText('');
-  await indicator(page).press('Enter');
-  await expect(panel(page)).toContainText('暂时无法读取分类进度');
+  const classification = response => new URL(response.url()).pathname === '/api/news/classification';
+  async function openFailedProgress() {
+    const [failed] = await Promise.all([
+      page.waitForResponse(response => classification(response) && response.status() === 503),
+      indicator(page).press('Enter'),
+    ]);
+    await failed.finished();
+    await expect(panel(page)).toContainText('暂时无法读取分类进度');
+  }
+  await openFailedProgress();
   await indicator(page).press('Space');
   await expect(panel(page)).toBeHidden();
-  await indicator(page).press('Enter');
+  await openFailedProgress();
   unavailable=false;
-  await page.getByRole('button',{name:'重新读取进度'}).click();
+  await Promise.all([
+    page.waitForResponse(response => classification(response) && response.ok()),
+    page.getByRole('button',{name:'重新读取进度'}).click(),
+  ]);
   await expect(indicator(page)).toBeHidden();
 });
 

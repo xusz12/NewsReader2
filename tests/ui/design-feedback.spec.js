@@ -118,5 +118,9 @@ test('hidden vertical scrollbars preserve wheel scrolling in the feed and reader
     await page.mouse.wheel(0, 240);
     await expect.poll(() => area.evaluate(n => n.scrollTop)).toBeGreaterThan(before);
   }
-  expect(await page.locator('*').evaluateAll(nodes => nodes.filter(n => /auto|scroll/.test(getComputedStyle(n).overflowY)).every(n => getComputedStyle(n).scrollbarWidth === 'none'))).toBe(true);
+  const visibleScrollbars = await page.locator('*').evaluateAll(nodes => nodes.filter(node => {
+    const style = getComputedStyle(node);
+    return /auto|scroll/.test(style.overflowY) && style.scrollbarWidth !== 'none';
+  }).map(node => node.id || node.className || node.tagName));
+  expect(visibleScrollbars).toEqual([]);
 });

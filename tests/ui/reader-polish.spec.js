@@ -260,19 +260,30 @@ test('sidebar counts follow the collection and ignore late responses from the pr
   await expect(page.locator('#sourceFilters .nav-badge')).toHaveCount(0);
   let release;
   const gate = new Promise(resolve => { release = resolve; });
-  const delayedSource = url => {
+  const sourceRequest = (url, collection, filter) => {
     const parsed = new URL(url);
-    return parsed.pathname === '/api/sources' && parsed.searchParams.get('collection') === 'read_later' && parsed.searchParams.get('read_filter') === 'unread';
+    return parsed.pathname === '/api/sources' && parsed.searchParams.get('collection') === collection && parsed.searchParams.get('read_filter') === filter;
   };
+  const delayedSource = url => sourceRequest(url, 'read_later', 'unread');
   await page.route(delayedSource, async route => {
     await gate;
     await route.fulfill({ json: { ok: true, sources: [{ key: 'x', label: 'X', count: 9999 }] } });
   });
-  const delayed = page.waitForResponse(r => delayedSource(r.url()));
-  await page.locator('#navReadLaterBtn').click();
-  await page.locator('#navFavoritesBtn').click();
-  await counts('favorites', 'all');
-  release(); await delayed;
+  try {
+    await Promise.all([
+      page.waitForRequest(req => delayedSource(req.url())),
+      page.locator('#navReadLaterBtn').click(),
+    ]);
+    const [favorites] = await Promise.all([
+      page.waitForResponse(res => sourceRequest(res.url(), 'favorites', 'all')),
+      page.locator('#navFavoritesBtn').click(),
+    ]);
+    await favorites.finished();
+    await counts('favorites', 'all');
+    const delayed = page.waitForResponse(res => delayedSource(res.url()));
+    release();
+    await (await delayed).finished();
+  } finally { release(); }
   await counts('favorites', 'all');
   await expect(page.locator('#sourceFilters')).not.toContainText('9999');
 });
