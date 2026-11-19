@@ -747,7 +747,7 @@ test("settings is an inline three-column workspace with compact categories", asy
   for (const category of ["deepseek", "pipeline", "system", "models"]) {
     await page.locator(`[data-settings-tab="${category}"]`).click();
     const cards = page.locator(`#settingsContent > [data-section="${category}"]`);
-    const count = category === "pipeline" ? 5 : 1;
+    const count = category === "pipeline" ? 4 : 1;
     await expect(cards).toHaveCount(count);
     for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(

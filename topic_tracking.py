@@ -248,7 +248,7 @@ class MatchQueue:
                     retry = exempt or (error.retryable and job["attempts"] < 4)
                     conn.execute("""UPDATE topic_checks SET status=?,last_error=?,next_attempt_at=?,
                         attempts=?,lease_token=NULL,lease_until=0,updated_at=?""" + guard,
-                        ("pending" if retry else "failed", error.code, ts + max(error.retry_after, (5, 30, 120)[min(job["attempts"]-1, 2)]),
+                        ("pending" if retry else "failed", error.code, ts + error.retry_after if retry else 0,
                          job["attempts"] - int(exempt), ts, *args))
                 else:
                     answer = results[job["topic_id"]]
@@ -307,7 +307,7 @@ class MatchQueue:
                 conn.execute("""UPDATE topic_jobs SET status=?,error=?,next_attempt_at=?,attempts=?,
                     lease_token=NULL,lease_until=0,updated_at=? WHERE id=?""",
                     ('pending' if retry else 'failed',error.code,
-                     ts+max(error.retry_after,(5,30,120)[min(job["attempts"]-1,2)]),
+                     ts + error.retry_after if retry else 0,
                      job["attempts"]-int(exempt),now(),job["id"]))
                 return
             item = work["item"]

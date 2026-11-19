@@ -131,7 +131,8 @@ for (const width of [1440,390]) for(const theme of ['light','dark','system','ein
     await openSettings(page);
     await page.locator('[data-settings-tab="pipeline"]').click();
     await expect(page.locator('[name="collection.daily"]')).toHaveValue('00:01、04:00、08:00、12:00、18:00、21:00');
-    await expect(page.locator('#settingsCollectionSources li')).toHaveCount(12);
+    await expect(page.getByText('采集来源', {exact:true})).toHaveCount(0);
+    await expect(page.locator('[data-section="pipeline"] .section-card-title').getByText('新闻流显示与数据清理', {exact:true})).toBeVisible();
     await expect(page.locator('[name="collection.translation_concurrency"]')).toHaveValue('4');
     await page.locator('[name="collection.translation_concurrency"]').fill('6');
     await page.locator('[name="collection.daily"]').fill('07:00、19:00');

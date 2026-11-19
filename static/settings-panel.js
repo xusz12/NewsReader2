@@ -566,8 +566,6 @@ export class SettingsPanel {
       <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。同一轮采集结束且所需翻译成功后统一入库。</p>
       <p id="settingsCollectionStatus" role="status"></p>
       <div class="button-row"><button class="btn-secondary" id="settingsCollectBtn" type="button">立即采集</button></div></section>
-      <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>采集来源</span></div>
-      <p class="muted">媒体栏目与已保存的 X 账号通过本机 opencli 采集。X 账号在设置「X」中管理；整批内容准备好后统一进入新闻库。</p><ul id="settingsCollectionSources"></ul></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>新闻流显示与数据清理</span></div><p class="muted">勾选只控制新闻流显示，不启停采集。删除会清除该来源当前数据，后续新新闻仍会采集。</p><div id="settingsSources">${this.sourceHTML()}</div></section>
       <section class="settings-section-card" data-section="storage"><div class="section-card-title"><span>本地 SQLite 数据库与存储路径</span></div>
       <div class="field-item"><span class="field-label">当前主数据库路径</span><code class="storage-path">${e(d.database.path)}</code></div>
@@ -844,8 +842,6 @@ export class SettingsPanel {
     node.textContent = `${data.running ? "采集中" : data.schedule.enabled ? "定时采集已启用" : "定时采集已暂停"} · 下次：${time(data.next_run_at)}${data.schedule_error ? " · 交易日历未就绪，常规采集正常" : ""}`;
     const button = $("#settingsCollectBtn");
     if (button) button.disabled = data.running;
-    const statuses = {none:"尚未执行",pending:"待采集",running:"采集中",done:"成功",failed:"失败",canceled:"已取消"};
-    $("#settingsCollectionSources").innerHTML = data.sources.map(source => `<li>${e(source.label)} · ${e(statuses[source.status] || source.status)}${source.status === "done" ? `，新增 ${source.added} 条` : ""}${source.error ? `（${e(source.error)}）` : ""}</li>`).join("");
   }
   renderCollectionServices() {
     const panel = $("#collectionServices"), saved = this.saved;

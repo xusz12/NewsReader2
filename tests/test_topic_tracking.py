@@ -347,7 +347,15 @@ def test_milestone_failure_retry_reuses_jev_and_preserves_articles(env,monkeypat
     fake_jev(monkeypatch);worker=nc.Service(connect,lambda:('k','m'),topic_queue=tt.MatchQueue());worker.process_one('k','m')
     with closing(connect()) as conn,conn:conn.execute('UPDATE topic_checks SET updated_at=0')
     service.process_one();queue=tt.MatchQueue()
+    clock = [time.time()]
+    monkeypatch.setattr(time, 'time', lambda: clock[0])
     with closing(connect()) as conn:
+        for _ in range(2):
+            work = queue.claim_milestone(conn)
+            queue.finish_milestone(conn, work, None, nc.ClassificationError('network_error', retryable=True))
+            due = conn.execute('SELECT next_attempt_at FROM topic_jobs WHERE id=?', (work['job']['id'],)).fetchone()[0]
+            assert due == clock[0] + 5
+            clock[0] = due
         work=queue.claim_milestone(conn)
         queue.finish_milestone(conn,work,None,nc.ClassificationError('invalid_response',retryable=False))
     assert service.detail(ident)['job']['status']=='failed' and service.detail(ident)['total']==1

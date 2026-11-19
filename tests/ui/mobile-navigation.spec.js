@@ -150,7 +150,7 @@ test('every settings subpage swipes back to its category and preserves the origi
     const category = page.locator(`[data-settings-tab="${section}"]`);
     await category.click();
     const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-    await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 3 : 1);
+    await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 4 : 1);
     for (const card of await cards.all()) await expect(card).toBeVisible();
     await expect(page.locator('#settingsDetailTitle')).toBeFocused();
     const scroll = await list.evaluate(node => node.scrollTop);
@@ -223,7 +223,7 @@ test.describe('original sliding transitions', () => {
       expect(rect.x).toBe(0);
       expect(rect.width).toBe(402);
       const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-      await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 3 : 1);
+      await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 4 : 1);
       for (const card of await cards.all()) await expect(card).toBeVisible();
       await page.locator('#settingsCategoryBackBtn').tap();
       await expect(panel).toBeHidden();

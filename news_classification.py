@@ -34,7 +34,7 @@ CATEGORIES = {
 TOPICS = {"AI": "ai", "政治与国际": "politics", "经济与金融": "economy",
           "商业与产业": "business", "科技与科学": "science", "其他": "other"}
 MAX_ATTEMPTS = 4
-RETRY_DELAYS = (5, 30, 120)
+DEFAULT_RETRY_SECONDS = 5
 LEASE_SECONDS = 180
 UNREAD_SCOPE_SQL = """ AND NOT EXISTS (SELECT 1 FROM item_state st
     WHERE st.item_id=c.item_id AND st.read_at IS NOT NULL)"""
@@ -83,7 +83,7 @@ class ClassificationError(Exception):
         super().__init__(code)
         self.code, self.retryable, self.block_config = code, retryable, block_config
         self.rate_limited = code in {"http_429", "http_529"}
-        self.retry_after = retry_after
+        self.retry_after = max(DEFAULT_RETRY_SECONDS, retry_after)
 
 
 def retry_after_seconds(value: str | None, now: float | None = None) -> float:
@@ -105,14 +105,15 @@ class AdaptiveConcurrency:
         self.condition = threading.Condition()
         self.clock = clock
         self.limit = self.effective = classification_concurrency(limit)
-        self.active = self.generation = self.backoff_level = self.successes = 0
+        self.active = self.generation = self.successes = 0
+        self.rate_limited = False
         self.cooldown_until = self.recovery_at = 0
 
     def configure(self, limit: int):
         limit = classification_concurrency(limit)
         with self.condition:
             self.limit = limit
-            self.effective = min(self.effective, limit) if self.backoff_level else limit
+            self.effective = min(self.effective, limit) if self.rate_limited else limit
             self.condition.notify_all()
 
     def acquire(self, stop: threading.Event) -> int | None:
@@ -138,11 +139,9 @@ class AdaptiveConcurrency:
                 # A burst of 429s from the same wave halves concurrency only once.
                 if generation == self.generation:
                     self.effective = max(1, self.effective // 2)
-                    self.backoff_level = min(7, self.backoff_level + 1)
                     self.generation += 1
-                self.backoff_level = max(1, self.backoff_level)
-                delay = max(error.retry_after, min(300, 5 * 2 ** max(0, self.backoff_level - 1)))
-                self.cooldown_until = max(self.cooldown_until, now + delay)
+                self.rate_limited = True
+                self.cooldown_until = max(self.cooldown_until, now + error.retry_after)
                 self.recovery_at = self.cooldown_until + 30
                 self.successes = 0
                 # Persist the same cooldown on this job, including Retry-After.
@@ -152,19 +151,19 @@ class AdaptiveConcurrency:
                 self.recovery_at = max(self.recovery_at, now + 30)
             elif generation == self.generation and now >= self.cooldown_until:
                 self.successes += 1
-                if (self.backoff_level and now >= self.recovery_at
+                if (self.rate_limited and now >= self.recovery_at
                         and self.successes >= max(8, self.effective * 2)):
                     self.effective = min(self.limit, self.effective + 1)
                     self.successes = 0
                     self.recovery_at = now + 30
                     if self.effective == self.limit:
-                        self.backoff_level = 0
+                        self.rate_limited = False
             self.condition.notify_all()
 
     def snapshot(self) -> dict:
         with self.condition:
             return {"configured_concurrency": self.limit, "effective_concurrency": self.effective,
-                    "active_requests": self.active, "rate_limited": bool(self.backoff_level),
+                    "active_requests": self.active, "rate_limited": self.rate_limited,
                     "cooldown_seconds": max(0, math.ceil(self.cooldown_until - self.clock()))}
 
 
@@ -192,48 +191,42 @@ class DecisionLane(AdaptiveConcurrency):
         super().__init__(limit, clock)
         self.identity = None
         self.epoch = 0
-        self.failures = 0
         self.retry_at = 0
         self.probing = False
         self.last_error = ""
 
-    def reset_health(self):
+    def reset_health(self, *, last_error=""):
         self.epoch += 1
-        self.failures = 0
         self.retry_at = 0
         self.probing = False
-        self.last_error = ""
+        self.last_error = last_error
 
     def bind(self, identity):
         if self.identity != identity:
-            previous_error = self.last_error
-            self.reset_health()
+            self.reset_health(last_error=self.last_error)
             self.identity = identity
-            if previous_error:
-                self.failures = 1
-                self.last_error = previous_error
+
+    def cooldown_remaining(self):
+        return max(0, max(self.retry_at, self.cooldown_until) - self.clock())
 
     def cooling(self):
-        return self.probing or self.clock() < max(self.retry_at, self.cooldown_until)
+        return self.probing or self.cooldown_remaining() > 0
 
     def reserve(self, key, model, provider):
         if not key or self.cooling() or self.active >= self.effective:
             return None
         self.active += 1
-        self.probing = bool(self.failures)
+        self.probing = bool(self.last_error)
         return DecisionAttempt(provider, model, key, self.epoch, self.generation, self.probing)
 
     def complete(self, attempt, error, fallback_enabled):
         if attempt.epoch != self.epoch:
-            if (self.failures and attempt.epoch + 1 == self.epoch and error and error.rate_limited):
+            if (self.last_error and attempt.epoch + 1 == self.epoch and error and error.rate_limited):
                 self.result(attempt.generation, error)
             return
         self.result(attempt.generation, error)
         if fallback_enabled and (service_unavailable(error) or (attempt.probe and error)):
-            self.failures += 1
-            base = 300 if error.block_config else 30
-            delay = min(300, base * 2 ** min(4, self.failures - 1))
-            self.retry_at = self.clock() + max(delay, error.retry_after)
+            self.retry_at = self.cooldown_until if error.rate_limited else self.clock() + error.retry_after
             self.last_error = error.code
             self.probing = False
             self.epoch += 1
@@ -336,11 +329,12 @@ def classify(title: str, key: str, model: str, *, summary="", tracked_topics=Non
     except HTTPError as exc:
         if provider == "openai-decisions":
             details = model_apis.http_error_details(exc)
+            retry_after = details.get("retry_after_seconds", 0)
             if details["reason"] == "insufficient_quota":
-                raise ClassificationError("insufficient_quota", block_config=True) from None
+                raise ClassificationError("insufficient_quota", block_config=True, retry_after=retry_after) from None
             raise ClassificationError(f"http_{exc.code}", retryable=exc.code in (408, 429, 500, 502, 503, 504, 529),
                                       block_config=exc.code in (400, 401, 402, 403, 404, 422),
-                                      retry_after=details.get("retry_after_seconds", 0)) from None
+                                      retry_after=retry_after) from None
         # Never persist response bodies, request headers or credentials.
         raise ClassificationError(f"http_{exc.code}", retryable=exc.code in (408, 429, 500, 502, 503, 504, 529),
                                   block_config=exc.code in (400, 401, 402, 403, 404, 422),
@@ -393,10 +387,11 @@ def finish(conn: sqlite3.Connection, job: dict, result: dict | None, error: Clas
     now = time.time()
     fields = dict(result or {})
     if error:
-        retry = error.retryable and job["attempts"] < MAX_ATTEMPTS
-        fields.update(status="pending" if retry or error.block_config or error.rate_limited else "failed", last_error=error.code,
-                      next_attempt_at=now + max(error.retry_after, RETRY_DELAYS[min(job["attempts"] - 1, 2)]))
-        if error.block_config or error.rate_limited:
+        exempt = error.block_config or error.rate_limited
+        retry = exempt or (error.retryable and job["attempts"] < MAX_ATTEMPTS)
+        fields.update(status="pending" if retry else "failed", last_error=error.code,
+                      next_attempt_at=now + error.retry_after if retry else 0)
+        if exempt:
             # Rate/config errors must not exhaust an individual title's budget.
             fields["attempts"] = job["attempts"] - 1
     else:
@@ -602,7 +597,7 @@ class Service:
             attempt = lane.reserve(key, model, provider)
             if allow_backup and not key:
                 lane.last_error = "missing_api_key"
-            if attempt is None and allow_backup and (not key or lane.failures or lane.cooling()):
+            if attempt is None and allow_backup and (lane.last_error or lane.cooling()):
                 attempt = self._reserve_backup(provider)
             if attempt is None:
                 return False
@@ -657,9 +652,9 @@ class Service:
                 else:
                     attempt = None
                 if attempt is None and current and allow_backup and service_unavailable(error):
-                    delays = [max(0, max(other.retry_at, other.cooldown_until) - other.clock())
-                              for other in self.lanes.values() if other.identity and other.identity[1]]
-                    error.retry_after = min(delays, default=0)
+                    delays = (other.cooldown_remaining() for other in self.lanes.values()
+                              if other.identity and other.identity[1])
+                    error.retry_after = min(delays, default=error.retry_after)
                     if error.code.startswith("http_5"):
                         error.retryable = True
         if allow_backup and error and error.code in {"http_400", "http_422"}:

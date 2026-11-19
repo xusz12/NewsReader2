@@ -46,10 +46,10 @@ def test_shared_backoff_one_reduction_per_wave_and_old_success_does_not_recover(
     gate.result(token, nc.ClassificationError('http_529', retryable=True))
     gate.release()
     assert gate.snapshot()['effective_concurrency'] == 2
-    assert gate.snapshot()['cooldown_seconds'] == 10
+    assert gate.snapshot()['cooldown_seconds'] == 5
     gate.configure(16)
     assert gate.snapshot()['effective_concurrency'] == 2  # Settings cannot bypass a cooldown.
-    now[0] += 10
+    now[0] += 5
     for _ in range(30):
         gate.result(gate.generation, None)
     assert gate.snapshot()['effective_concurrency'] == 2  # Minimum stable period, not just request count.

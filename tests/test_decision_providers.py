@@ -118,8 +118,7 @@ def test_errors_are_redacted_and_quota_does_not_loop_as_rate_limit(monkeypatch, 
         nc.classify('title', 'private-secret', 'gpt-6-luna', provider='openai-decisions')
     assert error.value.block_config is blocked and error.value.rate_limited is limited
     assert 'secret' not in str(error.value)
-    if limited:
-        assert error.value.retry_after == 31
+    assert error.value.retry_after == 31
 
 
 @pytest.mark.parametrize('old_provider,new_provider', [('jev', 'openai-decisions'), ('openai-decisions', 'jev')])

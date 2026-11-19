@@ -104,15 +104,85 @@ def test_both_unavailable_back_off_independently_without_claiming_idle_work(conn
     assert not run(service, 'jev')
     assert calls == ['jev', 'openai-decisions']
     assert conn.execute("SELECT attempts FROM item_classifications WHERE item_id='second'").fetchone()[0] == 0
-    now[0] += 30
+    now[0] += 5
     del errors['openai-decisions']
     assert run(service, 'jev')
     assert calls[-1] == 'openai-decisions'
-    now[0] += 150
+    now[0] += 175
     del errors['jev']
     enqueue(conn, 'third')
     assert run(service, 'jev')
     assert calls[-1] == 'jev'
+
+
+@pytest.mark.parametrize('code,primary_wait,backup_duration,remaining,next_provider', [
+    ('http_503', 0, 0, 5, 'jev'),
+    ('http_401', 0, 3, 2, 'jev'),
+    ('network_error', 0, 7, 0, 'jev'),
+    ('http_429', 90, 0, 5, 'openai-decisions'),
+])
+def test_same_news_retries_on_first_available_provider(conn, monkeypatch, code, primary_wait, backup_duration, remaining, next_provider):
+    now = [1000]
+    monkeypatch.setattr(nc.time, 'time', lambda: now[0])
+    calls = []
+
+    def runner(title, key, model, provider='jev'):
+        calls.append(provider)
+        if len(calls) == 1:
+            raise nc.ClassificationError(code, retryable=code != 'http_401', block_config=code == 'http_401',
+                                         retry_after=primary_wait)
+        if len(calls) == 2:
+            now[0] += backup_duration
+            raise nc.ClassificationError('network_error', retryable=True)
+        return {**nc.parse_response(response()), 'provider': provider}
+
+    service = nc.Service(db_factory(conn), lambda: config('jev'), runner, backup_config=config, clock=lambda: now[0])
+    service.configure(8, fallback_enabled=True)
+    enqueue(conn, 'only-news-item')
+    assert run(service, 'jev')
+    assert calls == ['jev', 'openai-decisions']
+    due = now[0] + remaining
+    row = conn.execute('SELECT status,attempts,next_attempt_at FROM item_classifications').fetchone()
+    assert tuple(row) == ('pending', 1, due)
+    if remaining:
+        now[0] = due - 1
+        assert not run(service, 'jev')
+    now[0] = due
+    assert run(service, 'jev')
+    assert calls == ['jev', 'openai-decisions', next_provider]
+    row = conn.execute('SELECT status,attempts,provider FROM item_classifications').fetchone()
+    assert tuple(row) == ('done', 2, next_provider)
+
+
+@pytest.mark.parametrize('code,round_calls', [
+    ('network_error', ['jev', 'openai-decisions']),
+    ('invalid_response', ['jev']),
+])
+def test_repeated_failures_keep_the_same_interval_for_news_and_topic_matches(env, monkeypatch, code, round_calls):
+    connect, topics, _ = env
+    ready(topics)
+    now = [1000]
+    monkeypatch.setattr(nc.time, 'time', lambda: now[0])
+    calls = []
+
+    def runner(title, key, model, provider='jev', **options):
+        calls.append(provider)
+        raise nc.ClassificationError(code, retryable=True)
+
+    service = nc.Service(connect, lambda: config('jev'), runner, backup_config=config,
+                         topic_queue=tt.MatchQueue(), clock=lambda: now[0])
+    service.configure(1, fallback_enabled=True)
+    with closing(connect()) as db:
+        article(db, 'same-news')
+        for attempt in range(1, 5):
+            assert run(service, 'jev')
+            assert calls == round_calls * attempt
+            expected = ('pending', attempt, now[0] + 5) if attempt < 4 else ('failed', 4, 0)
+            for table in ('item_classifications', 'topic_checks'):
+                row = db.execute(f'SELECT status,attempts,next_attempt_at FROM {table}').fetchone()
+                assert tuple(row) == expected
+            now[0] += 5
+        assert not run(service, 'jev')
 
 
 @pytest.mark.parametrize('code,should_switch', [('network_error', True), ('http_401', True), ('insufficient_quota', True),
@@ -226,7 +296,7 @@ def test_late_failure_cannot_reopen_recovered_primary(conn):
         assert began.wait(2)
         enqueue(conn, 'outage')
         assert run(service, 'jev')
-        now[0] += 30
+        now[0] += 5
         enqueue(conn, 'recovered')
         assert run(service, 'jev')
         assert calls[-1] == ('recovered', 'jev')

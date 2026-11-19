@@ -96,16 +96,20 @@ def test_claim_is_exclusive_and_expired_lease_recovers(conn):
     assert nc.finish(conn, recovered, nc.parse_response(response()))
 
 
-def test_finite_retry_backoff_manual_retry_and_config_pause(conn):
+def test_fixed_retry_interval_manual_retry_and_config_pause(conn, monkeypatch):
+    now = [1000]
+    monkeypatch.setattr(nc.time, "time", lambda: now[0])
     insert(conn)
     with conn:
         nc.enqueue(conn)
-    for i in range(nc.MAX_ATTEMPTS):
+    for attempt in range(1, nc.MAX_ATTEMPTS + 1):
         job = nc.claim(conn)
+        assert job["attempts"] == attempt
         nc.finish(conn, job, None, nc.ClassificationError("http_503", retryable=True))
         assert nc.claim(conn) is None
-        with conn:
-            conn.execute("UPDATE item_classifications SET next_attempt_at=0")
+        if attempt < nc.MAX_ATTEMPTS:
+            assert conn.execute("SELECT next_attempt_at FROM item_classifications").fetchone()[0] == now[0] + 5
+        now[0] += 5
     row = conn.execute("SELECT * FROM item_classifications").fetchone()
     assert row["status"] == "failed" and row["category"] is None
     assert nc.retry_failed(conn) == 1
