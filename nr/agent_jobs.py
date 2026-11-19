@@ -417,8 +417,7 @@ class AgentWorker:
             conn.close()
 
     def process_pending_agent_once(self) -> bool:
-        self.store.ensure_agent_db()
-        conn = self.db.agent_connect()
+        conn = self.store.connect()
         try:
             self.store.cleanup_agent_sessions(conn)
             # 多 worker 时必须在写事务中领取任务，避免两个 worker 同时执行同一 job。

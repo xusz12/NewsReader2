@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS items (
 
 CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_items_source ON items(source);
+CREATE INDEX IF NOT EXISTS idx_items_url_id ON items(url, id);
 CREATE INDEX IF NOT EXISTS idx_items_source_type ON items(source_type);
 
 CREATE TABLE IF NOT EXISTS item_state (

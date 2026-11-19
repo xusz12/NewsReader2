@@ -149,17 +149,19 @@ def load_article_highlight_body(
     if not isinstance(body_kind, str) or body_kind not in ARTICLE_HIGHLIGHT_BODY_KINDS:
         return None, "invalid_body_kind"
     if url.startswith(report_reader.URL_PREFIX):
+        if body_kind != ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND:
+            return None, "body_not_ready"
         item = report_reader.subject(conn, report_reader.ID_PREFIX + url[len(report_reader.URL_PREFIX):])
-        if body_kind != ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND or not item or not item["content"]:
+        if not item or not item["content"]:
             return None, "body_not_ready"
         return item["content"], None
     if body_kind in {ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND, ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND}:
-        item_row = conn.execute(
-            "SELECT source_type FROM items WHERE url=? ORDER BY id LIMIT 1",
-            (url,),
-        ).fetchone()
-        if body_kind == ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND and not (derive_source_key(url, None, None) == "x" or (item_row and item_row["source_type"] == "twitter")):
-            return None, "body_not_ready"
+        if body_kind == ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND and derive_source_key(url, None, None) != "x":
+            item = conn.execute(
+                "SELECT source_type FROM items WHERE url=? ORDER BY id LIMIT 1", (url,),
+            ).fetchone()
+            if not item or item["source_type"] != "twitter":
+                return None, "body_not_ready"
         detail_row = conn.execute(
             "SELECT content FROM news_item_details WHERE item_id=?" if item_id else "SELECT content FROM article_details WHERE url=?",
             (item_id or url,),

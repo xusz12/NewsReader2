@@ -605,8 +605,7 @@ def register(app, chat, db, store):
             archive_config = None
             sync_session_id = str(body.get("session_id") or "")
             if active_session_id:
-                store.ensure_agent_db()
-                ac = db.agent_connect()
+                ac = store.connect()
                 try:
                     ac.execute("BEGIN")
                     saved = store._agent_active_session(ac, item_id, active_session_id)

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import uuid
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Lock
 
 from flask import jsonify, request
 
@@ -192,6 +194,8 @@ def _agent_choice_settings(choices):
 class AgentSessions:
     def __init__(self, db):
         self.db = db
+        self._schema_lock = Lock()
+        self._schema_identity = None
 
     def agent_session_runtime_dir(self, session_id: str) -> Path:
         return self.db.agent_dir / session_id
@@ -210,88 +214,107 @@ class AgentSessions:
             pass
 
     def ensure_agent_db(self) -> None:
-        self.db.agent_path.parent.mkdir(parents=True, exist_ok=True)
+        self.connect().close()
+
+    def connect(self) -> sqlite3.Connection:
         self.db.agent_dir.mkdir(parents=True, exist_ok=True)
+        path = self.db.agent_path
+        try:
+            before = path.stat()
+        except FileNotFoundError:
+            before = None
         conn = self.db.agent_connect()
         try:
-            conn.executescript(
-                """
-            CREATE TABLE IF NOT EXISTS agent_sessions (
-              id TEXT PRIMARY KEY,
-              item_id TEXT NOT NULL,
-              url TEXT NOT NULL,
-              provider TEXT NOT NULL,
-              executor_provider TEXT NOT NULL DEFAULT '',
-              model TEXT NOT NULL DEFAULT '',
-              executor_session_id TEXT NOT NULL DEFAULT '',
-              context_hash TEXT NOT NULL,
-              context_json TEXT NOT NULL,
-              status TEXT NOT NULL DEFAULT 'active',
-              created_at TEXT NOT NULL,
-              last_activity_at TEXT NOT NULL,
-              expires_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_agent_sessions_item_status
-              ON agent_sessions(item_id, status, last_activity_at);
-            CREATE TABLE IF NOT EXISTS agent_jobs (
-              id TEXT PRIMARY KEY,
-              session_id TEXT NOT NULL,
-              item_id TEXT NOT NULL,
-              provider TEXT NOT NULL,
-              model TEXT NOT NULL DEFAULT '',
-              question TEXT NOT NULL,
-              quote_text TEXT NOT NULL DEFAULT '',
-              quote_source TEXT NOT NULL DEFAULT '',
-              status TEXT NOT NULL,
-              answer_text TEXT NOT NULL DEFAULT '',
-              error TEXT NOT NULL DEFAULT '',
-              cancel_requested INTEGER NOT NULL DEFAULT 0,
-              created_at TEXT NOT NULL,
-              started_at TEXT,
-              finished_at TEXT,
-              updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_agent_jobs_session_created
-              ON agent_jobs(session_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_agent_jobs_status_created
-              ON agent_jobs(status, created_at);
-            CREATE TABLE IF NOT EXISTS agent_messages (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              session_id TEXT NOT NULL,
-              job_id TEXT,
-              role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
-              content TEXT NOT NULL DEFAULT '',
-              quote_text TEXT NOT NULL DEFAULT '',
-              quote_source TEXT NOT NULL DEFAULT '',
-              status TEXT NOT NULL DEFAULT 'complete',
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_agent_messages_session_created
-              ON agent_messages(session_id, created_at, id);
-            """
-            )
-            session_columns = {
-                row["name"] for row in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()
-            }
-            if "executor_provider" not in session_columns:
-                conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_provider TEXT NOT NULL DEFAULT ''")
-            if "executor_config" not in session_columns:
-                conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_config TEXT NOT NULL DEFAULT '{}'")
-            if "model_override" not in session_columns:
-                conn.execute("ALTER TABLE agent_sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0")
-            job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_jobs)")}
-            if "progress" not in job_columns:
-                conn.execute("ALTER TABLE agent_jobs ADD COLUMN progress TEXT NOT NULL DEFAULT ''")
-            agent_notifications.ensure_schema(conn)
-            conn.commit()
-        finally:
+            with self._schema_lock:
+                after = path.stat()
+                stable = before is not None and os.path.samestat(before, after)
+                version = conn.execute("PRAGMA schema_version").fetchone()[0]
+                if not stable or self._schema_identity != (after.st_dev, after.st_ino, version):
+                    self._migrate_schema(conn)
+                    version = conn.execute("PRAGMA schema_version").fetchone()[0]
+                    self._schema_identity = (after.st_dev, after.st_ino, version) if stable else None
+            return conn
+        except BaseException:
             conn.close()
+            raise
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL,
+          url TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          executor_provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          executor_session_id TEXT NOT NULL DEFAULT '',
+          context_hash TEXT NOT NULL,
+          context_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          last_activity_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_sessions_item_status
+          ON agent_sessions(item_id, status, last_activity_at);
+        CREATE TABLE IF NOT EXISTS agent_jobs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          item_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL DEFAULT '',
+          question TEXT NOT NULL,
+          quote_text TEXT NOT NULL DEFAULT '',
+          quote_source TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL,
+          answer_text TEXT NOT NULL DEFAULT '',
+          error TEXT NOT NULL DEFAULT '',
+          cancel_requested INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          finished_at TEXT,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_jobs_session_created
+          ON agent_jobs(session_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_agent_jobs_status_created
+          ON agent_jobs(status, created_at);
+        CREATE TABLE IF NOT EXISTS agent_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          job_id TEXT,
+          role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+          content TEXT NOT NULL DEFAULT '',
+          quote_text TEXT NOT NULL DEFAULT '',
+          quote_source TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'complete',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_messages_session_created
+          ON agent_messages(session_id, created_at, id);
+        """
+        )
+        session_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()
+        }
+        if "executor_provider" not in session_columns:
+            conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_provider TEXT NOT NULL DEFAULT ''")
+        if "executor_config" not in session_columns:
+            conn.execute("ALTER TABLE agent_sessions ADD COLUMN executor_config TEXT NOT NULL DEFAULT '{}'")
+        if "model_override" not in session_columns:
+            conn.execute("ALTER TABLE agent_sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0")
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_jobs)")}
+        if "progress" not in job_columns:
+            conn.execute("ALTER TABLE agent_jobs ADD COLUMN progress TEXT NOT NULL DEFAULT ''")
+        agent_notifications.ensure_schema(conn)
+        conn.commit()
 
     def cleanup_agent_sessions(self, conn: sqlite3.Connection | None = None) -> int:
         owns_connection = conn is None
-        local_conn = conn or self.db.agent_connect()
+        local_conn = conn or self.connect()
         removed = 0
         try:
             rows = local_conn.execute(
@@ -323,8 +346,7 @@ class AgentSessions:
 
     def mark_agent_jobs_interrupted(self) -> int:
         """把服务重启前未结束的工作标为 interrupted，避免伪装成仍在运行。"""
-        self.ensure_agent_db()
-        conn = self.db.agent_connect()
+        conn = self.connect()
         try:
             stamp = database.now_ts()
             with conn:
@@ -370,8 +392,7 @@ class AgentSessions:
 
     def refresh_agent_session_expiries(self) -> None:
         """让设置页修改的 TTL 立即作用于现有会话，而不是只作用于下一次提问。"""
-        self.ensure_agent_db()
-        conn = self.db.agent_connect()
+        conn = self.connect()
         try:
             rows = conn.execute(
                 "SELECT id, last_activity_at FROM agent_sessions WHERE status IN ('active', 'archived')"
@@ -421,8 +442,7 @@ class AgentSessions:
         return payload
 
     def load_agent_payload(self, item_id: str) -> dict:
-        self.ensure_agent_db()
-        conn = self.db.agent_connect()
+        conn = self.connect()
         try:
             self.cleanup_agent_sessions(conn)
             session = self._agent_active_session(conn, item_id)
@@ -664,8 +684,7 @@ class AgentSessions:
         except ValueError as exc:
             payload, status = _agent_error_response(str(exc))
             return jsonify(payload), status
-        self.ensure_agent_db()
-        conn = self.db.agent_connect()
+        conn = self.connect()
         try:
             self.cleanup_agent_sessions(conn)
             conn.execute("BEGIN IMMEDIATE")
@@ -706,11 +725,10 @@ class AgentSessions:
             conn.close()
 
 
-def register(app, db, store, worker):
+def register(app, store, worker):
     @app.get("/api/agent/notifications")
     def api_agent_notifications():
-        store.ensure_agent_db()
-        with closing(db.agent_connect()) as conn, conn:
+        with closing(store.connect()) as conn, conn:
             store.cleanup_agent_sessions(conn)
             scope = store.agent_library_scope()
             return jsonify(ok=True, db_scope=scope, notifications=agent_notifications.unread(conn, scope))
@@ -720,8 +738,7 @@ def register(app, db, store, worker):
         scope = store.agent_library_scope()
         if request.args.get("db_scope") != scope:
             return jsonify(ok=False, error="notification_library_changed"), 409
-        store.ensure_agent_db()
-        with closing(db.agent_connect()) as conn, conn:
+        with closing(store.connect()) as conn, conn:
             store.cleanup_agent_sessions(conn)
             notice = conn.execute("SELECT * FROM agent_notifications WHERE id=? AND db_scope=?", (notification_id, scope)).fetchone()
             if not notice:
@@ -755,9 +772,8 @@ def register(app, db, store, worker):
         if not isinstance(ids, list) or not ids or len(ids) > 1000 or any(not isinstance(ident, str) or not ident for ident in ids):
             return jsonify(ok=False, error="invalid_payload"), 400
         dismiss = body.get("dismiss") is True
-        store.ensure_agent_db()
         try:
-            with closing(db.agent_connect()) as conn, conn:
+            with closing(store.connect()) as conn, conn:
                 store.cleanup_agent_sessions(conn)
                 conn.execute("BEGIN IMMEDIATE")
                 if not dismiss:
@@ -783,8 +799,7 @@ def register(app, db, store, worker):
         item, detail = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         try:
             store.cleanup_agent_sessions(conn)
             requested_session = request.args.get("session_id", "").strip()
@@ -816,8 +831,7 @@ def register(app, db, store, worker):
             return jsonify({"ok": False, "error": "detail_not_ready"}), 409
         body = request.get_json(silent=True)
         force_new = isinstance(body, dict) and bool(body.get("new_session") or body.get("reset"))
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         process_ids: list[str] = []
         try:
             store.cleanup_agent_sessions(conn)
@@ -855,8 +869,7 @@ def register(app, db, store, worker):
         item, _ = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify(ok=False, error="item_not_found"), 404
-        store.ensure_agent_db()
-        with closing(db.agent_connect()) as conn:
+        with closing(store.connect()) as conn:
             session = store._agent_active_session(conn, item_id, request.args.get("session_id", ""))
         try:
             choices = _agent_model_choices(session)
@@ -876,8 +889,7 @@ def register(app, db, store, worker):
         item, detail = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify(ok=False, error="item_not_found"), 404
-        store.ensure_agent_db()
-        with closing(db.agent_connect()) as conn:
+        with closing(store.connect()) as conn:
             session = store._agent_active_session(conn, item_id)
             expected = body.get("session_id") or ""
             if expected != (session["id"] if session else ""):
@@ -921,8 +933,7 @@ def register(app, db, store, worker):
         item, _detail = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         process_ids: list[str] = []
         try:
             with conn:
@@ -938,8 +949,7 @@ def register(app, db, store, worker):
 
     @app.delete("/api/agent/sessions")
     def api_agent_sessions_clear_all():
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         process_ids: list[str] = []
         try:
             with conn:
@@ -971,8 +981,7 @@ def register(app, db, store, worker):
         item, _detail = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         try:
             store.cleanup_agent_sessions(conn)
             job = store._agent_job_for_item(conn, item_id, job_id)
@@ -988,8 +997,7 @@ def register(app, db, store, worker):
         item, _detail = store._load_visible_agent_article(item_id)
         if not item:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
-        store.ensure_agent_db()
-        conn = db.agent_connect()
+        conn = store.connect()
         try:
             # Serialize with worker claim and finalization before inspecting status.
             conn.execute("BEGIN IMMEDIATE")

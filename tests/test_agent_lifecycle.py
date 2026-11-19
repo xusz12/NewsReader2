@@ -4,6 +4,8 @@ import importlib
 import json
 import sqlite3
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -465,3 +467,38 @@ def test_oar_queued_stop_is_immediate_and_never_runs(tmp_path, monkeypatch):
     assert app_module.runtime.agent.process_pending_agent_once() is False
     assert not log.exists()
     assert client.post(f"/api/news/{item['id']}/agent/jobs/{submitted['job_id']}/retry").status_code == 202
+
+
+def test_session_schema_skips_warm_migrations_and_repairs_a_replaced_library(tmp_path, monkeypatch):
+    path = tmp_path / "sessions.sqlite3"
+    monkeypatch.setenv("NEWS_READER_AGENT_DB_PATH", str(path))
+    monkeypatch.setenv("NEWS_READER_AGENT_RUNTIME_DIR", str(tmp_path / "agent"))
+    sessions = agent_sessions.AgentSessions(database.Database())
+    sessions.ensure_agent_db()
+    sessions.ensure_agent_db()
+    commands = []
+    connect = sessions.db.agent_connect
+
+    def traced_connection():
+        conn = connect()
+        conn.set_trace_callback(commands.append)
+        return conn
+
+    monkeypatch.setattr(sessions.db, "agent_connect", traced_connection)
+    with closing(sessions.connect()) as conn:
+        assert not any(sql.lstrip().upper().startswith(("CREATE", "ALTER")) for sql in commands)
+        conn.execute("DROP INDEX idx_agent_notifications_unread")
+    with closing(sessions.connect()) as conn:
+        assert conn.execute("SELECT 1 FROM sqlite_schema WHERE name='idx_agent_notifications_unread'").fetchone()
+        version = conn.execute("PRAGMA schema_version").fetchone()[0]
+
+    replacement = tmp_path / "replacement.sqlite3"
+    with closing(sqlite3.connect(replacement)) as conn:
+        conn.execute("CREATE TABLE preserved (value TEXT)")
+        conn.execute(f"PRAGMA schema_version={version}")
+    replacement.replace(path)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: sessions.ensure_agent_db(), range(8)))
+    with closing(sessions.connect()) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
+        assert {"preserved", "agent_sessions", "agent_jobs", "agent_messages", "agent_notifications"} <= tables

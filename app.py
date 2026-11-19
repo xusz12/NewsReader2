@@ -37,7 +37,7 @@ def create_app(db=None):
     details.register(app, db, runtime.sessions)
     article_fetch.register(app, db, runtime.fetcher)
     news_chat.register(app, runtime.chat, db, runtime.sessions)
-    agent_sessions.register(app, db, runtime.sessions, runtime.agent)
+    agent_sessions.register(app, runtime.sessions, runtime.agent)
     agent_jobs.register(app, runtime.sessions, runtime.agent)
     preferences.register(app, db, runtime.jobs, runtime.preferences, runtime.sessions, runtime.agent)
     reports.register(app, db, runtime.jobs, runtime.sessions, runtime.agent)
