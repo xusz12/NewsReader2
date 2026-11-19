@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-11-19T04:17:15.751251+00:00",
-  "fingerprint": "8d9abcec4170a7f1de17abb6d496c6c5c52b106340eb6156b4358d8868c1207a",
+  "checked_at": "2026-11-19T08:49:10.457569+00:00",
+  "fingerprint": "e638fbaf9e271417d176ae99de98121c8a2ecc85aeabb9829dd7b1f8a1e1a88f",
   "newsreader_version": "0.5.18",
   "sources": [
     {
@@ -8,19 +8,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 9.26,
+      "seconds": 15.88,
       "error": "",
       "samples": [
+        {
+          "title": "Energy-security response to Iran war could cut oil demand by 4% by 2035, IEA says",
+          "url": "https://www.reuters.com/business/energy/energy-security-response-iran-war-could-cut-oil-demand-by-4-by-2035-iea-says-2026-11-19/",
+          "time": "2026-11-19 13:05:28",
+          "source_name": "Reuters"
+        },
         {
           "title": "Saudis preparing for Yemen campaign to last well into 2027",
           "url": "https://www.reuters.com/world/middle-east/saudis-preparing-yemen-campaign-last-well-into-2027-2026-11-18/",
           "time": "2026-11-18 21:10:10",
-          "source_name": "Reuters"
-        },
-        {
-          "title": "Israel launches ground operation in central Gaza, dozens flee",
-          "url": "https://www.reuters.com/world/middle-east/israeli-military-begins-new-thrust-gaza-kills-three-people-2026-11-18/",
-          "time": "2026-11-18 21:01:28",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.13,
+      "seconds": 3.11,
       "error": "",
       "samples": [
         {
-          "title": "Hong Kong drops case against Chinese sea captain over Baltic pipeline damage",
-          "url": "https://www.reuters.com/world/china/hong-kong-drops-case-against-chinese-sea-captain-over-baltic-pipeline-damage-2026-11-19/",
-          "time": "2026-11-19 11:36:15",
+          "title": "From tarmac to APEC summit table, Japan's PM cuts a lonely figure",
+          "url": "https://www.reuters.com/world/china/tarmac-apec-summit-table-japans-pm-cuts-lonely-figure-2026-11-19/",
+          "time": "2026-11-19 16:41:04",
           "source_name": "Reuters"
         },
         {
-          "title": "Russia is integral part of Asia-Pacific, Putin tells APEC leaders",
-          "url": "https://www.reuters.com/world/china/russia-is-integral-part-asia-pacific-putin-tells-apec-leaders-2026-11-19/",
-          "time": "2026-11-19 11:34:23",
+          "title": "How Japan PM's Taiwan remarks sparked a year-long rift with China",
+          "url": "https://www.reuters.com/world/china/how-japan-pms-taiwan-remarks-sparked-year-long-rift-with-china-2026-11-19/",
+          "time": "2026-11-19 16:36:02",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.31,
+      "seconds": 4.71,
       "error": "",
       "samples": [
         {
-          "title": "Trump says historic summit with Xi, Putin already a 'win' before event",
+          "title": "Trump calls Putin a \"friend\"",
           "url": "https://www.reuters.com/world/china/trumps-historic-meeting-with-xi-putin-headlines-asia-trip-2026-11-18/",
           "time": "2026-11-19 07:05:40",
           "source_name": "Reuters"
         },
         {
-          "title": "Iran fires at Kuwait after US strike on Iranian island",
-          "url": "https://www.reuters.com/world/middle-east/bahrain-warns-potential-threat-urges-residents-seek-safety-2026-11-17/",
-          "time": "2026-11-18 07:15:22",
+          "title": "Parts of Bangladesh shut down in protests by Hasina's party, Yunus' home set ablaze",
+          "url": "https://www.reuters.com/world/asia-pacific/parts-bangladesh-shut-down-protests-by-hasinas-party-yunus-home-set-ablaze-2026-11-19/",
+          "time": "2026-11-19 13:58:54",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 17.52,
+      "seconds": 4.36,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic clinches biggest IPO ever with $81 billion offering",
-          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
-          "time": "2026-11-19 05:26:21",
+          "title": "OVHcloud launches AI cloud products hosted in Europe",
+          "url": "https://www.reuters.com/business/ovhcloud-launches-ai-cloud-products-hosted-europe-2026-11-19/",
+          "time": "2026-11-19 16:43:38",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia retreats as strong outlook fails to dispel uncertainty",
-          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
-          "time": "2026-11-18 19:12:33",
+          "title": "Anthropic raises record $81 billion in IPO at $1.5 trillion valuation",
+          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
+          "time": "2026-11-19 05:26:21",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.37,
+      "seconds": 4.35,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic clinches biggest IPO ever with $81 billion offering",
-          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
-          "time": "2026-11-19 05:26:21",
+          "title": "OVHcloud launches AI cloud products hosted in Europe",
+          "url": "https://www.reuters.com/business/ovhcloud-launches-ai-cloud-products-hosted-europe-2026-11-19/",
+          "time": "2026-11-19 16:43:38",
           "source_name": "Reuters"
         },
         {
-          "title": "Nvidia retreats as strong outlook fails to dispel uncertainty",
-          "url": "https://www.reuters.com/business/ai-stocks-rally-nvidia-outlook-calms-demand-fears-2026-11-18/",
-          "time": "2026-11-18 19:12:33",
+          "title": "Anthropic raises record $81 billion in IPO at $1.5 trillion valuation",
+          "url": "https://www.reuters.com/legal/transactional/anthropic-prices-blockbuster-ipo-83-share-source-says-2026-11-18/",
+          "time": "2026-11-19 05:26:21",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 3.79,
+      "seconds": 2.89,
       "error": "",
       "samples": [
         {
-          "title": "Trump Warns Against Regulations That Would ‘Stifle’ AI Industry",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-19/trump-warns-against-regulations-that-would-stifle-ai-industry",
-          "time": "2026-11-19 11:52:54",
+          "title": "Amundi CIO Mortier Shifts 2027 Strategy Away From Big Tech",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-19/amundi-s-mortier-shifts-2027-strategy-away-from-big-tech-video",
+          "time": "2026-11-19 16:43:11",
           "source_name": "Bloomberg"
         },
         {
-          "title": "GFTN's Mohanty on Fintech, Anthropic IPO",
-          "url": "https://www.bloomberg.com/news/videos/2026-11-19/gftn-s-mohanty-on-fintech-anthropic-ipo-video",
-          "time": "2026-11-19 11:44:53",
+          "title": "Anthropic Tops SpaceX With $107.3B Raise as Trump and Xi Meet at APEC",
+          "url": "https://www.bloomberg.com/news/videos/2026-11-19/horizons-middle-east-africa-11-19-2026-video",
+          "time": "2026-11-19 16:14:21",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,7 +140,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.45,
+      "seconds": 1.49,
       "error": "",
       "samples": [
         {
@@ -162,7 +162,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.01,
+      "seconds": 2.21,
       "error": "",
       "samples": [
         {
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.68,
+      "seconds": 2.21,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.72,
+      "seconds": 2.54,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.84,
+      "seconds": 1.85,
       "error": "",
       "samples": [
         {
-          "title": "日本首相高市早苗与俄罗斯总统普京，于周三在APEC峰会间隙进行了30分钟的会晤，两国领导人在七年以来首次面对面接触。 https://t.co/UBA3GtP1fH",
-          "url": "https://x.com/fxtrader/status/2123268145431605429?s=20",
-          "time": "2026-11-19 12:12",
+          "title": "特朗普中俄美元首会晤开场白： 我们真的在创造历史。 过去领导人往往回避与有分歧的国家对话。对此我们持相反看法。 https://t.co/c42b0A7ktq https://t.co/I7P5SrYeSc",
+          "url": "https://x.com/fxtrader/status/2123336501744558456?s=20",
+          "time": "2026-11-19 16:44",
           "source_name": "外汇交易员"
         },
         {
-          "title": "一度以为是整活视频。《GTA 6》上线首日，玩家发现游戏内置的车载电台精选了林子祥的《敢爱敢做》（翻唱自Starship的《Nothing's Gonna Stop Us Now》），为GTA系列第一首华语歌曲。 #观察 前有盆栽哥采样王菲的《季候风》，后有这首歌，看来8、90年代的复古香港文化又要重新流行一段时间。 https://t.co/Ag5FP7JXyZ",
-          "url": "https://x.com/fxtrader/status/2123252855146782765?s=20",
-          "time": "2026-11-19 11:11",
+          "title": "11月19日下午，国家主席习近平在深圳同俄罗斯总统普京、美国总统特朗普举行中俄美元首会晤。（央视） 🗒较日程晚了2小时。",
+          "url": "https://x.com/fxtrader/status/2123332347739418801?s=20",
+          "time": "2026-11-19 16:27",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.68,
+      "seconds": 1.71,
       "error": "",
       "samples": [
         {
@@ -272,32 +272,32 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/middle-east/saudis-preparing-yemen-campaign-last-well-into-2027-2026-11-18/",
+      "url": "https://www.reuters.com/business/energy/energy-security-response-iran-war-could-cut-oil-demand-by-4-by-2035-iea-says-2026-11-19/",
       "ok": true,
-      "title": "Saudis preparing for Yemen campaign to last well into 2027",
-      "length": 4811,
-      "seconds": 9.22,
+      "title": "Energy-security response to Iran war could cut oil demand by 4% by 2035, IEA says",
+      "length": 2772,
+      "seconds": 2.9,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "43f2ebb069d57d28c311bd358e836c6d259e58861cbe834f397fd809ce962802",
-      "preview": "EXCLUSIVE\n\nRIYADH, Nov 18 (Reuters) - Saudi Arabia is preparing for war against Yemen's Houthis to stretch well into next year, doubling down despite setbacks o"
+      "content_sha256": "fbfddecc59ba142be05f87076703c5e91465ff84a08c28ddda40ab170767e113",
+      "preview": "LONDON, Nov 19 (Reuters) - The Middle East conflict has caused the biggest disruption ever to global oil and gas trade and could cut world oil demand by more th"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-19/trump-warns-against-regulations-that-would-stifle-ai-industry",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-18/anthropic-is-said-to-price-ipo-at-83-per-share",
       "ok": true,
-      "title": "Trump Warns Against Regulations That Would ‘Stifle’ AI Industry",
-      "length": 2188,
-      "seconds": 31.88,
+      "title": "Anthropic Raises $107.3 Billion to Top SpaceX’s Record Debut",
+      "length": 5175,
+      "seconds": 31.04,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "a41d80852e93d6d3ef5bd032c2710f861578c2d4da1f5b2e10b0391eef32bcd2",
-      "preview": "President Donald Trump warned that any “robust” regulation of artificial intelligence, or super intelligence as he terms it, would “stifle” development — even a"
+      "content_sha256": "af427a1a6f5efe6de0155da8fab6e71abde8f6ff4f8ac0bc464ede6fb26f2217",
+      "preview": "Anthropic PBC and its seven co-founders raised a record $107.3 billion in an upsized IPO and private placement, becoming the first frontier AI lab to tap public"
     },
     {
       "name": "TechCrunch",
@@ -306,7 +306,7 @@
       "ok": true,
       "title": "Microsoft CEO Satya Nadella explains why he asked 60K employees to quit",
       "length": 3002,
-      "seconds": 1.99,
+      "seconds": 2.03,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -321,7 +321,7 @@
       "ok": true,
       "title": "Ted Cruz-led committee approves Trump FCC nominee 15-0 as Democrats boycott vote",
       "length": 8070,
-      "seconds": 15.87,
+      "seconds": 15.93,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 2.97,
+      "seconds": 15.85,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.11,
+      "seconds": 15.96,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 16.06,
+      "seconds": 9.87,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 7.6,
+      "seconds": 6.24,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 10.98,
+      "seconds": 7.37,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-19T04:17:18.063555+00:00"
+    "checked_at": "2026-11-19T08:49:12.564295+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-19T04:17:42.430213+00:00"
+    "checked_at": "2026-11-19T08:49:15.474180+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-19T04:21:04.221710+00:00",
+    "checked_at": "2026-11-19T08:53:08.593016+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true
