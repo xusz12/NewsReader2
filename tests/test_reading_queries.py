@@ -1,4 +1,6 @@
 """Reading filters share statistics without changing scopes or paging rules."""
+
+from nr import configuration
 from urllib.parse import urlencode
 
 import pytest
@@ -145,9 +147,9 @@ def test_lightweight_source_groups_keep_hidden_sources_without_settings_catalogs
     with module.db_conn() as conn:
         conn.execute("UPDATE items SET url='https://www.reuters.com/world/example',source='Reuters',source_name='World' WHERE id='n00'")
     hidden = module.derive_source_subkey("https://www.reuters.com/world/example", "news", "Reuters", "World")["key"]
-    settings = module.current_runtime_settings()
+    settings = configuration.current_runtime_settings()
     settings["feed"]["hidden_source_subkeys"] = [hidden]
-    monkeypatch.setattr(module, "current_runtime_settings", lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     result = client.get("/api/sources?collection=feed&read_filter=unread&include_catalog=1&source_groups=1").json
     assert "reuters" in [group["source_key"] for group in result["groups"]]
     assert "reuters" not in [source["key"] for source in result["sources"]]

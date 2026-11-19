@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from nr import database
+
 import importlib
 import json
 import sqlite3
@@ -41,7 +43,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     first = by_url[first_url]
     second = by_url[second_url]
     body = "第一句中文。\n第二句需要标记。\n第三句。"
-    ts = app_module.now_ts()
+    ts = database.now_ts()
     start = body.index("第二句需要标记。")
     end = start + len("第二句需要标记。")
 
@@ -187,7 +189,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     with app_module.db_conn() as conn:
         conn.execute(
             "UPDATE article_ai SET key_points_zh=?, updated_at=? WHERE url=?",
-            (json.dumps(["前置要点", "要点一内容", "第二个要点"], ensure_ascii=False), app_module.now_ts(), first_url),
+            (json.dumps(["前置要点", "要点一内容", "第二个要点"], ensure_ascii=False), database.now_ts(), first_url),
         )
         conn.commit()
     points_reanchored = client.get(f"/api/news/{first['id']}/highlights?body_kind=ai_points_zh").get_json()
@@ -331,11 +333,11 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     with app_module.db_conn() as conn:
         conn.execute(
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
-            (reanchor_body, app_module.now_ts(), first_url),
+            (reanchor_body, database.now_ts(), first_url),
         )
         conn.execute(
             "UPDATE ai_jobs SET status='success', updated_at=? WHERE url=?",
-            (app_module.now_ts(), first_url),
+            (database.now_ts(), first_url),
         )
         conn.commit()
     created = client.post(
@@ -356,7 +358,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     with app_module.db_conn() as conn:
         conn.execute(
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
-            ("前缀\n" + reanchor_body + "\n后缀", app_module.now_ts(), first_url),
+            ("前缀\n" + reanchor_body + "\n后缀", database.now_ts(), first_url),
         )
         conn.commit()
     reanchored = client.get(f"/api/news/{first['id']}/highlights").get_json()
@@ -370,7 +372,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
             (
                 "甲乙丙丁\n唯一句子\n收尾\n甲乙丙丁\n唯一句子\n收尾",
-                app_module.now_ts(),
+                database.now_ts(),
                 first_url,
             ),
         )
@@ -382,7 +384,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     with app_module.db_conn() as conn:
         conn.execute(
             "UPDATE ai_jobs SET status='running', updated_at=? WHERE url=?",
-            (app_module.now_ts(), first_url),
+            (database.now_ts(), first_url),
         )
         conn.commit()
     pending = client.get(f"/api/news/{first['id']}/highlights").get_json()
@@ -476,7 +478,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     importlib.reload(app_module)
     app_module.ensure_db()
     client = app_module.app.test_client()
-    ts = app_module.now_ts()
+    ts = database.now_ts()
     twitter_id = "twitter-highlight-item"
     twitter_url = "https://x.com/example/status/123"
     missing_id = "twitter-highlight-missing"
@@ -596,7 +598,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     with app_module.db_conn() as conn:
         conn.execute(
             "UPDATE article_details SET content=?, content_length=?, updated_at=? WHERE url=?",
-            ("新增前缀\n" + body, len("新增前缀\n" + body), app_module.now_ts(), twitter_url),
+            ("新增前缀\n" + body, len("新增前缀\n" + body), database.now_ts(), twitter_url),
         )
         conn.commit()
     reanchored = client.get(
@@ -609,7 +611,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
         ambiguous_body = body + "\n" + body
         conn.execute(
             "UPDATE article_details SET content=?, content_length=?, updated_at=? WHERE url=?",
-            (ambiguous_body, len(ambiguous_body), app_module.now_ts(), twitter_url),
+            (ambiguous_body, len(ambiguous_body), database.now_ts(), twitter_url),
         )
         conn.commit()
     orphaned = client.get(

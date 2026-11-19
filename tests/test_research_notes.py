@@ -1,6 +1,8 @@
 """Thought cards retain authorship, quotations and old-client compatibility."""
+
+from nr import configuration, ideas
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture
@@ -57,9 +59,9 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
         calls.append(kwargs)
         return {'provider': 'pi', 'model': 'fixture', 'summary': summary}
     monkeypatch.setattr(app, 'run_pi_chat_archive', archive)
-    settings = app.current_runtime_settings()
+    settings = configuration.current_runtime_settings()
     settings['agent']['runtime'] = 'pi'
-    monkeypatch.setattr(app, 'current_runtime_settings', lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     payload = {'messages': [{'role': 'user', 'content': '风险如何？'}, {'role': 'assistant', 'content': '目前风险有所缓解，但传导效果能否持续仍需核实，不能把当前的缓解视为风险已经消失。'}]}
     response = client.post(path + '/chat/archive', json=payload)
     assert response.status_code == 200
@@ -86,7 +88,7 @@ def test_old_entries_upgrade_without_changing_text_or_times(fixture):
         # Existing clients can still write all five positional values.
         conn.execute('INSERT INTO article_note_entries VALUES (?, ?, ?, ?, ?)',
             ('old-archive', item['url'], '【Chat 归档｜2026-10-14 16:30】\n历史归档', '2026-10-14 16:30:00', '2026-10-14 16:30:00'))
-        app.sync_article_notes(conn, item['url'])
+        ideas.sync_article_notes(conn, item['url'])
     app.ensure_db()
     app.ensure_db()
     entry = client.get(f"/api/news/{item['id']}/detail").json['notes'][0]

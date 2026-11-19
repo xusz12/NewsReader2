@@ -1,3 +1,5 @@
+
+from nr import database
 import importlib
 from legacy_news_seed import seed_news, confirm_all_read
 
@@ -50,7 +52,7 @@ def delete(client, snapshot=None, key="reuters/world"):
 
 
 def seed_data(app, items):
-    stamp = app.now_ts()
+    stamp = database.now_ts()
     for index, item in enumerate(items):
         url, ident = item["url"], item["id"]
         with app.db_conn() as conn:
@@ -215,7 +217,7 @@ def seed_media(app, items):
         for index, name in enumerate(["exclusive", "shared"]):
             (app.MEDIA_CACHE_DIR / name).write_bytes(b"image" * 40)
             conn.execute("INSERT INTO media_cache VALUES (?,?,?,'image/jpeg',200,'success',?, ?,NULL)",
-                         ("https://pbs.twimg.com/media/" + name, name, name, app.now_ts(), app.now_ts()))
+                         ("https://pbs.twimg.com/media/" + name, name, name, database.now_ts(), database.now_ts()))
         conn.execute("UPDATE article_details SET raw_json=? WHERE url=?", ('{"images":["https://pbs.twimg.com/media/exclusive","https://pbs.twimg.com/media/shared"]}', items[0]["url"]))
         conn.execute("UPDATE article_details SET raw_json=? WHERE url=?", ('{"images":["https://pbs.twimg.com/media/shared"]}', items[-1]["url"]))
 
@@ -291,7 +293,7 @@ def test_deleted_article_cannot_start_new_media_downloads(env, monkeypatch):
 
 def test_related_topic_reminder_checkpoint_and_review_rows_are_removed(env):
     app, client, items, _ = env
-    item, stamp = items[0], app.now_ts()
+    item, stamp = items[0], database.now_ts()
     with app.db_conn() as conn:
         conn.execute("INSERT INTO classification_progress_items VALUES (?,'hash','rules')", (item["id"],))
         conn.execute("INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,updated_at) VALUES ('topic',?,1,'hash','{}',1)", (item["id"],))

@@ -87,7 +87,7 @@ def test_archive_rejects_commentary_without_a_final_answer(runtime):
 
 @pytest.mark.parametrize('mode', ['commentary', 'revised_answer', 'commentary_only', 'malformed_archive', 'oversized_archive', 'empty_archive'])
 def test_archive_http_saves_only_final_conclusion_and_preserves_conversation(runtime, tmp_path, monkeypatch, mode):
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     from test_chat_archive import store_conversation
     from test_codex_client import select_codex
 

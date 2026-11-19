@@ -1,4 +1,6 @@
 """Daily and weekly/monthly model groups use isolated settings and SQLite."""
+
+from nr import configuration
 from contextlib import closing
 from copy import deepcopy
 import json
@@ -197,7 +199,7 @@ def test_saved_default_effort_does_not_inherit_chat_effort(tmp_path, monkeypatch
     value['llm']['pi_chat'] = {'provider': 'test', 'model': 'same-model', 'reasoning_effort': 'high'}
     value['feature_models'] = {'reports': {'runtime': 'pi', 'pi': {'provider': 'test', 'model': 'same-model'}}}
     settings.save_app_settings(value)
-    loaded = app.current_runtime_settings()
+    loaded = configuration.current_runtime_settings()
     assert loaded['llm']['pi_chat']['reasoning_effort'] == 'high'
     for key in ('reports', 'reports_periodic'):
         assert loaded['feature_models'][key]['pi'] == {'provider': 'test', 'model': 'same-model'}

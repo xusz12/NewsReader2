@@ -1,4 +1,6 @@
 """Translation routing uses isolated settings, deterministic models and local HTTP."""
+
+from nr import configuration
 import json
 import threading
 from copy import deepcopy
@@ -116,7 +118,7 @@ def test_x_body_uses_same_api_order_without_digest(api_fixture, monkeypatch):
 def test_worker_persists_only_complete_translation_and_preserves_original(api_fixture, monkeypatch, succeeds):
     app, _, _ = api_fixture
     value = config('opencode-go', True, False)
-    monkeypatch.setattr(app, 'current_runtime_settings', lambda: deepcopy(value))
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: deepcopy(value))
     url, stamp = 'https://example.com/routing', '2026-11-01 08:00:00'
     with app.db_conn() as conn:
         conn.execute('INSERT INTO article_details(url,title,source,content,content_length,fetched_at,updated_at) VALUES (?,?,?,?,?,?,?)',

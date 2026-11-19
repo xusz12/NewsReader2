@@ -1,6 +1,6 @@
 """Lightweight standalone editing and linked idea list contracts."""
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture

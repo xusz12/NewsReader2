@@ -1,9 +1,11 @@
 """Title-only conversations use the real job, snapshot and notification paths."""
+
+from nr import configuration, database
 import copy
 import json
 
 import pytest
-from test_api import _setup_agent_api_fixture, _install_fake_oar
+from api_fixtures import _setup_agent_api_fixture, _install_fake_oar
 from test_codex_client import fake_codex, select_codex
 
 
@@ -17,7 +19,7 @@ def fixture(tmp_path, monkeypatch):
 
 def provide_body(module, item):
     with module.db_conn() as conn:
-        stamp = module.now_ts()
+        stamp = database.now_ts()
         conn.execute('INSERT INTO article_details(url,title,content,content_length,raw_json,fetched_at,updated_at) VALUES (?,?,?,100,?,?,?)',
                      (item['url'], item['title'], 'Newly fetched full article.', '{}', stamp, stamp))
 
@@ -27,7 +29,7 @@ def test_title_context_is_available_before_fetch_or_after_failure(fixture, statu
     module, client, item = fixture
     if status != 'none':
         with module.db_conn() as conn:
-            conn.execute('INSERT INTO detail_jobs(url,status,attempts,updated_at) VALUES (?,?,1,?)', (item['url'], status, module.now_ts()))
+            conn.execute('INSERT INTO detail_jobs(url,status,attempts,updated_at) VALUES (?,?,1,?)', (item['url'], status, database.now_ts()))
     path = f"/api/news/{item['id']}"
     detail = client.get(path + '/detail').json
     assert detail['detail_status'] == status
@@ -114,9 +116,9 @@ def test_later_full_article_updates_only_unused_session_before_send(fixture, tmp
     loaded = client.get(path + '/session').json
     assert loaded['context_updated'] is True
     assert loaded['session']['context_hash'] == original['context_hash']
-    settings = copy.deepcopy(module.current_runtime_settings())
+    settings = copy.deepcopy(configuration.current_runtime_settings())
     settings['llm']['pi_chat']['model'] = 'different-saved-model'
-    monkeypatch.setattr(module, 'current_runtime_settings', lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     sent = client.post(path + '/jobs', json={'question': '全文到达后的问题', 'session_id': original['id']}).json
     assert sent['session']['id'] == original['id']
     assert sent['session']['context_level'] == ('title_only' if started else 'full_detail')

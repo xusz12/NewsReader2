@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from nr import configuration
 import sqlite3, json, threading, time, uuid, subprocess, sys, os
 from pathlib import Path
 import pytest
@@ -1125,7 +1127,7 @@ def test_feed_scope_includes_hidden_source_and_protects_videos_and_arrivals(setu
     settings = s.settings_getter()
     settings["feed"] = {"hidden_source_subkeys": ["x/fxtrader"]}
     settings["news_summary"] = {"max_days": 30, "max_items": 1}
-    monkeypatch.setattr(app, "current_runtime_settings", lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     s.scope_getter = app.news_summary_feed_scope
     with sqlite3.connect(p) as c:
         for i in range(4, 35):
@@ -1231,7 +1233,7 @@ def test_scope_api_reports_hidden_sources_without_changing_unread(setup, monkeyp
     p, _, s, _, _, calls, _, _ = setup
     settings = s.settings_getter()
     settings["feed"] = {"hidden_source_subkeys": ["x/fxtrader"]}
-    monkeypatch.setattr(app, "current_runtime_settings", lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     monkeypatch.setattr(app, "NEWS_SUMMARY_SERVICE", s)
     s.scope_getter = app.news_summary_feed_scope
     with sqlite3.connect(p) as c:

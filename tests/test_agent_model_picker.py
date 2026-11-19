@@ -1,15 +1,17 @@
 """Changing models keeps the transcript and respects active tasks and explicit overrides."""
+
+from nr import configuration
 import copy
 import json
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    settings = copy.deepcopy(app.current_runtime_settings())
-    monkeypatch.setattr(app, 'current_runtime_settings', lambda:settings)
+    settings = copy.deepcopy(configuration.current_runtime_settings())
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda:settings)
     monkeypatch.setattr(app.report_model, 'catalog', lambda *args: {'options':[{'value':'chosen','provider':'test','reasoning_efforts':['low','high']}], 'error':''})
     monkeypatch.setattr(app.report_model, 'pi_metadata', lambda *args: {'reasoning_efforts':['low','high']})
     return app, client, '/api/news/' + item['id'] + '/agent', settings

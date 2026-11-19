@@ -1,4 +1,6 @@
 """URL-only deduplication and read compatibility with v0.5.2 title variants."""
+
+from nr import configuration
 import hashlib
 import json
 from contextlib import closing
@@ -231,7 +233,7 @@ def test_unknown_legacy_duplicate_count_stays_unknown_and_empty_failed_batch_can
 @pytest.fixture
 def reader_service(api):
     module,client=api
-    svc=collection.Service(module.db_conn,module.current_runtime_settings,sources=[SOURCE])
+    svc=collection.Service(module.db_conn,configuration.current_runtime_settings,sources=[SOURCE])
     yield module,client,svc
     svc.stop()
 

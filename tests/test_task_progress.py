@@ -1,4 +1,6 @@
 """Header observation uses queue metadata, never news text or model execution."""
+
+from nr import configuration
 from contextlib import closing
 import json
 import sqlite3
@@ -102,7 +104,7 @@ def test_progress_api_does_not_start_work_and_hides_internal_errors(db,monkeypat
     monkeypatch.setattr(app,'provider_secret_value',forbidden)
     monkeypatch.setattr(app.REPORT_SERVICE,'start',forbidden)
     monkeypatch.setattr(app.TOPIC_SERVICE,'start',forbidden)
-    monkeypatch.setattr(app,'current_runtime_settings',forbidden)
+    monkeypatch.setattr(configuration,'current_runtime_settings',forbidden)
     with app.app.test_client() as client:
         result=client.get('/api/tasks/progress')
         assert result.status_code==200 and not result.get_json()['topics']['matching_configured']

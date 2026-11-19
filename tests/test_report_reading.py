@@ -1,7 +1,7 @@
 """Reports reuse persisted reading tools without becoming news feed entries."""
 import json
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture

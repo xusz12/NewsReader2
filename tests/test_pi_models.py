@@ -1,3 +1,5 @@
+
+from nr import configuration
 import json
 import os
 from pathlib import Path
@@ -20,7 +22,7 @@ def test_pi_effort_persists_per_feature_and_reaches_task_snapshots(tmp_path, mon
     value["feature_models"] = {name: {"runtime": "pi", "pi": pi.copy()} for name in settings.MODEL_FEATURES}
     saved = app.validate_runtime_settings(value)
     settings.save_app_settings(saved)
-    loaded = app.current_runtime_settings()
+    loaded = configuration.current_runtime_settings()
     assert loaded["llm"]["pi_chat"] == pi
     assert app._agent_executor_settings()["executor_config"] == {"reasoning_effort": effort}
     for feature in ("topics", "summaries"):

@@ -1,6 +1,8 @@
 """Exercise the CLI boundary and persisted queue, without a browser or live DB."""
 from __future__ import annotations
 
+from nr import database
+
 import json
 import os
 import sqlite3
@@ -27,7 +29,7 @@ def reader(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "DB_PATH", tmp_path / "news.sqlite3")
     monkeypatch.setattr(app, "MEDIA_CACHE_DIR", tmp_path / "media")
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setattr(app, "now_ts", lambda: STAMP)
+    monkeypatch.setattr(database, 'now_ts', lambda: STAMP)
     with app.db_conn() as conn:
         apply_schema(conn, app.SCHEMA_PATH)
     return app

@@ -1,10 +1,12 @@
 """Real result transactions and two-library notification routing, using a fake CLI."""
+
+from nr import configuration
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from test_api import _setup_agent_api_fixture, _install_fake_oar
+from api_fixtures import _setup_agent_api_fixture, _install_fake_oar
 
 
 @pytest.fixture
@@ -219,9 +221,9 @@ def test_legacy_empty_session_retains_executor_on_first_claim(fixture, monkeypat
     original = client.post(f"/api/news/{item['id']}/agent/session", json={}).json['session']
     with module.agent_db_conn() as conn:
         conn.execute("UPDATE agent_sessions SET db_scope='' WHERE id=?", (original['id'],))
-    settings = copy.deepcopy(module.current_runtime_settings())
+    settings = copy.deepcopy(configuration.current_runtime_settings())
     settings['llm']['pi_chat']['model'] = 'changed-default'
-    monkeypatch.setattr(module, 'current_runtime_settings', lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     response = submit(fixture, session_id=original['id'])
     assert response['session']['model'] == original['model']
     assert response['session']['db_scope'] == module.agent_library_scope()

@@ -1,7 +1,9 @@
 """Release regressions use isolated databases and no live model/network calls."""
+
+from nr import database
 import json
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 import codex_client
 
 
@@ -30,7 +32,7 @@ def test_clear_favorites_covers_all_pages_and_preserves_other_states(tmp_path, m
             row = {**template, 'id': f'favorite-{index}'}
             conn.execute(f"INSERT INTO items({','.join(row)}) VALUES ({','.join('?' for _ in row)})", list(row.values()))
             conn.execute('INSERT INTO item_state(item_id,favorite_at,read_later_done_at,updated_at) VALUES(?,?,?,?)',
-                         (row['id'], app.now_ts(), 'done', app.now_ts()))
+                         (row['id'], database.now_ts(), 'done', database.now_ts()))
     response = client.post('/api/news/clear-favorites')
     assert response.status_code == 200
     assert response.json['updated'] == 1002

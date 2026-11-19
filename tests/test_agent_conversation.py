@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from test_api import _setup_agent_api_fixture, _install_fake_oar
+from api_fixtures import _setup_agent_api_fixture, _install_fake_oar
 from test_codex_client import THREAD, fake_codex, select_codex
 
 

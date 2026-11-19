@@ -1,4 +1,6 @@
 """Historical news fixtures for reader regressions; no production HTTP scanner."""
+
+from nr import tracked_topics
 import os
 from pathlib import Path
 from contextlib import closing
@@ -10,7 +12,7 @@ def seed_news(client, json=None):
     import app
     with closing(app.db_conn()) as conn:
         stats = reindex(conn, Path(os.environ["NEWS_READER_DAILY_NEWS_DIR"]), full=bool((json or {}).get("full")))
-        matched = app.run_tracked_topics_incremental(conn)
+        matched = tracked_topics.run_tracked_topics_incremental(conn)
         conn.commit()
     with client.application.app_context():
         return jsonify(ok=True, **vars(stats), tracked_incremental_matches=matched)

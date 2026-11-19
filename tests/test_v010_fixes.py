@@ -1,6 +1,6 @@
 """Translation catalog regressions; no real credentials or provider requests."""
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.mark.parametrize('saved_model', ['', 'deepseek-custom'])

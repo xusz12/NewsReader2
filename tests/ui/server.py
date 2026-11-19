@@ -1,4 +1,6 @@
 """Isolated UI fixture server: real SQLite/API, no model calls or background workers."""
+
+from nr import database
 import json
 import os
 import sys
@@ -276,7 +278,7 @@ def complete_agent():
             if not session or body.get('new_session'):
                 session = module._agent_create_session(conn, item, detail)
             job = module._agent_insert_job(conn, session, question='隔离测试问题')
-        stamp = module.now_ts()
+        stamp = database.now_ts()
         status = body.get('status', 'succeeded')
         answer = body.get('answer', '通知样例：这是一轮已经完成的研究回复。')
         error = 'oar_auth_required' if status == 'failed' else ''

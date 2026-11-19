@@ -1,10 +1,12 @@
 """Archives retain full discussion context while saving a concise synthesis."""
+
+from nr import configuration, database
 import json
 from pathlib import Path
 
 import pytest
 
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 def test_archive_transcript_preserves_roles_and_multiline_content(archive_api):
@@ -21,9 +23,9 @@ def test_archive_transcript_preserves_roles_and_multiline_content(archive_api):
 @pytest.fixture
 def archive_api(tmp_path, monkeypatch):
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    settings = app.current_runtime_settings()
+    settings = configuration.current_runtime_settings()
     settings['agent']['runtime'] = 'pi'
-    monkeypatch.setattr(app, 'current_runtime_settings', lambda: settings)
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     return app, client, f"/api/news/{item['id']}", settings
 
 
@@ -238,7 +240,7 @@ def store_conversation(app, client, path, messages):
     assert response.status_code == 200
     session_id = response.json['session']['id']
     with app.agent_db_conn() as conn:
-        stamp = app.now_ts()
+        stamp = database.now_ts()
         conn.executemany("""INSERT INTO agent_messages
             (session_id, role, content, quote_text, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, 'complete', ?, ?)""", [

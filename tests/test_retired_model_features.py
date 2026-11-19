@@ -1,4 +1,4 @@
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 def test_retired_model_routes_are_absent_and_historical_rows_survive_initialization(tmp_path, monkeypatch):

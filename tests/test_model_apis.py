@@ -1,4 +1,6 @@
 """Provider contracts, persistence and credentials; no real model calls."""
+
+from nr import configuration
 import json
 import io
 from email.message import Message
@@ -6,7 +8,7 @@ from urllib.error import HTTPError
 
 import pytest
 import model_apis
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture
@@ -47,7 +49,7 @@ def test_jev_settings_roundtrip_and_legacy_writes_preserve_config(api_fixture, t
     # Clients predating API management must not clear the new configuration.
     client.put('/api/settings', json={'llm': initial['llm']})
     assert client.get('/api/settings').json['api_models']['jev']['model'] == 'jev-custom'
-    assert app.current_runtime_settings()['llm']['translation'] == initial['llm']['translation']
+    assert configuration.current_runtime_settings()['llm']['translation'] == initial['llm']['translation']
 
 
 def test_concurrency_persists_and_applies_live_without_starting_a_stopped_service(api_fixture):

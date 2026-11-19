@@ -55,7 +55,7 @@ def test_feature_settings_reach_each_executor_and_preserve_chat(monkeypatch, tmp
     monkeypatch.setattr(catalogs, 'safe_catalog', lambda _: {'options': [
         {'value': 'summary-model', 'reasoning_efforts': []}]})
     import news_summaries, report_model
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     value = settings.default_app_settings()
     value['agent'].update(runtime='codex', codex={**CONFIG, 'model':'chat-model'})
@@ -156,7 +156,7 @@ def test_unknown_model_and_invalid_effort_rejected(monkeypatch):
 @pytest.mark.parametrize('field', ['profile', 'provider'])
 @pytest.mark.parametrize('feature', ['chat', 'reports', 'reports_periodic', 'summaries', 'topics'])
 def test_retired_codex_overrides_rejected_by_settings_and_probe_apis(tmp_path, monkeypatch, field, feature):
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     value = settings.default_app_settings()
     monkeypatch.setattr(app, 'load_app_settings', lambda: value)
@@ -176,7 +176,7 @@ def test_retired_codex_overrides_rejected_by_settings_and_probe_apis(tmp_path, m
 
 
 def test_settings_and_probe_reject_custom_model_even_without_effort(tmp_path, monkeypatch):
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     value = settings.default_app_settings()
     monkeypatch.setattr(app, 'load_app_settings', lambda: value)
@@ -239,7 +239,7 @@ def test_new_settings_api_does_not_write(monkeypatch,tmp_path):
 
 def test_new_codex_effort_reaches_summary_and_saved_session(monkeypatch,tmp_path):
     import app,news_summaries
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     app,client,item,*_=_setup_agent_api_fixture(tmp_path,monkeypatch)
     value=app.default_app_settings()
     value['agent'].update(runtime='codex',codex={**CONFIG,'reasoning_effort':'high'})
@@ -256,7 +256,7 @@ def test_new_codex_effort_reaches_summary_and_saved_session(monkeypatch,tmp_path
 
 
 def test_pi_sync_resume_and_archive_keep_saved_selection(monkeypatch,tmp_path):
-    from test_api import _setup_agent_api_fixture,_install_fake_oar
+    from api_fixtures import _setup_agent_api_fixture,_install_fake_oar
     app,client,item,*_=_setup_agent_api_fixture(tmp_path,monkeypatch)
     log=_install_fake_oar(tmp_path,monkeypatch)
     value=app.default_app_settings();value['llm']['pi_chat']={'provider':'old-provider','model':'old-model'}

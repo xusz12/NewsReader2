@@ -80,7 +80,7 @@ def test_invalid_cache_does_not_break_settings(monkeypatch, contents):
 
 
 def test_settings_api_restores_catalog_without_cli_refresh(tmp_path, monkeypatch):
-    from test_api import _setup_agent_api_fixture
+    from api_fixtures import _setup_agent_api_fixture
     app, client, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     monkeypatch.setattr(app, 'deepseek_settings_snapshot', lambda *args: {'service': {}, 'catalog': {}})
     monkeypatch.setattr(app, 'pi_chat_settings_snapshot', lambda *args: {'service': {}, 'catalog': {}})

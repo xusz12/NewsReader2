@@ -1,8 +1,10 @@
 """Regressions for the v0.0.2 contracts, always against an isolated database."""
+
+from nr import database
 import json
 from urllib.error import HTTPError
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
@@ -142,7 +144,7 @@ def test_agent_sse_reports_progress_changes_in_same_second(fixture, monkeypatch)
     created = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question':'研究背景'}).json
     job_id = created['job']['id']
     monkeypatch.setattr(app, 'AGENT_STREAM_POLL_SECONDS', 0)
-    monkeypatch.setattr(app, 'now_ts', lambda: '2026-10-15 12:00:00')
+    monkeypatch.setattr(database, 'now_ts', lambda: '2026-10-15 12:00:00')
     with app.agent_db_conn() as conn:
         conn.execute("UPDATE agent_jobs SET status='running' WHERE id=?", (job_id,))
     app._update_agent_progress(job_id, 'thinking')

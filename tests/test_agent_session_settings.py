@@ -1,17 +1,19 @@
 """Unused Agent sessions follow saved settings; established conversations stay stable."""
+
+from nr import configuration
 import copy
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import json
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    settings = copy.deepcopy(app.current_runtime_settings())
-    monkeypatch.setattr(app, 'current_runtime_settings', lambda: settings)
+    settings = copy.deepcopy(configuration.current_runtime_settings())
+    monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
     return app, client, f"/api/news/{item['id']}/agent", settings
 
 

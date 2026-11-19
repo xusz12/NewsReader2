@@ -1,10 +1,12 @@
 """Queue removal, cached bodies and explicit reading completion are independent."""
+
+from nr import database
 import threading
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from test_api import _setup_agent_api_fixture
+from api_fixtures import _setup_agent_api_fixture
 
 
 @pytest.fixture
@@ -143,7 +145,7 @@ def test_removal_preserves_body_and_only_cancels_queued_translation(setup, statu
     app, client, item, path = setup
     client.patch(path, json={'read_later': True})
     with app.db_conn() as conn:
-        conn.execute('INSERT INTO ai_jobs(url,status,updated_at) VALUES(?,?,?)', (item['url'], status, app.now_ts()))
+        conn.execute('INSERT INTO ai_jobs(url,status,updated_at) VALUES(?,?,?)', (item['url'], status, database.now_ts()))
     result = client.patch(path, json={'read_later': False}).json
     assert result['ai_status'] == expected
     assert result['read_later_done_at'] is None
@@ -166,7 +168,7 @@ def test_retry_recovers_legacy_terminal_jobs_without_cached_body(setup, status):
     with app.db_conn() as conn:
         conn.execute('DELETE FROM article_details')
         conn.execute('INSERT INTO detail_jobs(url,item_id,status,updated_at) VALUES(?,?,?,?)',
-                     (item['url'], item['id'], status, app.now_ts()))
+                     (item['url'], item['id'], status, database.now_ts()))
     result = client.patch(path, json={'read_later': True}).json
     assert result['detail_status'] == 'pending'
     assert result['read_later_at'] and result['read_later_done_at'] is None
@@ -184,8 +186,8 @@ def test_read_later_paging_does_not_skip_after_rows_leave_current_filter(setup, 
             row = {**template, 'id': f'paging-{index:02d}'}
             conn.execute(f"INSERT INTO items({','.join(row)}) VALUES ({','.join('?' for _ in row)})", list(row.values()))
             conn.execute('INSERT INTO item_state(item_id,read_later_at,read_later_done_at,updated_at) VALUES(?,?,?,?)',
-                         (row['id'], None if read_filter == 'read' else app.now_ts(),
-                          app.now_ts() if read_filter == 'read' else None, app.now_ts()))
+                         (row['id'], None if read_filter == 'read' else database.now_ts(),
+                          database.now_ts() if read_filter == 'read' else None, database.now_ts()))
     params = {'collection': 'read_later', 'read_filter': read_filter, 'sort_order': sort_order}
     expected = [row['id'] for row in client.get('/api/news', query_string={**params, 'per': 100}).json['items']]
     legacy_page = client.get('/api/news', query_string={**params, 'per': 10, 'page': 2}).json
@@ -208,7 +210,7 @@ def test_large_bulk_completion_stays_atomic_with_legacy_sqlite_variable_limit(se
     client.patch(f'/api/news/{item["id"]}/state', json={'read_later': True})
     with app.db_conn() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
-        ts = app.now_ts()
+        ts = database.now_ts()
         for index in range(1001):
             row = {**template, 'id': f'bulk-{index}', 'url': f'https://example.com/bulk-{index}'}
             conn.execute(f"INSERT INTO items({','.join(row)}) VALUES ({','.join('?' for _ in row)})", list(row.values()))

@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from nr import configuration, database
 import json
 import os
 from pathlib import Path
@@ -9,7 +11,7 @@ import uuid
 
 import pytest
 import codex_client as codex
-from test_api import _setup_agent_api_fixture, _install_fake_oar
+from api_fixtures import _setup_agent_api_fixture, _install_fake_oar
 
 THREAD = '0199a213-81c0-7800-8aa1-bbab2a035a53'
 CONFIG = {'model': 'test-model', 'sandbox': 'read-only'}
@@ -141,7 +143,7 @@ def test_settings_defaults_persistence_and_invalid_runtime(tmp_path, monkeypatch
     assert settings.load_app_settings()['agent']['runtime']=='codex'
     import app
     monkeypatch.setattr(app,'load_app_settings',settings.load_app_settings)
-    assert app.current_runtime_settings()['agent']['runtime']=='codex'
+    assert configuration.current_runtime_settings()['agent']['runtime']=='codex'
     assert app.validate_runtime_settings(value)['agent']==value['agent']
     for bad in ('other',[],{}):
         value['agent']['runtime']=bad
@@ -314,7 +316,7 @@ def test_failed_archive_leaves_saved_note_and_session_unchanged(tmp_path, monkey
     assert app.process_pending_agent_once()
     with app.db_conn() as conn:
         conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES(?,?,?,?)',
-                     (item['url'], '保留的旧笔记', app.now_ts(), app.now_ts()))
+                     (item['url'], '保留的旧笔记', database.now_ts(), database.now_ts()))
         conn.commit()
     before = app.load_agent_payload(item['id'])
     monkeypatch.setenv('CODEX_TEST_MODE', 'empty')

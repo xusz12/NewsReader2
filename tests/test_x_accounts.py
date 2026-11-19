@@ -1,4 +1,6 @@
 """Real library/settings/queue integration, with no browser or model calls."""
+
+from nr import configuration
 import json
 import sqlite3
 import subprocess
@@ -18,7 +20,7 @@ def snapshot(module):
 
 def save(module, client, accounts, previous=None):
     return client.put('/api/settings', json={
-        'llm': module.current_runtime_settings()['llm'], **(previous or snapshot(module)), 'x_accounts': accounts,
+        'llm': configuration.current_runtime_settings()['llm'], **(previous or snapshot(module)), 'x_accounts': accounts,
     })
 
 
