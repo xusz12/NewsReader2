@@ -224,6 +224,8 @@ OpenCode Go、Jev 与 OpenAI Decisions 的手动目录请求使用 25 秒网络�
 
 ## 测试与设计预览
 
+按功能查找 Python 实现、直接调用方和回归测试，见[后端开发地图](docs/backend-development.md)。
+
 ```bash
 PYTHONPATH=. python3 -m pytest -q tests
 node --test tests/error_ui.test.cjs

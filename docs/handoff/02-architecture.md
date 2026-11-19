@@ -116,7 +116,7 @@ flowchart LR
 
 | 位置 | 职责 | 修改时关联检查 |
 | --- | --- | --- |
-| `app.py` | Flask 路由、SQL、业务状态、后台线程、运行时迁移 | 文件约 1.2 万行；先定位处理函数及对应测试 |
+| `app.py` / `nr/bootstrap.py` | Flask 工厂、路由装配、初始化和服务启动 | 按功能定位实现和定向测试，见[后端开发地图](../backend-development.md) |
 | `news_collection.py` / `collection_sources.py` / `collection_translation.py` | 内置排期、采集、身份账本、暂存与翻译后发布 | 不在外部请求期间持有写事务；不改变历史 ID |
 | `schema.sql` | 新闻库基础表、索引及触发器 | 不是全部数据库结构，另有运行时 DDL |
 | `settings.py` / `secret_store.py` | 路径优先级、配置规范化、macOS Keychain | 不读取并发布真实密钥；配置更换路径需重启 |
