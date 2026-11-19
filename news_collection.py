@@ -238,8 +238,15 @@ class Service:
                 thread.start()
 
     def stop(self):
-        self.stopped.set()
-        self.wake.set()
+        with self.lock:
+            self.stopped.set()
+            self.wake.set()
+
+    def wait_for_work(self, timeout):
+        self.wake.wait(timeout)
+        with self.lock:
+            if not self.stopped.is_set():
+                self.wake.clear()
 
     def loop(self, action):
         while not self.stopped.is_set():
@@ -249,8 +256,7 @@ class Service:
                 logging.getLogger(__name__).exception("Collection worker failed")
                 worked = False
             if not worked:
-                self.wake.wait(5)
-                self.wake.clear()
+                self.wait_for_work(5)
 
     def translation_loop(self):
         # Only in-flight calls occupy pool slots; a settings change affects the
@@ -274,8 +280,7 @@ class Service:
                         active.add(future)
                 except Exception:
                     logging.getLogger(__name__).exception("Collection translation coordinator failed")
-                self.wake.wait(1)
-                self.wake.clear()
+                self.wait_for_work(1)
 
     @contextmanager
     def heartbeat(self, table, key, ident, lease):

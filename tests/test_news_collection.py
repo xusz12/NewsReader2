@@ -930,3 +930,38 @@ def test_scoped_retry_api_rejects_bad_targets_without_retrying_other_failures(ap
     assert client.post(endpoint, json=body).json["retried"] == 0
     service.translate_once()
     assert client.post(endpoint).json["retried"] == 1  # Existing global retry remains compatible.
+
+
+def test_stop_wakes_idle_and_finishing_collection_threads(service, monkeypatch):
+    finishing = threading.Event()
+    release = threading.Event()
+    waiting = threading.Event()
+    wait = service.wake.wait
+
+    def finishing_action():
+        finishing.set()
+        release.wait(5)
+        return False
+
+    def observed_wait(timeout):
+        waiting.set()
+        return wait(timeout)
+
+    monkeypatch.setattr(service.wake, "wait", observed_wait)
+    active = threading.Thread(target=service.loop, args=(finishing_action,))
+    idle = threading.Thread(target=service.loop, args=(lambda: False,))
+    active.start()
+    idle.start()
+    try:
+        assert finishing.wait(2) and waiting.wait(2)
+        service.stop()
+        idle.join(2)
+        assert not idle.is_alive()
+        release.set()
+        active.join(2)
+        assert not active.is_alive()
+    finally:
+        service.stop()
+        release.set()
+        active.join(5)
+        idle.join(5)
