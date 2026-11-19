@@ -12,6 +12,7 @@ from calendar import monthrange
 from contextlib import closing
 from datetime import date, datetime
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import news_summaries
 
@@ -20,6 +21,7 @@ BATCH_SIZE = 60
 JOB_LEASE = 1020
 HISTORY_NODE_LIMIT = 12
 NEW_EVENT_LIMIT = 3
+BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_HORIZONTAL_RULE = "仅收录使事件进入新阶段的正式决定、关键批准或否决、实施生效、完成或终止等重要进展。重复报道、日常表态、预测和局部细节不单独新增节点。"
 RULE_FIELDS = ("name", "definition", "include_scope", "exclude_scope", "horizontal_rule", "timeline_mode", "rules_revision")
 REQUEUE_FAILED_CHECKS = """UPDATE topic_checks SET status='pending',attempts=0,next_attempt_at=0,last_error='',
@@ -790,7 +792,7 @@ class Service:
             total = conn.execute("SELECT COUNT(*) FROM topic_checks c WHERE "+where, args).fetchone()[0]
             topic["news_count"] = total if not node_id else conn.execute("""SELECT COUNT(*) FROM topic_checks
                 WHERE topic_id=? AND status='done' AND matched=1""", (ident,)).fetchone()[0]
-            rows = conn.execute("""SELECT c.item_json,i.id AS available,
+            rows = conn.execute("""SELECT c.item_json,c.updated_at AS included_at,i.id AS available,
                 st.read_at,st.important_at,st.read_later_at,st.read_later_done_at,st.favorite_at,
                 dj.status AS detail_status,aj.status AS ai_status,
                 CASE WHEN ad.url IS NULL THEN 0 ELSE 1 END AS detail_ready
@@ -800,11 +802,12 @@ class Service:
                 LEFT JOIN news_item_detail_jobs dj ON dj.item_id=i.id
                 LEFT JOIN news_item_ai_jobs aj ON aj.item_id=i.id
                 LEFT JOIN news_item_details ad ON ad.item_id=i.id WHERE """ + where +
-                " ORDER BY json_extract(c.item_json,'$.published_at') DESC,c.seq DESC LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
+                " ORDER BY c.updated_at DESC,c.seq DESC LIMIT ? OFFSET ?", (*args, limit, offset)).fetchall()
             items = []
             for row in rows:
                 item = json.loads(row["item_json"])
-                item.update({key: row[key] for key in row.keys() if key not in ("item_json", "available")})
+                item.update({key: row[key] for key in row.keys() if key not in ("item_json", "available", "included_at")})
+                item["included_at"] = datetime.fromtimestamp(row["included_at"], BEIJING_TZ).isoformat(timespec="seconds")
                 item["available"] = bool(row["available"])
                 item["is_new"] = item["available"] and row["read_at"] is None
                 item["topics"] = [dict(r) for r in conn.execute("""SELECT t.id,t.name FROM event_topics t JOIN topic_checks c ON c.topic_id=t.id

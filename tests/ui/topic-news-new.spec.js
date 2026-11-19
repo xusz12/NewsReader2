@@ -16,7 +16,7 @@ async function openTopic(page, width = 1440) {
   await openNavigation(page);
   await page.locator('#navTopicsBtn').click();
   await page.locator('[data-topic-id="'+id+'"]').click();
-  await expect(page.locator('#topicContent .article-title')).toHaveText('北辰科技收购远川数据');
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await expect(page.locator('.topic-news')).toHaveCount(2);
 }
 async function acknowledge(request, topicId = id) {

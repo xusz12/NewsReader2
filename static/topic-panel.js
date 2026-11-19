@@ -198,23 +198,35 @@ export class TopicPanel {
     if (!this.selected) return;
     const id = this.selected, sequence = ++this.detailSequence;
     const stateVersion = this.stateVersion();
+    const loaded = this.data?.items.length || 0;
+    const requested = Math.max(40, loaded + (append ? 40 : 0));
+    const url = "/api/topics/" + encodeURIComponent(id) + "?";
     const params = new URLSearchParams();
     if (this.filter) params.set("node", this.filter);
-    if (append) params.set("offset", this.data?.items.length || 0);
-    else if (quiet) params.set("limit", Math.min(400, Math.max(40, this.data?.items.length || 0)));
+    if (append) params.set("offset", loaded);
+    else if (quiet) params.set("limit", Math.min(400, requested));
     try {
-      const data = await api("/api/topics/"+encodeURIComponent(id)+"?"+params);
-      const keep = quiet && !append ? Math.min(this.data?.items.length || 0, data.total) : 0;
+      let data = await api(url + params);
+      if (sequence !== this.detailSequence || id !== this.selected) return;
+      if (append && this.data) {
+        if (data.total === this.data.total && data.topic.latest_news_at === this.data.topic.latest_news_at) {
+          data.items = [...this.data.items, ...data.items];
+        } else {
+          params.delete("offset");
+          params.set("limit", Math.min(400, requested));
+          data = await api(url + params);
+        }
+      }
+      const keep = quiet || append ? Math.min(requested, data.total) : 0;
       while(data.items.length < keep && sequence === this.detailSequence){
         params.set("offset",data.items.length);params.set("limit",Math.min(400,keep-data.items.length));
-        const next=await api("/api/topics/"+encodeURIComponent(id)+"?"+params);
+        const next=await api(url + params);
         if(!next.items.length)break;
         data.items.push(...next.items);data.has_more=next.has_more;
       }
       if (sequence !== this.detailSequence || id !== this.selected) return;
       for (const item of data.items) this.reconcileItem(item, stateVersion);
       const previous = this.data, oldPage = this.page;
-      if (append && previous) data.items = [...previous.items, ...data.items];
       const unread = new Set(data.unread_ids.filter(id => !this.reconcileItem({id, read_at:null}, stateVersion).read_at));
       for (const item of data.items) {
         if (item.available && !item.read_at) unread.add(item.id);
@@ -227,7 +239,7 @@ export class TopicPanel {
         this.page = "create";
         if (data.topic.status==="draft" && !this.draftChanges.has(id)) this.setDraft(data.topic);
       } else if (oldPage==="create" && previous?.topic.status==="initializing") this.page = "complete";
-      if (!data.nodes.some(node => node.id === this.node)) this.node = data.nodes.at(-1)?.id || "";
+      if (this.node && !data.nodes.some(node => node.id === this.node)) this.node = "";
       const changed = JSON.stringify({...previous, observed_at:0}) !== JSON.stringify({...data, observed_at:0});
       if (forceRender || !quiet || oldPage !== this.page || (this.page !== "edit" && (this.renderedMatching !== JSON.stringify([this.configured,this.matchingError,this.matchingWaiting]) || (changed && this.page !== "create") || previous?.topic.rules_revision !== data.topic.rules_revision || previous?.job?.id !== data.job?.id || previous?.job?.status !== data.job?.status || previous?.topic.status !== data.topic.status))) {
         this.renderList();
@@ -342,22 +354,7 @@ export class TopicPanel {
           '<p class="muted">历史整理完成后，开始收录新入库的相关新闻。</p><div class="button-row"><button class="btn-secondary" type="button" data-topic-action="cancel">返回主题</button></div>';
       }
     } else {
-      const nodes=this.data.nodes, node=nodes.find(n=>n.id===this.node), filteredNode=nodes.find(n=>n.id===this.filter);
-      html='<div class="section-stack"><header class="settings-section-card settings-section-card--compact"><div class="article-meta-top"><time datetime="'+e(t.updated_at)+'">更新于 '+e(t.updated_at.replace('T',' ').slice(0,16))+'</time></div><h1 class="article-title">'+e(t.name)+'</h1>'+
-        '<div class="article-body muted"><p>'+e(t.definition)+'</p></div></header>'+
-        '<section class="settings-section-card settings-section-card--compact topic-history" aria-labelledby="topicHistoryTitle"><h2 class="section-card-title" id="topicHistoryTitle"><span class="section-title-label">'+timelineIcon+'重要进展</span><span class="reader-action-toolbar">'+
-        (!t.archived_at && !this.data.refinement?.preview && !t.refine_cooldown && nodes.filter(n=>n.kind!=="month").length>1 ? '<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="refine" title="使用 Agent 合并已有阶段节点并改写概括，保留关联新闻，不联网" '+(activeJob(job)||job?.status==="failed"?'disabled':'')+'>精简进程</button>' : '')+'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="expand-timeline" aria-controls="topicTimeline" aria-expanded="'+this.expandedTimelines.has(t.id)+'">'+(this.expandedTimelines.has(t.id)?'收起':'展开')+'</button>'+(!t.archived_at && this.data.refinement?.restore && !this.data.refinement?.preview?'<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="restore-refinement" '+(activeJob(job)?'disabled':'')+'>恢复精简前</button>':'')+'</span></h2>'+this.refinementHTML()+
-        '<div class="topic-timeline'+(this.expandedTimelines.has(t.id)?' is-expanded':'')+'" id="topicTimeline" role="region" tabindex="0" aria-label="重要进展时间线">'+nodes.map(n=>'<button class="news-card topic-node'+(n.id===this.node?' is-active':'')+'" type="button" data-topic-node="'+e(n.id)+'" data-has-news="'+(n.news_count>0)+'" aria-pressed="'+(n.id===this.node)+'"><time class="meta-time-row">'+e(n.kind==="month"?n.date.slice(0,7):n.date)+'</time><span class="topic-node-track"><span class="topic-node-dot"></span></span><strong class="news-card-title">'+e(n.title)+'</strong><span class="news-card-meta">'+(n.news_count>0?'查看 '+n.news_count.toLocaleString()+' 条报道 →':(n.kind==='history'?'历史概述':'节点概述'))+'</span></button>').join("")+'</div>'+
-        '<input class="scroll-slider" id="topicTimelineSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="重要进展浏览位置" aria-controls="topicTimeline"'+(this.expandedTimelines.has(t.id)?' hidden':'')+'>'+
-        (node?'<div class="article-body article-body--compact topic-node-summary" id="topicNodeSummary" data-topic-summary="'+e(node.id)+'" aria-live="polite"><p><strong>'+e(node.date)+' · '+e(node.title)+'</strong></p>'+markdown(node.body)+'</div>':'')+'</section>'+error+
-        (activeJob(job)&&job.kind==="update"?'<p class="muted topic-status" role="status">正在整理新进展…</p>':'')+
-        (activeJob(job)&&job.kind==="milestone"?'<p class="muted topic-status" role="status">正在筛选横向重要进展…</p>':'')+
-        (activeJob(job)&&job.kind==="refine"?'<p class="muted topic-status" role="status">正在合并阶段里程碑…</p>':'')+
-        (t.archived_at?'<p class="muted topic-status" role="status">已归档，停止收录新新闻。恢复后从新的入库新闻继续跟踪。</p>':this.matchingWaiting?'<p class="muted topic-status" role="status">两家判断服务暂不可用，等待恢复或配置密钥。</p>':!this.configured?'<p class="muted topic-status">判断服务尚未配置，相关新闻归属等待处理。请在新闻分类设置中配置。</p>':this.matchingError?'<div class="button-row error-state topic-error" role="status">判断服务暂时无法完成主题判断，请检查新闻分类设置后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>':'')+
-        (!t.archived_at&&this.data.matching.failed?'<div class="button-row error-state topic-error" role="status">'+this.data.matching.failed+' 条新闻判断失败。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>':'')+
-        '<section class="settings-section-card settings-section-card--compact" aria-labelledby="topicNewsTitle"><h2 class="section-card-title" id="topicNewsTitle"><span class="section-title-label">'+timelineIcon+(this.filter?'相关报道':'新闻时间线')+' <span class="muted">'+this.data.total+' 条</span></span>'+
-        (this.filter?'<button class="btn-secondary" type="button" data-topic-action="all">全部新闻</button>':'')+'</h2>'+(filteredNode?'<p class="muted">'+e(filteredNode.title)+'</p>':'')+this.newsHTML()+
-        (this.data.has_more?'<div class="feed-end"><button class="btn-secondary" type="button" data-topic-action="more">加载更多</button></div>':'')+'</section></div>';
+      html='<div class="section-stack">'+this.historySectionHTML(error)+this.newsSectionHTML()+'</div>';
     }
     this.content.innerHTML = ["new","create","complete","edit"].includes(this.page) ? '<div class="settings-sheet">'+html+'</div>' : html;
     this.syncChatControls(); this.syncDefinitionDraft(); resizeAutoFields(this.content); this.layoutExpandedTimeline();
@@ -391,6 +388,7 @@ export class TopicPanel {
   renderToolbar() {
     const t = this.data?.topic, creating = ["new", "create", "complete"].includes(this.page);
     const ready = t?.status === "ready" && !creating;
+    $("#detailPanelTopics").setAttribute("aria-label", ready ? "主题详情 · " + t.name : "主题详情与创建");
     $("#topicDefinitionBtn").hidden = !ready;
     $("#topicDefinitionBtn").setAttribute("aria-expanded", String(ready && this.page==="edit"));
     const archive = $("#topicArchiveBtn");
@@ -444,7 +442,7 @@ export class TopicPanel {
     const columns = Math.max(1, Math.floor((timeline.clientWidth - padding + gap) / (basis + gap)));
     timeline.style.gridTemplateColumns = 'repeat('+columns+', minmax(0, 1fr))';
     const summary = this.content.querySelector('#topicNodeSummary');
-    const selectedIndex = nodes.findIndex(node => node.dataset.topicNode === this.node);
+    const selectedIndex = nodes.findIndex(node => node.getAttribute('aria-pressed') === 'true');
     if (summary && selectedIndex >= 0) {
       const rowEnd = nodes[Math.min(nodes.length, (Math.floor(selectedIndex / columns) + 1) * columns) - 1];
       if (summary.previousElementSibling !== rowEnd) rowEnd.after(summary);
@@ -544,11 +542,65 @@ export class TopicPanel {
       "aria-busy": String(action.saving),
     };
   }
+  newsSectionHTML() {
+    const {topic, matching, nodes} = this.data;
+    const filteredNode = nodes.find(node => node.id === this.filter);
+    let notice = "";
+    if (topic.archived_at) notice = '<p class="muted topic-status" role="status">已归档，停止收录新新闻。恢复后从新的入库新闻继续跟踪。</p>';
+    else if (this.matchingWaiting) notice = '<p class="muted topic-status" role="status">两家判断服务暂不可用，等待恢复或配置密钥。</p>';
+    else if (!this.configured) notice = '<p class="muted topic-status">判断服务尚未配置，相关新闻归属等待处理。请在新闻分类设置中配置。</p>';
+    else if (this.matchingError) notice = '<div class="button-row error-state topic-error" role="status">判断服务暂时无法完成主题判断，请检查新闻分类设置后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>';
+    const all = this.filter ? '<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="all">全部新闻</button>' : '';
+    return `<section class="settings-section-card settings-section-card--compact" aria-labelledby="topicNewsLabel">
+      <h2 class="section-card-title" id="topicNewsTitle" aria-labelledby="topicNewsLabel">
+        <span class="section-title-label" id="topicNewsLabel">${timelineIcon}${this.filter ? '相关报道' : '新闻时间线'} <span class="muted">${this.data.total} 条</span></span>
+        ${all}
+      </h2>
+      ${filteredNode ? '<p class="muted">'+e(filteredNode.title)+'</p>' : ''}
+      ${this.newsHTML()}
+      ${notice}
+      ${!topic.archived_at && matching.failed ? '<div class="button-row error-state topic-error" role="status">'+e(matching.failed)+' 条新闻判断失败。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>' : ''}
+      ${this.data.has_more ? '<div class="feed-end"><button class="btn-secondary" type="button" data-topic-action="more">加载更多</button></div>' : ''}
+    </section>`;
+  }
+  historySectionHTML(error) {
+    const {topic, nodes, job, refinement} = this.data;
+    const expanded = this.expandedTimelines.has(topic.id);
+    const selected = nodes.find(node => node.id === this.node) || nodes.at(-1);
+    const canRefine = !topic.archived_at && !refinement?.preview && !topic.refine_cooldown && nodes.filter(node => node.kind !== "month").length > 1;
+    const canRestore = !topic.archived_at && refinement?.restore && !refinement.preview;
+    const status = activeJob(job) && {update:"正在整理新进展…", milestone:"正在筛选横向重要进展…", refine:"正在合并阶段里程碑…"}[job.kind];
+    const cards = nodes.map(node => {
+      const active = node === selected;
+      const count = node.news_count;
+      const label = count > 0 ? '查看 '+count.toLocaleString()+' 条报道 →' : node.kind === 'history' ? '历史概述' : '节点概述';
+      return `<button class="news-card topic-node${active ? ' is-active' : ''}" type="button" data-topic-node="${e(node.id)}" data-has-news="${count > 0}" aria-pressed="${active}">
+        <time class="meta-time-row">${e(node.kind === "month" ? node.date.slice(0,7) : node.date)}</time>
+        <span class="topic-node-track"><span class="topic-node-dot"></span></span>
+        <strong class="news-card-title">${e(node.title)}</strong><span class="news-card-meta">${label}</span>
+      </button>`;
+    }).join("");
+    return `<section class="settings-section-card settings-section-card--compact topic-history" aria-labelledby="topicHistoryLabel">
+      <h2 class="section-card-title" id="topicHistoryTitle" aria-labelledby="topicHistoryLabel">
+        <span class="section-title-label" id="topicHistoryLabel">${timelineIcon}重要进展</span>
+        <span class="reader-action-toolbar">
+          ${canRefine ? `<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="refine" title="使用 Agent 合并已有阶段节点并改写概括，保留关联新闻，不联网" ${activeJob(job) || job?.status === 'failed' ? 'disabled' : ''}>精简进程</button>` : ''}
+          ${cards ? `<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="expand-timeline" aria-controls="topicTimeline" aria-expanded="${expanded}">${expanded ? '收起' : '展开'}</button>` : ''}
+          ${canRestore ? `<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="restore-refinement" ${activeJob(job) ? 'disabled' : ''}>恢复精简前</button>` : ''}
+        </span>
+      </h2>
+      ${this.refinementHTML()}${error}
+      ${status ? '<p class="muted topic-status" role="status">'+status+'</p>' : ''}
+      ${cards ? `<div class="topic-timeline${expanded ? ' is-expanded' : ''}" id="topicTimeline" role="region" tabindex="0" aria-label="重要进展时间线">${cards}</div>
+        <input class="scroll-slider" id="topicTimelineSlider" type="range" min="0" max="1000" step="1" value="0" aria-label="重要进展浏览位置" aria-controls="topicTimeline" ${expanded ? 'hidden' : ''}>` : '<p class="muted topic-status">暂无重要进展。</p>'}
+      ${selected && (expanded || this.node) ? `<div class="article-body article-body--compact topic-node-summary" id="topicNodeSummary" data-topic-summary="${e(selected.id)}" aria-live="polite"><p><strong>${e(selected.date)} · ${e(selected.title)}</strong></p>${markdown(selected.body)}</div>` : ''}
+    </section>`;
+  }
   newsHTML() {
     if(!this.data.items.length)return '<div class="list-message">'+ (this.filter?'此节点暂无已收录新闻。':this.data.topic.archived_at?'此主题暂无已收录新闻。':'等待新的相关新闻。主题创建完成后入库的匹配新闻会显示在这里。')+'</div>';
     const groups = new Map();
     for (const item of this.data.items) {
-      const date = item.date || "日期未知";
+      const date = item.included_at ? item.included_at.slice(0, 10)+" 收录" : item.date || "日期未知";
       if (!groups.has(date)) groups.set(date, []);
       groups.get(date).push(item);
     }
@@ -562,7 +614,7 @@ export class TopicPanel {
         return '<article class="news-card news-card--timeline topic-news">'+
           '<div class="news-card-meta"><span class="meta-source-box"><span class="meta-source-name" title="'+e(item.source_name||item.source)+'">'+e(item.source_name||item.source)+'</span>'+
           this.newMarker(item)+'</span><span class="meta-time-row">'+
-          actions+'<time>'+e(item.time||"")+'</time></span></div>'+
+          actions+'<time datetime="'+e(item.included_at || item.published_at)+'"'+(item.published_at?' title="原文发布于 '+e(item.published_at)+'"':'')+'>'+e(item.included_at?.slice(11,16) || item.time)+'</time></span></div>'+
           '<button class="news-card-open topic-news-open" type="button" data-topic-item="'+e(item.id)+'" '+(!item.available?'disabled':'')+'>'+
           '<strong class="news-card-title">'+e(item.title)+'</strong><span class="news-card-snippet">'+e(item.summary)+'</span></button>'+
           (related.length?'<div class="news-card-footer"><div class="card-footer-left">'+related.map(t=>'<button class="btn-secondary" type="button" data-related-topic="'+e(t.id)+'">亦收录于 '+e(t.name)+'</button>').join("")+'</div></div>':'')+'</article>';
@@ -678,7 +730,7 @@ export class TopicPanel {
         this.draftChanges.delete(this.selected);this.chatRequests.delete(this.selected);this.chatErrors.delete(this.selected);
         this.setDraft(this.data.topic);this.render({preserveScroll:true});
         break;
-      case "all":this.filter="";await this.fetchDetail({quiet:true});break;
+      case "all":this.filter="";await this.fetchDetail({quiet:true,forceRender:true});break;
       case "more":await this.fetchDetail({append:true});break;
       case "retry-detail":await this.fetchDetail();break;
       case "open":

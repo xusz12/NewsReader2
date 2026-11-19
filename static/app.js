@@ -23,7 +23,7 @@ import {
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js?v=0.6.1";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.18";
-import { TopicPanel } from "./topic-panel.js?v=0.5.4";
+import { TopicPanel } from "./topic-panel.js?v=0.6.2";
 import { ReportPanel } from "./report-panel.js?v=0.5.18";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.4.6";

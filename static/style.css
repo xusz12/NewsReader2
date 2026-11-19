@@ -2225,10 +2225,8 @@ details[open] > .reader-sources-summary .reader-source-chevron { transform: rota
 /* Compact sections reuse the same typography, borders and controls. */
 .settings-section-card.settings-section-card--compact { padding: var(--space-4); gap: var(--space-3); }
 .settings-section-card--compact > .section-card-title { padding-bottom: var(--space-2); }
-.settings-section-card--compact > .article-title { margin-block: 0; }
 .settings-section-card--compact > .article-body,
-.article-body--compact,
-.settings-section-card--compact > .article-meta-top { gap: var(--space-2); }
+.article-body--compact { gap: var(--space-2); }
 .article-body--compact p { text-align: start; overflow-wrap: anywhere; }
 .section-stack { display: flex; flex-direction: column; gap: var(--space-4); }
 .section-stack--compact { gap: var(--space-1); }
@@ -2768,6 +2766,7 @@ kbd {
     padding: 14px 14px 12px;
     gap: 6px;
   }
+  .news-card.news-card--timeline { padding-block: var(--space-2); }
 
   .news-card-title {
     line-height: 1.4;
@@ -3814,6 +3813,9 @@ button:disabled {
   .settings-section-card {
     padding: 16px;
   }
+  .settings-section-card.settings-section-card--compact { padding: var(--space-3); gap: var(--space-2); }
+  .settings-section-card--compact > .section-card-title { padding-bottom: var(--space-1); }
+  .scroll-slider:disabled { display: none; }
   .form-group-grid {
     grid-template-columns: 1fr;
   }
@@ -4765,11 +4767,11 @@ button:disabled {
   .upstream-date-shortcuts [data-upstream-day-offset="-1"],
   #upstreamTodayBtn .upstream-date-label { display: none; }
   .upstream-today-short { display: inline; }
-  .upstream-panel, .agent-notice-dismiss {
+  .upstream-panel, .agent-notice-dismiss, .reader-action-btn--meta {
     --control-pad-inline: clamp(var(--space-1), calc(5vw - var(--space-3)), var(--space-3));
   }
   .upstream-panel :is(.calendar-trigger, .upstream-date-shortcuts button, .upstream-dim-btn, .reader-tool-btn, .upstream-log-copy-btn, [data-upstream-retry]),
-  button.agent-notice-dismiss {
+  button.agent-notice-dismiss, .reader-action-btn--meta {
     height: auto;
     min-height: var(--space-6);
     padding: var(--space-0-5) var(--control-pad-inline);
@@ -4939,11 +4941,10 @@ button:disabled {
 
 /* Topic-only structures: horizontal milestones and creation progress.
    Layout, typography, forms, cards and controls use the shared components above. */
-.topic-history { min-height: 300px; }
 .topic-history.is-resizing { overflow: clip; }
 .topic-history.is-resizing > * { flex-shrink: 0; }
 .topic-status { margin-block: 0; }
-.topic-timeline { display: flex; gap: var(--space-2); overflow-x: auto; min-height: 136px; padding: var(--space-1); margin: 0 calc(-1 * var(--space-1)); touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
+.topic-timeline { display: flex; gap: var(--space-2); overflow-x: auto; padding: var(--space-1); margin: 0 calc(-1 * var(--space-1)); touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
 .topic-timeline.is-expanded { display: grid; overflow: visible; }
 .topic-timeline.is-expanded > .topic-node-summary { grid-column: 1 / -1; min-width: 0; padding-block: var(--space-2); }
 .topic-node { display: grid; grid-template-rows: auto 24px 1fr auto; align-content: start; flex: 1 0 176px; min-width: 0; text-align: left; }
@@ -4960,10 +4961,21 @@ button:disabled {
 .topic-steps li.current > span { background: var(--accent); border-color: var(--accent); color: var(--accent-button-fg); }
 .topic-steps li.done > span { border-color: var(--accent); color: var(--accent); }
 #topicReaderBackBtn { flex-shrink: 0; white-space: nowrap; }
+@media (min-width: 921px) {
+  .topic-timeline { min-height: 136px; }
+}
 @media (max-width: 920px) {
   .topic-steps { padding: var(--space-3) 10px; gap: var(--space-1); }
-  .topic-history { min-height: 280px; }
-  .topic-node { flex-basis: 152px; }
+  .topic-node {
+    flex-basis: 152px;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr auto;
+    padding: var(--space-2);
+    gap: var(--space-1) var(--space-2);
+  }
+  .topic-node > :is(.news-card-title, .news-card-meta) { grid-column: 1 / -1; }
+  .topic-timeline:not(.is-expanded) > .topic-node { flex-basis: min(152px, calc((100% - var(--space-2)) / 2)); }
+  .topic-timeline:not(.is-expanded) .news-card-title { -webkit-line-clamp: 2; }
   #topicReaderBackBtn { display: none; }
 }
 

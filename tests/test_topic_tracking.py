@@ -743,6 +743,25 @@ def test_node_news_counts_match_related_reports_independent_of_filter_and_page(e
     assert service.detail(ident,node_id=first)['total']==0
 
 
+def test_news_pagination_follows_topic_inclusion_time_and_breaks_ties_by_sequence(env):
+    connect, service, _ = env
+    ident = ready(service)
+    earlier = datetime.fromisoformat("2026-11-19T15:59:00+00:00").timestamp()
+    latest = earlier + 60
+    with closing(connect()) as conn, conn:
+        article(conn, "late-match", published="2026-10-01 12:00:00")
+        article(conn, "first-in-batch")
+        article(conn, "second-in-batch")
+        conn.execute("""UPDATE topic_checks SET status='done',matched=1,
+            updated_at=CASE item_id WHEN 'late-match' THEN ? ELSE ? END WHERE topic_id=?""",
+            (latest, earlier, ident))
+    first = service.detail(ident, limit=2)
+    second = service.detail(ident, offset=2, limit=2)
+    assert [item["id"] for item in first["items"] + second["items"]] == ["late-match", "second-in-batch", "first-in-batch"]
+    assert [item["included_at"] for item in first["items"]] == ["2026-11-20T00:00:00+08:00", "2026-11-19T23:59:00+08:00"]
+    assert first["has_more"] and not second["has_more"]
+
+
 def test_topic_news_uses_live_reading_state_without_changing_membership(env):
     connect,service,_=env
     ident,_=refinement_data(env,'events')

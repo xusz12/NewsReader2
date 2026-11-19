@@ -54,29 +54,53 @@ for (const width of [390,1440]) test('概述渲染来源链接、长网址换行
   }
 });
 
-test('主题概览精简重复信息，新闻数量随筛选显示且归档保留报道',async({page,request})=>{
+for (const width of [320,360,1280]) test('重要进展在前，首屏可见最新收录的新闻 '+width,async({page,request})=>{
+  await request.post('/__test/topics',{data:{long_timeline:true,node_summary:'节点的完整进展说明。'.repeat(100)}});
+  await request.post('/__test/topic-update',{data:{news:true,item_id:'ui-064'}});
+  await page.setViewportSize({width,height:width === 320 ? 568 : width <= 920 ? 640 : 900});
   await page.goto('/');await openTopics(page);await page.locator('[data-topic-id="test-acquisition"]').click();
   const detail=await (await request.get('/api/topics/test-acquisition')).json();
   const configured=(await (await request.get('/api/topics')).json()).matching_configured;
   await expect(page.locator('#topicToolbarStatus')).toHaveText(configured?'持续跟踪':'等待配置');
-  await expect(page.locator('#topicContent > .section-stack > .settings-section-card')).toHaveCount(3);
+  const sections=page.locator('#topicContent > .section-stack > .settings-section-card');
+  await expect(sections).toHaveCount(2);
+  await expect(sections.first()).toHaveAccessibleName('重要进展');
+  await expect(sections.nth(1)).toHaveAccessibleName('新闻时间线 '+detail.total+' 条');
+  await expect(page.locator('#topicNodeSummary')).toHaveCount(0);
+  await expect(page.locator('.topic-node[aria-pressed="true"]')).toBeInViewport();
+  await expect(page.locator('#topicContent h1, #topicContent header')).toHaveCount(0);
+  await expect(page.locator('#topicContent')).not.toContainText(detail.topic.definition);
+  const first=page.locator('.topic-news').first();
+  await expect(first.locator('.topic-news-open')).toHaveAttribute('data-topic-item','ui-064');
+  await expect(first.locator('.news-card-title')).toBeInViewport({ratio:1});
+  expect(detail.items[0].date < detail.items[1].date).toBe(true);
+  await expect(first.locator('time')).toHaveAttribute('datetime',detail.items[0].included_at);
+  await expect(first.locator('time')).toHaveText(detail.items[0].included_at.slice(11,16));
+  await expect(first.locator('time')).toHaveAttribute('title','原文发布于 '+detail.items[0].published_at);
   await expect(page.locator('#topicContent .status-pill')).toHaveCount(0);
   await expect(page.locator('[data-topic-stat]')).toHaveCount(0);
   await expect(page.locator('#topicHistoryTitle .section-title-label')).toHaveText('重要进展');
   await expect(page.locator('#topicHistoryTitle .reader-action-toolbar')).not.toContainText('重要进展');
-  await expect(page.locator('#topicNewsTitle')).toHaveText('新闻时间线 '+detail.total+' 条');
+  await expect(page.locator('#topicNewsTitle')).toHaveAccessibleName('新闻时间线 '+detail.total+' 条');
   await expect(page.locator('#topicNewsTitle')).not.toContainText('最新在前');
-  await expect(page.locator('#topicContent header')).toContainText(detail.topic.definition);
-  await expect(page.locator('.timeline-flow .feed-date-heading')).toHaveCount(1);
-  await page.locator('.timeline-flow').scrollIntoViewIfNeeded();
-  await page.screenshot({path:'.ui-artifacts/topics-news-timeline.png'});
+  await expect(page.locator('.timeline-flow .feed-date-heading').first()).toHaveText(detail.items[0].included_at.slice(0,10)+' 收录');
+  await page.screenshot({path:'.ui-artifacts/topics-news-timeline-'+width+'.png'});
+  if (width <= 920) {
+    const history=page.locator('.topic-history');
+    expect((await history.boundingBox()).height).toBeLessThan(280);
+    const firstNode=history.locator('.topic-node').first();
+    const date=await firstNode.locator('time').boundingBox(), dot=await firstNode.locator('.topic-node-dot').boundingBox();
+    expect(dot.y + dot.height / 2).toBeCloseTo(date.y + date.height / 2,0);
+    await expect(history.locator('[data-topic-action="expand-timeline"]')).toHaveCSS('padding-top','2px');
+  }
   await page.locator('.topic-node').first().click();
   await expect(page.locator('.topic-news')).toHaveCount(1);
   await expect(page.locator('#topicNewsTitle')).toContainText('相关报道 1 条');
+  await expect(page.locator('#topicNodeSummary')).toContainText('节点的完整进展说明。'.repeat(100));
   await page.locator('#topicArchiveBtn').click();
   await expect(page.locator('#topicToolbarStatus')).toHaveText('已归档');
   await page.locator('[data-topic-action="all"]').click();
-  await expect(page.locator('#topicNewsTitle')).toHaveText('新闻时间线 '+detail.total+' 条');
+  await expect(page.locator('#topicNewsTitle')).toHaveAccessibleName('新闻时间线 '+detail.total+' 条');
 });
 
 for(const width of [390,1280]) test('确认定义支持多轮对话、刷新恢复及明确确认 '+width,async({page,request})=>{
@@ -238,7 +262,7 @@ test("主题搜索与新建输入分离，刷新不覆盖右栏或草稿",async(
   const input=page.locator('#topicSearchInput');
   await input.fill('并购');
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
-  await expect(page.locator('#topicContent h1')).toHaveText('北辰科技收购远川数据');
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await expect(page.locator('.topic-card')).toHaveCount(1);
   await page.locator('#newTopicBtn').click();
   await page.locator('[name="query"]').fill('保留主题创建草稿');
@@ -292,10 +316,10 @@ test("顶部筛选、归档及恢复跟踪保留历史",async({page,request})=>{
   const before=await (await request.get('/api/topics/test-acquisition')).json();
   await page.getByRole('button',{name:'归档主题',exact:true}).click();
   await expect(page.locator('.topic-card')).toHaveCount(1);
-  await expect(page.locator('#topicContent h1')).toHaveText('数据基础设施并购');
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 数据基础设施并购');
   await filters.getByRole('button',{name:'已归档',exact:true}).click();
   await expect(page.locator('.topic-card')).toHaveCount(1);
-  await expect(page.locator('#topicContent h1')).toHaveText('北辰科技收购远川数据');
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await expect(page.locator('#topicContent')).toContainText('已归档，停止收录新新闻');
   const after=await (await request.get('/api/topics/test-acquisition')).json();
   expect(after.items).toEqual(before.items);expect(after.nodes).toEqual(before.nodes);
@@ -368,7 +392,7 @@ test("主题、多重归属、节点筛选及现有阅读器返回", async ({pag
   await page.goto("/");
   await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
-  await expect(page.locator("#topicContent h1")).toHaveText("北辰科技收购远川数据");
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await expect(page.locator(".topic-news")).toHaveCount(2);
   await page.locator('[data-topic-node="test-acquisition-node-1"]').click();
   await expect(page.locator(".topic-news")).toHaveCount(1);
@@ -380,7 +404,7 @@ test("主题、多重归属、节点筛选及现有阅读器返回", async ({pag
   await expect(page.locator('.topic-node[aria-pressed="true"]')).toHaveAttribute("data-topic-node",node);
   await page.locator('[data-topic-action="all"]').click();
   await page.locator('[data-related-topic="test-industry"]').first().click();
-  await expect(page.locator("#topicContent h1")).toHaveText("数据基础设施并购");
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 数据基础设施并购');
   await expect(page.locator(".topic-news")).toHaveCount(2);
   expect(errors).toEqual([]);
 });
@@ -403,7 +427,7 @@ test("创建、编辑定义、历史整理完成后新闻流为空", async ({pag
   await expect(page.locator(".topic-success")).toContainText("从现在起的新入库新闻");
   await expect(page.locator(".topic-success")).toContainText("重要进展");
   await page.getByRole("button",{name:"查看主题"}).click();
-  await expect(page.locator("#topicContent h1")).toHaveText("云杉上市追踪");
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 云杉上市追踪');
   await expect(page.locator(".topic-node")).toHaveCount(2);
   await expect(page.locator(".topic-news")).toHaveCount(0);
   await expect(page.locator("#topicContent")).toContainText("等待新的相关新闻");
@@ -432,7 +456,7 @@ test("手机从主题到新闻逐级返回，创建草稿保留", async ({page})
   await expect(page.locator("#topicContent")).toBeVisible();
   await page.locator(".topic-news-open").first().click();
   await page.locator("#mobileReaderBackBtn").click();
-  await expect(page.locator("#topicContent h1")).toHaveText("北辰科技收购远川数据");
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await page.locator("#mobileReaderBackBtn").click();
   await expect(page.locator("#feedColTopics")).toBeVisible();
   await page.locator("#newTopicBtn").click();
@@ -462,7 +486,6 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
     const reference = {
       toolbar: await styles(page.locator('#detailPanelFeed > .detail-toolbar'), ['height','padding-left','padding-right','border-bottom-width','background-color']),
       content: await styles(page.locator('#detailScrollArea'), ['padding-top','padding-right','padding-bottom','padding-left']),
-      title: await styles(page.locator('#detailContent .article-title'), typography),
       button: await styles(page.locator('#btnToggleImportant'), controlStyle),
       retranslate: await styles(page.locator('#fetchArticleBtn'), [...typography,...controlStyle,'height','border-top-color']),
       cardTitle: await styles(page.locator('#feedCardList .news-card-title').first(), typography),
@@ -476,14 +499,15 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
     }
     await openTopics(page);
     await page.locator('[data-topic-id="test-acquisition"]').click();
-    await expect(page.locator("#topicContent h1")).toHaveText("北辰科技收购远川数据");
+    await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
     expect(await styles(page.locator('#topicToolbar'),Object.keys(reference.toolbar))).toEqual(reference.toolbar);
     expect(await styles(page.locator('#topicScrollArea'),Object.keys(reference.content))).toEqual(reference.content);
+    const padding = width <= 920 ? '12px' : '16px';
     for (const section of await page.locator('#topicContent .settings-section-card').all()) {
       expect(await styles(section,['padding-top','padding-right','padding-bottom','padding-left','row-gap']))
-        .toEqual({'padding-top':'16px','padding-right':'16px','padding-bottom':'16px','padding-left':'16px','row-gap':'12px'});
+        .toEqual({'padding-top':padding,'padding-right':padding,'padding-bottom':padding,'padding-left':padding,'row-gap':width <= 920 ? '8px' : '12px'});
     }
-    expect(await styles(page.locator('#topicContent .article-title'),typography)).toEqual(reference.title);
+    expect(await styles(page.locator('.topic-node .news-card-title').first(),typography)).toEqual(reference.cardTitle);
     expect(await styles(page.locator('#topicDefinitionBtn'),controlStyle)).toEqual(reference.button);
     await expect(page.locator('[data-topic-action="expand-timeline"]')).toHaveText('展开');
     await expect(page.locator('[data-topic-action="refine"]')).toHaveText('精简进程');
@@ -526,10 +550,11 @@ for (const width of [390,1280]) test('主题表单沿用设置控件、阅读字
   if (width<=920) await page.locator('#settingsCategoryBackBtn').click();
   await page.locator('#closeSettingsBtn').click();await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
-  const before = await styles(page.locator('#topicContent .article-title'),['font-size']);
+  const title = page.locator('.topic-news .news-card-title').first();
+  const before = await styles(title,['font-size']);
   const font = page.getByRole('combobox',{name:'阅读字号',exact:true});
   await font.click();await page.getByRole('option',{name:'特大（130%）',exact:true}).click();
-  expect(parseFloat((await styles(page.locator('#topicContent .article-title'),['font-size']))['font-size'])).toBeCloseTo(parseFloat(before['font-size'])*1.3,2);
+  expect(parseFloat((await styles(title,['font-size']))['font-size'])).toBeCloseTo(parseFloat(before['font-size'])*1.3,2);
   expect(await styles(page.locator('.topic-news .news-card-title').first(),typography)).toEqual(await styles(page.locator('#topicCardList .news-card-title').first(),typography));
   if (width<=920) await page.locator('#mobileReaderBackBtn').click();
   await page.locator('#newTopicBtn').click();
@@ -622,7 +647,7 @@ test("重要进展使用底部滑块浏览，内容拖动不滚动且键盘仍�
   expect(await timeline.evaluate(n=>n.scrollLeft)).toBeGreaterThan(1000);
   await page.locator('.topic-node').last().press('Enter');
   await expect(page.locator('.topic-news')).toHaveCount(1);
-  expect((await page.locator('.topic-history').boundingBox()).height).toBeGreaterThanOrEqual(300);
+  await expect(page.locator('#topicNodeSummary')).toBeVisible();
 });
 
 for(const width of [390,1280]) test('有报道节点筛选新闻，无报道节点保留原列表 '+width,async({page,request})=>{
@@ -716,11 +741,11 @@ test("手机时间线支持原生横向滑动且不触发边缘返回",async({ba
       for(let i=1;i<=12;i++) await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x1+(x2-x1)*i/12,y:y1+(y2-y1)*i/12}]});
       await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
     }
-    await swipe(box.x+box.width-24,box.y+55,box.x+24,box.y+55);
+    await swipe(box.x+box.width-24,box.y+box.height/2,box.x+24,box.y+box.height/2);
     await expect.poll(()=>timeline.evaluate(n=>n.scrollLeft)).toBeGreaterThan(80);
     await expect(page.locator('.topic-node[aria-pressed="true"]')).toHaveAttribute('data-topic-node',selected);
     await timeline.evaluate(n=>{n.scrollLeft=800;});
-    await swipe(box.x+8,box.y+110,box.x+box.width-24,box.y+110);
+    await swipe(box.x+8,box.y+box.height/2,box.x+box.width-24,box.y+box.height/2);
     await expect.poll(()=>timeline.evaluate(n=>n.scrollLeft)).toBeLessThan(750);
     await expect(page.locator('#feedView')).toHaveClass(/mobile-reader-active/);
     await page.locator('#mobileReaderBackBtn').tap();await page.locator('#newTopicBtn').tap();
@@ -735,8 +760,11 @@ test("新闻分页刷新保留列表、焦点与阅读位置",async({page,reques
   await page.goto('/');await openTopics(page);
   await page.locator('[data-topic-id="test-acquisition"]').click();
   await expect(page.locator('.topic-news')).toHaveCount(40);
+  await request.post('/__test/topic-update',{data:{news:true,item_id:'ui-000'}});
   await page.locator('[data-topic-action="more"]').click();
   await expect(page.locator('.topic-news')).toHaveCount(65);
+  await expect(page.locator('.topic-news-open').first()).toHaveAttribute('data-topic-item','ui-000');
+  expect(await page.locator('.topic-news-open').evaluateAll(links => new Set(links.map(link => link.dataset.topicItem)).size)).toBe(65);
   const article=page.locator('.topic-news-open').last();
   await article.scrollIntoViewIfNeeded();
   await page.locator('#topicListScroll').evaluate(n=>n.scrollTop=120);

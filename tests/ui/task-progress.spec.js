@@ -215,7 +215,7 @@ for(const width of [390,1440]) test('点击任务进入对应主题和报告，�
   const writes=[];page.on('request',request=>{if(request.method()!=='GET')writes.push(request.url());});
   await page.locator('[data-task-id="test-acquisition"]').click();
   await expect(page.locator('#detailPanelTopics')).toHaveClass(/active/);
-  await expect(page.locator('#topicContent .article-title')).toHaveText('北辰科技收购远川数据');
+  await expect(page.locator('#detailPanelTopics')).toHaveAccessibleName('主题详情 · 北辰科技收购远川数据');
   await expect(panel(page)).toBeHidden();
   await indicator(page).focus();await page.locator('[data-task-id="report-evening"]').click();
   await expect(page.locator('#reportContent h1')).toHaveText('合成晚报');
