@@ -143,13 +143,13 @@ def test_end_to_end_fake_runtime_no_source_changes(tmp_path):
     db = Path(record['db_path'])
     before=db.read_bytes()
     def run(config,prompt,**kw):
-        assert config['model']=='fake' and config['provider']=='custom' and kw['ephemeral']
+        assert config == {'model': 'fake', 'sandbox': 'read-only'} and kw['ephemeral']
         if '此次片段：\n' in prompt:
             parts=json.loads(prompt.split('此次片段：\n')[1])
             return tool.encode({'rows':[row(p) for p in parts]}), ''
         facts=json.loads(prompt.split('事实：\n')[1])
         return tool.encode({'events':[dict(title=f['title'],topic=f['topic'],refs=[f['ref']],display_refs=[f['ref']],link_reason='独立报道',link_quotes=[]) for f in facts], 'excluded':[]}), ''
-    result=tool.generate(tmp_path/'out', {'model':'fake','provider':'custom'}, run=run)
+    result=tool.generate(tmp_path/'out', {'model':'fake'}, run=run)
     assert result['processed_fragments']==result['fragment_count']==2
     assert len(result['items'])==2
     assert (tmp_path/'out'/'complete.json').exists()
@@ -222,10 +222,10 @@ def test_program_retrieves_exact_source_span_and_resume(tmp_path):
             return tool.encode({'rows':rows}), ''
         facts=json.loads(prompt.split('事实：\n')[1])
         return tool.encode({'events':[dict(title=f['title'],topic=f['topic'],refs=[f['ref']],display_refs=[f['ref']],link_reason='独立报道',link_quotes=[]) for f in facts], 'excluded':[]}), ''
-    tool.generate(out, {'model':'fake','provider':'custom'}, run=run)
+    tool.generate(out, {'model':'fake'}, run=run)
     def no_calls(*a, **kw):
         raise AssertionError('validated cache must resume without a model call')
-    assert tool.generate(out, {'model':'fake','provider':'custom'}, run=no_calls)['processed_fragments'] == len(parts)
+    assert tool.generate(out, {'model':'fake'}, run=no_calls)['processed_fragments'] == len(parts)
     assert isinstance(tool.load(out/'batch-001.json')['result'], dict)
 
 
@@ -270,7 +270,7 @@ def test_simple_single_call_same_facts_and_no_source_writes(tmp_path):
         assert 'quote_start' not in prompt
         return tool.encode(simple_result(record)), ''
     out = tmp_path / 'out'
-    result = tool.generate_simple(out, {'model': 'fake', 'provider': 'custom'}, run=run)
+    result = tool.generate_simple(out, {'model': 'fake'}, run=run)
     assert result == {'input_count': 2, 'event_count': 1, 'cited_count': 2}
     assert len(calls) == 1
     assert len(tool.load(out / 'input-manifest.json')['items']) == 2
@@ -283,7 +283,7 @@ def test_simple_single_call_same_facts_and_no_source_writes(tmp_path):
         assert 'href="#N0001"' in html and '<a id="N0001"></a>' in html
     assert db.read_bytes() == before
     assert tool.verify_source(out)
-    tool.generate_simple(out, {'model': 'fake', 'provider': 'custom'}, run=run)
+    tool.generate_simple(out, {'model': 'fake'}, run=run)
     assert len(calls) == 1
 
 

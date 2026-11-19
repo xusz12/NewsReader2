@@ -71,7 +71,7 @@ def test_no_single_fits_or_empty():
 
 @pytest.mark.parametrize("runtime",["codex","pi"])
 def test_actual_encoding_without_review_reserve(runtime):
-    config={"runtime":runtime,"limits":sel.limits(),"pi_provider":"synthetic","pi_model":"synthetic"}
+    config={"runtime":runtime,"limits":sel.limits(),"codex":{"model":"synthetic"},"pi_provider":"synthetic","pi_model":"synthetic"}
     s=snap([row(1,summary="文"*100000),row(2,summary="文"*100000),row(3,summary="文"*100000)])
     r=ns.clean_for_runtime(s,config,TODAY)
     budget=r["scope"]["input_budget"]
@@ -81,7 +81,7 @@ def test_actual_encoding_without_review_reserve(runtime):
     assert budget["generation_bytes"]==ns.encoded_input_size(ns.draft_prompt(r),config)
 
 def test_huge_latest_not_silently_skip_or_truncate():
-    config={"runtime":"codex","limits":sel.limits()}
+    config={"runtime":"codex","limits":sel.limits(),"codex":{"model":"synthetic"}}
     with pytest.raises(ValueError,match="summary_input_limit"):
         ns.clean_for_runtime(snap([row(1,"2026-10-12"),row(2,body="文"*800000)]),config,TODAY)
 
@@ -94,9 +94,9 @@ def test_unknown_dates_require_no_machine_report():
 
 @pytest.mark.parametrize("runtime",["codex","pi"])
 def test_single_call_budget_uses_capacity_previously_reserved_for_review(runtime):
-    config={"runtime":runtime,"limits":sel.limits(),"pi_provider":"synthetic","pi_model":"synthetic"}
+    config={"runtime":runtime,"limits":sel.limits(),"codex":{"model":"synthetic"},"pi_provider":"synthetic","pi_model":"synthetic"}
     # ~1.6MiB input would not fit with the old review/draft reserve.
-    rows=[row(1,summary="文"*(530000 if runtime=="codex" else 265000))]
+    rows=[row(1,summary="文"*530000)]
     result=ns.clean_for_runtime(snap(rows),config,TODAY)
     assert len(result["items"])==1
     assert 1500000<result["scope"]["input_budget"]["generation_bytes"]<ns.MAX_INPUT_BYTES-4096
