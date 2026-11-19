@@ -1,4 +1,6 @@
 
+from nr import agent_sessions
+
 from nr import configuration
 import json
 import os
@@ -20,11 +22,11 @@ def test_pi_effort_persists_per_feature_and_reaches_task_snapshots(tmp_path, mon
     pi = {"provider": "fixture", "model": "model", "reasoning_effort": effort}
     value["llm"]["pi_chat"] = pi.copy()
     value["feature_models"] = {name: {"runtime": "pi", "pi": pi.copy()} for name in settings.MODEL_FEATURES}
-    saved = app.catalogs.validate_runtime_settings(value)
+    saved = app.runtime.preferences.validate_runtime_settings(value)
     settings.save_app_settings(saved)
     loaded = configuration.current_runtime_settings()
     assert loaded["llm"]["pi_chat"] == pi
-    assert app._agent_executor_settings()["executor_config"] == {"reasoning_effort": effort}
+    assert agent_sessions._agent_executor_settings()["executor_config"] == {"reasoning_effort": effort}
     for feature in ("topics", "summaries"):
         captured = news_summaries.capture_config(loaded, feature)
         assert captured["pi_reasoning_effort"] == effort
@@ -57,7 +59,7 @@ def test_unsupported_effort_cannot_be_saved_or_tested(monkeypatch):
     for payload in ({"llm": {**value["llm"], "pi_chat": selected}},
                     {"llm": value["llm"], "feature_models": {"topics": {"pi": selected}}}):
         with pytest.raises(ValueError, match="invalid_pi_reasoning_effort"):
-            app.catalogs.validate_runtime_settings(payload)
+            app.runtime.preferences.validate_runtime_settings(payload)
 
 
 def test_sdk_catalog_reads_logout_and_model_capabilities_without_inference(tmp_path, monkeypatch):

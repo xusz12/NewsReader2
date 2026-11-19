@@ -1,4 +1,7 @@
 
+import source_deletion
+from nr import agent_sessions, article_fetch
+
 from nr import database
 import importlib
 from legacy_news_seed import seed_news, confirm_all_read
@@ -33,10 +36,10 @@ def env(tmp_path, monkeypatch):
     import app
     importlib.reload(app)
     app.ensure_db()
-    app.ensure_agent_db()
+    app.runtime.sessions.ensure_agent_db()
     client = app.app.test_client()
     assert seed_news(client).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         items = [dict(r) for r in conn.execute("SELECT * FROM items ORDER BY published_at")]
     return app, client, items, source
 
@@ -55,7 +58,7 @@ def seed_data(app, items):
     stamp = database.now_ts()
     for index, item in enumerate(items):
         url, ident = item["url"], item["id"]
-        with app.data.connect() as conn:
+        with app.runtime.db.connect() as conn:
             conn.execute("INSERT INTO article_details(url,content,raw_json,fetched_at,updated_at) VALUES (?,?,?,?,?)", (url, "正文" * 200, "{}", stamp, stamp))
             conn.execute("INSERT INTO article_ai(url,body_zh,updated_at) VALUES (?,?,?)", (url, "译文", stamp))
             conn.execute("INSERT INTO article_notes VALUES (?,?,?,?)", (url, "旧想法", stamp, stamp))
@@ -65,8 +68,8 @@ def seed_data(app, items):
             conn.execute("INSERT INTO item_state(item_id,favorite_at,read_at,updated_at) VALUES (?,?,?,?)", (ident, stamp, stamp, stamp))
             conn.execute("INSERT INTO detail_jobs(url,item_id,status,updated_at) VALUES (?,?,?,?)", (url, ident, "pending", stamp))
             conn.execute("INSERT INTO ai_jobs(url,status,updated_at) VALUES (?,?,?)", (url, "pending", stamp))
-        with app.data.agent_connect() as conn:
-            for scope in [app.agent_library_scope(), "another-library"]:
+        with app.runtime.db.agent_connect() as conn:
+            for scope in [app.runtime.sessions.agent_library_scope(), "another-library"]:
                 session = f"{index}-{scope}"
                 conn.execute("""INSERT INTO agent_sessions(id,item_id,url,provider,context_hash,context_json,status,created_at,last_activity_at,expires_at,updated_at,db_scope)
                     VALUES (?,?,?,'pi','hash','{}','active',?,?,?, ?,?)""", (session, ident, url, stamp, stamp, "2099-01-01", stamp, scope))
@@ -74,7 +77,7 @@ def seed_data(app, items):
                 conn.execute("INSERT INTO agent_messages(session_id,job_id,role,content,created_at,updated_at) VALUES (?,?,'user','hello',?,?)", (session, session, stamp, stamp))
                 conn.execute("INSERT INTO agent_notifications(id,db_scope,item_id,session_id,job_id,message_id,title,preview,kind,created_at) VALUES (?,?,?,?,?,1,'title','preview','reply',?)", (session, scope, ident, session, session, stamp))
                 # The first turn can create its directory before executor_session_id is saved.
-                runtime = app.data.agent_dir / app._full_pi_executor_session_id(session)
+                runtime = app.runtime.db.agent_dir / agent_sessions._full_pi_executor_session_id(session)
                 runtime.mkdir()
                 (runtime / "context.json").write_text("context " * 20)
 
@@ -93,16 +96,16 @@ def test_preview_and_deletion_cover_related_data_and_preserve_other_sources(env)
     assert response.status_code == 200, response.json
     assert response.json["deleted"]["data_bytes"] == data["data_bytes"]
     assert response.json["feed_source_subkeys"]["groups"][0]["items"][0]["key"] == "reuters/business"
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         for table in ("items", "item_state", "article_details", "article_ai", "article_notes", "article_note_entries",
                       "article_note_metadata", "article_highlights", "detail_jobs", "ai_jobs", "item_classifications", "topic_ingestions"):
             assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table
         assert conn.execute("SELECT item_count FROM source_files").fetchone()[0] == 1
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         for table in ("agent_sessions", "agent_messages", "agent_jobs", "agent_notifications"):
             assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 4, table
-    assert not (app.data.agent_dir / app._full_pi_executor_session_id(f"0-{app.agent_library_scope()}")).exists()
-    assert (app.data.agent_dir / app._full_pi_executor_session_id("0-another-library")).exists()
+    assert not (app.runtime.db.agent_dir / agent_sessions._full_pi_executor_session_id(f"0-{app.runtime.sessions.agent_library_scope()}")).exists()
+    assert (app.runtime.db.agent_dir / agent_sessions._full_pi_executor_session_id("0-another-library")).exists()
     assert client.get("/api/settings/sources/reuters/world").status_code == 404
 
 
@@ -111,7 +114,7 @@ def test_confirmation_required_without_deleting_anything(env, body):
     app, client, items, _ = env
     response = client.delete("/api/settings/sources/reuters/world", json=body)
     assert response.status_code == 400
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == len(items)
 
 
@@ -119,7 +122,7 @@ def test_stale_preview_and_wrong_source_token_are_rejected(env):
     app, client, items, _ = env
     data = preview(client)
     assert delete(client, data, "reuters/business").status_code == 409
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("UPDATE items SET title='Changed' WHERE id=?", (items[0]["id"],))
     assert delete(client, data).json["error"] == "source_data_changed"
     assert delete(client).status_code == 200
@@ -129,9 +132,9 @@ def test_preview_is_bound_to_library_even_with_identical_rows(env, tmp_path, mon
     app, client, _, _ = env
     data = preview(client)
     replacement = tmp_path / "other.sqlite3"
-    with app.data.connect() as source, sqlite3.connect(replacement) as target:
+    with app.runtime.db.connect() as source, sqlite3.connect(replacement) as target:
         source.backup(target)
-    monkeypatch.setattr(app.data, 'path', replacement)
+    monkeypatch.setattr(app.runtime.db, 'path', replacement)
     assert delete(client, data).status_code == 409
 
 
@@ -143,7 +146,7 @@ def test_deleted_news_stays_deleted_while_same_source_new_news_is_imported(env):
     source.write_text(source.read_text() + "\n")
     for full in [False, True]:
         assert seed_news(client, json={"full": full}).status_code == 200
-        with app.data.connect() as conn:
+        with app.runtime.db.connect() as conn:
             assert [row[0] for row in conn.execute("SELECT id FROM items")] == [items[-1]["id"]]
     sidecar = source.with_suffix(".newsreader.json")
     rows = [{"section": "Reuters · World", "title": "New World", "url": "https://reuters.com/world/new", "published_at": "2026-11-01 12:00:00", "item_order": 1},
@@ -151,12 +154,12 @@ def test_deleted_news_stays_deleted_while_same_source_new_news_is_imported(env):
     sidecar.write_text(json.dumps({"schema_version": "newsreader.daily.v1", "items": rows}))
     for full in [False, True]:
         assert seed_news(client, json={"full": full}).status_code == 200
-        with app.data.connect() as conn:
+        with app.runtime.db.connect() as conn:
             assert [r[0] for r in conn.execute("SELECT title FROM items")] == ["New World"]
     assert preview(client)["news_count"] == 1  # The source reappears for newly imported news.
     assert delete(client).status_code == 200
     assert seed_news(client, json={"full": True}).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 3
 
@@ -176,7 +179,7 @@ def test_new_items_in_old_and_new_markdown_files_are_not_blocked_by_date(env):
 """)
     for full in [False, True]:
         assert seed_news(client, json={"full": full}).status_code == 200
-        with app.data.connect() as conn:
+        with app.runtime.db.connect() as conn:
             assert {row[0] for row in conn.execute("SELECT title FROM items")} == {'Business', 'Late arrival', 'Next day'}
             assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 2
 
@@ -184,38 +187,38 @@ def test_new_items_in_old_and_new_markdown_files_are_not_blocked_by_date(env):
 def test_deletion_fingerprints_are_compact_deduplicated_and_persist_after_restart(env):
     app, client, items, source = env
     assert delete(client).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert [row[1] for row in conn.execute("PRAGMA table_info(deleted_news_items)")] == ['fingerprint']
         rows = conn.execute("SELECT typeof(fingerprint),length(fingerprint) FROM deleted_news_items").fetchall()
         assert [tuple(row) for row in rows] == [('blob', 32), ('blob', 32)]
-        conn.execute("INSERT OR IGNORE INTO deleted_news_items VALUES (?)", (app.source_deletion.item_fingerprint(items[0]['id']),))
+        conn.execute("INSERT OR IGNORE INTO deleted_news_items VALUES (?)", (source_deletion.item_fingerprint(items[0]['id']),))
         assert conn.execute("SELECT COUNT(*) FROM deleted_news_items").fetchone()[0] == 2
         assert 'WITHOUT ROWID' in conn.execute("SELECT sql FROM sqlite_master WHERE name='deleted_news_items'").fetchone()[0]
     app.ensure_db()
     assert seed_news(client, json={"full": True}).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert [r[0] for r in conn.execute("SELECT id FROM items")] == [items[-1]['id']]
 
 
 def test_shared_url_content_is_preserved_and_job_rebound(env):
     app, client, items, _ = env
     seed_data(app, items)
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("UPDATE items SET url=? WHERE id=?", (items[0]["url"], items[-1]["id"]))
     data = preview(client)
     assert data["shared_article_count"] == 1
     assert data["counts"]["article_details"] == 1
     assert delete(client, data).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute("SELECT content FROM article_details WHERE url=?", (items[0]["url"],)).fetchone()
         assert conn.execute("SELECT item_id FROM detail_jobs WHERE url=?", (items[0]["url"],)).fetchone()[0] == items[-1]["id"]
 
 
 def seed_media(app, items):
-    app.data.media_dir.mkdir(exist_ok=True)
-    with app.data.connect() as conn:
+    app.runtime.db.media_dir.mkdir(exist_ok=True)
+    with app.runtime.db.connect() as conn:
         for index, name in enumerate(["exclusive", "shared"]):
-            (app.data.media_dir / name).write_bytes(b"image" * 40)
+            (app.runtime.db.media_dir / name).write_bytes(b"image" * 40)
             conn.execute("INSERT INTO media_cache VALUES (?,?,?,'image/jpeg',200,'success',?, ?,NULL)",
                          ("https://pbs.twimg.com/media/" + name, name, name, database.now_ts(), database.now_ts()))
         conn.execute("UPDATE article_details SET raw_json=? WHERE url=?", ('{"images":["https://pbs.twimg.com/media/exclusive","https://pbs.twimg.com/media/shared"]}', items[0]["url"]))
@@ -230,8 +233,8 @@ def test_media_size_counts_and_deletes_only_owned_files(env):
     assert data["file_bytes"] == 520
     assert data["counts"]["media_cache"] == 1
     assert delete(client, data).status_code == 200
-    assert not (app.data.media_dir / "exclusive").exists()
-    assert (app.data.media_dir / "shared").stat().st_size == 200
+    assert not (app.runtime.db.media_dir / "exclusive").exists()
+    assert (app.runtime.db.media_dir / "shared").stat().st_size == 200
 
 
 def test_failed_transaction_restores_staged_files_and_rows(env, monkeypatch):
@@ -241,10 +244,10 @@ def test_failed_transaction_restores_staged_files_and_rows(env, monkeypatch):
     data = preview(client)
     def fail(*args):
         raise sqlite3.OperationalError("test failure")
-    monkeypatch.setattr(app.source_deletion.Plan, "delete_rows", fail)
+    monkeypatch.setattr(source_deletion.Plan, "delete_rows", fail)
     assert delete(client, data).status_code == 500
     assert preview(client) == data
-    assert (app.data.media_dir / "exclusive").stat().st_size == 200
+    assert (app.runtime.db.media_dir / "exclusive").stat().st_size == 200
 
 
 @pytest.mark.parametrize("worker", ["detail", "ai"])
@@ -252,7 +255,7 @@ def test_inflight_worker_cannot_recreate_deleted_data(env, monkeypatch, worker):
     app, client, items, _ = env
     seed_data(app, items)
     # Ensure the first selected job belongs to the deleted source.
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("UPDATE detail_jobs SET queued_at=?", ("2026-11-01 00:00:00",))
         conn.execute("UPDATE ai_jobs SET queued_at=?", ("2026-11-01 00:00:00",))
     def finish(*args, **kwargs):
@@ -260,25 +263,25 @@ def test_inflight_worker_cannot_recreate_deleted_data(env, monkeypatch, worker):
         payload = {"content": "late", "content_length": 4, "source": "Reuters", "title": "late", "author": "", "published_at": "", "raw_json": "{}", "body_zh": "迟到的译文"}
         return (True, payload, "") if worker == "detail" else payload
     monkeypatch.setattr(app, "run_opencli_detail" if worker == "detail" else "generate_news_translation", finish)
-    assert (app.process_pending_jobs_once if worker == "detail" else app.process_pending_ai_once)()
-    with app.data.connect() as conn:
+    assert (app.runtime.details.process_pending_jobs_once if worker == "detail" else app.runtime.details.process_pending_ai_once)()
+    with app.runtime.db.connect() as conn:
         for table in ("article_details", "article_ai", "ai_jobs", "detail_jobs"):
             assert not conn.execute(f"SELECT 1 FROM {table} WHERE url=?", (items[0]["url"],)).fetchone()
 
 
 def test_missing_agent_job_means_cancelled_and_late_media_is_discarded(env, monkeypatch):
     app, client, items, _ = env
-    assert app._agent_cancel_requested("deleted-job")
+    assert app.runtime.agent._agent_cancel_requested("deleted-job")
     def download(url, target):
         assert delete(client).status_code == 200
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"late-image")
         return True, "image/jpeg", 10
-    monkeypatch.setattr(app, "_download_media_file", download)
-    with app.data.connect() as conn:
-        assert app._cache_twitter_image(conn, "https://pbs.twimg.com/media/late.jpg", article_url=items[0]["url"]) is None
+    monkeypatch.setattr(article_fetch, '_download_media_file', download)
+    with app.runtime.db.connect() as conn:
+        assert app.runtime.fetcher._cache_twitter_image(conn, "https://pbs.twimg.com/media/late.jpg", article_url=items[0]["url"]) is None
         assert conn.execute("SELECT COUNT(*) FROM media_cache").fetchone()[0] == 0
-    assert not list(app.data.media_dir.rglob("*.*"))
+    assert not list(app.runtime.db.media_dir.rglob("*.*"))
 
 
 def test_deleted_article_cannot_start_new_media_downloads(env, monkeypatch):
@@ -286,15 +289,15 @@ def test_deleted_article_cannot_start_new_media_downloads(env, monkeypatch):
     assert delete(client).status_code == 200
     def must_not_download(*args):
         pytest.fail('Deleted article attempted to download media')
-    monkeypatch.setattr(app, '_download_media_file', must_not_download)
-    with app.data.connect() as conn:
-        assert app._cache_twitter_image(conn, 'https://pbs.twimg.com/media/gone.jpg', article_url=items[0]['url']) is None
+    monkeypatch.setattr(article_fetch, '_download_media_file', must_not_download)
+    with app.runtime.db.connect() as conn:
+        assert app.runtime.fetcher._cache_twitter_image(conn, 'https://pbs.twimg.com/media/gone.jpg', article_url=items[0]['url']) is None
 
 
 def test_related_topic_reminder_checkpoint_and_review_rows_are_removed(env):
     app, client, items, _ = env
     item, stamp = items[0], database.now_ts()
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("INSERT INTO classification_progress_items VALUES (?,'hash','rules')", (item["id"],))
         conn.execute("INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,updated_at) VALUES ('topic',?,1,'hash','{}',1)", (item["id"],))
         conn.execute("INSERT INTO topic_node_items VALUES ('node',?)", (item["id"],))
@@ -307,7 +310,7 @@ def test_related_topic_reminder_checkpoint_and_review_rows_are_removed(env):
             conn.execute("INSERT INTO review_events(chain_id,event_type,event_date,created_at) VALUES (?,'progress',?,?)", (ident,stamp,stamp))
             conn.execute("INSERT INTO review_evidence(chain_id,news_title,news_url,added_at) VALUES (?,'test',?,?)", (ident,item["url"],stamp))
     assert delete(client).status_code == 200
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         for table in ('classification_progress_items','topic_checks','topic_node_items','tracked_topic_items',
                       'reading_checkpoints','news_reminders','review_chains','review_versions','review_events','review_evidence'):
             assert conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0] == 0, table
@@ -320,7 +323,7 @@ def test_large_source_uses_no_sql_parameter_limit_and_media_paths_cannot_escape(
     seed_media(app, items)
     outside = tmp_path / 'outside.jpg'
     outside.write_bytes(b'keep')
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("UPDATE media_cache SET relative_path='../outside.jpg' WHERE cache_key='exclusive'")
         for index in range(1200):
             conn.execute("""INSERT INTO items SELECT ?,source_file,item_order,published_at,date,time,source,source_type,
@@ -334,7 +337,7 @@ def test_large_source_uses_no_sql_parameter_limit_and_media_paths_cannot_escape(
 def test_legacy_notes_and_entries_are_counted_without_double_counting(env):
     app, client, items, _ = env
     seed_data(app, items)
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('DELETE FROM article_note_entries WHERE url=?', (items[0]['url'],))
     data = preview(client)
     assert data['note_count'] == 2

@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
-from feed_sources import visible_news_sql
+
 from flask import jsonify, request
 
+from feed_sources import visible_news_sql
 from nr import configuration, database, reader_items, tracked_rules
 
 
@@ -422,7 +423,7 @@ def tracked_topic_timeline_items(conn: sqlite3.Connection, topic_id: int) -> lis
     return items
 
 
-def register(app, db_conn):
+def register(app, db):
     def parse_tracked_topic_body(body: dict, *, partial: bool = False) -> dict:
         payload: dict[str, object] = {}
         if not partial or "title" in body:
@@ -498,7 +499,7 @@ def register(app, db_conn):
 
     @app.get("/api/tracked-topics")
     def api_tracked_topics():
-        conn = db_conn()
+        conn = db.connect()
         try:
             topics = load_tracked_topics(conn)
         finally:
@@ -514,7 +515,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": str(exc)}), 400
 
         ts = database.now_ts()
-        conn = db_conn()
+        conn = db.connect()
         try:
             with conn:
                 cur = conn.execute(
@@ -553,7 +554,7 @@ def register(app, db_conn):
         if not payload:
             return jsonify({"ok": False, "error": "empty_patch"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = load_tracked_topic(conn, topic_id)
             if not existing:
@@ -599,7 +600,7 @@ def register(app, db_conn):
 
     @app.delete("/api/tracked-topics/<int:topic_id>")
     def api_tracked_topics_delete(topic_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = load_tracked_topic(conn, topic_id)
             if not existing:
@@ -613,7 +614,7 @@ def register(app, db_conn):
 
     @app.get("/api/tracked-topics/<int:topic_id>/items")
     def api_tracked_topic_items(topic_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             topic = load_tracked_topic(conn, topic_id)
             if not topic:
@@ -631,7 +632,7 @@ def register(app, db_conn):
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             topic = load_tracked_topic(conn, topic_id)
             if not topic:
@@ -666,7 +667,7 @@ def register(app, db_conn):
         if item_id.startswith("trend_note:"):
             return jsonify({"ok": False, "error": "invalid_item_id"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             topic = load_tracked_topic(conn, topic_id)
             if not topic:
@@ -702,7 +703,7 @@ def register(app, db_conn):
         if not isinstance(hidden, bool):
             return jsonify({"ok": False, "error": "invalid_hidden"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             topic = load_tracked_topic(conn, topic_id)
             if not topic:

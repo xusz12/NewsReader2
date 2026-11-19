@@ -1,16 +1,15 @@
 from __future__ import annotations
 
+import sqlite3
+from datetime import datetime
+
 import news_classification
 import news_versions
 import report_reader
-import sqlite3
-from datetime import datetime
 from feed_sources import derive_source_key, visible_news_sql
 
 
 ITEM_DATE_SQL = "COALESCE(NULLIF(items.date, ''), substr(items.published_at, 1, 10))"
-
-
 NEWS_SORT_ORDERS = {"default", "reverse"}
 
 

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import math
+import sqlite3
+from contextlib import closing
+
+from flask import jsonify, request
+
 import news_classification
 import news_collection
 import news_query
-import sqlite3
 import topic_tracking
-from contextlib import closing
 from feed_sources import derive_source_key, source_label_for_key, visible_news_sql
-from flask import jsonify, request
-
 from nr import configuration, ideas, reader_items, reviews
 
 
@@ -18,15 +19,11 @@ COALESCE(NULLIF(items.date, ''), substr(items.published_at, 1, 10)) ASC,
 items.published_at ASC,
 items.id ASC
 """
-
-
 NON_FEED_NEWS_ORDER_BY_SQL = """
 COALESCE(NULLIF(items.date, ''), substr(items.published_at, 1, 10)) DESC,
 items.published_at DESC,
 items.id DESC
 """
-
-
 IDEA_TYPE_FILTERS = {"all", "article", "trend", "standalone"}
 
 
@@ -261,10 +258,10 @@ def source_counts(rows):
     return [{"key": key, "label": labels[key], "count": counts[key]} for key in keys]
 
 
-def register(app, db_conn):
+def register(app, db):
     @app.get("/api/nav-summary")
     def api_nav_summary():
-        conn = db_conn()
+        conn = db.connect()
         try:
             return jsonify({"ok": True, "summary": load_nav_summary(conn)})
         finally:
@@ -305,7 +302,7 @@ def register(app, db_conn):
                               sort_order, page, per, cursor_mode=False, cursor=None):
         combined = request.args.get("include_facets") == "1"
         count_only = request.args.get("count_only") == "1"
-        with closing(db_conn()) as conn:
+        with closing(db.connect()) as conn:
             try:
                 batch, clause, batch_args = news_batch_filter(conn, item_lookup=collection in {"favorites", "important"})
             except ValueError as exc:
@@ -359,7 +356,7 @@ def register(app, db_conn):
             error = "invalid_idea_type" if str(exc) == "invalid_idea_type" else "invalid_sort_order"
             return jsonify({"ok": False, "error": error}), 400
 
-        with closing(db_conn()) as conn:
+        with closing(db.connect()) as conn:
             conn.execute("BEGIN")
             selection = news_query.select_idea_page(
                 conn, idea_type, reading_only=request.args.get("reading_only") == "1",
@@ -477,7 +474,7 @@ def register(app, db_conn):
         where_sql, args = _build_news_where_clause(q, "all" if include_catalog else read_filter, collection, "all")
         joins = news_query.filter_joins(collection)
         detail = "ad.url IS NOT NULL" if collection == "read_later" else "0"
-        with closing(db_conn()) as conn:
+        with closing(db.connect()) as conn:
             rows = conn.execute(f"""SELECT items.url,items.source_type,items.source,
                 st.read_at,st.read_later_at,st.read_later_done_at,{detail} AS detail_ready
                 FROM items {joins} {where_sql}""", args).fetchall()

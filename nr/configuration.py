@@ -5,6 +5,7 @@ import model_apis
 import news_summaries
 import pi_models
 from feed_sources import normalize_hidden_source_subkeys
+from nr import tracked_rules
 from settings import (
     default_app_settings,
     load_app_settings,
@@ -12,12 +13,8 @@ from settings import (
     normalize_feature_models,
 )
 
-from nr import tracked_rules
-
 
 AGENT_SESSION_TTL_OPTIONS = (24, 72)
-
-
 _DEPRECATED_DEEPSEEK_MODELS = {
     "deepseek-chat": "deepseek-v4-flash",
     "deepseek-reasoner": "deepseek-v4-pro",

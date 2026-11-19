@@ -1,3 +1,5 @@
+
+import trading_calendar
 import hashlib
 import importlib
 import json
@@ -546,17 +548,17 @@ def api(tmp_path, monkeypatch):
 
 
 def add(module, ident, published="2026-11-08 12:00:00"):
-    with closing(module.data.connect()) as conn, conn:
+    with closing(module.runtime.db.connect()) as conn, conn:
         conn.execute("INSERT INTO items VALUES (?,'',0,?,?,'12:00','Reuters','reuters','Reuters','测试新闻','',?,'now','now')", (ident,published,published[:10],f"https://example.com/{ident}"))
 
 
 def test_application_start_resumes_collection_without_a_browser_request(api, service, monkeypatch):
     module, _ = api
-    monkeypatch.setattr(module.background, 'collection', service)
-    monkeypatch.setattr(module, "start_detail_worker", lambda: None)
-    monkeypatch.setattr(module, "start_agent_worker", lambda: None)
-    monkeypatch.setattr(module.background.classification, "configure", lambda **_: None)
-    for other in (module.background.classification, module.background.topics, module.background.reports, module.trading_calendar.SERVICE):
+    monkeypatch.setattr(module.runtime.jobs, 'collection', service)
+    monkeypatch.setattr(module.runtime.details, 'start_detail_worker', lambda: None)
+    monkeypatch.setattr(module.runtime.agent, 'start_agent_worker', lambda: None)
+    monkeypatch.setattr(module.runtime.jobs.classification, "configure", lambda **_: None)
+    for other in (module.runtime.jobs.classification, module.runtime.jobs.topics, module.runtime.jobs.reports, trading_calendar.SERVICE):
         monkeypatch.setattr(other, "start", lambda: None)
     service.request()
 
@@ -583,9 +585,9 @@ def test_application_start_resumes_collection_without_a_browser_request(api, ser
 
 def test_manual_report_does_not_start_collection(api, monkeypatch):
     module, client = api
-    monkeypatch.setattr(module.background.reports, "create_manual", lambda *_: {"id": "report"})
-    monkeypatch.setattr(module.background.reports, "start", lambda: None)
-    monkeypatch.setattr(module.background.collection, "start", lambda: pytest.fail("report must not start collection"))
+    monkeypatch.setattr(module.runtime.jobs.reports, "create_manual", lambda *_: {"id": "report"})
+    monkeypatch.setattr(module.runtime.jobs.reports, "start", lambda: None)
+    monkeypatch.setattr(module.runtime.jobs.collection, "start", lambda: pytest.fail("report must not start collection"))
     assert client.post("/api/reports/manual", json={"kind": "morning"}).status_code == 202
 
 
@@ -791,7 +793,7 @@ def test_collection_history_invalid_item_is_not_reported_as_a_duplicate(service)
 
 def test_collection_history_api_dates_and_lightweight_badge(api, service, monkeypatch):
     module, client = api
-    monkeypatch.setattr(module.background, 'collection', service)
+    monkeypatch.setattr(module.runtime.jobs, 'collection', service)
     service.request(); service.collect_once()
     response = client.get("/api/error-stats?details=1")
     assert response.status_code == 200
@@ -906,7 +908,7 @@ def test_unresolved_translation_stays_visible_across_days_and_clears_on_retry(se
 
 def test_scoped_retry_api_rejects_bad_targets_without_retrying_other_failures(api, service, monkeypatch):
     module, client = api
-    monkeypatch.setattr(module.background, 'collection', service)
+    monkeypatch.setattr(module.runtime.jobs, 'collection', service)
     service.translator = lambda *_: (_ for _ in ()).throw(RuntimeError("HTTP_429"))
     run = service.request(); service.collect_once(); service.translate_once()
     endpoint = "/api/collection/retry-translation"

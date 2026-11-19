@@ -1,4 +1,6 @@
 """News chat supplies material once and leaves native conversations in control."""
+
+from nr import news_chat
 import json
 
 import pytest
@@ -27,7 +29,7 @@ def test_native_followups_keep_session_and_only_add_new_user_input(tmp_path, mon
         assert response.status_code == 202
         session_id = session_id or response.json['session']['id']
         assert response.json['session']['id'] == session_id
-        assert app.process_pending_agent_once()
+        assert app.runtime.agent.process_pending_agent_once()
         assert client.get(path + '/session').json['jobs'][-1]['status'] == 'succeeded'
 
     calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -69,7 +71,7 @@ def test_native_followups_keep_session_and_only_add_new_user_input(tmp_path, mon
 ])
 def test_legacy_chat_prompt_uses_material_without_answering_rules(tmp_path, monkeypatch, level, label):
     app, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    prompt = app.build_chat_prompt(title='标题', source='来源', published_at='2026-10-27',
+    prompt = news_chat.build_chat_prompt(title='标题', source='来源', published_at='2026-10-27',
                                   content='测试新闻资料', question='我的问题', context_level=level)
     assert prompt == (
         '新闻标题：标题\n新闻来源：来源\n发布时间：2026-10-27\n原文链接：\n'

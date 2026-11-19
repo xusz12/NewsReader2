@@ -163,7 +163,7 @@ def test_apply_schema_creates_news_reminders_table_and_indexes(tmp_path: Path, m
     app_module.ensure_db()
     app_module.ensure_db()
 
-    conn = app_module.data.connect()
+    conn = app_module.runtime.db.connect()
     try:
         tables = {
             row["name"]

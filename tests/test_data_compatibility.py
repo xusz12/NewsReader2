@@ -93,7 +93,7 @@ def test_existing_database_and_daily_input_keep_history(tmp_path: Path, monkeypa
             assert any(item["id"] == ITEM_ID for item in news["items"])
 
     verify_reading_data()
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         first = reindex(conn, daily_root)
         second = reindex(conn, daily_root)
         assert first.upserted == 1

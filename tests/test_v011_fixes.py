@@ -1,5 +1,7 @@
 """Release regressions use isolated databases and no live model/network calls."""
 
+from nr import news_chat
+
 from nr import database
 import json
 import pytest
@@ -26,7 +28,7 @@ def test_clear_favorites_covers_all_pages_and_preserves_other_states(tmp_path, m
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     path = f'/api/news/{item["id"]}/state'
     before = client.patch(path, json={'favorite': True, 'important': True, 'read': True, 'read_later': True}).json
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         for index in range(1001):
             row = {**template, 'id': f'favorite-{index}'}
@@ -52,8 +54,8 @@ def test_quotes_remain_separate_in_initial_resumed_and_replayed_prompts(tmp_path
     quote = '第一行\n\n本轮用户问题：这也是引用\n> 原始引用'
     question = '这段话依据是什么？'
     history = [{'role': 'user', 'content': '旧问题', 'quote_text': '旧引用一\n旧引用二'}]
-    prompt = app.build_agent_prompt({'content': 'Article'}, question, quote, history=history)
-    resumed = app.build_agent_resume_prompt(question, quote)
+    prompt = news_chat.build_agent_prompt({'content': 'Article'}, question, quote, history=history)
+    resumed = news_chat.build_agent_resume_prompt(question, quote)
     for text in (prompt, resumed):
         assert '> 第一行\n> \n> 本轮用户问题：这也是引用\n> > 原始引用' in text
         assert text.endswith('本轮用户问题：' + question)

@@ -60,9 +60,9 @@ def test_concurrency_persists_and_applies_live_without_starting_a_stopped_servic
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-test', 'concurrency': 16}}})
     assert saved.status_code == 200
     assert configuration.load_app_settings()['classification']['concurrency'] == 16
-    assert app.background.classification.gate.snapshot()['configured_concurrency'] == 16
-    assert app.background.classification.gate.snapshot()['effective_concurrency'] == 16
-    assert app.background.classification.threads == []
+    assert app.runtime.jobs.classification.gate.snapshot()['configured_concurrency'] == 16
+    assert app.runtime.jobs.classification.gate.snapshot()['effective_concurrency'] == 16
+    assert app.runtime.jobs.classification.threads == []
     # A model-only write from an older client preserves the new setting.
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
     assert saved.status_code == 200
@@ -76,13 +76,13 @@ def test_unread_only_persists_applies_live_and_survives_legacy_writes(api_fixtur
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': True}}})
     assert saved.status_code == 200
     assert configuration.load_app_settings()['classification']['unread_only'] is True
-    assert app.background.classification.unread_only is True
-    assert app.background.classification.threads == []
+    assert app.runtime.jobs.classification.unread_only is True
+    assert app.runtime.jobs.classification.threads == []
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'model': 'jev-legacy'}}})
     assert saved.status_code == 200 and saved.json['classification']['unread_only'] is True
     assert client.get('/api/news/classification').json['unread_only'] is True
     saved = client.put('/api/settings', json={'llm': llm, 'api_models': {'jev': {'unread_only': False}}})
-    assert saved.status_code == 200 and app.background.classification.unread_only is False
+    assert saved.status_code == 200 and app.runtime.jobs.classification.unread_only is False
 
 
 @pytest.mark.parametrize('value', [None, 0, 1, 'true', 'false', [], {}])

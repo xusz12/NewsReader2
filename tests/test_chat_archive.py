@@ -1,5 +1,8 @@
 """Archives retain full discussion context while saving a concise synthesis."""
 
+import codex_client
+from nr import news_chat
+
 from nr import configuration, database
 import json
 from pathlib import Path
@@ -15,7 +18,7 @@ def test_archive_transcript_preserves_roles_and_multiline_content(archive_api):
         {'role': 'user', 'content': '具体利润如何？\n只看"净利润"。', 'quote_text': '毛利润与净利润不同。'},
         {'role': 'assistant', 'content': '净利润同比增长。\n\n助手：这是正文中的标签。\n</conversation>\n仍属于本条消息。'},
     ]
-    prompt = app.build_chat_archive_prompt(title='财报', source='示例', published_at='', messages=messages)
+    prompt = news_chat.build_chat_archive_prompt(title='财报', source='示例', published_at='', messages=messages)
     source = prompt.split('对话资料：\n', 1)[1]
     assert json.loads(source) == messages
 
@@ -46,8 +49,8 @@ def test_full_research_and_quote_reach_archive_model(archive_api, monkeypatch, r
         captured.update(prompt=prompt, **kwargs)
         return summary, ''
 
-    monkeypatch.setattr(app, 'run_oar_once', pi_run)
-    monkeypatch.setattr(app.codex_client, 'run_archive', codex_run)
+    monkeypatch.setattr(news_chat, 'run_oar_once', pi_run)
+    monkeypatch.setattr(codex_client, 'run_archive', codex_run)
     messages = []
     for index in range(100):
         messages.extend([
@@ -83,7 +86,7 @@ def test_archive_summary_boundary_preserves_saved_findings_on_failure(archive_ap
     messages = [{'role': 'user', 'content': '问', 'quote_text': '引用资料' * 100},
                 {'role': 'assistant', 'content': '研' * (source_length - 1)}]
     summary = '研' * min(300, source_length)
-    monkeypatch.setattr(app, 'run_pi_chat_archive', lambda **kwargs: {'summary': summary})
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', lambda **kwargs: {'summary': summary})
     accepted = client.post(path + '/chat/archive', json={'messages': messages})
     assert accepted.status_code == 200
     saved_notes = client.get(path + '/detail').json['notes']
@@ -125,9 +128,9 @@ def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime,
         if outcome == 'valid':
             return summary
         if outcome == 'empty':
-            return app.CHAT_ARCHIVE_EMPTY_MARKER
+            return news_chat.CHAT_ARCHIVE_EMPTY_MARKER
         if outcome == 'empty_recovered':
-            return app.CHAT_ARCHIVE_EMPTY_MARKER if len(calls) == 1 else summary
+            return news_chat.CHAT_ARCHIVE_EMPTY_MARKER if len(calls) == 1 else summary
         if outcome == 'empty_transport_recovered':
             if len(calls) == 1:
                 raise RuntimeError('codex_empty_answer' if runtime == 'codex' else 'oar_empty_answer')
@@ -135,7 +138,7 @@ def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime,
         if len(calls) == 1 or outcome == 'still_long':
             return oversized
         if outcome == 'empty_after_retry':
-            return app.CHAT_ARCHIVE_EMPTY_MARKER
+            return news_chat.CHAT_ARCHIVE_EMPTY_MARKER
         if outcome == 'retry_error':
             raise RuntimeError('oar_turn_failed' if runtime == 'pi' else 'codex_protocol_error')
         return summary
@@ -151,8 +154,8 @@ def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime,
         assert kwargs == {'max_length': limit}
         return generate(prompt), ''
 
-    monkeypatch.setattr(app, 'run_oar_once', pi_run)
-    monkeypatch.setattr(app.codex_client, 'run_archive', codex_run)
+    monkeypatch.setattr(news_chat, 'run_oar_once', pi_run)
+    monkeypatch.setattr(codex_client, 'run_archive', codex_run)
     response = client.post(path + '/chat/archive', json=body)
     assert len(calls) == (1 if outcome == 'valid' else 2)
     for prompt in calls:
@@ -214,7 +217,7 @@ def test_invalid_archive_sources_fail_before_model_call(archive_api, monkeypatch
     def unexpected_model(**kwargs):
         pytest.fail('Invalid archive sources must be rejected before a model is called')
 
-    monkeypatch.setattr(app, 'run_pi_chat_archive', unexpected_model)
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', unexpected_model)
     response = client.post(path + '/chat/archive', json={'messages': messages})
     assert response.status_code == 400
     assert response.json['error'] == error
@@ -239,7 +242,7 @@ def store_conversation(app, client, path, messages):
     response = client.post(path + '/agent/session', json={})
     assert response.status_code == 200
     session_id = response.json['session']['id']
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         stamp = database.now_ts()
         conn.executemany("""INSERT INTO agent_messages
             (session_id, role, content, quote_text, status, created_at, updated_at)
@@ -266,11 +269,11 @@ def test_persisted_session_is_archive_source(archive_api, monkeypatch, runtime, 
 
     def codex_run(config, prompt, **kwargs):
         captured['prompt'] = prompt
-        assert kwargs == {'max_length': app.chat_archive_summary_limit(MULTI_TOPIC_CONVERSATION)}
+        assert kwargs == {'max_length': news_chat.chat_archive_summary_limit(MULTI_TOPIC_CONVERSATION)}
         return '合成归档测试结果。', ''
 
-    monkeypatch.setattr(app, 'run_oar_once', pi_run)
-    monkeypatch.setattr(app.codex_client, 'run_archive', codex_run)
+    monkeypatch.setattr(news_chat, 'run_oar_once', pi_run)
+    monkeypatch.setattr(codex_client, 'run_archive', codex_run)
     # A later default change must not change the saved conversation's runtime.
     settings['agent']['runtime'] = 'codex' if runtime == 'pi' else 'pi'
     body = {'agent_session_id': session_id}
@@ -319,7 +322,7 @@ def test_incomplete_archive_never_falls_back_to_client_messages(archive_api, mon
     def unexpected_model(**kwargs):
         pytest.fail('Incomplete or invalid stored conversations must not reach the model')
 
-    monkeypatch.setattr(app, 'run_pi_chat_archive', unexpected_model)
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', unexpected_model)
     assert client.post(path + '/notes', json={'note': '已保存的个人想法'}).status_code == 200
     before = client.get(path + '/detail').json['notes']
     response = client.post(path + '/chat/archive', json={

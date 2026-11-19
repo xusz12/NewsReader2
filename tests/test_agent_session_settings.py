@@ -1,5 +1,7 @@
 """Unused Agent sessions follow saved settings; established conversations stay stable."""
 
+from nr import agent_jobs
+
 from nr import configuration
 import copy
 from concurrent.futures import ThreadPoolExecutor
@@ -48,7 +50,7 @@ def test_unused_session_adopts_current_settings_before_first_question(fixture, o
         assert response.json['messages'][0]['quote_text'] == '原文'
     else:
         assert response.json['messages'] == response.json['jobs'] == []
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM agent_sessions').fetchone()[0] == 1
 
 
@@ -57,7 +59,7 @@ def test_started_conversation_keeps_executor_and_messages_after_settings_change(
     app, client, path, settings = fixture
     configure(settings, runtime, 'original')
     first = client.post(path + '/jobs', json={'question': '首次提问'}).json
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET status='succeeded' WHERE id=?", (first['job_id'],))
         conn.execute("UPDATE agent_messages SET content='原回答', status='complete' WHERE role='assistant'")
     messages = client.get(path + '/session').json['messages']
@@ -79,12 +81,12 @@ def test_pi_session_keeps_original_thinking_level_after_settings_change(fixture,
     settings['llm']['pi_chat']['reasoning_effort'] = 'high'
     first = client.post(path + '/jobs', json={'question': '首次提问'}).json
     settings['llm']['pi_chat']['reasoning_effort'] = 'off'
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         session = dict(conn.execute('SELECT * FROM agent_sessions WHERE id=?', (first['session']['id'],)).fetchone())
         job = dict(conn.execute('SELECT * FROM agent_jobs WHERE id=?', (first['job_id'],)).fetchone())
     assert json.loads(session['executor_config'])['reasoning_effort'] == 'high'
     context = json.loads(session['context_json'])
-    assert app._agent_oar_request(job, session, context, [], tmp_path)['reasoning_effort'] == 'high'
+    assert agent_jobs._agent_oar_request(job, session, context, [], tmp_path)['reasoning_effort'] == 'high'
 
 
 def test_invalid_new_settings_do_not_silently_use_an_unused_old_executor(fixture):

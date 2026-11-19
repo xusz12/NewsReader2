@@ -28,12 +28,12 @@ def test_quote_metadata_round_trip_and_delete_cleanup(fixture):
     assert client.get(path + '/detail').json['notes'][-1] == entry
     assert '我的判断' in response.json['note']['note']
     assert client.delete(path + '/notes/' + entry['id']).json['note_count'] == 1
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM article_note_metadata').fetchone()[0] == 0
     client.post(path + '/notes', json={'note': '带译文', 'quote': {'text': '译文片段', 'source': 'translated'}})
     client.put(path + '/note', json={'note': '旧客户端整体替换'})
     assert client.get(path + '/detail').json['notes'][0]['author'] == 'user'
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM article_note_metadata').fetchone()[0] == 0
 
 
@@ -58,7 +58,7 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
     def archive(**kwargs):
         calls.append(kwargs)
         return {'provider': 'pi', 'model': 'fixture', 'summary': summary}
-    monkeypatch.setattr(app, 'run_pi_chat_archive', archive)
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', archive)
     settings = configuration.current_runtime_settings()
     settings['agent']['runtime'] = 'pi'
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)
@@ -73,7 +73,7 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
     assert '【Chat 归档｜' in response.json['note']['note']
     assert calls[0]['messages'] == payload['messages']
     assert client.get(path + '/detail').json['notes'][-1] == entry
-    monkeypatch.setattr(app, 'run_pi_chat_archive', lambda **kwargs: {'summary': ''})
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', lambda **kwargs: {'summary': ''})
     assert client.post(path + '/chat/archive', json=payload).status_code == 502
     assert len(client.get(path + '/detail').json['notes']) == 2
     client.delete(path + '/notes/' + entry['id'])
@@ -82,7 +82,7 @@ def test_archive_appends_agent_card_and_preserves_multiline_summary(fixture, mon
 
 def test_old_entries_upgrade_without_changing_text_or_times(fixture):
     app, client, item, *_ = fixture
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('DROP TRIGGER article_note_metadata_cleanup')
         conn.execute('DROP TABLE article_note_metadata')
         # Existing clients can still write all five positional values.

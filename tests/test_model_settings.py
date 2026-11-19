@@ -1,4 +1,6 @@
 
+import model_catalogs
+
 from nr import configuration
 import json
 import os
@@ -40,7 +42,7 @@ def test_feature_models_migrate_once_and_do_not_share_mutable_settings(monkeypat
         assert first['feature_models'][feature] == settings.feature_model_config(first, 'chat')
     # Saving a changed Chat choice freezes the previously inherited values.
     monkeypatch.setattr(configuration, 'load_app_settings', settings.load_app_settings)
-    saved = app.catalogs.validate_runtime_settings({'agent':{'runtime':'pi'}, 'llm':{**legacy['llm'],'pi_chat':{'provider':'new','model':'new'}}})
+    saved = app.runtime.preferences.validate_runtime_settings({'agent':{'runtime':'pi'}, 'llm':{**legacy['llm'],'pi_chat':{'provider':'new','model':'new'}}})
     settings.save_app_settings(saved)
     loaded = settings.load_app_settings()
     assert loaded['agent']['runtime'] == 'pi'
@@ -69,7 +71,7 @@ def test_feature_settings_reach_each_executor_and_preserve_chat(monkeypatch, tmp
         'summaries': {'runtime':'codex', 'codex':{**CONFIG,'model':'summary-model'}},
         'reports': {'runtime':'pi', 'pi':{'provider':'report-provider','model':'report-model'}},
     }
-    normalized = app.catalogs.validate_runtime_settings({'llm':value['llm'], 'feature_models':chosen})
+    normalized = app.runtime.preferences.validate_runtime_settings({'llm':value['llm'], 'feature_models':chosen})
     value.update(normalized)
     snapshot = client.get('/api/settings').get_json()
     assert set(snapshot['feature_model_catalogs']) == set(settings.MODEL_FEATURES)
@@ -81,15 +83,15 @@ def test_feature_settings_reach_each_executor_and_preserve_chat(monkeypatch, tmp
     assert report_model.configuration(value, resolve=False) == {'runtime':'pi','provider':'report-provider','model':'report-model'}
     response = client.post(f"/api/news/{item['id']}/agent/session", json={})
     assert response.status_code == 200
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         row = conn.execute('SELECT executor_config FROM agent_sessions WHERE id=?', (response.get_json()['session']['id'],)).fetchone()
     assert json.loads(row[0])['model'] == 'chat-model'
     # A partial edit and an older client both preserve unrelated feature choices.
-    updated = app.catalogs.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'topics':{'runtime':'codex'}}})
+    updated = app.runtime.preferences.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'topics':{'runtime':'codex'}}})
     assert updated['feature_models']['reports'] == value['feature_models']['reports']
     assert updated['feature_models']['topics']['pi'] == chosen['topics']['pi']
     assert updated['agent'] == value['agent']
-    assert app.catalogs.validate_runtime_settings({'llm':value['llm'],'agent':{'runtime':'pi'}})['feature_models'] == value['feature_models']
+    assert app.runtime.preferences.validate_runtime_settings({'llm':value['llm'],'agent':{'runtime':'pi'}})['feature_models'] == value['feature_models']
     # Report Codex settings must also come from its own feature.
     value['feature_models']['reports'].update(runtime='codex', codex={**CONFIG,'model':'report-codex'})
     assert report_model.configuration(value, resolve=False)['codex']['model'] == 'report-codex'
@@ -110,10 +112,10 @@ def test_feature_effort_validated_for_selected_model(monkeypatch):
     def validate(config):
         calls.append(config)
         raise ValueError('invalid_codex_reasoning_effort')
-    monkeypatch.setattr(app.model_catalogs, 'validate_effort', validate)
+    monkeypatch.setattr(model_catalogs, 'validate_effort', validate)
     chosen = {**CONFIG, 'reasoning_effort':'high'}
     with pytest.raises(ValueError, match='reasoning_effort'):
-        app.catalogs.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'reports':{'codex':chosen}}})
+        app.runtime.preferences.validate_runtime_settings({'llm':value['llm'], 'feature_models':{'reports':{'codex':chosen}}})
     assert calls == [chosen]
 
 
@@ -243,7 +245,7 @@ def test_new_codex_effort_reaches_summary_and_saved_session(monkeypatch,tmp_path
     import app,news_summaries
     from api_fixtures import _setup_agent_api_fixture
     app,client,item,*_=_setup_agent_api_fixture(tmp_path,monkeypatch)
-    value=app.default_app_settings()
+    value=settings.default_app_settings()
     value['agent'].update(runtime='codex',codex={**CONFIG,'reasoning_effort':'high'})
     monkeypatch.setattr(configuration,'load_app_settings',lambda:value)
     summary=news_summaries.capture_config(value)
@@ -252,7 +254,7 @@ def test_new_codex_effort_reaches_summary_and_saved_session(monkeypatch,tmp_path
     assert created.status_code==200
     sid=created.get_json()['session']['id']
     value['agent']['codex']['reasoning_effort']='low'
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         record=conn.execute('SELECT executor_config FROM agent_sessions WHERE id=?',(sid,)).fetchone()
     assert json.loads(record[0])['reasoning_effort']=='high'
 
@@ -261,7 +263,7 @@ def test_pi_sync_resume_and_archive_keep_saved_selection(monkeypatch,tmp_path):
     from api_fixtures import _setup_agent_api_fixture,_install_fake_oar
     app,client,item,*_=_setup_agent_api_fixture(tmp_path,monkeypatch)
     log=_install_fake_oar(tmp_path,monkeypatch)
-    value=app.default_app_settings();value['llm']['pi_chat']={'provider':'old-provider','model':'old-model'}
+    value=settings.default_app_settings();value['llm']['pi_chat']={'provider':'old-provider','model':'old-model'}
     monkeypatch.setattr(configuration,'load_app_settings',lambda:value)
     first=client.post(f"/api/news/{item['id']}/chat",json={'question':'first'}).get_json()
     assert first['ok'] and first['model']=='old-model'

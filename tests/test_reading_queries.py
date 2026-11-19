@@ -1,5 +1,7 @@
 """Reading filters share statistics without changing scopes or paging rules."""
 
+import feed_sources
+
 from nr import database
 
 from nr import configuration
@@ -64,7 +66,7 @@ def test_combined_sources_keep_read_sources_available_and_nav_counts_live(api):
 @pytest.mark.parametrize("collection,flag", [("favorites", "favorite"), ("important", "important")])
 def test_sparse_saved_collections_preserve_both_batch_boundaries(api, collection, flag):
     module, client = api
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         boundary = conn.execute("SELECT MAX(seq) FROM topic_ingestions").fetchone()[0]
         saved_id = conn.execute("SELECT item_id FROM topic_ingestions WHERE seq=?", (boundary,)).fetchone()[0]
     client.patch(f"/api/news/{saved_id}/state", json={flag: True})
@@ -94,7 +96,7 @@ def test_idea_cursor_keeps_unseen_rows_after_saving_boundary_and_deleting_loaded
     module, client = api
     for index in range(35):
         client.post("/api/standalone-ideas", json={"title": f"续页 {index}", "note": "同秒创建"})
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         conn.execute("UPDATE standalone_ideas SET updated_at='2026-01-01 00:00:00'")
     base = dict(type="standalone", q="续页", cursor_mode=1, per=10)
     get = lambda **args: client.get("/api/ideas?" + urlencode({**base, **args})).json
@@ -121,7 +123,7 @@ def test_idea_cursor_survives_deleted_boundary_in_both_directions(api, sort_orde
     module, client = api
     for index in range(25):
         client.post("/api/standalone-ideas", json={"note": f"边界 {index}"})
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         conn.execute("UPDATE standalone_ideas SET updated_at='2026-01-01 00:00:00'")
     base = dict(reading_only=1, cursor_mode=1, per=10, sort_order=sort_order)
     get = lambda **args: client.get("/api/ideas?" + urlencode({**base, **args})).json
@@ -146,9 +148,9 @@ def test_idea_cursor_rejects_incomplete_boundary(api, cursor):
 
 def test_lightweight_source_groups_keep_hidden_sources_without_settings_catalogs(api, monkeypatch):
     module, client = api
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         conn.execute("UPDATE items SET url='https://www.reuters.com/world/example',source='Reuters',source_name='World' WHERE id='n00'")
-    hidden = module.derive_source_subkey("https://www.reuters.com/world/example", "news", "Reuters", "World")["key"]
+    hidden = feed_sources.derive_source_subkey("https://www.reuters.com/world/example", "news", "Reuters", "World")["key"]
     settings = configuration.current_runtime_settings()
     settings["feed"]["hidden_source_subkeys"] = [hidden]
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: settings)

@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+from datetime import datetime
+
+from flask import jsonify, request
+
 import collection_environment
 import decision_protocol
 import model_apis
 import news_classification
 import news_collection
 import news_versions
-import sqlite3
 import task_progress
-from contextlib import closing
-from datetime import datetime
 from feed_sources import visible_news_sql
-from flask import jsonify, request
-
 from nr import configuration, preferences
 
 
@@ -24,8 +25,7 @@ def classification_config(provider=None) -> tuple[str, str, str]:
     return preferences.provider_secret_value(provider), model, provider
 
 
-def decision_service_status(classification):
-    service = classification
+def decision_service_status(service):
     with service.lock:
         primary = service.provider
         backup = decision_protocol.alternate(primary)

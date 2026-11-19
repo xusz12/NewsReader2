@@ -75,7 +75,7 @@ def _setup_agent_api_fixture(tmp_path: Path, monkeypatch):
     client = app_module.app.test_client()
     assert seed_news(client, json={}).status_code == 200
     item = client.get("/api/news?per=20").get_json()["items"][0]
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         stamp = database.now_ts()
         with conn:
             conn.execute(

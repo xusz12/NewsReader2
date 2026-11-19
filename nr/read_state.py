@@ -1,26 +1,27 @@
 from __future__ import annotations
 
 import json
-import news_classification
-import news_collection
-import news_versions
 import time
 import uuid
 from datetime import datetime
-from feed_sources import is_bloomberg_video_url, visible_news_sql
+
 from flask import jsonify, request
 
+import news_classification
+import news_collection
+import news_versions
+from feed_sources import is_bloomberg_video_url, visible_news_sql
 from nr import database, reading
 
 
-def register(app, db_conn, enqueue_detail_job):
+def register(app, db, enqueue_detail_job):
     @app.get("/api/reading-checkpoint")
     def api_get_reading_checkpoint():
         scope = (request.args.get("scope") or "feed").strip().lower()
         if scope != "feed":
             return jsonify({"ok": False, "error": "unsupported_scope"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute(
                 f"""
@@ -55,7 +56,7 @@ def register(app, db_conn, enqueue_detail_job):
         title = (body.get("title") or "").strip() or None
         ts = database.now_ts()
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             conn.execute(
                 """
@@ -85,7 +86,7 @@ def register(app, db_conn, enqueue_detail_job):
         source_filter = (request.args.get("source_filter") or "all").strip().lower()
         per = min(100, max(10, int(request.args.get("per", "30"))))
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             cp = conn.execute(
                 "SELECT item_id, url, title, updated_at FROM reading_checkpoints WHERE scope=?",
@@ -164,7 +165,7 @@ def register(app, db_conn, enqueue_detail_job):
                 return jsonify({"ok": False, "error": "invalid_read_later_done_flag"}), 400
 
         job_states = {}
-        conn = db_conn()
+        conn = db.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
@@ -312,7 +313,7 @@ def register(app, db_conn, enqueue_detail_job):
             args.extend(batch_args)
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM news_read_previews WHERE created_at<?", (time.time()-1800,))
@@ -353,7 +354,7 @@ def register(app, db_conn, enqueue_detail_job):
 
     @app.post("/api/news/clear-favorites")
     def api_clear_favorites():
-        conn = db_conn()
+        conn = db.connect()
         try:
             with conn:
                 result = conn.execute(
@@ -376,7 +377,7 @@ def register(app, db_conn, enqueue_detail_job):
             return jsonify({"ok": True, "marked": 0})
 
         placeholders = ",".join(["?"] * len(item_ids))
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing_ids = [
                 r[0]
@@ -437,7 +438,7 @@ def register(app, db_conn, enqueue_detail_job):
             args.extend(source_args)
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(

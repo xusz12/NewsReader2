@@ -1,8 +1,5 @@
 """Isolated UI fixture server: real SQLite/API, no model calls or background workers."""
 
-from nr import preferences
-
-from nr import database
 import json
 import os
 import sys
@@ -31,6 +28,19 @@ for name, path in {
     os.environ['NEWS_READER_' + name] = str(path)
 (RUNTIME / 'daily').mkdir()
 (RUNTIME / 'settings.json').write_text(json.dumps({'llm': {'pi_chat': {'provider': 'test', 'model': 'test-model'}}}))
+import agent_notifications
+import database_schema
+import flask
+import model_catalogs
+import news_classification
+import news_summaries
+import news_versions
+import periodic_reports
+import pi_models
+import source_deletion
+import topic_tracking
+import x_accounts
+from nr import database, news_chat, preferences
 import app as module
 module.ensure_db()
 # Personal assistant fixtures keep the real persistence/tool APIs, replacing
@@ -50,21 +60,21 @@ def fixture_personal(**kwargs):
     from personal_assistant_tools import ToolServer
     tools = ToolServer(kwargs["db"], kwargs["workspace"], kwargs["state_db"])
     count = tools.call("nr_query", {"sql":"SELECT count(*) FROM items"})["rows"][0][0]
-    with module.PERSONAL_ASSISTANT_SERVICE.connect() as conn:
+    with module.app.extensions["personal_assistant"].connect() as conn:
         message = conn.execute("SELECT id,content FROM messages WHERE role='user' ORDER BY id DESC LIMIT 1").fetchone()
     if "记住" in message["content"]:
         memory = tools.call("memory_read", {"path":"notes/关注方向.md"})
         tools.call("memory_write", {"path":"notes/关注方向.md", "revision":memory["revision"],
             "content":"用户关注政策的长期影响；依据 → 传导过程 → 预判。", "source_message_ids":[message["id"]]})
     return f"已查询 NR 库内 {count} 条新闻。\n\n你的关注方向会保存在独立工作区，讨论可以随时继续。"
-module.PERSONAL_ASSISTANT_SERVICE.runner = fixture_personal
+module.app.extensions["personal_assistant"].runner = fixture_personal
 
 @module.app.post('/__test/personal-assistant')
 def configure_personal_fixture():
-    value = module.request.get_json() or {}
+    value = flask.request.get_json() or {}
     personal_mode["value"] = value.get("mode", "success")
     if value.get("reset"):
-        service = module.PERSONAL_ASSISTANT_SERVICE
+        service = module.app.extensions["personal_assistant"]
         service.ensure()
         with service.connect() as conn:
             conn.execute("UPDATE jobs SET stop_requested=1 WHERE status IN ('queued','running')")
@@ -74,7 +84,7 @@ def configure_personal_fixture():
         import shutil
         shutil.rmtree(service.root)
         service.initialized = False
-    return module.jsonify(ok=True)
+    return flask.jsonify(ok=True)
 # Summary UI exercises real preview/transaction APIs against this temporary DB.
 # Only model execution is replaced; never invoke a user's CLI from this server.
 summary_mode = {"value": "success"}
@@ -85,8 +95,8 @@ class SummaryFixtureDate(date):
     def today(cls):
         return cls(2026, 10, 14)
 
-module.news_summaries.selection.date = SummaryFixtureDate
-module.news_summaries.native_config_stamp = lambda config: []
+news_summaries.selection.date = SummaryFixtureDate
+news_summaries.native_config_stamp = lambda config: []
 def fixture_summary(config, prompt, cancel, diagnostics):
     mode = summary_mode["value"]
     end = time.monotonic() + (30 if mode == "wait" else .25)
@@ -101,7 +111,7 @@ def fixture_summary(config, prompt, cancel, diagnostics):
             "## 科技与流动性的发展脉络\n\n- **宏观政策**：材料讨论了准备金水平及短期融资压力。[[" + ref + "]]\n"
             "- **科技产业**：报道涉及先进制程试产与推理模型部署。[[" + ref + "]]\n\n"
             "## 继续观察\n\n当前材料不足以判断后续效果，需要继续跟踪披露。[[" + ref + "]]")
-module.background.summaries.runner = fixture_summary
+module.runtime.jobs.summaries.runner = fixture_summary
 # Do not inspect local credentials or call model catalogs in UI tests.
 preferences.provider_secret_value = lambda provider: ''
 preferences.provider_has_configured_key = lambda provider: False
@@ -113,7 +123,7 @@ preferences.pi_chat_settings_snapshot = lambda *args: {
     'service': {'configured': True},
     'catalog': {'provider_options': [{'value': 'test', 'label': 'Test provider'}], 'options': [{'value': 'test-model', 'label': 'Test model'}], 'model_options_by_provider': {'test': [{'value': 'test-model', 'label': 'Test model', 'reasoning_efforts': ['off', 'low', 'high']}]}},
 }
-module.model_catalogs.codex_catalog = lambda config: {
+model_catalogs.codex_catalog = lambda config: {
     'source': 'fixture-codex', 'error': '', 'default_label': '沿用本机默认', 'resolved_default_model': '',
     'options': [
         {'value': 'ui-catalog-a', 'label': 'ui-catalog-a', 'reasoning_efforts': ['low', 'high']},
@@ -127,10 +137,10 @@ module.model_catalogs.codex_catalog = lambda config: {
 # Deterministic archive generation; the real archive API still persists and tags the card.
 def fixture_archive(**kwargs):
     return {'provider': 'pi', 'model': 'fixture', 'summary': '关注准备金与融资利率。\n传导仍待核实。'}
-module.run_pi_chat_archive = fixture_archive
-module.run_codex_chat_archive = fixture_archive
+module.runtime.chat.run_pi_chat_archive = fixture_archive
+news_chat.run_codex_chat_archive = fixture_archive
 fixtures = json.loads((ROOT / 'tests/ui/articles.json').read_text())
-with module.data.connect() as conn:
+with module.runtime.db.connect() as conn:
     for index in range(65):
         item = fixtures[index % len(fixtures)]
         ident = f'ui-{index:03}'
@@ -152,12 +162,12 @@ with module.data.connect() as conn:
             conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES (?,?,?,?)',(url,'关注准备金变化与流动性传导。',published,published))
         if index == 4:
             conn.execute('INSERT INTO item_state(item_id,favorite_at,updated_at) VALUES (?,?,?)',(ident,published,published))
-with module.data.connect() as conn:
+with module.runtime.db.connect() as conn:
     # Existing fixture bodies represent the pre-upgrade reading queue. Exercise
     # its one-time migration; new prefetched fixtures below remain independent.
     conn.execute("DELETE FROM news_version_migrations WHERE name='explicit_read_later'")
-    module.apply_schema(conn, module.data.schema_path)
-    module.news_classification.enqueue(conn)
+    database_schema.apply_schema(conn, module.runtime.db.schema_path)
+    news_classification.enqueue(conn)
     for index in range(65):
         category = 'economy' if index < 40 else ['china', 'ai', 'politics', 'business', 'science', 'other'][(index - 40) % 6]
         conn.execute("UPDATE item_classifications SET status='done',category=?,model='fixture',updated_at=? WHERE item_id=?",
@@ -165,8 +175,8 @@ with module.data.connect() as conn:
 
 @module.app.post('/__test/reset-reading')
 def reset_reading():
-    ids = (module.request.get_json(silent=True) or {}).get('item_ids')
-    with module.data.connect() as conn:
+    ids = (flask.request.get_json(silent=True) or {}).get('item_ids')
+    with module.runtime.db.connect() as conn:
         if ids is None:
             conn.execute("UPDATE item_state SET read_at=NULL")
         else:
@@ -175,13 +185,13 @@ def reset_reading():
 
 @module.app.post('/__test/summary-mode')
 def set_summary_mode():
-    summary_mode["value"] = module.request.get_json()["mode"]
+    summary_mode["value"] = flask.request.get_json()["mode"]
     return {"ok": True}
 
 @module.app.post('/__test/new-news')
 def new_news():
-    body = module.request.get_json(silent=True) or {}
-    with module.data.connect() as conn:
+    body = flask.request.get_json(silent=True) or {}
+    with module.runtime.db.connect() as conn:
         row = dict(conn.execute("SELECT * FROM items WHERE id='ui-000'").fetchone())
         row.update(id='ui-late-arrival', url='https://example.com/ui-late-arrival', title='快照创建后的新新闻')
         if body.get('published_at'):
@@ -191,7 +201,7 @@ def new_news():
 
 @module.app.post('/__test/reset-collection')
 def reset_collection():
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         for table in ('items', 'item_state', 'topic_ingestions'):
             key = 'id' if table == 'items' else 'item_id'
             conn.execute(f"DELETE FROM {table} WHERE {key}='ui-late-arrival'")
@@ -203,9 +213,9 @@ def reset_collection():
 
 @module.app.post('/__test/x-fixture')
 def x_fixture():
-    body = module.request.get_json(silent=True) or {}
+    body = flask.request.get_json(silent=True) or {}
     handle, ident, url = 'uixtestcache', 'ui-x-prefetch', 'https://x.com/uixtestcache/status/99001'
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         for table in ('article_details', 'article_ai', 'detail_jobs', 'ai_jobs', 'article_notes'):
             conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
         conn.execute('DELETE FROM items WHERE id=?', (ident,))
@@ -218,17 +228,17 @@ def x_fixture():
                 'X 自动预取测试新闻','原始推文内容',?,'now','now')""", (ident, handle, handle, url))
             conn.execute("INSERT INTO article_details(url,title,content,fetched_at,updated_at) VALUES (?,'推文','自动预取的完整推文正文','now','now')", (url,))
             conn.execute("INSERT INTO article_notes VALUES (?,'测试历史想法','now','now')", (url,))
-        module.x_accounts.changed(conn)
+        x_accounts.changed(conn)
     return {'ok': True, 'item_id': ident, 'handle': handle}
 
 @module.app.post('/__test/reset-summaries')
 def reset_summaries():
-    service = module.background.summaries
+    service = module.runtime.jobs.summaries
     service.context()
     for event, worker in list(service.workers.values()):
         event.set()
         worker.join(timeout=3)
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         conn.execute('DELETE FROM news_summaries')
         conn.execute('DELETE FROM news_summary_jobs')
         conn.execute('DELETE FROM news_summary_previews')
@@ -244,10 +254,10 @@ agent_article_fixtures = {}
 
 @module.app.post('/__test/agent-article')
 def agent_article():
-    body = module.request.get_json()
-    item, _ = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
+    body = flask.request.get_json()
+    item, _ = module.runtime.sessions._load_visible_agent_article(body.get('item_id', 'ui-064'))
     url = item['url']
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         if url not in agent_article_fixtures:
             agent_article_fixtures[url] = {
                 table: dict(row) if (row := conn.execute('SELECT * FROM ' + table + ' WHERE url=?', (url,)).fetchone()) else None
@@ -262,31 +272,31 @@ def agent_article():
 
 @module.app.post('/__test/reset-agent')
 def reset_agent():
-    with module.data.agent_connect() as conn:
+    with module.runtime.db.agent_connect() as conn:
         for table in ['agent_notifications', 'agent_messages', 'agent_jobs', 'agent_sessions']:
             conn.execute('DELETE FROM ' + table)
     return {'ok': True}
 
 @module.app.post('/__test/agent-complete')
 def complete_agent():
-    body = module.request.get_json()
-    item, detail = module._load_visible_agent_article(body.get('item_id', 'ui-064'))
-    with module.data.agent_connect() as conn:
+    body = flask.request.get_json()
+    item, detail = module.runtime.sessions._load_visible_agent_article(body.get('item_id', 'ui-064'))
+    with module.runtime.db.agent_connect() as conn:
         conn.execute('BEGIN IMMEDIATE')
         if body.get('job_id'):
             job = conn.execute('SELECT * FROM agent_jobs WHERE id=?', (body['job_id'],)).fetchone()
         else:
-            session = module._agent_active_session(conn, item['id'])
+            session = module.runtime.sessions._agent_active_session(conn, item['id'])
             if not session or body.get('new_session'):
-                session = module._agent_create_session(conn, item, detail)
-            job = module._agent_insert_job(conn, session, question='隔离测试问题')
+                session = module.runtime.sessions._agent_create_session(conn, item, detail)
+            job = module.runtime.sessions._agent_insert_job(conn, session, question='隔离测试问题')
         stamp = database.now_ts()
         status = body.get('status', 'succeeded')
         answer = body.get('answer', '通知样例：这是一轮已经完成的研究回复。')
         error = 'oar_auth_required' if status == 'failed' else ''
         conn.execute('UPDATE agent_jobs SET status=?, answer_text=?, error=?, finished_at=?, updated_at=? WHERE id=?', (status, answer, error, stamp, stamp, job['id']))
         conn.execute("UPDATE agent_messages SET status=?, content=?, updated_at=? WHERE job_id=? AND role='assistant'", (status, answer, stamp, job['id']))
-        module.agent_notifications.record(conn, job['id'])
+        agent_notifications.record(conn, job['id'])
         if body.get('expire'):
             conn.execute("UPDATE agent_sessions SET expires_at='2000-01-01 00:00:00' WHERE id=?", (job['session_id'],))
     return {'ok': True, 'job_id': job['id'], 'session_id': job['session_id']}
@@ -328,17 +338,17 @@ def fixture_topic_research(config, prompt, cancel, diagnostics, *, web):
             return json.dumps({"reply":"已缩小到审核进程，保留其他规则。","definition":draft},ensure_ascii=False)
         return json.dumps({"reply":"一般股价波动不属于上市审核进展；当前定义保持不变。","definition":None},ensure_ascii=False)
     return json.dumps({"overview": "新新闻已整理。", "nodes": []}, ensure_ascii=False)
-module.background.topics.runner = fixture_topic_research
+module.runtime.jobs.topics.runner = fixture_topic_research
 
 @module.app.post('/__test/topics')
 def fixture_topics():
-    body = module.request.get_json(silent=True) or {}
+    body = flask.request.get_json(silent=True) or {}
     topic_fixture_mode["value"] = body.get("mode", "success")
     topic_fixture_mode.pop("chat_failed", None)
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         for table in ("topic_node_items", "topic_nodes", "topic_checks", "topic_jobs", "topic_definition_messages", "topic_refinements", "event_topics"):
             conn.execute("DELETE FROM " + table)
-        module.topic_tracking.seed_ingestions(conn)
+        topic_tracking.seed_ingestions(conn)
         cutoff = conn.execute("SELECT COALESCE(MAX(seq),0) FROM topic_ingestions").fetchone()[0]
         if body.get("empty"):
             return {"ok": True}
@@ -358,13 +368,13 @@ def fixture_topics():
                         (ident+"-node-"+str(number),ident,f"2026-10-{number:02}",f"阶段进展 {number}","测试历史节点。"))
             for index in range(65 if body.get("many") else 2):
                 item=dict(conn.execute("SELECT * FROM items WHERE id=?",(f"ui-{index:03}",)).fetchone())
-                snapshot=module.topic_tracking.item_snapshot(item)
+                snapshot=topic_tracking.item_snapshot(item)
                 conn.execute("""INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,status,matched,processed,updated_at)
                     VALUES (?,?,1,?,?,'done',1,1,?)""",
-                    (ident,item["id"],module.topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
+                    (ident,item["id"],topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
                 conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES (?,?)",(ident+"-node-"+str(index % 2),item["id"]))
             if body.get("refined_recently"):
-                stamp=module.topic_tracking.now()
+                stamp=topic_tracking.now()
                 conn.execute("""INSERT INTO topic_jobs(id,topic_id,kind,status,revision,config_json,created_at,updated_at)
                     VALUES (?,?,'refine','done',1,'{}',?,?)""",(ident+'-refine',ident,stamp,stamp))
         if body.get("many_topics"):
@@ -376,36 +386,36 @@ def fixture_topics():
 
 @module.app.post('/__test/topic-mode')
 def fixture_topic_mode():
-    topic_fixture_mode["value"] = module.request.get_json()["mode"]
+    topic_fixture_mode["value"] = flask.request.get_json()["mode"]
     return {"ok": True}
 
 
 @module.app.post('/__test/topic-update')
 def fixture_topic_update():
-    body = module.request.get_json(silent=True) or {}
+    body = flask.request.get_json(silent=True) or {}
     ident = body.get('id', 'test-acquisition')
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         if body.get('news'):
             item_id = body.get('item_id')
             if item_id and not conn.execute('SELECT 1 FROM topic_checks WHERE topic_id=? AND item_id=?', (ident, item_id)).fetchone():
                 item = dict(conn.execute('SELECT * FROM items WHERE id=?', (item_id,)).fetchone())
-                snapshot = module.topic_tracking.item_snapshot(item)
+                snapshot = topic_tracking.item_snapshot(item)
                 conn.execute("""INSERT INTO topic_checks(topic_id,item_id,revision,fingerprint,item_json,status,matched,processed,updated_at)
                     VALUES (?,?,1,?,?,'done',1,1,?)""",
-                    (ident,item_id,module.topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
+                    (ident,item_id,topic_tracking.fingerprint(snapshot),json.dumps(snapshot,ensure_ascii=False),time.time()))
             conn.execute("UPDATE topic_checks SET updated_at=? WHERE topic_id=?" + (" AND item_id=?" if item_id else ""),
                          (time.time(), ident, item_id) if item_id else (time.time(), ident))
         else:
             conn.execute("UPDATE topic_nodes SET title='新增监管进展',updated_at=? WHERE id=?",
-                         (module.topic_tracking.now(), ident+'-node-1'))
+                         (topic_tracking.now(), ident+'-node-1'))
     return {'ok': True}
 
 
 @module.app.post('/__test/bilingual')
 def fixture_bilingual():
-    body = module.request.get_json(silent=True) or {}
+    body = flask.request.get_json(silent=True) or {}
     fixture = fixtures[63 % len(fixtures)]
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         url = conn.execute("SELECT url FROM items WHERE id='ui-063'").fetchone()[0]
         conn.execute('UPDATE article_details SET content=? WHERE url=?', (body.get('original', fixture['original']), url))
         conn.execute('UPDATE article_ai SET body_zh=?,conclusion_zh=?,key_points_zh=? WHERE url=?',
@@ -415,11 +425,11 @@ def fixture_bilingual():
     return {'ok': True}
 
 # Periodic reports never invoke a real model or scheduler in the fixture server.
-module.background.reports.start = lambda: None
-module.periodic_reports.now = lambda: module.periodic_reports.local('2026-10-30T16:00:00+08:00')
-module.periodic_reports.report_model.capacity = lambda config: {
+module.runtime.jobs.reports.start = lambda: None
+periodic_reports.now = lambda: periodic_reports.local('2026-10-30T16:00:00+08:00')
+periodic_reports.report_model.capacity = lambda config: {
     'context_window': 128000, 'input_tokens': 100000, 'output_tokens': 16000, 'source': 'ui-fixture'}
-module.pi_models.metadata = module.periodic_reports.report_model.pi_metadata = lambda request: {
+pi_models.metadata = periodic_reports.report_model.pi_metadata = lambda request: {
     'options': [{'value': name, 'label': name, 'provider': provider, 'reasoning_efforts': ['off', 'low', 'high']}
                 for provider in ('test', 'test-provider') for name in ('test-model', 'comparison-model')],
     'reasoning_efforts': ['off', 'low', 'high']}
@@ -432,18 +442,18 @@ def fixture_report_model(config, prompt):
         {'text': '这是隔离测试服务器生成的合成内容。', 'refs': refs[:1]}]}], 'briefs': [], 'omitted': refs[1:]}, ensure_ascii=False)
 
 
-module.background.reports.runner = fixture_report_model
+module.runtime.jobs.reports.runner = fixture_report_model
 
 
 @module.app.post('/__test/reports/run')
 def fixture_run_report():
-    return {'ok': True, 'worked': module.background.reports.run_one()}
+    return {'ok': True, 'worked': module.runtime.jobs.reports.run_one()}
 
 
 @module.app.post('/__test/reports')
 def fixture_reports():
-    body = module.request.get_json(silent=True) or {}
-    with module.data.connect() as conn:
+    body = flask.request.get_json(silent=True) or {}
+    with module.runtime.db.connect() as conn:
         conn.execute('DELETE FROM periodic_report_schedule_pauses')
         conn.execute('DELETE FROM periodic_report_deletions')
         conn.execute('DELETE FROM periodic_report_steps')
@@ -480,7 +490,7 @@ def fixture_reports():
             error = body.get('error', 'report_index_failed') if status in ('failed','pending') else ''
             ts = f'2026-10-{index+22}T21:30:00+08:00'
             conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,error,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+module.periodic_reports.KINDS[kind], '2026-10-19T00:00:00+08:00',ts,ts,status,
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', ('report-'+kind, kind+':fixture',kind, '合成'+periodic_reports.KINDS[kind], '2026-10-19T00:00:00+08:00',ts,ts,status,
                 json.dumps(content,ensure_ascii=False) if status == 'done' else None, error,ts,ts))
             if 'started_at' in body:
                 conn.execute('UPDATE periodic_reports SET started_at=? WHERE id=?', (body['started_at'], 'report-'+kind))
@@ -492,7 +502,7 @@ def fixture_reports():
             if status == 'pending':
                 conn.execute('UPDATE periodic_reports SET attempts=1,next_attempt=? WHERE id=?', (time.time()+60, 'report-'+kind))
             if status == 'running':
-                conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), body.get('started_at',module.periodic_reports.stamp(module.periodic_reports.now())),time.time()+1200,'report-'+kind))
+                conn.execute("UPDATE periodic_reports SET progress_json=?,started_at=?,lease_until=? WHERE id=?", (json.dumps(body.get('progress', {'stage':'writing','source_count':65})), body.get('started_at',periodic_reports.stamp(periodic_reports.now())),time.time()+1200,'report-'+kind))
         if body.get('snapshots'):
             for kind in ('evening','weekly'):
                 report = conn.execute('SELECT period_start,period_end FROM periodic_reports WHERE id=?', ('report-'+kind,)).fetchone()
@@ -507,22 +517,22 @@ def fixture_reports():
                         ('archive-monthly', 'monthly', '2025-12-01T00:00:00+08:00', '2026-01-01T00:00:00+08:00')]
             for ident, kind, start, end in archive:
                 conn.execute('''INSERT INTO periodic_reports(id,edition_key,kind,title,period_start,period_end,scheduled_at,status,result_json,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,'done',?,?,?)''', (ident, 'manual:'+ident, kind, '历史'+module.periodic_reports.KINDS[kind], start, end, end,
+                    VALUES (?,?,?,?,?,?,?,'done',?,?,?)''', (ident, 'manual:'+ident, kind, '历史'+periodic_reports.KINDS[kind], start, end, end,
                     json.dumps(content,ensure_ascii=False),'2026-10-30T15:00:00+08:00','2026-10-30T15:00:00+08:00'))
     return {'ok': True}
 
 
 @module.app.post('/__test/source-deletion')
 def source_deletion_fixture():
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         for index in range(3):
             ident, url = f'source-delete-{index}', f'https://reuters.com/test/source-delete-{index}'
             conn.execute('DELETE FROM items WHERE id=?', (ident,))
             for table in ('article_details', 'article_ai', 'article_notes', 'detail_jobs', 'ai_jobs'):
                 conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
             conn.execute('DELETE FROM item_state WHERE item_id=?', (ident,))
-            conn.execute('DELETE FROM deleted_news_items WHERE fingerprint=?', (module.source_deletion.item_fingerprint(ident),))
-            if (module.request.get_json(silent=True) or {}).get('clear'):
+            conn.execute('DELETE FROM deleted_news_items WHERE fingerprint=?', (source_deletion.item_fingerprint(ident),))
+            if (flask.request.get_json(silent=True) or {}).get('clear'):
                 continue
             stamp = '2026-10-12 09:00:00'
             conn.execute('''INSERT INTO items(id,source_file,item_order,published_at,date,source,source_type,source_name,title,summary,url,created_at,updated_at)
@@ -537,27 +547,27 @@ def news_versions_fixture():
     url = 'https://www.reuters.com/world/ui-title-versions/'
     titles = ['版本验收：原稿', '版本验收：第二次进展', '版本验收：最新进展']
     ids = [title_id(url, title) for title in titles]
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         for table in ('news_title_versions', 'news_version_snapshots', 'item_state', 'topic_ingestions',
                       'collection_items', 'item_classifications', 'classification_progress_items'):
             conn.execute(f"DELETE FROM {table} WHERE item_id IN (?,?,?)", ids)
         conn.execute('DELETE FROM items WHERE id IN (?,?,?)', ids)
         for table in ('news_identities', 'news_article_heads'):
-            conn.execute(f'DELETE FROM {table} WHERE identity_key=?', (module.news_versions.identity_key(url),))
+            conn.execute(f'DELETE FROM {table} WHERE identity_key=?', (news_versions.identity_key(url),))
         for table in ('article_details', 'article_ai', 'detail_jobs', 'ai_jobs'):
             conn.execute(f'DELETE FROM {table} WHERE url=?', (url,))
-    if (module.request.get_json(silent=True) or {}).get('clear'):
+    if (flask.request.get_json(silent=True) or {}).get('clear'):
         return {'ok': True}
     for index,title in enumerate(titles):
-        with module.data.connect() as conn:
+        with module.runtime.db.connect() as conn:
             seed_title(conn,url,title,root=ids[0],previous=ids[index-1] if index else None,source_id='versions-ui')
         if index == 0:
-            with module.data.connect() as conn:
+            with module.runtime.db.connect() as conn:
                 conn.execute("INSERT INTO item_state(item_id,read_at,favorite_at,updated_at) VALUES (?,'original-read','original-favorite','old')", (ids[0],))
                 conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved original body.','2026-10-15 09:00:00','old')", (url,))
                 conn.execute("INSERT INTO article_ai(url,body_zh,generated_at,updated_at) VALUES (?,'原稿的已缓存正文。','2026-10-15 09:00:00','old')", (url,))
-        if index == 1 and (module.request.get_json(silent=True) or {}).get('cache_middle'):
-            with module.data.connect() as conn:
+        if index == 1 and (flask.request.get_json(silent=True) or {}).get('cache_middle'):
+            with module.runtime.db.connect() as conn:
                 conn.execute("INSERT INTO article_details(url,content,fetched_at,updated_at) VALUES (?,'Saved middle version.','2026-10-15 10:00:00','old')", (url,))
     return {'ok':True,'ids':ids}
 

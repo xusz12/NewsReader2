@@ -172,16 +172,16 @@ def test_calendar_recovery_respects_report_pause(db, monkeypatch):
 def test_settings_api_save_reload_preserves_history_and_wakes_scheduler(tmp_path, monkeypatch):
     import app
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setattr(app.catalogs, 'serialize_runtime_settings', lambda: settings.load_app_settings())
-    monkeypatch.setattr(app.background.classification, "configure", lambda **kwargs: None)
-    monkeypatch.setattr(app, "refresh_agent_session_expiries", lambda: None)
+    monkeypatch.setattr(app.runtime.preferences, 'serialize_runtime_settings', lambda: settings.load_app_settings())
+    monkeypatch.setattr(app.runtime.jobs.classification, "configure", lambda **kwargs: None)
+    monkeypatch.setattr(app.runtime.sessions, 'refresh_agent_session_expiries', lambda: None)
     monkeypatch.setattr(pr, "now", lambda: pr.local("2026-10-30T16:00:00+08:00"))
-    app.background.reports.schedule_wake.clear()
+    app.runtime.jobs.reports.schedule_wake.clear()
     client = app.app.test_client()
     payload = {"llm": settings.default_app_settings()["llm"], "report_schedule": {"evening": "22:00"}}
     response = client.put("/api/settings", json=payload)
     assert response.status_code == 200
-    assert app.background.reports.schedule_wake.is_set()
+    assert app.runtime.jobs.reports.schedule_wake.is_set()
     saved = settings.load_app_settings()
     assert saved["report_schedule"]["evening"] == "22:00"
     assert len(saved["report_schedule_history"]) == 2
@@ -239,7 +239,7 @@ def test_stale_coupled_manual_form_cannot_silently_change_window(db, monkeypatch
     import app
     monkeypatch.setattr(pr, "now", lambda: pr.local("2026-10-31T12:00:00+08:00"))
     service = pr.Service(db, lambda: revised(evening="22:00"), lambda: None)
-    monkeypatch.setattr(app.background, 'reports', service)
+    monkeypatch.setattr(app.runtime.jobs, 'reports', service)
     monkeypatch.setattr(service, "start", lambda: None)
     data = service.manual_options()
     assert data["schedule_times"]["evening"] == "22:00" and data["window_times"]["evening"] == "21:30"

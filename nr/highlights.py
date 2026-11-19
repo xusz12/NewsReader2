@@ -8,23 +8,14 @@ from flask import jsonify, request
 
 import report_reader
 from feed_sources import derive_source_key
+from nr import database, reader_items
 
 
 ARTICLE_HIGHLIGHT_BODY_KIND = "ai_zh"
-
-
 ARTICLE_HIGHLIGHT_POINTS_BODY_KIND = "ai_points_zh"
-
-
 ARTICLE_HIGHLIGHT_CONCLUSION_BODY_KIND = "ai_conclusion_zh"
-
-
 ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND = "twitter_detail"
-
-
 ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND = "original"
-
-
 ARTICLE_HIGHLIGHT_BODY_KINDS = {
     ARTICLE_HIGHLIGHT_BODY_KIND,
     ARTICLE_HIGHLIGHT_POINTS_BODY_KIND,
@@ -32,17 +23,9 @@ ARTICLE_HIGHLIGHT_BODY_KINDS = {
     ARTICLE_HIGHLIGHT_TWITTER_DETAIL_BODY_KIND,
     ARTICLE_HIGHLIGHT_ORIGINAL_BODY_KIND,
 }
-
-
 ARTICLE_HIGHLIGHT_COLORS = {"yellow", "red", "green", "blue", "pink"}
-
-
 ARTICLE_HIGHLIGHT_CONTEXT_CHARS = 48
-
-
 ARTICLE_HIGHLIGHT_ANNOTATION_MAX_LENGTH = 2000
-
-
 ARTICLE_HIGHLIGHT_UNAVAILABLE_AI_STATUSES = {"pending", "running", "failed"}
 
 
@@ -339,15 +322,15 @@ def normalize_article_highlight_annotation(value: object) -> tuple[str | None, s
     return annotation_text, None
 
 
-def register(app, db_conn, reader_subject, now_ts):
+def register(app, db):
     @app.get("/api/news/<item_id>/highlights")
     def api_news_highlights_list(item_id: str):
         body_kind = request.args.get("body_kind", ARTICLE_HIGHLIGHT_BODY_KIND)
         if not isinstance(body_kind, str) or body_kind not in ARTICLE_HIGHLIGHT_BODY_KINDS:
             return jsonify({"ok": False, "error": "invalid_body_kind"}), 400
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -384,9 +367,9 @@ def register(app, db_conn, reader_subject, now_ts):
         ):
             return jsonify({"ok": False, "error": "invalid_offset"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -411,7 +394,7 @@ def register(app, db_conn, reader_subject, now_ts):
 
             content_hash = article_highlight_content_hash(article_body)
             prefix, suffix = article_highlight_context(article_body, start_offset, end_offset)
-            ts = now_ts()
+            ts = database.now_ts()
             try:
                 with conn:
                     cursor = conn.execute(
@@ -468,9 +451,9 @@ def register(app, db_conn, reader_subject, now_ts):
         if not isinstance(color, str) or color not in ARTICLE_HIGHLIGHT_COLORS:
             return jsonify({"ok": False, "error": "invalid_color"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -485,7 +468,7 @@ def register(app, db_conn, reader_subject, now_ts):
             with conn:
                 conn.execute(
                     "UPDATE article_highlights SET color=?, updated_at=? WHERE id=? AND url=?",
-                    (color, now_ts(), highlight_id, url),
+                    (color, database.now_ts(), highlight_id, url),
                 )
             payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
             updated = next(
@@ -505,9 +488,9 @@ def register(app, db_conn, reader_subject, now_ts):
 
     @app.get("/api/news/<item_id>/highlights/<int:highlight_id>/annotation")
     def api_news_highlight_annotation_get(item_id: str, highlight_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -547,9 +530,9 @@ def register(app, db_conn, reader_subject, now_ts):
         if annotation_error:
             return jsonify({"ok": False, "error": annotation_error}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -568,7 +551,7 @@ def register(app, db_conn, reader_subject, now_ts):
                 SET annotation_text=?, updated_at=?
                 WHERE id=? AND url=?
                 """,
-                    (annotation_text, now_ts(), highlight_id, url),
+                    (annotation_text, database.now_ts(), highlight_id, url),
                 )
             payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
             updated = next(
@@ -588,9 +571,9 @@ def register(app, db_conn, reader_subject, now_ts):
 
     @app.delete("/api/news/<item_id>/highlights/<int:highlight_id>/annotation")
     def api_news_highlight_annotation_clear(item_id: str, highlight_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()
@@ -609,7 +592,7 @@ def register(app, db_conn, reader_subject, now_ts):
                 SET annotation_text='', updated_at=?
                 WHERE id=? AND url=?
                 """,
-                    (now_ts(), highlight_id, url),
+                    (database.now_ts(), highlight_id, url),
                 )
             payload = load_article_highlights_response(conn, url, existing["body_kind"], item_id)
             updated = next(
@@ -629,9 +612,9 @@ def register(app, db_conn, reader_subject, now_ts):
 
     @app.delete("/api/news/<item_id>/highlights/<int:highlight_id>")
     def api_news_highlight_delete(item_id: str, highlight_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
-            item = reader_subject(conn, item_id)
+            item = reader_items.reader_subject(conn, item_id)
             if not item:
                 return jsonify({"ok": False, "error": "item_not_found"}), 404
             url = (item["url"] or "").strip()

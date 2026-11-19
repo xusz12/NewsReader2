@@ -1,5 +1,7 @@
 """Regressions for the v0.0.2 contracts, always against an isolated database."""
 
+from nr import agent_jobs
+
 from nr import preferences
 
 from nr import database
@@ -93,14 +95,14 @@ def test_shared_database_respects_old_app_note_edits(fixture):
     app, client, item, *_ = fixture
     path = f"/api/news/{item['id']}"
     original = client.post(path + '/notes', json={'note': '第一条'}).json['notes'][0]['id']
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('UPDATE article_notes SET note=? WHERE url=?', ('旧应用直接修改', item['url']))
     assert client.get(path + '/detail').json['notes'][0]['note'] == '旧应用直接修改'
     assert client.get('/api/news?collection=notes').json['items'][0]['note_count'] == 1
     assert client.delete(path + '/notes/' + original).status_code == 404
     added = client.post(path + '/notes', json={'note': '新追加'}).json
     assert [row['note'] for row in added['notes']] == ['旧应用直接修改', '新追加']
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('DELETE FROM article_notes WHERE url=?', (item['url'],))
     assert client.get(path + '/detail').json['notes'] == []
     added = client.post(path + '/notes', json={'note': '删除后重新添加'}).json
@@ -125,17 +127,17 @@ for event in [
  {'type':'oar_result','outcome':'completed','answer':'核实后的回答'}
 ]: print(json.dumps(event),flush=True)
 """)
-    monkeypatch.setattr(app, '_agent_process_command', lambda *args: ([sys.executable, str(script)], None, runtime))
+    monkeypatch.setattr(app.runtime.agent, '_agent_process_command', lambda *args: ([sys.executable, str(script)], None, runtime))
     phases = []
-    update = app._update_agent_progress
+    update = app.runtime.agent._update_agent_progress
     def record(job_id, phase):
         update(job_id, phase)
         phases.append(client.get(f"/api/news/{item['id']}/agent/jobs/{job_id}").json['job']['progress'])
-    monkeypatch.setattr(app, '_update_agent_progress', record)
+    monkeypatch.setattr(app.runtime.agent, '_update_agent_progress', record)
     response = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question':'解释背景'})
     assert response.status_code == 202
-    assert app.process_pending_agent_once()
-    job = app.load_agent_payload(item['id'])['jobs'][-1]
+    assert app.runtime.agent.process_pending_agent_once()
+    job = app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]
     assert job['status'] == 'succeeded'
     assert job['answer_text'] == '核实后的回答'
     assert phases == ['thinking', 'searching', 'summarizing', 'writing']
@@ -145,13 +147,13 @@ def test_agent_sse_reports_progress_changes_in_same_second(fixture, monkeypatch)
     app, client, item, *_ = fixture
     created = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question':'研究背景'}).json
     job_id = created['job']['id']
-    monkeypatch.setattr(app, 'AGENT_STREAM_POLL_SECONDS', 0)
+    monkeypatch.setattr(agent_jobs, 'AGENT_STREAM_POLL_SECONDS', 0)
     monkeypatch.setattr(database, 'now_ts', lambda: '2026-10-15 12:00:00')
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         conn.execute("UPDATE agent_jobs SET status='running' WHERE id=?", (job_id,))
-    app._update_agent_progress(job_id, 'thinking')
-    stream = app._agent_stream_generator(item['id'], job_id)
+    app.runtime.agent._update_agent_progress(job_id, 'thinking')
+    stream = app.runtime.agent._agent_stream_generator(item['id'], job_id)
     assert json.loads(next(stream).removeprefix('data: '))['job']['progress'] == 'thinking'
-    app._update_agent_progress(job_id, 'searching')
+    app.runtime.agent._update_agent_progress(job_id, 'searching')
     assert json.loads(next(stream).removeprefix('data: '))['job']['progress'] == 'searching'
     stream.close()

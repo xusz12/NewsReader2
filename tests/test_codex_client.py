@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import settings
+from settings import default_app_settings
+from nr import agent_jobs, news_chat
+
 from nr import configuration, database
 import json
 import os
@@ -68,22 +72,22 @@ if mode=='nonzero': sys.exit(1)
     monkeypatch.setenv('CODEX_TEST_MODE', 'success')
     # Keep application tests at NR's stable JSONL boundary. Separate integration
     # tests run the installed OAR adapter against app-server and real Codex.
-    import app
     import oar_client
-    native_bridge, app_bridge = oar_client.bridge_command, app.bridge_command
+    native_bridge, app_bridge = oar_client.bridge_command, news_chat.bridge_command
     fixture = Path(__file__).parent / 'fixtures/fake_oar_codex.py'
     def bridge(session_id, original):
         if session_id.startswith('newsreader-codex-'):
             return [sys.executable, str(fixture), '--session-id', session_id]
         return original(session_id)
     monkeypatch.setattr(oar_client, 'bridge_command', lambda session_id: bridge(session_id, native_bridge))
-    monkeypatch.setattr(app, 'bridge_command', lambda session_id: bridge(session_id, app_bridge))
+    monkeypatch.setattr(news_chat, 'bridge_command', lambda session_id: bridge(session_id, app_bridge))
+    monkeypatch.setattr(agent_jobs, 'bridge_command', lambda session_id: bridge(session_id, native_bridge))
     return log
 
 
 def select_codex(app, monkeypatch, config=None):
     config = CONFIG if config is None else config
-    settings = app.default_app_settings()
+    settings = default_app_settings()
     settings['agent'].update(runtime='codex', codex=dict(config))
     monkeypatch.setattr(configuration, 'load_app_settings', lambda: settings)
     return settings
@@ -144,10 +148,10 @@ def test_settings_defaults_persistence_and_invalid_runtime(tmp_path, monkeypatch
     import app
     monkeypatch.setattr(configuration,'load_app_settings',settings.load_app_settings)
     assert configuration.current_runtime_settings()['agent']['runtime']=='codex'
-    assert app.catalogs.validate_runtime_settings(value)['agent']==value['agent']
+    assert app.runtime.preferences.validate_runtime_settings(value)['agent']==value['agent']
     for bad in ('other',[],{}):
         value['agent']['runtime']=bad
-        with pytest.raises(ValueError): app.catalogs.validate_runtime_settings(value)
+        with pytest.raises(ValueError): app.runtime.preferences.validate_runtime_settings(value)
 
 
 @pytest.mark.parametrize('mode,error',[('empty','codex_empty_answer'),('missing','codex_protocol_error'),
@@ -159,16 +163,16 @@ def test_background_failure_no_session_promotion_and_safe_retry(tmp_path,monkeyp
     fake_codex(tmp_path,monkeypatch);select_codex(app,monkeypatch)
     first=client.post(f"/api/news/{item['id']}/agent/jobs",json={'question':'request'}).get_json()
     monkeypatch.setenv('CODEX_TEST_MODE',mode)
-    assert app.process_pending_agent_once()
-    payload=app.load_agent_payload(item['id']);job=payload['jobs'][-1]
+    assert app.runtime.agent.process_pending_agent_once()
+    payload=app.runtime.sessions.load_agent_payload(item['id']);job=payload['jobs'][-1]
     assert (job['status'],job['error'])==('failed',error)
     assert 'DO_NOT_EXPOSE' not in json.dumps(payload)
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         assert conn.execute('SELECT executor_session_id FROM agent_sessions').fetchone()[0]==''
     monkeypatch.setenv('CODEX_TEST_MODE','success')
     assert client.post(f"/api/news/{item['id']}/agent/jobs/{first['job_id']}/retry").status_code==202
-    assert app.process_pending_agent_once()
-    assert app.load_agent_payload(item['id'])['jobs'][-1]['status']=='succeeded'
+    assert app.runtime.agent.process_pending_agent_once()
+    assert app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]['status']=='succeeded'
 
 
 @pytest.mark.parametrize('mode', ['success', 'diagnostics_success'])
@@ -178,7 +182,7 @@ def test_background_resume_settings_sticky_archive_and_new_session(tmp_path,monk
     monkeypatch.setenv('CODEX_TEST_MODE', mode)
     first=client.post(f"/api/news/{item['id']}/agent/jobs",json={'question':'first'}).get_json()
     assert first['session']['provider']=='codex' and first['session']['executor_config']==CONFIG
-    assert app.process_pending_agent_once()
+    assert app.runtime.agent.process_pending_agent_once()
     payload=client.get(f"/api/news/{item['id']}/agent/session").get_json()
     assert payload['jobs'][-1]['answer_text']=='有效最终结论'
     assert 'DO_NOT_EXPOSE' not in json.dumps(payload)
@@ -186,7 +190,7 @@ def test_background_resume_settings_sticky_archive_and_new_session(tmp_path,monk
     settings['llm']['pi_chat']={'provider':'ollama','model':'minimax-m3:cloud'}
     second=client.post(f"/api/news/{item['id']}/agent/jobs",json={'question':'second','session_id':first['session']['id']})
     assert second.status_code==202 and second.get_json()['session']['provider']=='codex'
-    assert app.process_pending_agent_once()
+    assert app.runtime.agent.process_pending_agent_once()
     archive=client.post(f"/api/news/{item['id']}/chat/archive",json={'agent_session_id':first['session']['id'],
         'messages':[{'role':'user','content':'question'},{'role':'assistant','content':'answer'}]})
     assert archive.status_code==200 and archive.get_json()['provider']=='codex'
@@ -195,7 +199,7 @@ def test_background_resume_settings_sticky_archive_and_new_session(tmp_path,monk
     assert rows[1]['codex']['model'] == 'test-model'
     assert rows[2]['transport'] == 'oar' and rows[2]['task'] == 'chat_archive'
     assert rows[2]['resume'] == '' and rows[2]['web_search'] == 'disabled'
-    assert app.load_agent_payload(item['id'])['session']['id']==first['session']['id']
+    assert app.runtime.sessions.load_agent_payload(item['id'])['session']['id']==first['session']['id']
     fresh=client.post(f"/api/news/{item['id']}/agent/session",json={'new_session':True})
     assert fresh.status_code==200 and fresh.get_json()['session']['provider']=='pi'
 
@@ -207,27 +211,27 @@ def test_codex_stop_during_launch_or_cleanup_blocks_retry_until_reaped(tmp_path,
     submitted=client.post(f"/api/news/{item['id']}/agent/jobs",json={'question':'request'}).get_json()
     entered,release=threading.Event(),threading.Event()
     if window=='command':
-        original=app._agent_process_command
+        original=app.runtime.agent._agent_process_command
         def held(*a,**kw):
             entered.set();assert release.wait(8);return original(*a,**kw)
-        monkeypatch.setattr(app,'_agent_process_command',held)
+        monkeypatch.setattr(app.runtime.agent,'_agent_process_command',held)
     elif window=='registration':
-        original=app.subprocess.Popen
+        original=subprocess.Popen
         def held(*a,**kw):
             proc=original(*a,**kw)
             if len(a[0])>1 and a[0][1].endswith('fake_oar_codex.py'):
                 entered.set();assert release.wait(8)
             return proc
-        monkeypatch.setattr(app.subprocess,'Popen',held)
+        monkeypatch.setattr(subprocess,'Popen',held)
     else:
-        original=app.terminate_group
+        original=agent_jobs.terminate_group
         def held(*a,**kw):
             result=original(*a,**kw)
             if threading.current_thread() is worker:
                 entered.set();assert release.wait(8)
             return result
-        monkeypatch.setattr(app,'terminate_group',held)
-    worker=threading.Thread(target=app.process_pending_agent_once);worker.start()
+        monkeypatch.setattr(agent_jobs,'terminate_group',held)
+    worker=threading.Thread(target=app.runtime.agent.process_pending_agent_once);worker.start()
     try:
         assert entered.wait(5)
         response=client.post(f"/api/news/{item['id']}/agent/jobs/{submitted['job_id']}/stop")
@@ -237,10 +241,10 @@ def test_codex_stop_during_launch_or_cleanup_blocks_retry_until_reaped(tmp_path,
     finally:
         release.set();worker.join(8)
     assert not worker.is_alive()
-    assert app.load_agent_payload(item['id'])['jobs'][-1]['status']=='stopped'
+    assert app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]['status']=='stopped'
     assert client.post(f"/api/news/{item['id']}/agent/jobs/{submitted['job_id']}/retry").status_code==202
-    assert app.process_pending_agent_once()
-    assert app.load_agent_payload(item['id'])['jobs'][-1]['status']=='succeeded'
+    assert app.runtime.agent.process_pending_agent_once()
+    assert app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]['status']=='succeeded'
 
 
 def test_sync_api_dispatch_resume_and_foreign_namespace(tmp_path, monkeypatch):
@@ -295,11 +299,11 @@ def test_pi_saved_session_and_archive_remain_pi_after_runtime_change(tmp_path, m
     settings['llm']['pi_chat'] = {'provider':'ollama','model':'minimax-m3:cloud'}
     first = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'Pi first'}).get_json()
     assert first['session']['provider'] == 'pi'
-    assert app.process_pending_agent_once()
+    assert app.runtime.agent.process_pending_agent_once()
     settings['agent']['runtime'] = 'codex'
     second = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'Pi next', 'session_id': first['session']['id']})
     assert second.get_json()['session']['provider'] == 'pi'
-    assert app.process_pending_agent_once()
+    assert app.runtime.agent.process_pending_agent_once()
     archived = client.post(f"/api/news/{item['id']}/chat/archive", json={
         'agent_session_id': first['session']['id'], 'runtime': 'codex',
         'messages': [{'role': 'user', 'content': 'question'}, {'role': 'assistant', 'content': 'answer'}]})
@@ -313,20 +317,20 @@ def test_failed_archive_leaves_saved_note_and_session_unchanged(tmp_path, monkey
     fake_codex(tmp_path, monkeypatch)
     select_codex(app, monkeypatch)
     first = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'first'}).get_json()
-    assert app.process_pending_agent_once()
-    with app.data.connect() as conn:
+    assert app.runtime.agent.process_pending_agent_once()
+    with app.runtime.db.connect() as conn:
         conn.execute('INSERT INTO article_notes(url,note,created_at,updated_at) VALUES(?,?,?,?)',
                      (item['url'], '保留的旧笔记', database.now_ts(), database.now_ts()))
         conn.commit()
-    before = app.load_agent_payload(item['id'])
+    before = app.runtime.sessions.load_agent_payload(item['id'])
     monkeypatch.setenv('CODEX_TEST_MODE', 'empty')
     failed = client.post(f"/api/news/{item['id']}/chat/archive", json={
         'agent_session_id': first['session']['id'],
         'messages': [{'role': 'user', 'content': 'question'}, {'role': 'assistant', 'content': 'answer'}]})
     assert failed.status_code == 502 and failed.get_json()['error'] == 'codex_empty_answer'
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute('SELECT note FROM article_notes WHERE url=?', (item['url'],)).fetchone()[0] == '保留的旧笔记'
-    assert app.load_agent_payload(item['id']) == before
+    assert app.runtime.sessions.load_agent_payload(item['id']) == before
 
 
 @pytest.mark.parametrize('orphan', [False, True])
@@ -335,17 +339,17 @@ def test_missing_or_orphaned_native_mapping_fails_without_starting_new_turn(tmp_
     log = fake_codex(tmp_path, monkeypatch)
     select_codex(app, monkeypatch)
     first = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'first'}).get_json()
-    assert app.process_pending_agent_once()
+    assert app.runtime.agent.process_pending_agent_once()
     session_id = first['session']['id']
     if orphan:
-        with app.data.agent_connect() as conn:
+        with app.runtime.db.agent_connect() as conn:
             conn.execute("UPDATE agent_sessions SET executor_session_id='' WHERE id=?", (session_id,))
             conn.commit()
     else:
-        (app.agent_session_runtime_dir('newsreader-codex-agent-' + session_id) / 'codex-session.json').unlink()
+        (app.runtime.sessions.agent_session_runtime_dir('newsreader-codex-agent-' + session_id) / 'codex-session.json').unlink()
     assert client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'next', 'session_id': session_id}).status_code == 202
-    assert app.process_pending_agent_once()
-    assert app.load_agent_payload(item['id'])['jobs'][-1]['error'] == 'codex_session_invalid'
+    assert app.runtime.agent.process_pending_agent_once()
+    assert app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]['error'] == 'codex_session_invalid'
     assert len(log.read_text().splitlines()) == 1
 
 
@@ -416,7 +420,7 @@ def test_sync_pi_archive_does_not_change_family_after_default_changes(tmp_path, 
     log = fake_codex(tmp_path, monkeypatch)
     select_codex(app, monkeypatch)
     calls = []
-    monkeypatch.setattr(app, 'run_pi_chat_archive', lambda **kw: calls.append(kw) or {
+    monkeypatch.setattr(app.runtime.chat, 'run_pi_chat_archive', lambda **kw: calls.append(kw) or {
         'summary': 'Pi saved archive', 'provider': 'pi', 'model': kw['pi_model']})
     result = client.post(f"/api/news/{item['id']}/chat/archive", json={
         'session_id': 'newsreader-oar-chat-saved-id',
@@ -430,15 +434,15 @@ def test_codex_background_timeout_does_not_promote_session(tmp_path, monkeypatch
     fake_codex(tmp_path, monkeypatch)
     select_codex(app, monkeypatch)
     monkeypatch.setenv('CODEX_TEST_MODE', 'hang')
-    monkeypatch.setattr(app, 'AGENT_JOB_TIMEOUT_SECONDS', 0.3)
+    monkeypatch.setattr(agent_jobs, 'AGENT_JOB_TIMEOUT_SECONDS', 0.3)
     client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'timeout'})
-    assert app.process_pending_agent_once()
-    saved = app.load_agent_payload(item['id'])
+    assert app.runtime.agent.process_pending_agent_once()
+    saved = app.runtime.sessions.load_agent_payload(item['id'])
     assert saved['jobs'][-1]['status'] == 'failed' and saved['jobs'][-1]['error'] == 'agent_timeout'
-    with app.data.agent_connect() as conn:
+    with app.runtime.db.agent_connect() as conn:
         assert conn.execute('SELECT executor_session_id FROM agent_sessions WHERE id=?', (saved['session']['id'],)).fetchone()[0] == ''
-    assert not app.AGENT_PROCESSES
-    assert not list(app.data.agent_dir.glob('*/codex-session.json'))
+    assert not app.runtime.agent.processes
+    assert not list(app.runtime.db.agent_dir.glob('*/codex-session.json'))
 
 
 @pytest.mark.parametrize('mode,error', [
@@ -518,6 +522,6 @@ def test_background_execution_not_gated_by_openai_login(tmp_path, monkeypatch, m
     monkeypatch.setenv('CODEX_TEST_MODE', mode)
     response = client.post(f"/api/news/{item['id']}/agent/jobs", json={'question': 'hello'})
     assert response.status_code == 202
-    assert app.process_pending_agent_once()
-    job = app.load_agent_payload(item['id'])['jobs'][-1]
+    assert app.runtime.agent.process_pending_agent_once()
+    job = app.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]
     assert job['status'] == 'succeeded', job['error']

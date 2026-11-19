@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from settings import default_app_settings
+
 from nr import preferences
 
 from nr import database
@@ -42,7 +44,7 @@ def test_global_search_mvp(tmp_path: Path, monkeypatch):
     alpha = next(item for item in items if item["title"] == "AlphaTitle")
 
     ts = database.now_ts()
-    conn = app_module.data.connect()
+    conn = app_module.runtime.db.connect()
     try:
         with conn:
             conn.execute(
@@ -636,7 +638,7 @@ def test_search_range_and_time_filters(tmp_path: Path, monkeypatch):
             ts,
         )
 
-    conn = app_module.data.connect()
+    conn = app_module.runtime.db.connect()
     try:
         conn.executemany(
             """
@@ -1198,7 +1200,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
         ("read", "manual.md", 3, "2026-07-31 09:02:00", "2026-07-31", "09:02", "Reuters · China", "rss", "Reuters", "Read feed item", "s", "https://www.reuters.com/world/china/read", ts, ts),
         ("later", "manual.md", 4, "2026-07-31 09:03:00", "2026-07-31", "09:03", "Reuters · China", "rss", "Reuters", "Read later queue", "s", "https://www.reuters.com/world/china/later", ts, ts),
     ]
-    conn = app_module.data.connect()
+    conn = app_module.runtime.db.connect()
     try:
         with conn:
             conn.executemany(
@@ -1218,7 +1220,7 @@ def test_nav_summary_counts_use_independent_collection_semantics(tmp_path: Path,
     finally:
         conn.close()
 
-    settings = app_module.default_app_settings()
+    settings = default_app_settings()
     settings["feed"]["hidden_source_subkeys"] = ["reuters/middle-east"]
     preferences.save_app_settings(settings)
     client = app_module.app.test_client()

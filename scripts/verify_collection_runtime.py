@@ -33,7 +33,8 @@ def content_fingerprint():
     """Bind results to exactly the runtime/config/dependency files tested."""
     names = ["package.json", "package-lock.json", ".npmrc", "scripts/opencli.mjs", "opencli_runtime.py",
              "collection/opencli-manifest.json", "collection/sources.json", "collection_sources.py",
-             "collection_environment.py", "app.py", "news_collection.py",
+             "collection_environment.py", "nr/article_fetch.py", "nr/database.py", "feed_sources.py",
+             "llm_client.py", "news_collection.py",
              "dependency_update.py", "updater.py",
              "scripts/opencli-isolation-guard.mjs", "scripts/verify_collection_runtime.py", "collection/validation-samples.json"]
     names += [str(p.relative_to(ROOT)) for p in sorted((ROOT / "collection/adapters").rglob("*")) if p.is_file()]
@@ -81,15 +82,14 @@ def main():
         import collection_environment
         import collection_sources
         import news_collection
-        import app
-        # The reader optionally caches X images in its own database; these live
-        # checks exercise extraction only, leaving all persistence to unit tests.
-        app._cache_twitter_image = lambda *a, **kw: None
-        app._cleanup_media_cache = lambda *a, **kw: None
-        # Full-text checks must never spend tokens summarizing live replies.
+        from llm_client import LLMClientError
+        from nr.article_fetch import ArticleFetcher
+        from nr.database import Database
+
         def no_summary(**_):
-            raise app.LLMClientError("Live verification does not call model services")
-        app.generate_twitter_comments_summary = no_summary
+            raise LLMClientError("Live verification does not call model services")
+
+        fetcher = ArticleFetcher(Database(), cache_images=False, summarize_comments=no_summary)
         def cli(*command, timeout=30):
             p = collection_sources.run_command(["opencli", *command], timeout=timeout)
             data = json.loads(p.stdout)
@@ -138,7 +138,7 @@ def main():
             if not url:
                 ok, detail, error = False, {}, "No source sample available"
             else:
-                ok, detail, error = app.run_opencli_detail(url)
+                ok, detail, error = fetcher.run_opencli_detail(url)
             content = detail.get("content", "")
             raw = json.loads(detail.get("raw_json") or "{}")
             valid = len(content) >= (1 if case["kind"] == "x_thread" else 200) and bool(detail.get("title"))

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import certifi
 import json
 import os
 import re
@@ -10,7 +9,13 @@ import sys
 import threading
 import time
 import uuid
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+import certifi
 from flask import jsonify, request
+
+from nr import preferences
 from updater import (
     REPOSITORY_URL as UPDATE_REPOSITORY_URL,
     STATE_PATH as UPDATE_STATE_PATH,
@@ -19,21 +24,11 @@ from updater import (
     local_health_url,
     request_supervisor,
 )
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
-from nr import preferences
 
 
 UPDATE_CHECK_TTL = 300
-
-
 UPDATE_TOKEN_TTL = 600
-
-
 RELEASE_NOTE_HEADING_RE = re.compile(r"^###\s+(?P<date>\d{4}-\d{2}-\d{2})\s+—\s+(?P<title>.+?)\s*$")
-
-
 VERSION_RE = re.compile(r"\bv\d+(?:\.\d+){1,3}\b", re.IGNORECASE)
 
 
@@ -63,7 +58,6 @@ class Updates:
         self.tokens = {}
         self.launch_lock = threading.Lock()
         self.process = None
-
 
     def parse_release_notes(self) -> list[dict]:
         """Parse versioned entries from the whole CHANGELOG in file order.

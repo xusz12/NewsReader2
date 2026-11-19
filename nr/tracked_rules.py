@@ -6,38 +6,26 @@ import sqlite3
 
 
 TRACKED_TOPIC_SCOPES = {"important", "all"}
-
-
 TRACKED_BACKFILL_MODES = {"recent_important", "all_important", "all_news"}
-
-
 TRACKED_MATCH_METHODS = {"keyword", "manual"}
-
-
 TRACKED_RULE_FIELD_SCORES = {
     "title": {"strong": 8, "core": 4, "context": 2},
     "note": {"strong": 6, "core": 3, "context": 2},
     "summary": {"strong": 5, "core": 2, "context": 1},
     "content": {"strong": 2, "core": 1, "context": 1},
 }
-
-
 TRACKED_RULE_FIELD_WEIGHT_DEFAULTS = {
     "title": 1.0,
     "note": 1.0,
     "summary": 1.0,
     "content": 1.0,
 }
-
-
 TRACKED_RULE_TERM_SCORE_DEFAULTS = {
     "strong": 1.0,
     "core": 1.0,
     "context": 1.0,
     "exclude": 1.0,
 }
-
-
 TRACKED_DEFAULT_RULE_PARAM_KEYS = (
     "title_weight",
     "note_weight",
@@ -49,34 +37,18 @@ TRACKED_DEFAULT_RULE_PARAM_KEYS = (
     "exclude_penalty",
     "threshold",
 )
-
-
 TRACKED_RULE_FIELD_LABELS = {
     "title": "标题",
     "note": "笔记",
     "summary": "摘要",
     "content": "正文",
 }
-
-
 TRACKED_RULE_THRESHOLD_DEFAULT = 6
-
-
 TRACKED_RULE_THRESHOLD_MIN = 1
-
-
 TRACKED_RULE_THRESHOLD_MAX = 50
-
-
 TRACKED_RULE_CANDIDATE_THRESHOLD_DEFAULT = 4
-
-
 TRACKED_RULE_WEIGHT_MIN = 0
-
-
 TRACKED_RULE_WEIGHT_MAX = 20
-
-
 TRACKED_RULE_EXCLUDE_PENALTY_BASE = 100
 
 

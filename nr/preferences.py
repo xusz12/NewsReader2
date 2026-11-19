@@ -1,33 +1,38 @@
 from __future__ import annotations
 
-import codex_client
-import connection_tests
 import json
-import model_apis
-import model_catalogs
-import news_collection
-import news_summaries
 import os
-import periodic_reports
-import pi_models
 import re
 import shutil
-import source_deletion
 import sqlite3
 import subprocess
 import sys
 import time
-import x_accounts
 from contextlib import closing
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from flask import jsonify, request
+
+import codex_client
+import connection_tests
+import model_apis
+import model_catalogs
+import news_collection
+import news_summaries
+import periodic_reports
+import pi_models
+import source_deletion
+import x_accounts
 from feed_sources import (
     derive_source_subkey,
     normalize_hidden_source_subkeys,
     normalize_source_subkey_key,
     visible_news_sql,
 )
-from flask import jsonify, request
 from llm_client import resolve_translation_default_model
-from pathlib import Path
+from nr import configuration, tracked_rules
 from secret_store import SecretStoreError, delete_secret, has_secret, read_secret, write_secret
 from settings import (
     DEFAULT_PI_CHAT_MODEL,
@@ -36,27 +41,17 @@ from settings import (
     normalize_feature_models,
     save_app_settings,
 )
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
-from nr import configuration, tracked_rules
 
 
 SECRET_PROVIDER_MAP = {
     **{provider: config["secret_name"] for provider, config in model_apis.API_PROVIDERS.items()},
     "openai": "OPENAI_API_KEY",
 }
-
-
 DEEPSEEK_MODEL_FALLBACKS = [
     "deepseek-v4-flash",
     "deepseek-v4-pro",
 ]
-
-
 SETTINGS_MODEL_OPTION_LIMIT = 40
-
-
 DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models"
 
 
@@ -243,8 +238,6 @@ def deepseek_settings_snapshot(saved_model: str) -> dict:
 
 
 PI_CHAT_MODEL_FALLBACKS = [DEFAULT_PI_CHAT_MODEL]
-
-
 PI_CHAT_PROVIDER_FALLBACKS = [DEFAULT_PI_CHAT_PROVIDER]
 
 
@@ -376,7 +369,6 @@ def current_pi_chat_config() -> dict[str, str]:
 class Preferences:
     def __init__(self, db):
         self.db = db
-
 
     def build_feed_source_settings_snapshot(self, hidden_keys: list[str], conn=None) -> dict:
         hidden = set(normalize_hidden_source_subkeys(hidden_keys or []))
@@ -651,7 +643,7 @@ end try
         return normalized
 
 
-def register(app, db, jobs, preferences, _terminate_agent_process, agent_library_scope, ensure_agent_db, refresh_agent_session_expiries):
+def register(app, db, jobs, preferences, store, worker):
     @app.post("/api/settings/x-accounts/test")
     def api_settings_x_account_test():
         body = request.get_json(silent=True)
@@ -699,7 +691,7 @@ def register(app, db, jobs, preferences, _terminate_agent_process, agent_library
             return jsonify(ok=False, error="source_confirmation_required"), 400
         staged, committed = None, False
         try:
-            ensure_agent_db()
+            store.ensure_agent_db()
             with jobs.report_lock, closing(db.connect()) as conn:
                 agent_schema = source_deletion.attach_agent(conn, db.agent_path, db.path)
                 conn.execute("BEGIN IMMEDIATE" if deleting else "BEGIN")
@@ -713,7 +705,7 @@ def register(app, db, jobs, preferences, _terminate_agent_process, agent_library
                         if deleting:
                             x_accounts.check_revision(conn, body.get("x_accounts_revision"))
                     plan = source_deletion.Plan(conn, key, database_path=db.path, agent_schema=agent_schema,
-                        scope=agent_library_scope(), media_root=db.media_dir, runtime_root=db.agent_dir, empty_source=empty_source)
+                        scope=store.agent_library_scope(), media_root=db.media_dir, runtime_root=db.agent_dir, empty_source=empty_source)
                     if not deleting:
                         return jsonify(ok=True, source=plan.preview, **(x_accounts.snapshot(conn) if x_handle else {}))
                     if body["confirmation_token"] != plan.preview["confirmation_token"]:
@@ -734,7 +726,7 @@ def register(app, db, jobs, preferences, _terminate_agent_process, agent_library
                     conn.rollback()
                     raise
             for job_id in (plan.process_ids if delete_history else []):
-                _terminate_agent_process(job_id)
+                worker._terminate_agent_process(job_id)
             warning = ""
             try:
                 if staged:
@@ -882,7 +874,7 @@ def register(app, db, jobs, preferences, _terminate_agent_process, agent_library
             return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "x_accounts_changed" else 400
         jobs.reports.schedule_wake.set()
         jobs.collection.wake.set()
-        refresh_agent_session_expiries()
+        store.refresh_agent_session_expiries()
         return jsonify({"ok": True, **preferences.serialize_runtime_settings()})
 
     @app.put("/api/settings/tracked-default-rule-params")

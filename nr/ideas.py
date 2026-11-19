@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 import sqlite3
 import uuid
-from feed_sources import visible_news_sql
+
 from flask import jsonify, request
 
+from feed_sources import visible_news_sql
 from nr import database, reader_items
 
 
@@ -284,7 +285,7 @@ def article_notes_response(conn, item_id, url):
             "note_preview": reader_items.build_note_preview(note["note"] if note else None)}
 
 
-def register(app, db_conn):
+def register(app, db):
     @app.post("/api/standalone-ideas")
     def api_standalone_idea_create():
         body = request.get_json(silent=True) or {}
@@ -302,7 +303,7 @@ def register(app, db_conn):
         if len(note_text) > STANDALONE_IDEA_MAX_LEN:
             return jsonify({"ok": False, "error": "note_too_long"}), 400
         ts = database.now_ts()
-        conn = db_conn()
+        conn = db.connect()
         try:
             with conn:
                 cur = conn.execute(
@@ -334,7 +335,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": "empty_note"}), 400
         if len(note_text) > STANDALONE_IDEA_MAX_LEN:
             return jsonify({"ok": False, "error": "note_too_long"}), 400
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT id FROM standalone_ideas WHERE id=?",
@@ -357,7 +358,7 @@ def register(app, db_conn):
 
     @app.delete("/api/standalone-ideas/<int:idea_id>")
     def api_standalone_idea_delete(idea_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT id FROM standalone_ideas WHERE id=?",
@@ -388,7 +389,7 @@ def register(app, db_conn):
                     or (quote.get("paragraph") is not None and
                         (type(quote["paragraph"]) is not int or not 1 <= quote["paragraph"] <= 100000))):
                 return jsonify(ok=False, error="invalid_quote"), 400
-        conn = db_conn()
+        conn = db.connect()
         try:
             item = reader_items.reader_subject(conn, item_id)
             if not item:
@@ -434,7 +435,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": "invalid_note"}), 400
         note_text = raw_note.strip()
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             item = conn.execute("SELECT id, url FROM items WHERE id=?", (item_id,)).fetchone()
             if not item:

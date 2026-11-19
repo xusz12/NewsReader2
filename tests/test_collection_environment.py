@@ -139,10 +139,10 @@ def test_overlapping_checks_are_rejected_and_lock_is_released(monkeypatch):
 def test_environment_api_restricts_commands_and_does_not_queue_collection(monkeypatch, tmp_path):
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH", str(tmp_path / "settings.json"))
     import app
-    monkeypatch.setattr(app.data, 'path', tmp_path / "news.sqlite3")
-    with app.data.connect() as conn:
+    monkeypatch.setattr(app.runtime.db, 'path', tmp_path / "news.sqlite3")
+    with app.runtime.db.connect() as conn:
         environment.initialize(conn)
-    monkeypatch.setattr(app.background.collection, "request", lambda: pytest.fail("must not collect"))
+    monkeypatch.setattr(app.runtime.jobs.collection, "request", lambda: pytest.fail("must not collect"))
     calls = []
     monkeypatch.setattr(environment, "check", lambda target: calls.append(target) or {
         "checks": [{"id": "x" if target == "x" else "runtime", "status": "success", "message": "检查通过"}],

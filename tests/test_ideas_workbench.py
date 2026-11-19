@@ -37,7 +37,7 @@ def test_invalid_title_rejected_without_losing_existing_content(fixture, title):
 
 def test_legacy_standalone_schema_migrates_idempotently(fixture):
     app, client, *_ = fixture
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("DROP TABLE standalone_ideas")
         conn.execute("CREATE TABLE standalone_ideas (id INTEGER PRIMARY KEY AUTOINCREMENT, note TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
         conn.execute("INSERT INTO standalone_ideas VALUES (42, '历史正文', '2026-09-01 10:00:00', '2026-09-02 12:00:00')")

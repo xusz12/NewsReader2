@@ -1,5 +1,7 @@
 """Title-only conversations use the real job, snapshot and notification paths."""
 
+from nr import agent_sessions
+
 from nr import configuration, database
 import copy
 import json
@@ -12,13 +14,13 @@ from test_codex_client import fake_codex, select_codex
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
     module, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         conn.execute('DELETE FROM article_details WHERE url=?', (item['url'],))
     return module, client, item
 
 
 def provide_body(module, item):
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         stamp = database.now_ts()
         conn.execute('INSERT INTO article_details(url,title,content,content_length,raw_json,fetched_at,updated_at) VALUES (?,?,?,100,?,?,?)',
                      (item['url'], item['title'], 'Newly fetched full article.', '{}', stamp, stamp))
@@ -28,7 +30,7 @@ def provide_body(module, item):
 def test_title_context_is_available_before_fetch_or_after_failure(fixture, status):
     module, client, item = fixture
     if status != 'none':
-        with module.data.connect() as conn:
+        with module.runtime.db.connect() as conn:
             conn.execute('INSERT INTO detail_jobs(url,status,attempts,updated_at) VALUES (?,?,1,?)', (item['url'], status, database.now_ts()))
     path = f"/api/news/{item['id']}"
     detail = client.get(path + '/detail').json
@@ -40,11 +42,11 @@ def test_title_context_is_available_before_fetch_or_after_failure(fixture, statu
     prepared = client.post(path + '/agent/session', json={}).json
     assert prepared['session']['context_level'] == 'title_only'
     assert prepared['jobs'] == prepared['messages'] == []
-    with module.data.agent_connect() as conn:
+    with module.runtime.db.agent_connect() as conn:
         context = json.loads(conn.execute('SELECT context_json FROM agent_sessions').fetchone()[0])
     assert context['title'] == item['title'] and context['content'] == ''
     assert '摘要' not in context['content']
-    with module.data.connect() as conn:
+    with module.runtime.db.connect() as conn:
         assert conn.execute('SELECT COUNT(*) FROM detail_jobs').fetchone()[0] == (status != 'none')
 
 
@@ -60,10 +62,10 @@ def test_title_first_and_native_resume_prompts_notify_and_use_server_title(fixtu
     first = client.post(path + '/jobs', json={'question': '背景如何？', 'title': '客户端伪造标题', 'content': '客户端伪造全文', 'quote_text': '保留用户引用', 'quote_source': 'selection'})
     assert first.status_code == 202
     session = first.json['session']
-    assert module.process_pending_agent_once()
+    assert module.runtime.agent.process_pending_agent_once()
     second = client.post(path + '/jobs', json={'session_id': session['id'], 'question': '再解释影响'})
     assert second.status_code == 202 and second.json['session']['id'] == session['id']
-    assert module.process_pending_agent_once()
+    assert module.runtime.agent.process_pending_agent_once()
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert len(calls) == 2
     prompts = [call['prompt'] if runtime == 'codex' else call['effective_prompt'] for call in calls]
@@ -91,12 +93,12 @@ def test_title_history_replay_does_not_claim_to_have_the_full_article(fixture, t
     log = _install_fake_oar(tmp_path, monkeypatch)
     path = f"/api/news/{item['id']}/agent"
     first = client.post(path + '/jobs', json={'question': '旧标题问题'}).json
-    assert module.process_pending_agent_once()
-    with module.data.agent_connect() as conn:
+    assert module.runtime.agent.process_pending_agent_once()
+    with module.runtime.db.agent_connect() as conn:
         conn.execute("UPDATE agent_sessions SET executor_session_id='old-native-id' WHERE id=?", (first['session']['id'],))
-    (module.agent_session_runtime_dir(module._full_pi_executor_session_id(first['session']['id'])) / 'session.json').unlink()
+    (module.runtime.sessions.agent_session_runtime_dir(agent_sessions._full_pi_executor_session_id(first['session']['id'])) / 'session.json').unlink()
     assert client.post(path + '/jobs', json={'session_id': first['session']['id'], 'question': '历史接续'}).status_code == 202
-    assert module.process_pending_agent_once()
+    assert module.runtime.agent.process_pending_agent_once()
     replay = json.loads(log.read_text().splitlines()[-1])['effective_prompt']
     assert '此前会话记录' in replay and '旧标题问题' in replay and '完成' in replay
     assert item['title'] in replay and '尚未提供全文' in replay
@@ -111,7 +113,7 @@ def test_later_full_article_updates_only_unused_session_before_send(fixture, tmp
     original = client.post(path + '/session', json={}).json['session']
     if started:
         assert client.post(path + '/jobs', json={'question': '标题首问', 'session_id': original['id']}).status_code == 202
-        assert module.process_pending_agent_once()
+        assert module.runtime.agent.process_pending_agent_once()
     provide_body(module, item)
     loaded = client.get(path + '/session').json
     assert loaded['context_updated'] is True
@@ -124,7 +126,7 @@ def test_later_full_article_updates_only_unused_session_before_send(fixture, tmp
     assert sent['session']['context_level'] == ('title_only' if started else 'full_detail')
     assert sent['session']['model'] == (original['model'] if started else 'different-saved-model')
     assert len(sent['messages']) == (4 if started else 2)
-    assert module.process_pending_agent_once()
+    assert module.runtime.agent.process_pending_agent_once()
     call = json.loads(log.read_text().splitlines()[-1])
     prompt = call['effective_prompt']
     if started:

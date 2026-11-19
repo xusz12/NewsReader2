@@ -237,7 +237,7 @@ def api(tmp_path, monkeypatch):
     module = importlib.reload(app)
     module.ensure_db()
     monkeypatch.setattr(preferences, 'provider_has_configured_key', lambda _: False)
-    with closing(module.data.connect()) as conn:
+    with closing(module.runtime.db.connect()) as conn:
         for i in range(36):
             insert(conn, f"n{i:02}", "模型发布" if i < 12 else "市场新闻")
         with conn:
@@ -308,7 +308,7 @@ def test_category_counts_follow_full_filter_scope_and_read_changes(api, endpoint
 ])
 def test_category_counts_exclude_stale_or_incomplete_classification(api, endpoint, mutation):
     module, client = api
-    with closing(module.data.connect()) as conn, conn:
+    with closing(module.runtime.db.connect()) as conn, conn:
         conn.execute(mutation)
     counts = client.get(endpoint, query_string=dict(q="分类共同测试词", feed_filters="1",
                         count_only="1", category_counts="1")).json
@@ -326,7 +326,7 @@ def test_invalid_filter_never_falls_back_to_marking_everything(api, url, method)
 
 def test_stale_classification_hidden_from_filter_and_serialization(api):
     module, client = api
-    with closing(module.data.connect()) as conn, conn:
+    with closing(module.runtime.db.connect()) as conn, conn:
         conn.execute("UPDATE items SET title='标题被上游修改' WHERE id='n35'")
     assert client.get("/api/news?category=economy&count_only=1").json["total"] == 23
     item = client.get("/api/search?q=标题被上游修改").json["items"][0]

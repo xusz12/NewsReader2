@@ -132,8 +132,8 @@ def test_cannot_delete_running_trial(service):
 
 def test_manual_api_queues_real_pipeline_without_changing_schedule(service, db, monkeypatch):
     import app
-    monkeypatch.setattr(app.data, 'connect', db)
-    monkeypatch.setattr(app.background, 'reports', service)
+    monkeypatch.setattr(app.runtime.db, 'connect', db)
+    monkeypatch.setattr(app.runtime.jobs, 'reports', service)
     monkeypatch.setattr(service, "start", lambda: None)
     client = app.app.test_client()
     options = client.get('/api/reports/preview-options').json

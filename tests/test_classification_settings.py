@@ -35,9 +35,9 @@ def test_switch_persists_applies_live_and_survives_api_only_writes_and_restart(a
     body = {'llm': configuration.load_app_settings()['llm'], 'classification': config}
     saved = client.put('/api/settings', json=body)
     assert saved.status_code == 200 and saved.json['classification'] == config
-    assert app.background.classification.enabled is False
-    assert app.background.classification.unread_only is True
-    assert app.background.classification.threads == []
+    assert app.runtime.jobs.classification.enabled is False
+    assert app.runtime.jobs.classification.unread_only is True
+    assert app.runtime.jobs.classification.threads == []
     result = client.put('/api/settings', json={
         'llm': body['llm'], 'api_models': {'jev': {'model': 'jev-next'}},
     })
@@ -46,9 +46,9 @@ def test_switch_persists_applies_live_and_survives_api_only_writes_and_restart(a
     assert client.get('/api/news/classification').json['enabled'] is False
     assert client.post('/api/news/classification/retry').status_code == 409
     app = importlib.reload(app)
-    assert app.background.classification.enabled is False
-    assert app.background.classification.unread_only is True
-    assert app.background.classification.gate.snapshot()['configured_concurrency'] == 3
+    assert app.runtime.jobs.classification.enabled is False
+    assert app.runtime.jobs.classification.unread_only is True
+    assert app.runtime.jobs.classification.gate.snapshot()['configured_concurrency'] == 3
 
 
 @pytest.mark.parametrize('value', [None, 0, 1, 'true', 'false', [], {}])
@@ -58,7 +58,7 @@ def test_invalid_enabled_does_not_save_or_change_running_service(api_fixture, va
     result = client.put('/api/settings', json={'llm': before['llm'], 'classification': {'enabled': value}})
     assert result.status_code == 400 and result.json['error'] == 'invalid_classification_enabled'
     assert configuration.load_app_settings() == before
-    assert app.background.classification.enabled is True
+    assert app.runtime.jobs.classification.enabled is True
 
 
 @pytest.mark.parametrize('value', [None, False, [], 'enabled'])
@@ -132,7 +132,7 @@ def test_disabled_workers_do_not_fetch_credentials_or_call_model(conn):
 
 def test_disabled_feature_retains_categories_and_retry_cannot_modify_the_queue(api):
     app, client = api
-    with app.data.connect() as db:
+    with app.runtime.db.connect() as db:
         db.execute("UPDATE item_classifications SET status='failed',attempts=4 WHERE item_id='n00'")
     before = client.get('/api/news?category=economy&read_filter=all').json
     result = client.put('/api/settings', json={

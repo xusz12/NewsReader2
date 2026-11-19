@@ -65,9 +65,9 @@ def test_missed_editions_use_the_windows_effective_at_their_launch(db):
 def test_settings_save_windows_preserves_launches_old_clients_and_rejects_invalid(tmp_path,monkeypatch):
     import app
     monkeypatch.setenv("NEWS_READER_APP_SETTINGS_PATH",str(tmp_path/"settings.json"))
-    monkeypatch.setattr(app.catalogs,'serialize_runtime_settings',lambda:settings.load_app_settings())
-    monkeypatch.setattr(app.background.classification,"configure",lambda **kwargs:None)
-    monkeypatch.setattr(app,"refresh_agent_session_expiries",lambda:None)
+    monkeypatch.setattr(app.runtime.preferences,'serialize_runtime_settings',lambda:settings.load_app_settings())
+    monkeypatch.setattr(app.runtime.jobs.classification,"configure",lambda **kwargs:None)
+    monkeypatch.setattr(app.runtime.sessions,'refresh_agent_session_expiries',lambda:None)
     monkeypatch.setattr(pr,"now",lambda:pr.local("2026-10-31T16:00:00+08:00"))
     client=app.app.test_client();llm=settings.default_app_settings()["llm"]
     response=client.put("/api/settings",json={"llm":llm,"report_windows":{"evening":{"start_day":0,"start":"00:00","end":"21:00"},"monthly":{"end":"02:00"}}})
@@ -76,7 +76,7 @@ def test_settings_save_windows_preserves_launches_old_clients_and_rejects_invali
     assert saved["report_schedule"] == rs.DEFAULT_TIMES
     assert saved["report_windows"]["evening"] == {"start_day":0,"start":"00:00","end":"21:00"}
     assert len(saved["report_window_history"]) == 2
-    assert app.background.reports.schedule_wake.is_set()
+    assert app.runtime.jobs.reports.schedule_wake.is_set()
     assert client.put("/api/settings",json={"llm":llm}).status_code == 200
     assert settings.load_app_settings()["report_window_history"] == saved["report_window_history"]
     before=(tmp_path/"settings.json").read_bytes()

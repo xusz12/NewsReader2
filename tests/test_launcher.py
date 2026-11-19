@@ -73,27 +73,28 @@ def free_port() -> int:
 
 def make_app_wrapper(path: Path) -> None:
     path.write_text(
-        """import json, os, sys
+        """import json, os, sys, time
+from flask import jsonify
 sys.path.insert(0, os.environ['TEST_PROJECT_ROOT'])
 import app
 
 token = os.environ['TEST_UPDATE_TOKEN']
 target = json.loads(os.environ['TEST_UPDATE_TARGET'])
-app.UPDATE_TOKENS[token] = {
-    'expires_at': app.time.time() + 3600,
+app.runtime.updates.tokens[token] = {
+    'expires_at': time.time() + 3600,
     'payload': {
         'available': True,
-        'current_commit': app._current_commit(),
+        'current_commit': app.runtime.updates._current_commit(),
         'latest': target,
     },
 }
 fail_commit = os.environ.get('TEST_FAIL_HEALTH_COMMIT')
-if fail_commit and app._current_commit() == fail_commit:
-    original = app.api_version
+if fail_commit and app.runtime.updates._current_commit() == fail_commit:
+    original = app.app.view_functions['api_version']
     def wrong_commit_health():
         response = original().get_json()
         response['commit'] = '0' * 40
-        return app.jsonify(response)
+        return jsonify(response)
     app.app.view_functions['api_version'] = wrong_commit_health
 
 app.app.run(host=os.environ['NEWS_READER_HOST'], port=int(os.environ['NEWS_READER_PORT']),

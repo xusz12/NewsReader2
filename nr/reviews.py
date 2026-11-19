@@ -4,20 +4,15 @@ import json
 import math
 import sqlite3
 from datetime import date as date_cls, datetime, timedelta
+
 from flask import jsonify, request
 
 from nr import database, reader_items, reminders
 
 
 REVIEW_SOURCE_TYPES = ("article_note", "market_trend_note", "standalone_idea")
-
-
 REVIEW_RESULTS = ("confirmed", "refuted", "inconclusive")
-
-
 REVIEW_TEXT_MAX_LEN = 10000
-
-
 REVIEW_EVIDENCE_MAX_LEN = 5000
 
 
@@ -117,7 +112,7 @@ def _serialize_review_chain_detail(row: sqlite3.Row, conn: sqlite3.Connection) -
     return chain
 
 
-def register(app, db_conn):
+def register(app, db):
     def _validate_review_source(source_type: str, source_key: str) -> dict | None:
         """Validate that the source idea exists and return its snapshot data."""
         source_type = (source_type or "").strip()
@@ -127,7 +122,7 @@ def register(app, db_conn):
         if not source_key:
             return None
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             if source_type == "article_note":
                 row = conn.execute(
@@ -232,7 +227,7 @@ def register(app, db_conn):
         if result_filter not in valid_result_filters:
             return jsonify({"ok": False, "error": "invalid_result_filter"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             base_sql = "FROM review_chains c"
             conditions = []
@@ -292,7 +287,7 @@ def register(app, db_conn):
 
     @app.get("/api/reviews/<int:chain_id>")
     def api_review_detail(chain_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute("SELECT * FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not row:
@@ -340,7 +335,7 @@ def register(app, db_conn):
 
         snapshot_json = _build_source_snapshot(source_data)
         ts = database.now_ts()
-        conn = db_conn()
+        conn = db.connect()
         try:
             with conn:
                 cur = conn.execute(
@@ -410,7 +405,7 @@ def register(app, db_conn):
         if len(event_text) > REVIEW_TEXT_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             auto_postponed = False
             old_plan_review_date = ""
@@ -541,7 +536,7 @@ def register(app, db_conn):
         if len(judgment) > REVIEW_TEXT_MAX_LEN or len(criteria) > REVIEW_TEXT_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute("SELECT status, current_version FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not row:
@@ -595,7 +590,7 @@ def register(app, db_conn):
         if len(actual_text) > REVIEW_TEXT_MAX_LEN or len(bias_text) > REVIEW_TEXT_MAX_LEN or len(experience) > REVIEW_TEXT_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute("SELECT status FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not row:
@@ -656,7 +651,7 @@ def register(app, db_conn):
         if len(event_text) > REVIEW_TEXT_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute("SELECT status, plan_review_date FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not row:
@@ -703,7 +698,7 @@ def register(app, db_conn):
         if len(judgment) > REVIEW_TEXT_MAX_LEN or len(criteria) > REVIEW_TEXT_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             parent = conn.execute("SELECT * FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not parent:
@@ -757,7 +752,7 @@ def register(app, db_conn):
         if len(news_title) > REVIEW_EVIDENCE_MAX_LEN:
             return jsonify({"ok": False, "error": "text_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute("SELECT status FROM review_chains WHERE id=?", (chain_id,)).fetchone()
             if not row:
@@ -782,7 +777,7 @@ def register(app, db_conn):
 
     @app.delete("/api/reviews/<int:chain_id>/evidence/<int:evidence_id>")
     def api_review_delete_evidence(chain_id: int, evidence_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             row = conn.execute(
                 "SELECT chain_id FROM review_evidence WHERE id=?", (evidence_id,),
@@ -827,7 +822,7 @@ def register(app, db_conn):
         except ValueError:
             return jsonify({"ok": False, "error": "invalid_remind_at"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             chain = conn.execute(
                 "SELECT id, source_note, current_version FROM review_chains WHERE id=?",

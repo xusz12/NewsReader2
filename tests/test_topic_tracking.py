@@ -206,7 +206,7 @@ def test_discussion_supersedes_failure_and_recovers_legacy_draft(env):
 
 def test_definition_chat_api_validation_and_delete_during_reply(env,api,monkeypatch):
     connect,service,_=env;module,client=api
-    monkeypatch.setattr(module.background,'topics',service);monkeypatch.setattr(module.data,'connect',connect)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service);monkeypatch.setattr(module.runtime.db,'connect',connect)
     ident=draft_topic(service);path='/api/topics/'+ident
     assert client.post(path+'/messages',json=[]).status_code==400
     assert client.post(path+'/messages',json=discussion_body(service,ident,message=' ')).status_code==400
@@ -882,7 +882,7 @@ from test_news_classification import api
 
 def test_definition_revision_api_validation_and_conflict(env,api,monkeypatch):
     _,service,_=env;module,client=api
-    monkeypatch.setattr(module.background,'topics',service)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service)
     ident=ready(service);body=edit_body(service,ident,definition='调整后的定义')
     url='/api/topics/'+ident+'/definition'
     assert client.patch('/api/topics/missing/definition',json=body).status_code==404
@@ -914,7 +914,7 @@ def test_migration_preserves_legacy_membership_and_converts_only_pending_event_w
 def test_refinement_api_state_and_concurrency_validation(env,api,monkeypatch):
     connect,service,_=env
     module,client=api
-    monkeypatch.setattr(module.background,'topics',service)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service)
     ident,first=refinement_data(env)
     url='/api/topics/'+ident+'/refine'
     assert client.post('/api/topics/missing/refine').status_code==404
@@ -1003,7 +1003,7 @@ def test_archive_rejects_inflight_synthesis(env,monkeypatch):
 def test_archive_api_validation_idempotence_and_active_limit(env,api,monkeypatch):
     connect,service,_=env
     module,client=api
-    monkeypatch.setattr(module.background,'topics',service)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service)
     monkeypatch.setattr(tt,'MAX_TOPICS',1)
     ident=ready(service)
     url='/api/topics/'+ident+'/archive'
@@ -1040,8 +1040,8 @@ def test_existing_topic_database_gets_archive_column(tmp_path):
 def test_topic_api_validation_and_delete_preserve_news(env,api,monkeypatch):
     connect,service,_=env
     module,client=api
-    monkeypatch.setattr(module.background,'topics',service)
-    monkeypatch.setattr(module.data,'connect',connect)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service)
+    monkeypatch.setattr(module.runtime.db,'connect',connect)
     assert client.post('/api/topics',json=[]).status_code==400
     assert client.post('/api/topics',json={'query':'','request_id':'empty'}).status_code==400
     assert client.get('/api/topics/missing').status_code==404
@@ -1165,8 +1165,8 @@ def test_refinement_restore_preserves_later_nodes_and_reports(env):
 def test_refinement_version_api_is_scoped_and_atomic(env,api,monkeypatch):
     _,service,_=env
     module,client=api
-    monkeypatch.setattr(module.background,'topics',service)
-    monkeypatch.setattr(module.data,'connect',service.connect)
+    monkeypatch.setattr(module.runtime.jobs,'topics',service)
+    monkeypatch.setattr(module.runtime.db,'connect',service.connect)
     ident,_,before,version=prepare_preview(env)
     other=service.create({'query':'另一个主题','request_id':'another-topic'})['id']
     base='/api/topics/'+ident+'/refinements/'+version
@@ -1183,12 +1183,12 @@ def test_refinement_version_api_is_scoped_and_atomic(env,api,monkeypatch):
 def test_topic_update_badge_counts_topics_and_preserves_later_progress(env, api, monkeypatch):
     connect, service, _ = env
     module, client = api
-    monkeypatch.setattr(module.background, 'topics', service)
+    monkeypatch.setattr(module.runtime.jobs, 'topics', service)
     def api_connect():
         conn = connect()
         conn.create_function('is_bloomberg_video_url', 1, lambda url: 0)
         return conn
-    monkeypatch.setattr(module.data, 'connect', api_connect)
+    monkeypatch.setattr(module.runtime.db, 'connect', api_connect)
     first, second = ready(service), ready(service, request_id='second')
     summary = lambda: client.get('/api/nav-summary').json['summary']['topics_unseen']
     assert summary() == 2  # Initial history is a new progress update, even without news.
@@ -1223,8 +1223,8 @@ def test_topic_update_badge_counts_topics_and_preserves_later_progress(env, api,
 def test_news_new_marker_shares_global_read_state_and_captures_all_unread_ids(env, api, monkeypatch):
     connect, service, _ = env
     module, client = api
-    monkeypatch.setattr(module.background, 'topics', service)
-    monkeypatch.setattr(module.data, 'connect', connect)
+    monkeypatch.setattr(module.runtime.jobs, 'topics', service)
+    monkeypatch.setattr(module.runtime.db, 'connect', connect)
     first, second = ready(service), ready(service, request_id='second')
     with closing(connect()) as conn:
         article(conn, 'old-report')

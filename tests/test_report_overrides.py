@@ -92,7 +92,7 @@ def test_failed_codex_catalog_is_not_misreported_as_unsupported_reasoning(servic
 
 def test_api_fixed_and_custom_windows_and_safe_catalog(service, db, monkeypatch):
     import app
-    monkeypatch.setattr(app.background, 'reports', service)
+    monkeypatch.setattr(app.runtime.jobs, 'reports', service)
     monkeypatch.setattr(service, 'start', lambda: None)
     client = app.app.test_client()
     options = client.get('/api/reports/manual-options').json

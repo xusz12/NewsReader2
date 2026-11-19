@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
+
 from flask import jsonify, request
 
 from nr import database, reader_items
@@ -120,14 +121,14 @@ def migrate_news_reminders_review_chain_id(conn: sqlite3.Connection) -> None:
         )
 
 
-def register(app, db_conn):
+def register(app, db):
     @app.get("/api/reminders")
     def api_reminders():
         status = (request.args.get("status") or "active").strip().lower()
         if status not in {"active", "done", "dismissed", "all"}:
             return jsonify({"ok": False, "error": "invalid_status"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             summary = load_reminder_summary(conn)
             where_sql = ""
@@ -172,7 +173,7 @@ def register(app, db_conn):
 
     @app.get("/api/reminders/summary")
     def api_reminders_summary():
-        conn = db_conn()
+        conn = db.connect()
         try:
             summary = load_reminder_summary(conn)
         finally:
@@ -202,7 +203,7 @@ def register(app, db_conn):
         if len(note_text) > 5000:
             return jsonify({"ok": False, "error": "note_too_long"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             item = conn.execute(
                 "SELECT id, title, url FROM items WHERE id=?",
@@ -247,7 +248,7 @@ def register(app, db_conn):
         if not provided:
             return jsonify({"ok": False, "error": "missing_fields"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT * FROM news_reminders WHERE id=?",
@@ -340,7 +341,7 @@ def register(app, db_conn):
 
     @app.delete("/api/reminders/<int:reminder_id>")
     def api_reminder_delete(reminder_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT id FROM news_reminders WHERE id=?",

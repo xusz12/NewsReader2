@@ -3,9 +3,10 @@ from __future__ import annotations
 import math
 import sqlite3
 from datetime import datetime
-from feed_sources import derive_source_key, visible_news_sql
+
 from flask import jsonify, request
 
+from feed_sources import derive_source_key, visible_news_sql
 from nr import database, ideas, reader_items
 
 
@@ -23,14 +24,8 @@ DEFAULT_MARKET_TAG_CHOICES = [
     "新能源",
     "中国资产",
 ]
-
-
 MARKET_DIRECTIONS = {"bullish", "bearish"}
-
-
 MARKET_WORKBENCH_CONTENT_FILTERS = {"all", "ideas", "bullish", "bearish"}
-
-
 MARKET_PIN_NOTE_MAX_LEN = 5000
 
 
@@ -528,7 +523,7 @@ def serialize_market_pinned_note(pin_row: dict, tag_def: dict | None = None) -> 
     }
 
 
-def register(app, db_conn):
+def register(app, db):
     @app.get("/api/market-trends")
     def api_market_trends():
         try:
@@ -537,7 +532,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": "invalid_days"}), 400
         days = min(30, max(3, days))
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             active_tags = load_market_tag_definitions(conn, active_only=True)
             date_rows = conn.execute(
@@ -689,7 +684,7 @@ def register(app, db_conn):
         direction = (request.args.get("direction") or "").strip().lower()
         if not date_key:
             return jsonify({"ok": False, "error": "missing_date"}), 400
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = conn.execute(
                 "SELECT key, display_name, active FROM market_tag_definitions WHERE key=?",
@@ -760,7 +755,7 @@ def register(app, db_conn):
     @app.get("/api/market-trends/tag-detail")
     def api_market_trends_tag_detail():
         tag = (request.args.get("tag") or "").strip()
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = conn.execute(
                 "SELECT key, display_name, active FROM market_tag_definitions WHERE key=?",
@@ -868,7 +863,7 @@ def register(app, db_conn):
         page = max(1, int(request.args.get("page", "1")))
         per = min(100, max(10, int(request.args.get("per", "30"))))
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             tags = load_market_tag_definitions(conn, active_only=True)
             if not tag_key:
@@ -946,7 +941,7 @@ def register(app, db_conn):
         else:
             return jsonify({"ok": False, "error": "invalid_collapsed"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = None
             if normalized_tag_key:
@@ -994,7 +989,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": "invalid_direction"}), 400
 
         note_text = raw_note.strip()
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = conn.execute(
                 "SELECT key, display_name FROM market_tag_definitions WHERE key=? AND active=1",
@@ -1054,7 +1049,7 @@ def register(app, db_conn):
         else:
             date_key = ""
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 """
@@ -1125,7 +1120,7 @@ def register(app, db_conn):
 
     @app.delete("/api/market-trends/note/<int:note_id>")
     def api_market_trend_note_delete(note_id: int):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 """
@@ -1162,7 +1157,7 @@ def register(app, db_conn):
     @app.get("/api/market-tags")
     def api_market_tags():
         active_only = ((request.args.get("active_only") or "").strip().lower() in ("1", "true", "yes"))
-        conn = db_conn()
+        conn = db.connect()
         try:
             tags = load_market_tag_definitions(conn, active_only=active_only)
         finally:
@@ -1177,7 +1172,7 @@ def register(app, db_conn):
             return jsonify({"ok": False, "error": "invalid_display_name"}), 400
         display_name = raw_name.strip()
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             duplicate = conn.execute(
                 "SELECT key FROM market_tag_definitions WHERE display_name=? COLLATE NOCASE",
@@ -1219,7 +1214,7 @@ def register(app, db_conn):
         if len(set(normalized_keys)) != len(normalized_keys):
             return jsonify({"ok": False, "error": "duplicate_ordered_keys"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing_rows = conn.execute(
                 "SELECT key FROM market_tag_definitions ORDER BY sort_order ASC, created_at ASC, key ASC"
@@ -1254,7 +1249,7 @@ def register(app, db_conn):
         display_name = body.get("display_name")
         active = body.get("active")
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT key FROM market_tag_definitions WHERE key=?",
@@ -1308,7 +1303,7 @@ def register(app, db_conn):
 
     @app.get("/api/market-tags/<tag_key>/impact")
     def api_market_tags_impact(tag_key: str):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT key, display_name FROM market_tag_definitions WHERE key=?",
@@ -1323,7 +1318,7 @@ def register(app, db_conn):
 
     @app.delete("/api/market-tags/<tag_key>")
     def api_market_tags_delete(tag_key: str):
-        conn = db_conn()
+        conn = db.connect()
         try:
             existing = conn.execute(
                 "SELECT key, display_name FROM market_tag_definitions WHERE key=?",
@@ -1368,7 +1363,7 @@ def register(app, db_conn):
         if target_key == tag_key:
             return jsonify({"ok": False, "error": "same_source_target"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             source = conn.execute(
                 "SELECT key, display_name FROM market_tag_definitions WHERE key=?",
@@ -1470,7 +1465,7 @@ def register(app, db_conn):
         if direction not in MARKET_DIRECTIONS:
             return jsonify({"ok": False, "error": "invalid_direction"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = conn.execute(
                 "SELECT key FROM market_tag_definitions WHERE key=? AND active=1",
@@ -1546,7 +1541,7 @@ def register(app, db_conn):
         if not raw_tag:
             return jsonify({"ok": False, "error": "missing_tag"}), 400
 
-        conn = db_conn()
+        conn = db.connect()
         try:
             tag_def = conn.execute(
                 "SELECT key FROM market_tag_definitions WHERE key=?",

@@ -1,5 +1,8 @@
 """Translation routing uses isolated settings, deterministic models and local HTTP."""
 
+import llm_client
+from nr import details
+
 from nr import preferences
 
 from nr import configuration
@@ -67,14 +70,14 @@ def test_http_priority_and_pi_is_last(api_fixture, monkeypatch, primary, failure
     def api(**kwargs):
         calls.append((kwargs['provider'], kwargs['model']))
         if kwargs['provider'] in rejected:
-            raise app.LLMClientError('PROVIDER_TIMEOUT: private-provider-body')
+            raise llm_client.LLMClientError('PROVIDER_TIMEOUT: private-provider-body')
         return translated(kwargs['model'])
     def pi(**kwargs):
         calls.append(('pi', kwargs['pi_model']))
         return translated(kwargs['pi_model'])
-    monkeypatch.setattr(app, 'generate_article_ai', api)
-    monkeypatch.setattr(app, 'generate_pi_fallback_translation', pi)
-    result = app.generate_news_translation(config(primary), title='title', source='Reuters', content='full content')
+    monkeypatch.setattr(details, 'generate_article_ai', api)
+    monkeypatch.setattr(details, 'generate_pi_fallback_translation', pi)
+    result = details.generate_news_translation(config(primary), title='title', source='Reuters', content='full content')
     expected = order[:failures+1]
     assert [p for p, _ in calls] == expected
     assert dict(calls).get('deepseek', 'deepseek-custom') == 'deepseek-custom'
@@ -92,11 +95,11 @@ def test_disabled_fallbacks_never_call_or_report_success(api_fixture, monkeypatc
     calls = []
     def fail(**kwargs):
         calls.append(kwargs.get('provider','pi'))
-        raise app.LLMClientError('REQUEST_FAILED: PRIVATE_KEY')
-    monkeypatch.setattr(app, 'generate_article_ai', fail)
-    monkeypatch.setattr(app, 'generate_pi_fallback_translation', fail)
-    with pytest.raises(app.LLMClientError, match='TRANSLATION_PROVIDERS_FAILED') as caught:
-        app.generate_news_translation(config('opencode-go',fallback,pi), title='t', source='Reuters', content='source')
+        raise llm_client.LLMClientError('REQUEST_FAILED: PRIVATE_KEY')
+    monkeypatch.setattr(details, 'generate_article_ai', fail)
+    monkeypatch.setattr(details, 'generate_pi_fallback_translation', fail)
+    with pytest.raises(llm_client.LLMClientError, match='TRANSLATION_PROVIDERS_FAILED') as caught:
+        details.generate_news_translation(config('opencode-go',fallback,pi), title='t', source='Reuters', content='source')
     assert calls == expected
     assert 'PRIVATE_KEY' not in str(caught.value)
 
@@ -107,11 +110,11 @@ def test_x_body_uses_same_api_order_without_digest(api_fixture, monkeypatch):
     def body(**kwargs):
         calls.append(kwargs['provider'])
         if kwargs['provider'] == 'opencode-go':
-            raise app.LLMClientError('INVALID_BODY_ZH')
+            raise llm_client.LLMClientError('INVALID_BODY_ZH')
         return {**translated(kwargs['model']), 'key_points_zh':[], 'conclusion_zh':''}
-    monkeypatch.setattr(app, 'generate_body_translation_only', body)
-    monkeypatch.setattr(app, 'generate_article_ai', lambda **kw: pytest.fail('X must not generate a digest'))
-    result = app.generate_news_translation(config('opencode-go'), title='Tweet', source='Twitter/X', content='original')
+    monkeypatch.setattr(details, 'generate_body_translation_only', body)
+    monkeypatch.setattr(details, 'generate_article_ai', lambda **kw: pytest.fail('X must not generate a digest'))
+    result = details.generate_news_translation(config('opencode-go'), title='Tweet', source='Twitter/X', content='original')
     assert calls == ['opencode-go','deepseek']
     assert result['key_points_zh'] == [] and result['conclusion_zh'] == ''
 
@@ -122,7 +125,7 @@ def test_worker_persists_only_complete_translation_and_preserves_original(api_fi
     value = config('opencode-go', True, False)
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda: deepcopy(value))
     url, stamp = 'https://example.com/routing', '2026-11-01 08:00:00'
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('INSERT INTO article_details(url,title,source,content,content_length,fetched_at,updated_at) VALUES (?,?,?,?,?,?,?)',
                      (url,'Title','Reuters','original full body',18,stamp,stamp))
         conn.execute("INSERT INTO ai_jobs(url,status,queued_at,updated_at) VALUES (?,'pending',?,?)",(url,stamp,stamp))
@@ -130,12 +133,12 @@ def test_worker_persists_only_complete_translation_and_preserves_original(api_fi
     def api(**kwargs):
         calls.append(kwargs['provider'])
         if kwargs['provider'] == 'opencode-go' or not succeeds:
-            raise app.LLMClientError('INCOMPLETE_TRANSLATION')
+            raise llm_client.LLMClientError('INCOMPLETE_TRANSLATION')
         return translated(kwargs['model'])
-    monkeypatch.setattr(app, 'generate_article_ai', api)
-    assert app.process_pending_ai_once() is True
+    monkeypatch.setattr(details, 'generate_article_ai', api)
+    assert app.runtime.details.process_pending_ai_once() is True
     assert calls == ['opencode-go','deepseek']
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         result = conn.execute('SELECT * FROM article_ai WHERE url=?',(url,)).fetchone()
         job = conn.execute('SELECT status,last_error FROM ai_jobs WHERE url=?',(url,)).fetchone()
         assert conn.execute('SELECT content FROM article_details WHERE url=?',(url,)).fetchone()[0] == 'original full body'
@@ -179,8 +182,8 @@ def test_real_sdk_opencode_translation_and_api_failover(api_fixture, monkeypatch
         for provider in ('deepseek','opencode-go'):
             monkeypatch.setitem(model_apis.API_PROVIDERS[provider], 'translation_base_url', f'http://127.0.0.1:{server.server_port}/{provider}')
         monkeypatch.setattr(llm_client, '_resolve_api_key', lambda name: 'isolated-'+name)
-        monkeypatch.setattr(app, 'generate_pi_fallback_translation', lambda **kw: pytest.fail('API backup must precede Pi'))
-        result = app.generate_news_translation(config(primary), title='t',source='Reuters',content='English body')
+        monkeypatch.setattr(details, 'generate_pi_fallback_translation', lambda **kw: pytest.fail('API backup must precede Pi'))
+        result = details.generate_news_translation(config(primary), title='t',source='Reuters',content='English body')
         expected = [f'/{primary}/chat/completions'] + ([] if response_kind == 'success' else ['/deepseek/chat/completions'])
         assert [path for path, _, _ in calls] == expected
         key_name = 'OPENCODE_API_KEY'

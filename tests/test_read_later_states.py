@@ -29,7 +29,7 @@ def test_adding_read_later_acknowledges_feed_without_completing_article(setup):
     # A rejected reverse request cannot requeue the article as a partial write.
     unread = client.patch(path, json={'read_later': True, 'read': False})
     assert unread.status_code == 400
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         saved = conn.execute('SELECT * FROM item_state WHERE item_id=?', (item['id'],)).fetchone()
     assert saved['read_at'] == added['read_at'] and saved['read_later_at'] is None
 
@@ -37,7 +37,7 @@ def test_adding_read_later_acknowledges_feed_without_completing_article(setup):
 def test_adding_read_later_preserves_existing_read_timestamp(setup):
     app, client, item, path = setup
     client.patch(path, json={'read': True})
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute("UPDATE item_state SET read_at='2026-01-01 12:00:00' WHERE item_id=?", (item['id'],))
     added = client.patch(path, json={'read_later': True}).json
     assert added['read_at'] == '2026-01-01 12:00:00'
@@ -46,15 +46,15 @@ def test_adding_read_later_preserves_existing_read_timestamp(setup):
 
 def test_pending_cancel_does_not_complete_and_can_requeue(setup, monkeypatch):
     app, client, item, path = setup
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('DELETE FROM article_details')
-    monkeypatch.setattr(app, 'run_opencli_detail', lambda url: pytest.fail('Canceled job must not run'))
+    monkeypatch.setattr(app.runtime.fetcher, 'run_opencli_detail', lambda url: pytest.fail('Canceled job must not run'))
     added = client.patch(path, json={'read_later': True}).json
     assert added['detail_status'] == 'pending'
     removed = client.patch(path, json={'read_later': False}).json
     assert removed['detail_status'] == 'canceled'
     assert removed['read_later_at'] is removed['read_later_done_at'] is None
-    assert app.process_pending_jobs_once() is False
+    assert app.runtime.details.process_pending_jobs_once() is False
     assert client.get('/api/news?collection=read_later&read_filter=read').json['total'] == 0
     added = client.patch(path, json={'read_later': True}).json
     assert added['read_later_at'] and added['read_later_done_at'] is None
@@ -63,7 +63,7 @@ def test_pending_cancel_does_not_complete_and_can_requeue(setup, monkeypatch):
 
 def test_cancel_racing_with_running_fetch_keeps_it_pending_until_explicit_completion(setup, monkeypatch):
     app, client, item, path = setup
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         original = dict(conn.execute('SELECT * FROM article_details WHERE url=?', (item['url'],)).fetchone())
         conn.execute('DELETE FROM article_details')
     entered, release = threading.Event(), threading.Event()
@@ -71,10 +71,10 @@ def test_cancel_racing_with_running_fetch_keeps_it_pending_until_explicit_comple
         entered.set()
         assert release.wait(10)
         return True, original, ''
-    monkeypatch.setattr(app, 'run_opencli_detail', fetch)
+    monkeypatch.setattr(app.runtime.fetcher, 'run_opencli_detail', fetch)
     client.patch(path, json={'read_later': True})
     with ThreadPoolExecutor(max_workers=1) as pool:
-        work = pool.submit(app.process_pending_jobs_once)
+        work = pool.submit(app.runtime.details.process_pending_jobs_once)
         try:
             assert entered.wait(10)
             removed = client.patch(path, json={'read_later': False}).json
@@ -135,7 +135,7 @@ def test_bulk_completion_excludes_cache_without_explicit_queue_flag(setup):
 def test_late_cache_arrival_inherits_explicit_completion_instead_of_reopening(setup):
     app, client, item, path = setup
     client.patch(path, json={'read_later': False, 'read_later_done': True})
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('UPDATE article_details SET content=content || ? WHERE url=?', (' refreshed', item['url']))
     assert client.get('/api/news?collection=read_later&read_filter=unread').json['total'] == 0
 
@@ -144,7 +144,7 @@ def test_late_cache_arrival_inherits_explicit_completion_instead_of_reopening(se
 def test_removal_preserves_body_and_only_cancels_queued_translation(setup, status, expected):
     app, client, item, path = setup
     client.patch(path, json={'read_later': True})
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('INSERT INTO ai_jobs(url,status,updated_at) VALUES(?,?,?)', (item['url'], status, database.now_ts()))
     result = client.patch(path, json={'read_later': False}).json
     assert result['ai_status'] == expected
@@ -165,7 +165,7 @@ def test_completion_requires_explicit_valid_removal(setup, body):
 @pytest.mark.parametrize('status', ['success', 'skipped'])
 def test_retry_recovers_legacy_terminal_jobs_without_cached_body(setup, status):
     app, client, item, path = setup
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         conn.execute('DELETE FROM article_details')
         conn.execute('INSERT INTO detail_jobs(url,item_id,status,updated_at) VALUES(?,?,?,?)',
                      (item['url'], item['id'], status, database.now_ts()))
@@ -178,7 +178,7 @@ def test_retry_recovers_legacy_terminal_jobs_without_cached_body(setup, status):
 @pytest.mark.parametrize('sort_order', ['default', 'reverse'])
 def test_read_later_paging_does_not_skip_after_rows_leave_current_filter(setup, read_filter, sort_order):
     app, client, item, _ = setup
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         if read_filter == 'all':
             conn.execute('DELETE FROM article_details')
@@ -208,7 +208,7 @@ def test_read_later_paging_does_not_skip_after_rows_leave_current_filter(setup, 
 def test_large_bulk_completion_stays_atomic_with_legacy_sqlite_variable_limit(setup, monkeypatch):
     app, client, item, _ = setup
     client.patch(f'/api/news/{item["id"]}/state', json={'read_later': True})
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         template = dict(conn.execute('SELECT * FROM items WHERE id=?', (item['id'],)).fetchone())
         ts = database.now_ts()
         for index in range(1001):
@@ -218,16 +218,16 @@ def test_large_bulk_completion_stays_atomic_with_legacy_sqlite_variable_limit(se
                          (row['id'], ts, ts, ts, ts))
             conn.execute('INSERT INTO detail_jobs(url,item_id,status,updated_at) VALUES(?,?,?,?)',
                          (row['url'], row['id'], 'pending', ts))
-    connect = app.data.connect
+    connect = app.runtime.db.connect
     def limited_connection():
         conn = connect()
         conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
         return conn
-    monkeypatch.setattr(app.data, 'connect', limited_connection)
+    monkeypatch.setattr(app.runtime.db, 'connect', limited_connection)
     response = client.post('/api/news/clear-read-later', json={})
     assert response.status_code == 200
     assert response.json['cleared'] == 1002
-    with app.data.connect() as conn:
+    with app.runtime.db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM detail_jobs WHERE status='pending'").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM item_state WHERE read_later_done_at IS NOT NULL").fetchone()[0] == 1002
         assert conn.execute("SELECT COUNT(*) FROM item_state WHERE read_at IS NOT NULL AND favorite_at IS NOT NULL").fetchone()[0] == 1001

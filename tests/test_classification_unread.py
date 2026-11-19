@@ -133,7 +133,7 @@ def test_live_scope_change_allows_inflight_completion_then_skips_read_items(conn
 
 def test_status_and_retry_api_follow_saved_scope_without_hiding_classified_read_news(api):
     module, client = api
-    with module.data.connect() as db:
+    with module.runtime.db.connect() as db:
         mark_read(db, 'n00')
         mark_read(db, 'n35')
         db.execute("UPDATE item_classifications SET status='failed',attempts=4 WHERE item_id IN ('n00','n01')")

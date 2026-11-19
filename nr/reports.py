@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
+
+from flask import jsonify, request
+
 import periodic_reports
 import reader_sources
 import report_reader
-import sqlite3
-from contextlib import closing
 from feed_sources import visible_news_sql
-from flask import jsonify, request
-
-from nr import highlights, ideas
+from nr import news_chat, highlights, ideas
 
 
 def report_request_error(exc):
@@ -23,7 +24,14 @@ def report_request_error(exc):
     return jsonify(ok=False, error=code), 404 if code == "report_not_found" else 409
 
 
-def register(app, db, jobs, agent_context_metadata, build_agent_context, clear_report_agent, load_agent_payload):
+def register(app, db, jobs, store, worker):
+    def clear_report_agent(report_id):
+        store.ensure_agent_db()
+        with closing(db.agent_connect()) as conn, conn:
+            active_jobs = store._delete_agent_sessions_for_item(conn, report_reader.ID_PREFIX + report_id)
+        for job_id in active_jobs:
+            worker._terminate_agent_process(job_id)
+
     @app.get("/api/reports")
     def api_reports():
         try:
@@ -154,13 +162,13 @@ def register(app, db, jobs, agent_context_metadata, build_agent_context, clear_r
             report = periodic_reports.serialize(row, detail=True)
             if report["status"] == "done":
                 item = report_reader.subject(conn, report_reader.ID_PREFIX + report_id)
-                context = build_agent_context(item, {"content": report_reader.context_text(item)})
+                context = news_chat.build_agent_context(item, {"content": report_reader.context_text(item)})
                 report["reader"] = {"item": {k: v for k, v in item.items() if k not in {"content", "sources"}},
                                     "body": item["content"],
                                     **highlights.load_article_highlights_response(conn, item["url"], "original", item["id"]),
                                     **ideas.article_notes_response(conn, item["id"], item["url"]),
-                                    "agent": {**load_agent_payload(item["id"]), "context_available": True,
-                                              **agent_context_metadata(context)}}
+                                    "agent": {**store.load_agent_payload(item["id"]), "context_available": True,
+                                              **news_chat.agent_context_metadata(context)}}
                 report["source_items"] = reader_sources.source_items(conn, report["content"]["sources"], visible_news_sql())
             return jsonify(ok=True, database_token=token, report=report)
 

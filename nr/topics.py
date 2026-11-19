@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import news_summaries
 import sqlite3
 import time
-import topic_tracking
 from contextlib import closing
+
 from flask import jsonify, request
 
+import news_summaries
+import topic_tracking
 from nr import tasks
 
 

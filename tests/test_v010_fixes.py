@@ -1,5 +1,7 @@
 """Translation catalog regressions; no real credentials or provider requests."""
 
+import urllib
+
 from nr import preferences
 import pytest
 from api_fixtures import _setup_agent_api_fixture
@@ -29,7 +31,7 @@ def test_removing_credentials_clears_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(preferences, 'read_secret', lambda name: secrets.get(name, ''))
     monkeypatch.setattr(preferences, 'delete_secret', lambda name: secrets.pop(name, None))
     monkeypatch.setattr(preferences, 'pi_chat_settings_snapshot', lambda *args: {'service': {}, 'catalog': {}})
-    monkeypatch.setattr(preferences, 'urlopen', lambda *args, **kwargs: (_ for _ in ()).throw(app.URLError('offline')))
+    monkeypatch.setattr(preferences, 'urlopen', lambda *args, **kwargs: (_ for _ in ()).throw(urllib.error.URLError('offline')))
     assert len(preferences.deepseek_settings_snapshot('')['catalog']['options']) == 2
     response = client.delete('/api/settings/secrets/deepseek')
     assert response.status_code == 200

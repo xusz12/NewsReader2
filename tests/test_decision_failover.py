@@ -316,10 +316,10 @@ def test_saved_settings_route_a_background_worker_and_report_actual_provider(api
     keys.update(TYPESAFE_API_KEY='first-key', OPENAI_API_KEY='second-key')
     body = {'llm': configuration.load_app_settings()['llm'], 'classification': {'concurrency':1, 'fallback_enabled':True}}
     assert client.put('/api/settings', json=body).status_code == 200
-    with closing(app.data.connect()) as db:
+    with closing(app.runtime.db.connect()) as db:
         enqueue(db, 'live-routing-fixture')
     calls = []
-    worker = app.background.classification
+    worker = app.runtime.jobs.classification
     def send(req, **kwargs):
         calls.append((req.full_url, req.get_header('Authorization')))
         if req.full_url.startswith('https://api.typesafe.ai/'):
@@ -334,7 +334,7 @@ def test_saved_settings_route_a_background_worker_and_report_actual_provider(api
         assert not worker.threads[0].is_alive()
         assert calls == [('https://api.typesafe.ai/v1/systemone', 'Bearer first-key'),
                          ('https://api.openai.com/v1/decisions', 'Bearer second-key')]
-        with closing(app.data.connect()) as db:
+        with closing(app.runtime.db.connect()) as db:
             assert db.execute("SELECT COUNT(*) FROM item_classifications WHERE status='done' AND provider='openai-decisions'").fetchone()[0] == 1
         progress = client.get('/api/news/classification').json
         assert progress['using_backup'] and progress['provider'] == 'jev' and progress['provider_label'] == 'OpenAI Decisions'

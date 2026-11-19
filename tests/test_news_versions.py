@@ -233,7 +233,7 @@ def test_unknown_legacy_duplicate_count_stays_unknown_and_empty_failed_batch_can
 @pytest.fixture
 def reader_service(api):
     module,client=api
-    svc=collection.Service(module.data.connect,configuration.current_runtime_settings,sources=[SOURCE])
+    svc=collection.Service(module.runtime.db.connect,configuration.current_runtime_settings,sources=[SOURCE])
     yield module,client,svc
     svc.stop()
 
@@ -273,7 +273,7 @@ def test_published_legacy_rows_state_snapshots_and_reader_references_survive(rea
     with closing(svc.connect()) as conn:
         resolved=reader_sources.source_items(conn,[{'ref':'N1','id':a,'url':URL},{'ref':'N2','id':b,'url':URL}])
     assert resolved['N1']['detail_ready'] and not resolved['N2']['detail_ready']
-    _,detail=module._load_visible_agent_article(a)
+    _,detail=module.runtime.sessions._load_visible_agent_article(a)
     assert detail['content']=='Old original body.'
     mark=client.post(f'/api/news/{a}/highlights',json={'body_kind':'original','selected_text':'Old','start_offset':0,'end_offset':3})
     assert mark.status_code==201
@@ -288,7 +288,7 @@ def test_source_deletion_cleans_retired_jobs_and_never_resurrects_changed_titles
         b=seed_title(conn,URL,'Second',root=a,previous=a)
         seed_title(conn,URL,'Third',root=a,previous=b,status='pending')
         collection.initialize(conn)
-    module.ensure_agent_db()
+    module.runtime.sessions.ensure_agent_db()
     snapshot=client.get('/api/settings/sources/reuters/world').json['source']
     assert snapshot['pending_news_count']==0
     response=client.delete('/api/settings/sources/reuters/world',json={'confirmation_token':snapshot['confirmation_token']})

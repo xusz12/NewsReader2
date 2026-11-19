@@ -47,7 +47,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     start = body.index("第二句需要标记。")
     end = start + len("第二句需要标记。")
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             """
             INSERT INTO article_details(
@@ -186,7 +186,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     points_list = client.get(f"/api/news/{first['id']}/highlights?body_kind=ai_points_zh").get_json()
     assert points_list["body_kind"] == "ai_points_zh"
     assert points_list["highlights"][0]["color"] == "blue"
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE article_ai SET key_points_zh=?, updated_at=? WHERE url=?",
             (json.dumps(["前置要点", "要点一内容", "第二个要点"], ensure_ascii=False), database.now_ts(), first_url),
@@ -312,7 +312,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     assert cross_news_recolor.status_code == 404
     assert cross_news_recolor.get_json()["error"] == "highlight_not_found"
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute("SELECT body_zh FROM article_ai WHERE url=?", (first_url,)).fetchone()
         original_ai = conn.execute("SELECT body_zh FROM article_ai WHERE url=?", (first_url,)).fetchone()["body_zh"]
         original_detail = conn.execute("SELECT content FROM article_details WHERE url=?", (first_url,)).fetchone()["content"]
@@ -330,7 +330,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     reanchor_body = "甲乙丙丁\n唯一句子\n收尾"
     reanchor_start = reanchor_body.index("唯一句子")
     reanchor_end = reanchor_start + len("唯一句子")
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
             (reanchor_body, database.now_ts(), first_url),
@@ -355,7 +355,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
         json={"annotation_text": "重定位后仍应保留"},
     )
     assert reanchor_annotation.status_code == 200
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
             ("前缀\n" + reanchor_body + "\n后缀", database.now_ts(), first_url),
@@ -367,7 +367,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     assert reanchored["highlights"][0]["resolved_start_offset"] == len("前缀\n甲乙丙丁\n")
     assert reanchored["highlights"][0]["annotation_text"] == "重定位后仍应保留"
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE article_ai SET body_zh=?, updated_at=? WHERE url=?",
             (
@@ -381,7 +381,7 @@ def test_article_highlights_api_persists_validates_and_reanchors(tmp_path: Path,
     assert ambiguous["highlight_summary"] == {"active": 0, "orphan": 1, "total": 1}
     assert ambiguous["highlights"][0]["status"] == "orphan"
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE ai_jobs SET status='running', updated_at=? WHERE url=?",
             (database.now_ts(), first_url),
@@ -423,7 +423,7 @@ def test_article_highlights_schema_migrates_legacy_body_kind_and_color(tmp_path:
 
     importlib.reload(app_module)
     app_module.ensure_db()
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         table_sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='article_highlights'"
         ).fetchone()[0]
@@ -490,7 +490,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     start = body.index(selected)
     end = start + len(selected)
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         for item_id, url, source_type, title in (
             (twitter_id, twitter_url, "twitter", "推文高亮"),
             (missing_id, missing_url, "twitter", "无正文推文"),
@@ -595,7 +595,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     assert listed["body_kind"] == "twitter_detail"
     assert listed["highlights"][0]["annotation_text"] == "推文批注"
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         conn.execute(
             "UPDATE article_details SET content=?, content_length=?, updated_at=? WHERE url=?",
             ("新增前缀\n" + body, len("新增前缀\n" + body), database.now_ts(), twitter_url),
@@ -607,7 +607,7 @@ def test_twitter_detail_highlights_use_stable_article_detail_and_gate_ordinary_n
     assert reanchored["highlights"][0]["status"] == "active"
     assert reanchored["highlights"][0]["resolved_start_offset"] == len("新增前缀\n推文开头\n")
 
-    with app_module.data.connect() as conn:
+    with app_module.runtime.db.connect() as conn:
         ambiguous_body = body + "\n" + body
         conn.execute(
             "UPDATE article_details SET content=?, content_length=?, updated_at=? WHERE url=?",
