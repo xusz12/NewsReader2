@@ -57,8 +57,10 @@ test('every configured source and detail route is covered by the required comman
     assert.ok(keys.has(source.command.slice(1, 3).join(' ')));
     assert.equal(source.fallback_command, undefined);
   }
-  const app = readFileSync(path.join(root, 'app.py'), 'utf8');
-  for (const match of app.matchAll(/\["opencli", "([^"]+)", "([^"]+)"\]/g)) {
+  const fetcher = readFileSync(path.join(root, 'nr/article_fetch.py'), 'utf8');
+  const detailCommands = [...fetcher.matchAll(/\["opencli", "([^"]+)", "([^"]+)"\]/g)];
+  assert.ok(detailCommands.length > 0);
+  for (const match of detailCommands) {
     assert.ok(keys.has(match[1] + ' ' + match[2]), match[0]);
   }
 });

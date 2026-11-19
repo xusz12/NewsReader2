@@ -1,8 +1,6 @@
 
 import source_deletion
-from nr import agent_sessions, article_fetch
-
-from nr import database
+from nr import agent_sessions, article_fetch, database, details
 import importlib
 from legacy_news_seed import seed_news, confirm_all_read
 
@@ -262,7 +260,10 @@ def test_inflight_worker_cannot_recreate_deleted_data(env, monkeypatch, worker):
         assert delete(client).status_code == 200
         payload = {"content": "late", "content_length": 4, "source": "Reuters", "title": "late", "author": "", "published_at": "", "raw_json": "{}", "body_zh": "迟到的译文"}
         return (True, payload, "") if worker == "detail" else payload
-    monkeypatch.setattr(app, "run_opencli_detail" if worker == "detail" else "generate_news_translation", finish)
+    if worker == "detail":
+        monkeypatch.setattr(app.runtime.fetcher, "run_opencli_detail", finish)
+    else:
+        monkeypatch.setattr(details, "generate_news_translation", finish)
     assert (app.runtime.details.process_pending_jobs_once if worker == "detail" else app.runtime.details.process_pending_ai_once)()
     with app.runtime.db.connect() as conn:
         for table in ("article_details", "article_ai", "ai_jobs", "detail_jobs"):

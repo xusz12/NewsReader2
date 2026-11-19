@@ -21,6 +21,8 @@ from nr import database
 from opencli_runtime import resolve_command as resolve_opencli_command
 
 
+DETAIL_MAX_ATTEMPTS = 3
+DETAIL_RETRY_DELAYS = (5, 15)
 DETAIL_COMMAND_ROUTES = {
     "reuters.com": {"source": "Reuters", "command": ["opencli", "reuters", "article-detail"], "timeout": 45},
     "bloomberg.com": {"source": "Bloomberg", "command": ["opencli", "bloomberg", "news"], "timeout": 90},
@@ -32,6 +34,24 @@ TWITTER_ARTICLE_COMMAND = ["opencli", "twitter", "article"]
 TWITTER_COMMENT_FETCH_LIMIT = 50
 TWITTER_THREAD_TIMEOUT = 90
 TWITTER_ARTICLE_TIMEOUT = 60
+
+
+def _detail_error_is_retryable(error: str) -> bool:
+    code = error.split(":", 1)[0].upper()
+    if code in {"AUTH_REQUIRED", "ARGUMENT", "UNSUPPORTED_URL", "NOT_FOUND", "INVALID_JSON",
+                "EMPTY_RESULT", "EMPTY_TWITTER_THREAD", "CONTENT_TOO_SHORT", "SKIPPED_SOURCE",
+                "SUBPROCESS_ERROR", "DETAIL_JOB_ERROR"}:
+        return False
+    if re.search(r"captcha|bot.protection|paywall|not logged|subscription|human verification", error, re.I):
+        return False
+    if code in {"TIMEOUT", "NETWORK_ERROR", "BROWSER_CONNECT", "ECONNRESET", "ETIMEDOUT"}:
+        return True
+    return bool(re.search(
+        r"navigation rejected|browser connection dropped|connection (?:reset|closed)|"
+        r"timed? out|\bECONNRESET\b|\bETIMEDOUT\b|"
+        r"\bHTTP(?:\s+(?:status|error))?\s*[:=]?\s*(?:429|50[0-4])\b",
+        error, re.I,
+    ))
 
 
 def resolve_detail_route(url: str) -> dict | None:

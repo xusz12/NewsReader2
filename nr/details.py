@@ -35,10 +35,6 @@ from nr import (
 from nr.reminders import load_item_reminders
 
 
-DETAIL_MAX_ATTEMPTS = 3
-DETAIL_RETRY_DELAYS = (5, 15)
-
-
 def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source: str, *, refresh: bool = False, auto_translate: bool | None = None) -> bool:
     ts = database.now_ts()
     if not conn.in_transaction:
@@ -102,26 +98,8 @@ def enqueue_detail_job(conn: sqlite3.Connection, item_id: str, url: str, source:
     return True
 
 
-def _detail_error_is_retryable(error: str) -> bool:
-    code = error.split(":", 1)[0].upper()
-    if code in {"AUTH_REQUIRED", "ARGUMENT", "UNSUPPORTED_URL", "NOT_FOUND", "INVALID_JSON",
-                "EMPTY_RESULT", "EMPTY_TWITTER_THREAD", "CONTENT_TOO_SHORT", "SKIPPED_SOURCE",
-                "SUBPROCESS_ERROR", "DETAIL_JOB_ERROR"}:
-        return False
-    if re.search(r"captcha|bot.protection|paywall|not logged|subscription|human verification", error, re.I):
-        return False
-    if code in {"TIMEOUT", "NETWORK_ERROR", "BROWSER_CONNECT", "ECONNRESET", "ETIMEDOUT"}:
-        return True
-    return bool(re.search(
-        r"navigation rejected|browser connection dropped|connection (?:reset|closed)|"
-        r"timed? out|\bECONNRESET\b|\bETIMEDOUT\b|"
-        r"\bHTTP(?:\s+(?:status|error))?\s*[:=]?\s*(?:429|50[0-4])\b",
-        error, re.I,
-    ))
-
-
 def _detail_retry_at(attempts: int, timestamp: str) -> str:
-    delay = DETAIL_RETRY_DELAYS[min(max(attempts - 1, 0), len(DETAIL_RETRY_DELAYS) - 1)]
+    delay = article_fetch.DETAIL_RETRY_DELAYS[min(max(attempts - 1, 0), len(article_fetch.DETAIL_RETRY_DELAYS) - 1)]
     return (datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S") + timedelta(seconds=delay)).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -136,7 +114,7 @@ def _owns_detail_job(conn: sqlite3.Connection, job: dict) -> bool:
 
 def _finish_detail_failure(conn: sqlite3.Connection, job: dict, error: str) -> None:
     finished = database.now_ts()
-    retry = job["attempts"] < DETAIL_MAX_ATTEMPTS and _detail_error_is_retryable(error)
+    retry = job["attempts"] < article_fetch.DETAIL_MAX_ATTEMPTS and article_fetch._detail_error_is_retryable(error)
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         if not _owns_detail_job(conn, job):
@@ -270,7 +248,7 @@ class DetailWorker:
                         continue
                     attempts = max(1, int(row["attempts"] or 0))
                     ts = database.now_ts()
-                    retry = attempts < DETAIL_MAX_ATTEMPTS
+                    retry = attempts < article_fetch.DETAIL_MAX_ATTEMPTS
                     conn.execute(
                         """UPDATE detail_jobs SET status=?, attempts=?, last_error=?,
                        finished_at=?, updated_at=?, next_attempt_at=?, worker_pid=NULL WHERE url=?""",
@@ -300,7 +278,7 @@ class DetailWorker:
                     return False
                 job = dict(row)
                 job["cache_token"] = news_versions.cache_token(conn, job["url"])
-                if int(job["attempts"] or 0) >= DETAIL_MAX_ATTEMPTS:
+                if int(job["attempts"] or 0) >= article_fetch.DETAIL_MAX_ATTEMPTS:
                     conn.execute(
                         """UPDATE detail_jobs SET status='failed', last_error='RETRY_EXHAUSTED',
                        finished_at=?, updated_at=?, next_attempt_at=NULL, worker_pid=NULL WHERE url=?""",

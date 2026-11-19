@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib
+import llm_client
 import json
 import sys
 import types
@@ -44,9 +44,7 @@ def test_generate_article_ai_success(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     out = llm_client.generate_article_ai(
         title="Test Title",
         source="Reuters",
@@ -72,9 +70,7 @@ def test_generate_article_ai_invalid_tool_payload(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     with pytest.raises(llm_client.LLMClientError) as exc:
         llm_client.generate_article_ai(
             title="Test Title",
@@ -105,9 +101,7 @@ def test_generate_article_ai_reads_key_from_keychain(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     monkeypatch.setattr(llm_client, "read_secret", lambda name: "keychain-secret")
     out = llm_client.generate_article_ai(
         title="Test Title",
@@ -142,9 +136,7 @@ def test_generate_article_ai_uses_configured_model_and_fallback(monkeypatch):
         return types.SimpleNamespace(model=None, choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     out = llm_client.generate_article_ai(
         title="Test Title",
         source="Reuters",
@@ -175,9 +167,7 @@ def test_generate_article_ai_accepts_short_chinese_body(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     out = llm_client.generate_article_ai(
         title="Short Brief",
         source="Reuters",
@@ -201,9 +191,7 @@ def test_generate_body_translation_only_disables_deepseek_thinking(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     out = llm_client.generate_body_translation_only(
         title="Tweet",
         source="Twitter/X",
@@ -236,9 +224,7 @@ def test_generate_article_ai_rejects_non_chinese_body(monkeypatch):
         return types.SimpleNamespace(model="deepseek-v4-flash", choices=[choice])
 
     _install_fake_openai(monkeypatch, create_impl)
-    import llm_client
 
-    importlib.reload(llm_client)
     with pytest.raises(llm_client.LLMClientError) as exc:
         llm_client.generate_article_ai(
             title="Short Brief",
