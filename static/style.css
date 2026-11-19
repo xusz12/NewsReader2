@@ -4765,14 +4765,16 @@ button:disabled {
   .upstream-date-shortcuts [data-upstream-day-offset="-1"],
   #upstreamTodayBtn .upstream-date-label { display: none; }
   .upstream-today-short { display: inline; }
-  .upstream-panel {
+  .upstream-panel, .agent-notice-dismiss {
     --control-pad-inline: clamp(var(--space-1), calc(5vw - var(--space-3)), var(--space-3));
   }
-  .upstream-panel :is(.calendar-trigger, .upstream-date-shortcuts button, .upstream-dim-btn, .reader-tool-btn, .upstream-log-copy-btn, [data-upstream-retry]) {
+  .upstream-panel :is(.calendar-trigger, .upstream-date-shortcuts button, .upstream-dim-btn, .reader-tool-btn, .upstream-log-copy-btn, [data-upstream-retry]),
+  button.agent-notice-dismiss {
     height: auto;
     min-height: var(--space-6);
     padding: var(--space-0-5) var(--control-pad-inline);
   }
+  button.agent-notice-dismiss { line-height: 1.5; }
   .upstream-panel button.upstream-date-arrow { width: var(--space-6); padding-inline: 0; }
   .upstream-error-controls { gap: var(--space-1); padding-block: var(--space-0-5); overflow-x: auto; scroll-padding-inline: var(--space-2); }
   .upstream-date-input { gap: 0; padding: 0; padding-inline-start: var(--control-pad-inline); }
@@ -4861,7 +4863,7 @@ button:disabled {
 .agent-notifications-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: var(--fs-body); }
 .agent-notice-dismiss { border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 5px 7px; font: inherit; font-size: var(--fs-meta); cursor: pointer; flex-shrink: 0; }
 .agent-notice-dismiss:hover { border-color: var(--border-strong); color: var(--fg); }
-.agent-notice-dismiss:disabled { opacity: .5; cursor: default; }
+.agent-notice-dismiss:is(:disabled, [aria-disabled="true"]) { opacity: .5; cursor: default; }
 .agent-notifications-list { list-style: none; margin: 0; padding: 0; max-height: min(440px, calc(100dvh - 160px)); overflow: auto; }
 .agent-notice { display: flex; gap: 2px; align-items: flex-start; padding: 12px 10px; border-bottom: 1px solid var(--border); }
 .agent-notice:last-child { border-bottom: 0; }

@@ -2,6 +2,7 @@
 
 Only publication writes items. No Markdown, daily sidecar or agent scheduling.
 """
+from collections import Counter
 from contextlib import closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
@@ -11,6 +12,7 @@ import json
 import logging
 from pathlib import Path
 import re
+import sqlite3
 import threading
 import time
 import uuid
@@ -30,6 +32,9 @@ from news_identity import canonical_url, identity_key
 ROOT = Path(__file__).resolve().parent
 from collection_schedule import DEFAULT_SCHEDULE, normalize_schedule
 LEASE_SECONDS = 180
+ITEM_RETRY_DELAYS = (60, 300)
+TRANSLATION_DUE = """status='pending' OR (status='retry_wait' AND retry_at<=:clock)
+                     OR (status='running' AND lease_until<=:clock)"""
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS collection_meta (
  singleton INTEGER PRIMARY KEY CHECK(singleton=1), database_token TEXT NOT NULL,
@@ -51,7 +56,8 @@ CREATE TABLE IF NOT EXISTS collection_items (
  item_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, source_id TEXT NOT NULL, raw_json TEXT NOT NULL,
  translation_json TEXT, status TEXT NOT NULL, error TEXT DEFAULT '', attempts INTEGER DEFAULT 0,
  collected_at TEXT NOT NULL, published_at TEXT NOT NULL, ingested_at TEXT,
- lease TEXT, lease_until REAL DEFAULT 0);
+ lease TEXT, lease_until REAL DEFAULT 0, failure_count INTEGER NOT NULL DEFAULT 0,
+ retry_at REAL NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS idx_collection_items_status ON collection_items(status,collected_at);
 CREATE INDEX IF NOT EXISTS idx_collection_items_run ON collection_items(run_id,status);
 CREATE TRIGGER IF NOT EXISTS items_record_ingestion AFTER INSERT ON items BEGIN
@@ -90,6 +96,7 @@ def published_time(value):
 
 def initialize(conn):
     conn.executescript(SCHEMA)
+    conn.execute("BEGIN IMMEDIATE")
     x_accounts.initialize(conn)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_runs)")}
     for name, definition in (("publication_status", "TEXT NOT NULL DEFAULT 'pending'"),
@@ -118,6 +125,25 @@ def initialize(conn):
             WHERE status IN ('done','failed') AND count=added""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_sources_started ON collection_run_sources(started_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_collection_sources_ingested ON collection_run_sources(ingested_at)")
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collection_ingestion_days'").fetchone():
+        conn.execute("""CREATE TABLE collection_ingestion_days (
+            day TEXT NOT NULL, run_id TEXT NOT NULL, source_id TEXT NOT NULL, count INTEGER NOT NULL,
+            ingested_at TEXT NOT NULL, PRIMARY KEY(day,run_id,source_id))""")
+        if "ingested_count" in source_columns:
+            conn.execute("""INSERT INTO collection_ingestion_days
+                SELECT substr(ingested_at,1,10),run_id,source_id,ingested_count,ingested_at
+                FROM collection_run_sources WHERE ingested_count>0 AND ingested_at IS NOT NULL""")
+        else:
+            conn.execute("""INSERT INTO collection_ingestion_days
+                SELECT substr(ingested_at,1,10),run_id,source_id,COUNT(*),MAX(ingested_at)
+                FROM collection_items WHERE ingested_at IS NOT NULL GROUP BY 1,run_id,source_id""")
+    item_columns = {row[1] for row in conn.execute("PRAGMA table_info(collection_items)")}
+    if "failure_count" not in item_columns:
+        conn.execute("ALTER TABLE collection_items ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+        conn.execute("ALTER TABLE collection_items ADD COLUMN retry_at REAL NOT NULL DEFAULT 0")
+        conn.execute("""UPDATE collection_items SET failure_count=MAX(1,COALESCE(attempts,0)),
+            status=CASE WHEN COALESCE(attempts,0)<=? THEN 'retry_wait' ELSE 'failed' END WHERE status='failed'""",
+            (len(ITEM_RETRY_DELAYS),))
     topic_tracking.seed_ingestions(conn)
     first = conn.execute("SELECT 1 FROM collection_meta").fetchone() is None
     if first:
@@ -177,6 +203,47 @@ def source_error(result):
     return code if re.fullmatch(r"[A-Z0-9_]{1,80}", code) else "COLLECTION_FAILED"
 
 
+def item_raw(job):
+    try:
+        raw = json.loads(job["raw_json"])
+    except (TypeError, ValueError):
+        raise ValueError("collection_invalid_item") from None
+    if not isinstance(raw, dict) or not all(isinstance(raw.get(key), str)
+            for key in ("title", "url", "source", "source_name", "source_type")):
+        raise ValueError("collection_invalid_item")
+    return raw
+
+
+def record_item_failure(conn, job, exc, *, lease, discard_translation):
+    code = str(exc)
+    allowed = r"HTTP_\d{3}|TIMEOUT|" + collection_translation.ERROR_CODE_PATTERN
+    if len(code) > 500 or not re.fullmatch(rf"(?:collection_invalid_item|{allowed})"
+                        rf"(?: \| [a-z0-9_-]+: (?:REQUEST_FAILED|{allowed}))*", code):
+        code = "collection_invalid_item" if not discard_translation else "translation_failed"
+    failures = job["failure_count"] + 1
+    retry_at = time.time() + ITEM_RETRY_DELAYS[failures-1] if failures <= len(ITEM_RETRY_DELAYS) else 0
+    conn.execute("""UPDATE collection_items SET status=?,error=?,failure_count=?,retry_at=?,lease=NULL,lease_until=0,
+        translation_json=CASE WHEN ? THEN NULL ELSE translation_json END
+        WHERE item_id=? AND lease IS ? AND status IN ('running','ready')""",
+        ("retry_wait" if retry_at else "failed",code,failures,retry_at,discard_translation,job["item_id"],lease))
+
+
+def translation_notice_item(row):
+    try:
+        raw = json.loads(row["raw_json"])
+    except (TypeError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    title, url = raw.get("title"), raw.get("url")
+    error = row["error"] or "translation_failed"
+    return {"item_id": row["item_id"], "title": title if isinstance(title, str) and title else "无标题新闻",
+            "url": periodic_reports.safe_url(url.strip()) if isinstance(url, str) else "",
+            "reason": collection_translation.failure_reason(error, raw), "error": error,
+            "status": row["status"], "attempts": row["attempts"],
+            "retry_at": stamp(datetime.fromtimestamp(row["retry_at"], TZ)) if row["retry_at"] else None}
+
+
 def collection_heatmap(conn, day, today):
     days_ago = max(0, (today - date.fromisoformat(day)).days)
     last = today - timedelta(days=days_ago // 365 * 365)
@@ -190,8 +257,7 @@ def collection_heatmap(conn, day, today):
             FROM collection_run_sources s JOIN collection_runs r ON r.id = s.run_id
             WHERE s.started_at IS NULL AND r.created_at >= :start AND r.created_at < :end
             UNION ALL
-            SELECT substr(ingested_at, 1, 10), 0
-            FROM collection_run_sources WHERE ingested_at >= :start AND ingested_at < :end
+            SELECT day, 0 FROM collection_ingestion_days WHERE day >= :start AND day < :end
         ) GROUP BY day
     """, {"start": first.isoformat(), "end": f"{last.isoformat()}T24:00:00"}))
     return {"start": first.isoformat(), "end": last.isoformat(), "errors_by_day": counts}
@@ -272,8 +338,8 @@ class Service:
                     self.publish_once()
                     limit = normalize_schedule(self.settings().get("collection", {}))["translation_concurrency"]
                     with closing(self.connect()) as conn:
-                        available = conn.execute("""SELECT COUNT(*) FROM collection_items
-                            WHERE status='pending' OR (status='running' AND lease_until<=?)""", (time.time(),)).fetchone()[0]
+                        available = conn.execute(f"SELECT COUNT(*) FROM collection_items WHERE {TRANSLATION_DUE}",
+                                                 {"clock": time.time()}).fetchone()[0]
                     for _ in range(min(available, max(0, limit-len(active)))):
                         future = pool.submit(self.translate_once)
                         future.add_done_callback(lambda _: self.wake.set())
@@ -466,51 +532,64 @@ class Service:
         published = job["published_at"]
         quoted = "引用推文：" + translation["quoted_text"] if translation["quoted_text"] else ""
         summary = "\n\n".join(x for x in (translation["summary"], quoted) if x)
-        inserted = conn.execute("""INSERT OR IGNORE INTO items(id,source_file,item_order,published_at,date,time,source,source_type,
-                      source_name,title,summary,url,created_at,updated_at) VALUES (?,'',0,?,?,?,?,?,?,?,?,?,?,?)""",
+        inserted = conn.execute("""INSERT INTO items(id,source_file,item_order,published_at,date,time,source,source_type,
+                      source_name,title,summary,url,created_at,updated_at) VALUES (?,'',0,?,?,?,?,?,?,?,?,?,?,?)
+                      ON CONFLICT(id) DO NOTHING""",
                      (ident,published,published[:10],published[11:16],raw["source"],raw["source_type"],raw["source_name"],
                       translation["title"],summary,raw["url"],ts,ts)).rowcount
-        conn.execute("UPDATE collection_items SET status='done',ingested_at=?,error='',lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
+        conn.execute("UPDATE collection_items SET status='done',ingested_at=?,lease=NULL,lease_until=0 WHERE item_id=?", (ts,ident))
         if inserted:
             if raw.get("auto_fulltext") and self.enqueue_detail:
                 self.enqueue_detail(conn, ident, raw["url"], raw["source"], auto_translate=bool(raw.get("auto_translate")))
-            # Keep the historical total even after source cleanup removes items.
-            # This rolls back with the rest of the batch on publication failure.
             conn.execute("""UPDATE collection_run_sources SET ingested_count=ingested_count+?,ingested_at=?
                 WHERE run_id=? AND source_id=?""", (inserted,ts,job["run_id"],job["source_id"]))
+            conn.execute("""INSERT INTO collection_ingestion_days(day,run_id,source_id,count,ingested_at) VALUES (?,?,?,1,?)
+                ON CONFLICT(day,run_id,source_id) DO UPDATE SET count=count+1,ingested_at=excluded.ingested_at""",
+                (ts[:10],job["run_id"],job["source_id"],ts))
+        return inserted
+
+    def publish_ready_item(self, conn, job, ts):
+        conn.execute("SAVEPOINT publish_item")
+        translation = None
+        try:
+            translation = collection_translation.validate(json.loads(job["translation_json"]), item_raw(job))
+            inserted = self.publish(conn, job, translation, ts)
+        except (ValueError, TypeError, KeyError, sqlite3.IntegrityError, sqlite3.DataError) as exc:
+            conn.execute("ROLLBACK TO publish_item")
+            record_item_failure(conn, job, exc, lease=job["lease"], discard_translation=translation is None)
+            inserted = 0
+        conn.execute("RELEASE publish_item")
         return inserted
 
     def publish_once(self):
-        ident = None
-        try:
-            with closing(self.connect()) as conn, conn:
-                conn.execute("BEGIN IMMEDIATE")
-                run = conn.execute("""SELECT r.id FROM collection_runs r
-                    WHERE r.status IN ('done','partial','failed') AND r.publication_status='pending'
-                    AND NOT EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id
-                                    AND i.status NOT IN ('ready','done','deleted','duplicate'))
-                    ORDER BY r.created_at,r.id LIMIT 1""").fetchone()
-                if not run:
-                    return False
-                ident, ts = run[0], stamp()
+        with closing(self.connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            run = conn.execute("""SELECT r.id FROM collection_runs r
+                WHERE r.status IN ('done','partial','failed') AND r.publication_status='pending'
+                AND (EXISTS (SELECT 1 FROM collection_items WHERE run_id=r.id AND status='ready')
+                     OR NOT EXISTS (SELECT 1 FROM collection_items WHERE run_id=r.id AND status IN ('pending','running','retry_wait')))
+                ORDER BY r.created_at,r.id LIMIT 1""").fetchone()
+            if not run:
+                return False
+            ident, ts = run[0], stamp()
+            conn.execute("SAVEPOINT publish_ready")
+            try:
                 jobs = conn.execute("SELECT * FROM collection_items WHERE run_id=? AND status='ready' ORDER BY collected_at,rowid", (ident,)).fetchall()
-                inserted = 0
-                for job in jobs:
-                    translation = collection_translation.validate(json.loads(job["translation_json"]), json.loads(job["raw_json"]))
-                    inserted += self.publish(conn, job, translation, ts)
+                inserted = sum(self.publish_ready_item(conn, job, ts) for job in jobs)
                 if inserted:
                     news_classification.enqueue(conn)
                     topic_tracking.enqueue_checks(conn)
-                conn.execute("UPDATE collection_runs SET publication_status='done',publication_error='',published_at=? WHERE id=?", (ts,ident))
-        except Exception:
-            if ident is None:
-                raise
-            # The entire batch, ingestion sequence and downstream queues roll
-            # back together. Keep validated translations for a manual retry.
-            logging.getLogger(__name__).exception("Collection batch publication failed")
-            with closing(self.connect()) as conn, conn:
+                outstanding = conn.execute("""SELECT 1 FROM collection_items WHERE run_id=?
+                    AND status IN ('pending','running','retry_wait','ready') LIMIT 1""", (ident,)).fetchone()
+                conn.execute("""UPDATE collection_runs SET publication_status=?,publication_error='',
+                    published_at=COALESCE(?,published_at) WHERE id=?""",
+                    ("pending" if outstanding else "done",ts if inserted else None,ident))
+            except Exception:
+                conn.execute("ROLLBACK TO publish_ready")
+                logging.getLogger(__name__).exception("Collection publication failed")
                 conn.execute("""UPDATE collection_runs SET publication_status='failed',publication_error='collection_publish_failed'
                     WHERE id=? AND publication_status='pending'""", (ident,))
+            conn.execute("RELEASE publish_ready")
         return True
 
     def translate_once(self):
@@ -523,34 +602,37 @@ class Service:
             running = conn.execute("SELECT COUNT(*) FROM collection_items WHERE status='running' AND lease_until>?", (time.time(),)).fetchone()[0]
             if running >= limit:
                 return False
-            job = conn.execute("SELECT * FROM collection_items WHERE status='pending' OR (status='running' AND lease_until<=?) ORDER BY collected_at,item_id LIMIT 1", (time.time(),)).fetchone()
+            job = conn.execute(f"""SELECT * FROM collection_items WHERE {TRANSLATION_DUE}
+                ORDER BY CASE status WHEN 'retry_wait' THEN julianday(retry_at,'unixepoch')
+                    WHEN 'running' THEN julianday(lease_until,'unixepoch') ELSE julianday(collected_at) END,
+                    collected_at,item_id LIMIT 1""", {"clock": time.time()}).fetchone()
             if not job:
                 return False
             job = dict(job)
-            conn.execute("UPDATE collection_items SET status='running',lease=?,lease_until=?,attempts=attempts+1 WHERE item_id=?",
+            conn.execute("UPDATE collection_items SET status='running',lease=?,lease_until=?,retry_at=0,attempts=attempts+1 WHERE item_id=?",
                          (lease,time.time()+LEASE_SECONDS,job["item_id"]))
         with self.heartbeat("collection_items", "item_id", job["item_id"], lease):
             try:
-                raw = json.loads(job["raw_json"])
+                raw = item_raw(job)
                 translation = (json.loads(job["translation_json"]) if job["translation_json"]
                                else self.translator(raw,self.settings()))
                 translation = collection_translation.validate(translation,raw)
-                with closing(self.connect()) as conn, conn:
-                    conn.execute("UPDATE collection_items SET translation_json=?,status='ready',error='',lease=NULL,lease_until=0 WHERE item_id=? AND lease=? AND status='running'",
-                                           (encoded(translation),job["item_id"],lease))
             except Exception as exc:
-                error = str(exc) if re.fullmatch(r"[A-Za-z0-9_: |.-]{1,500}", str(exc)) else "translation_or_publish_failed"
                 with closing(self.connect()) as conn, conn:
-                    conn.execute("UPDATE collection_items SET status='failed',error=?,lease=NULL,lease_until=0 WHERE item_id=? AND lease=?",
-                                 (error,job["item_id"],lease))
+                    record_item_failure(conn, job, exc, lease=lease, discard_translation=True)
+            else:
+                with closing(self.connect()) as conn, conn:
+                    conn.execute("""UPDATE collection_items SET translation_json=?,status='ready',lease=NULL,lease_until=0
+                        WHERE item_id=? AND lease=? AND status='running'""", (encoded(translation),job["item_id"],lease))
         self.wake.set()
         return True
 
-    def retry(self, *, run_id=None, source_id=None, stage=None):
-        scoped = any(value is not None for value in (run_id, source_id, stage))
+    def retry(self, *, run_id=None, source_id=None, stage=None, item_id=None):
+        scoped = any(value is not None for value in (run_id, source_id, stage, item_id))
         if scoped and (not isinstance(run_id, str) or not run_id or not isinstance(stage, str) or stage not in {"translation", "publication"}
                        or (stage == "translation" and (not isinstance(source_id, str) or not source_id))
-                       or (stage == "publication" and source_id is not None)):
+                       or (stage == "publication" and (source_id is not None or item_id is not None))
+                       or (item_id is not None and (not isinstance(item_id, str) or not item_id))):
             raise ValueError("collection_retry_invalid")
         with closing(self.connect()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -559,10 +641,19 @@ class Service:
                           if stage == "translation" else conn.execute("SELECT 1 FROM collection_runs WHERE id=?", (run_id,)).fetchone())
                 if not target:
                     raise ValueError("collection_retry_target_missing")
+                if item_id is not None and not conn.execute("""SELECT 1 FROM collection_items
+                        WHERE run_id=? AND source_id=? AND item_id=?""", (run_id,source_id,item_id)).fetchone():
+                    raise ValueError("collection_retry_target_missing")
             count = 0
             if stage in (None, "translation"):
                 scope, args = (" AND run_id=? AND source_id=?", (run_id,source_id)) if scoped else ("", ())
-                count = conn.execute("UPDATE collection_items SET status='pending',error='' WHERE status='failed'" + scope, args).rowcount
+                if item_id is not None:
+                    scope, args = scope + " AND item_id=?", (*args,item_id)
+                selection = "status='failed'" + scope
+                conn.execute(f"""UPDATE collection_runs SET publication_status='pending' WHERE publication_status='done'
+                    AND id IN (SELECT run_id FROM collection_items WHERE {selection})""", args)
+                count = conn.execute(f"""UPDATE collection_items SET status='pending',failure_count=0,retry_at=0
+                    WHERE {selection}""", args).rowcount
             if stage in (None, "publication"):
                 scope, args = (" AND id=?", (run_id,)) if scoped else ("", ())
                 count += conn.execute("UPDATE collection_runs SET publication_status='pending',publication_error='' WHERE publication_status='failed'" + scope, args).rowcount
@@ -584,12 +675,12 @@ class Service:
             boundary = batch_boundary(conn)
             publication_failed = conn.execute("SELECT COUNT(*) FROM collection_runs WHERE publication_status='failed'").fetchone()[0]
             awaiting_batches = conn.execute("""SELECT COUNT(*) FROM collection_runs r WHERE r.publication_status<>'done'
-                AND EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id AND i.status NOT IN ('done','deleted','duplicate'))""").fetchone()[0]
+                AND EXISTS (SELECT 1 FROM collection_items i WHERE i.run_id=r.id AND i.status IN ('pending','running','ready','retry_wait'))""").fetchone()[0]
         return {"database_token":meta["database_token"],"schedule":config,
                 "next_run_at":stamp(min(upcoming)) if upcoming else None,"schedule_error":self.schedule_error,
                 "last_check":self.last_check,"running":bool(run and run["status"] in {"pending","running"}),
                 "last_run":{k:run[k] for k in ("id","status","created_at","started_at","finished_at","publication_status","published_at")} if run else None,
-                "counts":{s:counts.get(s,0) for s in ("pending","running","ready","failed","done")},
+                "counts":{s:counts.get(s,0) for s in ("pending","running","ready","retry_wait","failed","done")},
                 "publication_failed":publication_failed,"awaiting_batches":awaiting_batches,
                 "batch":boundary,"source_errors":len(unresolved),
                 "sources":[{"id":s["section"],"label":s["display_name"],
@@ -608,45 +699,53 @@ class Service:
             payload = {"ok":True,"day":day,"today":today.isoformat(),"unresolved_count":unresolved}
             if not details:
                 translation_count = conn.execute("""SELECT COUNT(*) FROM (
-                    SELECT run_id,source_id FROM collection_items WHERE status='failed' GROUP BY run_id,source_id)""").fetchone()[0]
+                    SELECT run_id,source_id FROM collection_items WHERE status IN ('failed','retry_wait')
+                    OR (status='running' AND failure_count>0) GROUP BY run_id,source_id)""").fetchone()[0]
                 publication_count = conn.execute("SELECT COUNT(*) FROM collection_runs WHERE publication_status='failed'").fetchone()[0]
                 return {**payload,"notice_count":translation_count + publication_count}
             payload["heatmap"] = collection_heatmap(conn, day, today)
             active_notices = {}
-            for failure in conn.execute("""SELECT i.run_id,i.source_id,i.error,COUNT(*) AS count,
+            for failure in conn.execute("""SELECT i.run_id,i.source_id,i.item_id,i.status,i.error,i.attempts,i.retry_at,i.raw_json,
                        s.config_json,COALESCE(s.started_at,r.created_at) AS started_at
                 FROM collection_items i JOIN collection_runs r ON r.id=i.run_id
                 JOIN collection_run_sources s ON s.run_id=i.run_id AND s.source_id=i.source_id
-                WHERE i.status='failed' GROUP BY i.run_id,i.source_id,i.error
-                ORDER BY started_at DESC,i.run_id,i.source_id,i.error"""):
+                WHERE i.status IN ('failed','retry_wait') OR (i.status='running' AND i.failure_count>0)
+                ORDER BY started_at DESC,i.run_id,i.source_id,i.collected_at,i.item_id"""):
                 key = (failure["run_id"], failure["source_id"])
                 record = active_notices.setdefault(key, {
                     "run_id":failure["run_id"], "source_id":failure["source_id"],
                     "label":json.loads(failure["config_json"]).get("display_name", failure["source_id"]),
-                    "date":failure["started_at"][:10], "notices":[{"stage":"translation", "count":0, "error":""}]})
+                    "date":failure["started_at"][:10], "notices":[{"stage":"translation", "items":[]}]})
                 notice = record["notices"][0]
-                notice["count"] += failure["count"]
-                notice["error"] += ("\n" if notice["error"] else "") + f"{failure['count']} 条：{failure['error'] or 'translation_failed'}"
+                notice["items"].append(translation_notice_item(failure))
+            for record in active_notices.values():
+                notice = record["notices"][0]
+                notice["count"] = len(notice["items"])
+                codes = Counter(item["error"] for item in notice["items"])
+                notice["error"] = "\n".join(f"{count} 条：{code}" for code, count in sorted(codes.items()))
             for failure in conn.execute("""SELECT id,COALESCE(started_at,created_at) AS started_at,publication_error
                 FROM collection_runs WHERE publication_status='failed' ORDER BY started_at DESC,id"""):
-                active_notices[(failure["id"], "")] = {"run_id":failure["id"], "source_id":"", "label":"整批入库",
+                active_notices[(failure["id"], "")] = {"run_id":failure["id"], "source_id":"", "label":"新闻入库",
                     "date":failure["started_at"][:10],
                     "notices":[{"stage":"publication", "error":failure["publication_error"] or "collection_publish_failed"}]}
             payload["notice_count"] = len(active_notices)
             payload["active_notices"] = list(active_notices.values())
             rows = conn.execute("""SELECT s.*,r.created_at,r.started_at AS run_started_at,
-                       r.publication_status,r.publication_error,r.published_at
+                       r.publication_status,r.publication_error,d.count AS day_count,d.ingested_at AS day_ingested_at,
+                       r.publication_status='pending' AND EXISTS (SELECT 1 FROM collection_items i
+                           WHERE i.run_id=s.run_id AND i.source_id=s.source_id
+                           AND i.status IN ('pending','running','retry_wait','ready')) AS source_pending
                 FROM collection_run_sources s JOIN collection_runs r ON r.id=s.run_id
+                LEFT JOIN collection_ingestion_days d ON d.day=? AND d.run_id=s.run_id AND d.source_id=s.source_id
                 WHERE (s.started_at>=? AND s.started_at<?)
                    OR (s.started_at IS NULL AND r.created_at>=? AND r.created_at<?)
-                   OR (s.ingested_at>=? AND s.ingested_at<?)
-                ORDER BY COALESCE(s.started_at,r.created_at) DESC,s.rowid DESC""", (day,end,day,end,day,end)).fetchall()
+                   OR d.day IS NOT NULL
+                ORDER BY COALESCE(s.started_at,r.created_at) DESC,s.rowid DESC""", (day,day,end,day,end)).fetchall()
         records, failures = [], []
         latest = {}
         for r in rows:
             started = r["started_at"] or r["created_at"]
             collected_today = started[:10] == day
-            ingested_today = bool(r["ingested_at"] and r["ingested_at"][:10] == day)
             label = json.loads(r["config_json"]).get("display_name", r["source_id"])
             notices = []
             if collected_today:
@@ -657,14 +756,15 @@ class Service:
                     notices.append({"stage":"publication","error":r["publication_error"] or "collection_publish_failed"})
             record = {"run_id":r["run_id"],"source_id":r["source_id"],"label":label,
                 "batch_started_at":r["run_started_at"] or r["created_at"],"notices":notices,
-                "date":day,"time":(started if collected_today else r["ingested_at"])[11:19],
+                "date":day,"time":(started if collected_today else r["day_ingested_at"])[11:19],
                 "kind":"collection" if collected_today else "publication",
                 "status":r["status"] if collected_today else "done",
-                "publication_status":r["publication_status"],"published_at":r["published_at"],
+                "publication_status":r["publication_status"],"source_pending":bool(r["source_pending"]),
+                "published_at":r["day_ingested_at"] or r["ingested_at"],
                 "fetched_count":r["count"] if collected_today else 0,
                 "duplicate_count":r["duplicate_count"] if collected_today else 0,
                 "filtered_count":r["filtered_count"] if collected_today else 0,
-                "ingested_count":r["ingested_count"] if ingested_today else 0,
+                "ingested_count":r["day_count"] or 0,
                 "error_count":int(collected_today and r["status"]=="failed"),
                 "error":r["error"] if collected_today else ""}
             records.append(record)

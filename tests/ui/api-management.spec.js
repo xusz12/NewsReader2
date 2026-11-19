@@ -115,6 +115,21 @@ test('late secret save preserves another provider input, focus and open model me
   await expect(picker).toBeFocused();
 });
 
+test('translation providers explain what a passing connection test checked', async ({ page, request }) => {
+  await setup(page, request);
+  await page.route('**/api/settings/apis/*/test', route => route.fulfill({ json: {
+    ok: true, message: '模型连接成功', model: route.request().postDataJSON().model, elapsed_ms: 12,
+  } }));
+  for (const provider of ['deepseek', 'opencode-go']) {
+    const panel = card(page, provider);
+    const testButton = panel.getByRole('button', { name: '测试连接', exact: true });
+    await expect(panel.getByText(/此项只检查模型能否响应/)).toBeVisible();
+    await testButton.click();
+    await expect(terminal(page, provider)).toHaveText(`[PASS] 模型连接成功 · ${provider}-saved · 12ms · 仅验证连接`);
+    await expect(testButton).toBeEnabled();
+  }
+});
+
 test('concurrent provider tests stay isolated and model edits invalidate late answers', async ({ page, request }) => {
   await setup(page, request);
   const pending = {};

@@ -3,6 +3,11 @@ import { chooseTheme, collectionHeatmap, openSettings } from './helpers.js';
 
 const today = '2026-11-09';
 const dailyErrors = { '2026-11-02': 0, '2026-11-03': 1, '2026-11-04': 3, '2026-11-05': 4, '2026-11-06': 7 };
+const failedItem = { item_id: 'item-one', title: '标题 <img src=x onerror=window.collectionInjected=true>', status: 'failed', attempts: 3,
+  url: 'https://www.reuters.com/world/china/a-long-article-title-to-abbreviate/?entry=17&edition=cn#report',
+  reason: '模型已响应，但标题译文未检测到汉字。', error: 'translation_failed | deepseek: translation_not_chinese:title | pi: translation_not_chinese:title' };
+const waitingItem = { item_id: 'item-two', title: '仍在重试的新闻', status: 'retry_wait', attempts: 2, reason: '模型未完整返回译文。',
+  error: 'translation_incomplete', retry_at: '2026-11-09T18:05:00+08:00' };
 const records = [
   { label: 'Reuters · World', time: '18:00:00', fetched_count: 25, duplicate_count: 20, ingested_count: 5 },
   { label: 'Bloomberg · Tech', time: '18:00:04', fetched_count: 0, duplicate_count: 0, ingested_count: 0,
@@ -176,7 +181,7 @@ test('successes, zero additions, duplicates and delayed publication have clear c
   await expect(table.getByRole('columnheader')).toHaveText(['来源', '抓取', '去重', '纳入条数']);
   await expect(table).not.toContainText(/\d{2}:\d{2}:\d{2}/);
   const waiting = page.locator('[data-upstream-source="source-4"]');
-  await expect(waiting).toContainText('等待整批入库');
+  await expect(waiting).toContainText('处理中');
   await expect(waiting.getByRole('cell').last()).toHaveText('0 条');
   await expect(page.locator('[data-upstream-source="source-2"], [data-upstream-source="source-3"]')).toHaveCount(0);
   await expect(table.getByRole('rowheader')).toHaveCount(2);
@@ -202,7 +207,7 @@ test('historical unknown counts remain explicit and a recovered badge does not h
   await expect(page.locator('[data-upstream-source="source-0"]').getByRole('cell')).toHaveText(['25', '未记录', '未记录']);
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
-  await expect(page.locator('.upstream-log-box')).toHaveCount(1);
+  await expect(page.locator('.upstream-log-box:visible')).toHaveCount(1);
   await expect(page.locator('#upstreamErrorsContent script')).toHaveCount(0);
   expect(await page.evaluate(() => window.collectionInjected)).toBeUndefined();
 });
@@ -238,7 +243,7 @@ test('automatic refresh updates attention records while keeping the selected vie
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
   await expect(page.locator('.collection-record-notice')).toHaveCount(1);
-  await expect(page.locator('.upstream-log-box')).toHaveCount(1);
+  await expect(page.locator('.upstream-log-box:visible')).toHaveCount(1);
   const summary = page.locator('[data-upstream-details="evening"] summary');
   await summary.click();
   await summary.focus();
@@ -271,12 +276,13 @@ test('sources share their collection batch and distinct runs remain separate at 
   const batch = page.locator('[data-upstream-batch="evening"]');
   await expect(batch.locator('.upstream-card-head .upstream-source-title')).toHaveText('2026-11-09 18:00:00 采集');
   await expect(batch.locator('.collection-record-summary')).toHaveText('抓取 45 条 · 去重 38 条 · 纳入数据库 5 条 · 错误 1 条');
-  await expect(batch.locator('details')).not.toHaveAttribute('open', '');
-  await expect(batch.locator('.upstream-log-box')).toHaveCount(0);
+  const sources = batch.locator('[data-upstream-details="evening"]');
+  await expect(sources).not.toHaveAttribute('open', '');
+  await expect(batch.locator('.upstream-log-box:visible')).toHaveCount(0);
   await expect(batch).not.toContainText('TIMEOUT');
   await expect(page.getByRole('button', { name: '按时间分类' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '按来源分类' })).toHaveCount(0);
-  await batch.locator('summary').click();
+  await sources.locator('summary').click();
   await expect(batch.locator('[data-upstream-source]')).toHaveCount(4);
   const failedSource = batch.locator('[data-upstream-source="source-1"]');
   await expect(failedSource.getByRole('rowheader')).toContainText('采集错误');
@@ -284,14 +290,14 @@ test('sources share their collection batch and distinct runs remain separate at 
   await expect(batch.locator('[data-upstream-source="source-0"]')).toBeVisible();
   await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(1);
-  await expect(batch.locator('.upstream-log-box')).toContainText('等待下次采集');
-  await expect(batch.locator('.upstream-log-box pre')).toHaveText(records[1].error);
+  await expect(batch.locator('.upstream-log-box:visible')).toContainText('等待下次采集');
+  await expect(batch.locator('.upstream-log-box:visible pre')).toHaveText(records[1].error);
   await expect(batch.locator('.upstream-log-box button')).toHaveText('复制日志');
   await expect(failedSource.getByRole('rowheader')).toContainText('连接超时');
-  await expect(batch.locator('details')).toHaveAttribute('open', '');
+  await expect(sources).toHaveAttribute('open', '');
   await page.getByRole('button', { name: '全部信息', exact: true }).click();
   await expect(page.locator('.upstream-error-card')).toHaveCount(3);
-  await expect(batch.locator('details')).toHaveAttribute('open', '');
+  await expect(sources).toHaveAttribute('open', '');
   await expect(batch).not.toContainText('连接超时');
   await expect(page.locator('[data-upstream-copy]')).toHaveCount(0);
 });
@@ -327,6 +333,82 @@ test('translation notices retry only their source and keep acquisition errors an
     await expect(page.locator('#upstreamErrorDate')).toHaveValue(today);
     await expect(page.locator('[data-upstream-details="evening"]')).toHaveAttribute('open', '');
   } finally { release(); }
+});
+
+test('an isolated news item can be retried without disturbing a sibling in backoff', async ({ page }) => {
+  let retried = false;
+  const requests = [];
+  await mockHistory(page, () => {
+    const items = retried ? [waitingItem] : [failedItem, waitingItem];
+    return { ...payload([]), active_notices: [{ run_id: 'evening', source_id: 'source-4', label: 'Reuters · Technology',
+      date: '2026-11-08', notices: [{ stage: 'translation', count: items.length, items }] }] };
+  });
+  await page.route('**/api/collection/retry-translation', route => {
+    requests.push(route.request().postDataJSON());
+    retried = true;
+    return route.fulfill({ status: 202, json: { ok: true, retried: 1 } });
+  });
+  await page.goto('/');
+  await page.locator('#upstreamErrorsBtn').click();
+  const card = page.locator('[data-upstream-current-notice]');
+  await expect(card).toContainText('2026-11-08');
+  const notice = card.locator('.collection-record-notice').filter({ hasText: failedItem.title });
+  await expect(notice).toContainText('Reuters · Technology · 已隔离 · 已尝试 3 次');
+  await expect(notice.getByText(failedItem.reason + '其他新闻可继续入库。')).toBeVisible();
+  await expect(notice.locator('img')).toHaveCount(0);
+  const log = notice.locator('pre');
+  await expect(log).toBeHidden();
+  await expect(notice.getByRole('link')).toHaveCount(0);
+  await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
+  const link = notice.getByRole('link', { name: /打开原文/ });
+  await expect(link).toHaveAttribute('href', failedItem.url);
+  await expect(link).toHaveText('原文 · reuters.com/…/a-long-article-ti…');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await page.context().route('https://www.reuters.com/**', route => route.fulfill({ contentType: 'text/plain', body: '原文' }));
+  const opened = page.waitForEvent('popup');
+  await link.click();
+  const article = await opened;
+  await expect(article).toHaveURL(failedItem.url);
+  await article.close();
+  await expect(page.getByRole('button', { name: '仅错误与提示', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await notice.getByText('技术详情', { exact: true }).click();
+  await expect(log).toBeVisible();
+  await expect(log).toHaveText(failedItem.error);
+  const waiting = card.locator('.collection-record-notice').filter({ hasText: waitingItem.title });
+  await expect(waiting).toContainText('11-09 18:05 自动重试');
+  await expect(waiting.getByRole('link')).toHaveCount(0);
+  await expect(waiting.getByRole('button')).toHaveCount(0);
+  await notice.getByRole('button', { name: '重试此条 · ' + failedItem.title }).press('Enter');
+  await expect(notice).toHaveCount(0);
+  await expect(waiting).toBeVisible();
+  expect(requests).toEqual([{ run_id: 'evening', stage: 'translation', source_id: 'source-4', item_id: 'item-one' }]);
+});
+
+test('daily translation notices retain their own links and disclosures on refresh', async ({ page }) => {
+  let attempts = 1;
+  const waiting = { ...waitingItem, url: 'https://example.org/story?id=17#original' };
+  const unsafe = { ...failedItem, item_id: 'unsafe', url: 'javascript:void(0)' };
+  const privateURL = { ...failedItem, item_id: 'private-url', url: 'https://name:password@example.org/story' };
+  await mockHistory(page, () => payload([{ ...records[0], notices: [{ stage: 'translation', count: 4,
+    items: [failedItem, { ...waiting, attempts }, unsafe, privateURL] }] }]));
+  await page.goto('/');
+  await page.locator('#upstreamErrorsBtn').click();
+  await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
+  const notices = page.locator('.collection-record-notice');
+  await expect(notices.getByRole('link')).toHaveCount(2);
+  const notice = notices.filter({ hasText: waiting.title });
+  const details = notice.locator('details');
+  await details.locator('summary').press('Enter');
+  await expect(details.locator('pre')).toBeVisible();
+  const link = notice.getByRole('link');
+  await expect(link).toHaveAttribute('href', waiting.url);
+  await link.focus();
+  attempts++;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(notice).toContainText('已尝试 2 次');
+  await expect(link).toBeFocused();
+  await expect(details.locator('pre')).toBeVisible();
+  await expect(notices.locator('details[open]')).toHaveCount(1);
 });
 
 test('publication notices provide one batch retry and retain actionable feedback on failure', async ({ page }) => {
@@ -427,7 +509,8 @@ for (const [surface, options] of [
 
   for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'dark'], ['system', 'light'], ['system', 'dark'], ['eink', 'light']]) {
     test(`collection history fits ${theme}/${colorScheme} and every reading size`, async ({ page }) => {
-      await mockHistory(page);
+      await mockHistory(page, () => payload(records.map(record => record.source_id === 'source-4'
+        ? { ...record, notices: [{ stage: 'translation', count: 2, items: [failedItem, waitingItem] }] } : record)));
       await page.emulateMedia({ colorScheme });
       await page.goto('/');
       await chooseTheme(page, theme);
@@ -477,6 +560,15 @@ for (const [surface, options] of [
         if (theme !== 'eink') await expect(name).not.toHaveCSS('color', color);
         await expect(failed.locator('.card-tag')).toHaveText('采集错误');
         expect(await details.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByRole('button', { name: '仅错误与提示', exact: true }).click();
+        const notice = panel.locator('.collection-record-notice').filter({ hasText: failedItem.title });
+        await expect(notice.getByRole('link')).toBeVisible();
+        await notice.locator('summary').click();
+        await expect(notice.locator('pre')).toBeVisible();
+        expect(await notice.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await notice.locator('summary').click();
+        await page.getByRole('button', { name: '全部信息', exact: true }).click();
         await page.locator('#closeUpstreamErrorsBtn').click();
       }
     });

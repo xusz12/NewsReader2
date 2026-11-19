@@ -51,6 +51,18 @@ def query(svc, sql, args=()):
         return conn.execute(sql, args).fetchall()
 
 
+def make_retries_due(service):
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_items SET retry_at=0 WHERE status='retry_wait'")
+
+
+def exhaust_retries(service):
+    for _ in collection.ITEM_RETRY_DELAYS:
+        make_retries_due(service)
+        while service.translate_once():
+            pass
+
+
 def test_queued_legacy_x_source_cannot_invoke_retired_fallback(monkeypatch):
     source = {**SOURCE, "source_type": "twitter", "source_handle": "example",
               "command": ["opencli", "twitter", "tweets", "example"],
@@ -90,21 +102,26 @@ def test_stage_translate_publish_and_single_identity(service):
     assert not query(service, "SELECT * FROM news_title_versions")
 
 
-def test_translation_failure_does_not_block_collection_and_retry_is_local(service):
+def test_translation_failure_does_not_block_collection_and_retry_is_local(service, monkeypatch):
+    clock = time.time()
+    monkeypatch.setattr(time, "time", lambda: clock)
+    monkeypatch.setattr(collection, "now", lambda: datetime.fromtimestamp(clock, collection.TZ))
     def fail(*_):
         raise RuntimeError("HTTP_429")
     service.translator = fail
     service.request(); service.collect_once(); service.translate_once()
-    assert service.status()["counts"]["failed"] == 1
+    assert service.status()["counts"]["retry_wait"] == 1
+    assert not service.translate_once()
     assert not query(service, "SELECT * FROM items")
+    clock += 1
     service.collector = lambda _: {"ok": True, "items": [article("https://example.com/second")]}
     service.request(); service.collect_once()
     assert service.status()["counts"]["pending"] == 1
+    clock += collection.ITEM_RETRY_DELAYS[0]
     service.translator = lambda raw, _: collection_translation.original_fields(raw)
     service.translate_once()
     service.publish_once()
-    assert len(query(service, "SELECT * FROM items")) == 1
-    assert service.retry() == 1
+    assert [row[0] for row in query(service, "SELECT url FROM items")] == ["https://example.com/second"]
     service.translate_once()
     service.publish_once()
     assert len(query(service, "SELECT * FROM items")) == 2
@@ -268,12 +285,15 @@ def test_recollected_failed_identity_remains_recoverable_in_original_batch(servi
         raise RuntimeError("HTTP_429")
     service.translator = fail
     original_run = service.request(); service.collect_once(); service.translate_once()
+    exhaust_retries(service)
     repeated_run = service.request(); service.collect_once()
     assert repeated_run != original_run
     job = dict(query(service, "SELECT * FROM collection_items")[0])
     assert job["run_id"] == original_run and job["status"] == "failed"
     assert query(service, "SELECT duplicate_count FROM collection_run_sources WHERE run_id=?", (repeated_run,))[0][0] == 1
-    assert service.publish_once()  # The empty repeat can finish independently.
+    assert service.publish_once()
+    assert service.publish_once()
+    assert not service.publish_once()
     assert not query(service, "SELECT * FROM items")
     service.translator = lambda raw, _: collection_translation.original_fields(raw)
     assert service.retry(run_id=original_run, source_id="world", stage="translation") == 1
@@ -325,13 +345,61 @@ def test_restart_skips_completed_sources_and_lost_lease_discards_result(service)
 def test_translation_validation_and_error_history_are_safe(service):
     raw = {**article(), "title":"An English headline", "translation_policy":"always"}
     for value in ({"title":"翻译标题"}, {"title":"", "summary":"", "quoted_text":""},
-                  {"title":"Not translated", "summary":"", "quoted_text":""}):
+                  {"title":"Not translated", "summary":"", "quoted_text":""}, {"title":"新闻\udfff", "summary":"", "quoted_text":""}):
         with pytest.raises(ValueError): collection_translation.validate(value,raw)
     service.collector = lambda _: {"ok":False,"items":[],"error_code":"token=private-secret","error":"private"}
     service.request(); service.collect_once()
     history = service.errors(collection.now().date().isoformat())
     assert "private" not in json.dumps(history)
     assert history["stats"]["availability"] == 0
+
+
+def test_translation_notice_explains_the_failed_field_and_links_the_original(service, monkeypatch):
+    url = "https://news.example/world/story/?entry=17&utm_source=feed#report"
+    raw = {**article(url, title="Headline"), "summary": "Original paragraph", "quoted_text_raw": "Quoted paragraph"}
+    service.sources = [{**SOURCE, "translation_policy": "always"}]
+    service.collector = lambda _: {"ok": True, "items": [raw]}
+    def untranslated_quote(raw, *_):
+        return collection_translation.parse(json.dumps({"title": "标题", "summary": "摘要", "quoted_text": "Quoted paragraph"}), raw)
+    monkeypatch.setattr(collection_translation, "http_translate", untranslated_quote)
+    monkeypatch.setattr(collection_translation, "pi_translate", untranslated_quote)
+    service.request(); service.collect_once(); service.translate_once()
+    day = collection.now().date().isoformat()
+    history = service.errors(day)
+    item, = history["records"][0]["notices"][0]["items"]
+    assert item == history["active_notices"][0]["notices"][0]["items"][0]
+    assert item["status"] == "retry_wait" and item["url"] == url
+    assert item["reason"] == "模型已响应，但引文译文未检测到汉字。"
+    assert "translation_not_chinese:quoted_text" in item["error"]
+    assert "Original paragraph" not in json.dumps(history) and "Quoted paragraph" not in json.dumps(history)
+
+    old_error = "translation_failed | opencode-go: translation_not_chinese | deepseek: translation_not_chinese | pi: translation_not_chinese"
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_items SET error=?", (old_error,))
+    item, = service.errors(day)["records"][0]["notices"][0]["items"]
+    assert item["reason"] == "模型已响应，但部分字段的译文未检测到汉字。"
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_items SET raw_json=?", (json.dumps(article(url, title="ANTics")),))
+    item, = service.errors("2020-01-01")["active_notices"][0]["notices"][0]["items"]
+    assert (item["title"], item["url"], item["reason"], item["error"]) == (
+        "ANTics", url, "模型已响应，但标题译文未检测到汉字。", old_error)
+
+
+@pytest.mark.parametrize("raw_json", ["invalid JSON", "null", "[]", '{"url":{}}',
+    '{"url":"javascript:void(0)"}', '{"url":"https://user:secret@news.example/story"}'])
+def test_damaged_article_never_breaks_notices_or_exposes_an_unsafe_link(service, raw_json):
+    service.request(); service.collect_once()
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_items SET raw_json=?,status='failed',error='collection_invalid_item'", (raw_json,))
+    item, = service.errors(collection.now().date().isoformat())["records"][0]["notices"][0]["items"]
+    assert (item["title"], item["url"], item["reason"]) == ("无标题新闻", "", "采集到的新闻数据无效，无法入库。")
+
+
+def test_translation_notice_preserves_distinct_reasons_without_response_bodies():
+    messages = collection_translation.failure_reason("translation_failed | deepseek: HTTP_401 | opencode-go: TIMEOUT | pi: translation_invalid_json", {})
+    assert messages == "翻译服务未接受当前凭据。等待翻译服务响应超时。模型已响应，但返回的内容无法解析为译文。"
+    with pytest.raises(ValueError, match="^translation_invalid_json$"):
+        collection_translation.parse("private response", article())
 
 
 @pytest.mark.parametrize("complete", [True, False])
@@ -360,7 +428,7 @@ def test_actual_ingestion_day_is_independent_of_publication_day(service):
     assert history["stats"]["ingested_count"] == 1
 
 
-def test_batch_is_atomic_and_enqueues_downstream_once(service, monkeypatch):
+def test_ready_group_is_atomic_and_enqueues_downstream_once(service, monkeypatch):
     service.collector = lambda _: {"ok": True, "items": [article(f"https://example.com/{i}") for i in range(3)]}
     run = service.request()
     service.collect_once()
@@ -377,11 +445,9 @@ def test_batch_is_atomic_and_enqueues_downstream_once(service, monkeypatch):
         assert not query(service, "SELECT id FROM items")  # Other connections see no partial batch.
         return result
     monkeypatch.setattr(service, "publish", publish)
-    for i in range(3):
+    for _ in range(3):
         assert service.translate_once()
         assert not query(service, "SELECT id FROM items")
-        if i < 2:
-            assert not service.publish_once()
     assert service.publish_once()
     assert not service.publish_once()
     assert len(query(service, "SELECT id FROM items")) == 3
@@ -415,26 +481,40 @@ def test_ready_items_wait_for_acquisition_to_finish(service):
     assert len(query(service, "SELECT id FROM items")) == 1
 
 
-def test_failed_translation_holds_whole_batch_and_retry_reuses_ready_items(service):
+def test_failed_translation_retries_after_restart_without_holding_ready_news(service, monkeypatch):
+    clock = time.time()
+    monkeypatch.setattr(time, "time", lambda: clock)
     calls = []
     service.collector = lambda _: {"ok": True, "items": [article(f"https://example.com/{i}") for i in range(2)]}
     def translate(raw, _):
         calls.append(raw["url"])
-        if raw["url"].endswith("/1") and calls.count(raw["url"]) == 1:
+        if raw["url"].endswith("/1") and calls.count(raw["url"]) <= 2:
             raise RuntimeError("HTTP_429")
         return collection_translation.original_fields(raw)
     service.translator = translate
-    service.request(); service.collect_once()
+    run = service.request(); service.collect_once()
     service.translate_once(); service.translate_once()
-    assert service.status()["counts"]["ready"] == service.status()["counts"]["failed"] == 1
-    assert not service.publish_once()
-    assert not query(service, "SELECT id FROM items")
-    assert service.retry() == 1
-    service.translate_once()
+    assert service.status()["counts"]["ready"] == service.status()["counts"]["retry_wait"] == 1
     assert service.publish_once()
+    assert not service.publish_once()
+    assert query(service, "SELECT url FROM items")[0][0].endswith("/0")
+    assert service.status()["last_run"]["publication_status"] == "pending"
+    assert service.status()["awaiting_batches"] == 1
+    restarted = collection.Service(service.connect, service.settings, translator=translate, sources=[SOURCE])
+    for delay in collection.ITEM_RETRY_DELAYS:
+        job = query(service, "SELECT * FROM collection_items WHERE status='retry_wait'")[0]
+        assert job["retry_at"] == clock + delay and job["lease"] is None
+        clock += delay - 1
+        assert not restarted.translate_once()
+        clock += 1
+        assert restarted.translate_once()
+    assert restarted.publish_once()
+    assert not restarted.publish_once()
     assert len(query(service, "SELECT id FROM items")) == 2
+    assert restarted.status()["last_run"]["publication_status"] == "done"
+    assert query(service, "SELECT ingested_count FROM collection_run_sources WHERE run_id=?", (run,))[0][0] == 2
     assert calls.count("https://example.com/0") == 1
-    assert calls.count("https://example.com/1") == 2
+    assert calls.count("https://example.com/1") == 3
 
 
 def test_publication_failure_rolls_back_and_retries_without_translating(service, monkeypatch):
@@ -461,7 +541,147 @@ def test_publication_failure_rolls_back_and_retries_without_translating(service,
     assert restarted.errors(collection.now().date().isoformat())["stats"]["ingested_count"] == 2
 
 
-def test_concurrent_translation_respects_live_limit_and_publishes_once(service):
+def test_later_publication_failure_does_not_roll_back_an_already_published_source(service, monkeypatch):
+    service.sources = [SOURCE, {**SOURCE, "section":"other"}]
+    service.collector = lambda source: {"ok":True, "items":[article("https://example.com/" + source["section"])]}
+    run = service.request(); service.collect_once()
+    assert service.translate_once() and service.publish_once()
+    history = service.errors(collection.now().date().isoformat())
+    assert {record["source_id"]:record["source_pending"] for record in history["records"]} == {"world":False, "other":True}
+    assert service.translate_once()
+    def fail_enqueue(conn):
+        raise sqlite3.OperationalError("disk_error")
+    with monkeypatch.context() as patch:
+        patch.setattr(collection.topic_tracking, "enqueue_checks", fail_enqueue)
+        assert service.publish_once()
+    assert [row[0] for row in query(service, "SELECT url FROM items")] == ["https://example.com/world"]
+    assert service.status()["publication_failed"] == 1
+    assert service.errors(history["day"])["stats"]["ingested_count"] == 1
+    assert service.retry(run_id=run, stage="publication") == 1
+    assert service.publish_once()
+    assert service.errors(history["day"])["stats"]["ingested_count"] == 2
+    assert not service.publish_once()
+
+
+def test_bad_cached_translation_and_item_write_are_local_failures(service):
+    urls = [f"https://example.com/story/{name}" for name in ("good", "cached", "write")]
+    service.collector = lambda _: {"ok": True, "items": [article(url) for url in urls]}
+    service.request(); service.collect_once()
+    for _ in urls:
+        assert service.translate_once()
+    with closing(service.connect()) as conn, conn:
+        conn.execute("UPDATE collection_items SET translation_json='{}' WHERE json_extract(raw_json,'$.url')=?", (urls[1],))
+        conn.execute("""CREATE TRIGGER bad_item AFTER UPDATE OF status ON collection_items
+            WHEN NEW.status='done' AND json_extract(NEW.raw_json,'$.url') LIKE '%/write'
+            BEGIN SELECT RAISE(ABORT, 'bad item'); END""")
+    assert service.publish_once()
+    assert [row[0] for row in query(service, "SELECT url FROM items")] == urls[:1]
+    assert service.status()["counts"]["retry_wait"] == 2
+    assert service.status()["publication_failed"] == 0
+    assert not service.publish_once()
+    with closing(service.connect()) as conn, conn:
+        conn.execute("DROP TRIGGER bad_item")
+    make_retries_due(service)
+    called = []
+    def translate(raw, config):
+        called.append(raw["url"])
+        return collection_translation.original_fields(raw)
+    service.translator = translate
+    assert service.translate_once() and service.translate_once() and service.publish_once()
+    assert called == urls[1:2]
+    assert not service.publish_once()
+    assert service.status()["counts"]["done"] == 3
+    assert len(query(service, "SELECT * FROM topic_ingestions")) == 3
+    assert service.errors(collection.now().date().isoformat())["stats"]["ingested_count"] == 3
+
+
+def test_quarantine_reopens_only_selected_item_and_counts_each_ingestion_day(api, service, monkeypatch):
+    module, client = api
+    monkeypatch.setattr(module.runtime.jobs, "collection", service)
+    at = datetime.fromisoformat("2026-11-18T23:58:00+08:00")
+    monkeypatch.setattr(collection, "now", lambda: at)
+    with closing(service.connect()) as conn, conn:
+        conn.executemany("""INSERT INTO event_topics(id,request_id,query,name,status,cutoff_seq,created_at,updated_at)
+            VALUES (:topic,:topic,:topic,:topic,'ready',0,:stamp,:stamp)""",
+            [{"topic": topic, "stamp": collection.stamp(at)} for topic in ("first-topic", "second-topic")])
+    urls = [f"https://example.com/{title}" for title in ("good","first","second")]
+    service.collector = lambda _: {"ok": True, "items": [article(url,title=url.rsplit("/",1)[-1]) for url in urls]}
+    def translate(raw, config):
+        if raw["title"] != "good":
+            raise ValueError("translation_incomplete")
+        return collection_translation.original_fields(raw)
+    service.translator = translate
+    run = service.request(); service.collect_once()
+    for _ in urls:
+        assert service.translate_once()
+    assert service.publish_once()
+    boundary = service.status()["batch"]
+    exhaust_retries(service)
+    assert service.publish_once()
+    assert not service.translate_once() and not service.publish_once()
+    assert service.status()["awaiting_batches"] == 0
+    assert service.status()["last_run"]["publication_status"] == "done"
+    assert query(service, "SELECT id FROM items")[0][0] == collection.identity_key(urls[0])
+    good_id = collection.identity_key(urls[0])
+    assert [tuple(row) for row in query(service, "SELECT topic_id,item_id,status FROM topic_checks ORDER BY topic_id")] == [
+        ("first-topic", good_id, "pending"), ("second-topic", good_id, "pending")]
+    at = datetime.fromisoformat("2026-11-19T00:10:00+08:00")
+    history = client.get("/api/error-stats?day=2026-11-19").json
+    assert not history["records"] and history["notice_count"] == 1
+    first, second = sorted(history["active_notices"][0]["notices"][0]["items"], key=lambda item: item["title"])
+    assert [item["title"] for item in (first, second)] == ["first", "second"]
+    assert all(item["status"] == "failed" and item["attempts"] == 3 for item in (first, second))
+    endpoint = "/api/collection/retry-translation"
+    body = {"run_id":run,"source_id":"world","stage":"translation","item_id":first["item_id"]}
+    other_run = service.request()
+    assert client.post(endpoint, json={**body,"run_id":other_run}).status_code == 404
+    assert client.post(endpoint, json=body).json["retried"] == 1
+    assert client.post(endpoint, json=body).json["retried"] == 0
+    assert query(service, "SELECT publication_status FROM collection_runs WHERE id=?", (run,))[0][0] == "pending"
+    service.translator = lambda raw, config: collection_translation.original_fields(raw)
+    assert service.translate_once() and service.publish_once()
+    assert not service.translate_once() and not service.publish_once()
+    assert query(service, "SELECT status,attempts FROM collection_items WHERE item_id=?", (second["item_id"],))[0][:] == ("failed",3)
+    assert query(service, "SELECT item_id FROM topic_ingestions WHERE seq>?", (boundary,))[0][0] == first["item_id"]
+    assert {tuple(row) for row in query(service, "SELECT topic_id,item_id FROM topic_checks")} == {
+        (topic, item_id) for topic in ("first-topic", "second-topic") for item_id in (good_id, first["item_id"])}
+    assert query(service, "SELECT attempts,error FROM collection_items WHERE item_id=?", (first["item_id"],))[0][:] == (4,"translation_incomplete")
+    assert query(service, "SELECT ingested_count FROM collection_run_sources WHERE run_id=?", (run,))[0][0] == 2
+    with closing(service.connect()) as conn, conn:
+        conn.execute("DELETE FROM collection_items WHERE status='done'")
+        conn.execute("DELETE FROM items")
+        collection.initialize(conn)
+    for day in ("2026-11-18", "2026-11-19"):
+        history = service.errors(day)
+        assert history["stats"]["ingested_count"] == 1
+        assert history["heatmap"]["errors_by_day"][day] == 0
+        assert history["notice_count"] == 1
+    assert next(record for record in history["records"] if record["run_id"]==run)["kind"] == "publication"
+
+
+def test_upgrade_recovers_old_failed_items_and_does_not_recount_deleted_news(service):
+    service.request(); service.collect_once(); service.translate_once(); service.publish_once()
+    service.collector = lambda _: {"ok": True, "items": [article("https://example.com/first"), article("https://example.com/second")]}
+    run = service.request(); service.collect_once()
+    with closing(service.connect()) as conn, conn:
+        conn.execute("DELETE FROM collection_items WHERE status='done'")
+        conn.execute("DELETE FROM items")
+        conn.execute("DROP TABLE collection_ingestion_days")
+        conn.execute("ALTER TABLE collection_items DROP COLUMN failure_count")
+        conn.execute("ALTER TABLE collection_items DROP COLUMN retry_at")
+        conn.execute("""UPDATE collection_items SET status='failed',error='HTTP_429',
+            attempts=CASE WHEN json_extract(raw_json,'$.url') LIKE '%/first' THEN 1 ELSE 3 END WHERE run_id=?""", (run,))
+        collection.initialize(conn)
+        collection.initialize(conn)
+    assert query(service, "SELECT status,failure_count FROM collection_items ORDER BY attempts")[0][:] == ("retry_wait",1)
+    assert service.status()["counts"]["failed"] == service.status()["counts"]["retry_wait"] == 1
+    assert service.translate_once() and service.publish_once()
+    assert not service.translate_once() and not service.publish_once()
+    assert len(query(service, "SELECT id FROM items")) == 1
+    assert service.errors(collection.now().date().isoformat())["stats"]["ingested_count"] == 2
+
+
+def test_concurrent_translation_publishes_ready_news_while_a_slow_call_is_still_running(service):
     config = service.settings()["collection"]
     config["translation_concurrency"] = 2
     service.collector = lambda _: {"ok": True, "items": [article(f"https://example.com/{i}") for i in range(6)]}
@@ -484,14 +704,17 @@ def test_concurrent_translation_respects_live_limit_and_publishes_once(service):
         config["translation_concurrency"] = 1
         releases[first[0]].set(); releases[first[1]].set()
         with pytest.raises(queue.Empty): started.get(timeout=0.2)
-        assert not query(service, "SELECT * FROM items")
+        deadline = time.monotonic()+4
+        while time.monotonic()<deadline and len(query(service, "SELECT id FROM items")) < 2:
+            time.sleep(0.02)
+        assert {row["url"] for row in query(service, "SELECT url FROM items")} == set(first)
         releases[third].set()
         for _ in range(3):
             ident = started.get(timeout=3)
             with pytest.raises(queue.Empty): started.get(timeout=0.1)
             releases[ident].set()
         deadline = time.monotonic()+4
-        while time.monotonic()<deadline and not query(service, "SELECT * FROM items"):
+        while time.monotonic()<deadline and len(query(service, "SELECT id FROM items")) < 6:
             time.sleep(0.02)
         assert len(query(service, "SELECT * FROM items")) == 6
         assert all(row[0] == 1 for row in query(service, "SELECT attempts FROM collection_items"))
@@ -763,11 +986,15 @@ def test_collection_heatmap_counts_each_failure_on_its_record_day(service, monke
         "start": "2022-03-03", "end": "2023-03-02", "errors_by_day": {}}
 
 
-def test_collection_history_migrates_old_counts_without_guessing_or_changing_news(service):
-    service.collector = lambda _: {"ok": True, "items": [article(), article()]}
-    service.request(); service.collect_once(); service.translate_once(); service.publish_once()
-    before = dict(query(service, "SELECT * FROM items")[0])
+def test_collection_history_migrates_old_counts_without_guessing_or_changing_news(service, monkeypatch):
+    monkeypatch.setattr(collection, "now", lambda: datetime.fromisoformat("2026-11-02T12:00:00+08:00"))
+    service.collector = lambda _: {"ok": True, "items": [article(), article(), article("https://example.com/second")]}
+    service.request(); service.collect_once(); service.translate_once(); service.translate_once(); service.publish_once()
+    before = [dict(row) for row in query(service, "SELECT * FROM items ORDER BY id")]
     with closing(service.connect()) as conn, conn:
+        conn.execute("""UPDATE collection_items SET ingested_at='2026-11-01T12:00:00+08:00'
+            WHERE item_id=?""", (before[0]["id"],))
+        conn.execute("DROP TABLE collection_ingestion_days")
         conn.execute("DROP INDEX idx_collection_sources_ingested")
         for column in ("duplicate_count", "filtered_count", "ingested_count", "ingested_at"):
             conn.execute(f"ALTER TABLE collection_run_sources DROP COLUMN {column}")
@@ -777,7 +1004,8 @@ def test_collection_history_migrates_old_counts_without_guessing_or_changing_new
     assert history["records"][0]["duplicate_count"] is None
     assert history["stats"]["duplicate_unknown"] == 1
     assert history["stats"]["ingested_count"] == 1
-    assert dict(query(service, "SELECT * FROM items")[0]) == before
+    assert service.errors("2026-11-01")["stats"]["ingested_count"] == 1
+    assert [dict(row) for row in query(service, "SELECT * FROM items ORDER BY id")] == before
 
 
 def test_collection_history_invalid_item_is_not_reported_as_a_duplicate(service):
@@ -827,6 +1055,7 @@ def test_collection_notices_and_translation_retry_are_scoped_to_run_and_source(s
     generation = 1
     second = service.request(); service.collect_once()
     for _ in range(4): assert service.translate_once()
+    exhaust_retries(service)
     history = service.errors(collection.now().date().isoformat())
     assert history["stats"]["error_count"] == 2  # Translation failures are notices, not acquisition errors.
     assert history["notice_count"] == 4
@@ -838,7 +1067,10 @@ def test_collection_notices_and_translation_retry_are_scoped_to_run_and_source(s
             assert record["error"] == "TIMEOUT" and record["notices"] == []
         else:
             assert record["error_count"] == 0
-            assert record["notices"] == [{"stage": "translation", "count": 1, "error": "1 条：HTTP_429"}]
+            notice, = record["notices"]
+            assert (notice["stage"], notice["count"], notice["error"]) == ("translation", 1, "1 条：HTTP_429")
+            item, = notice["items"]
+            assert (item["title"],item["status"],item["attempts"],item["error"],item["retry_at"]) == ("新闻","failed",3,"HTTP_429",None)
     errors_before = [tuple(row) for row in query(service, "SELECT * FROM collection_run_sources")]
     assert service.retry(run_id=first, source_id="world", stage="translation") == 1
     assert service.retry(run_id=first, source_id="world", stage="translation") == 0
@@ -850,8 +1082,9 @@ def test_collection_notices_and_translation_retry_are_scoped_to_run_and_source(s
     service.translator = lambda raw, _: collection_translation.original_fields(raw)
     assert service.translate_once()
     assert not service.translate_once()
-    assert not service.publish_once()  # Another source still needs repair.
-    assert len(calls) == 8
+    assert service.publish_once()
+    assert len(query(service, "SELECT * FROM items")) == 3
+    assert len(calls) == 16
     refreshed = service.errors(collection.now().date().isoformat())
     assert refreshed["notice_count"] == 3
     assert not next(r for r in refreshed["records"] if r["run_id"] == first and r["source_id"] == "world")["notices"]
@@ -891,14 +1124,16 @@ def test_unresolved_translation_stays_visible_across_days_and_clears_on_retry(se
     monkeypatch.setattr(collection, "now", lambda: at)
     service.translator = lambda *_: (_ for _ in ()).throw(RuntimeError("translation_failed | deepseek: HTTP_401 | pi: TIMEOUT"))
     run = service.request(); service.collect_once(); service.translate_once()
+    exhaust_retries(service)
     at = datetime.fromisoformat("2026-11-10T09:00:00+08:00")
     history = service.errors("2026-11-10")
     assert history["records"] == [] and history["stats"]["error_count"] == 0
     assert history["unresolved_count"] == 0 and history["notice_count"] == 1
     active = history["active_notices"][0]
     assert active["date"] == "2026-11-09" and active["run_id"] == run
-    assert active["notices"] == [{"stage": "translation", "count": 1,
-        "error": "1 条：translation_failed | deepseek: HTTP_401 | pi: TIMEOUT"}]
+    notice, = active["notices"]
+    assert (notice["stage"], notice["count"]) == ("translation", 1)
+    assert notice["items"][0]["error"] == "translation_failed | deepseek: HTTP_401 | pi: TIMEOUT"
     light = service.errors("2026-11-10", details=False)
     assert light["notice_count"] == 1 and "active_notices" not in light
     assert service.retry(run_id=run, source_id=active["source_id"], stage="translation") == 1
@@ -911,16 +1146,21 @@ def test_scoped_retry_api_rejects_bad_targets_without_retrying_other_failures(ap
     monkeypatch.setattr(module.runtime.jobs, 'collection', service)
     service.translator = lambda *_: (_ for _ in ()).throw(RuntimeError("HTTP_429"))
     run = service.request(); service.collect_once(); service.translate_once()
+    exhaust_retries(service)
     endpoint = "/api/collection/retry-translation"
     for body in ([run], {"run_id": run}, {"stage": "translation"}, {"run_id": None},
                  {"run_id": run, "stage": "collection"}, {"run_id": run, "stage": []},
                  {"run_id": run, "stage": "translation", "source_id": []},
+                 {"run_id": run, "stage": "translation", "source_id": "world", "item_id": None},
+                 {"run_id": run, "stage": "translation", "source_id": "world", "item_id": ["bad"]},
+                 {"run_id": run, "stage": "publication", "item_id": "bad"},
                  {"run_id": run, "stage": "publication", "source_id": "world"},
                  {"run_id": run, "stage": "publication", "unknown": True}):
         response = client.post(endpoint, json=body)
         assert response.status_code == 400 and response.json["error"] == "collection_retry_invalid"
     for body in ({"run_id": "missing", "stage": "publication"},
-                 {"run_id": run, "stage": "translation", "source_id": "missing"}):
+                 {"run_id": run, "stage": "translation", "source_id": "missing"},
+                 {"run_id": run, "stage": "translation", "source_id": "world", "item_id": "missing"}):
         assert client.post(endpoint, json=body).status_code == 404
     assert client.post(endpoint, data="{", content_type="application/json").status_code == 400
     assert service.status()["counts"]["failed"] == 1
@@ -929,6 +1169,8 @@ def test_scoped_retry_api_rejects_bad_targets_without_retrying_other_failures(ap
     assert response.status_code == 202 and response.json["retried"] == 1
     assert client.post(endpoint, json=body).json["retried"] == 0
     service.translate_once()
+    assert client.post(endpoint).json["retried"] == 0
+    exhaust_retries(service)
     assert client.post(endpoint).json["retried"] == 1  # Existing global retry remains compatible.
 
 

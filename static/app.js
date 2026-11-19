@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.5.18";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.1";
 import { SummaryPanel } from "./summary-panel.js?v=0.5.18";
 import { TopicPanel } from "./topic-panel.js?v=0.5.4";
 import { ReportPanel } from "./report-panel.js?v=0.5.18";
@@ -30,11 +30,11 @@ import { AgentPanel } from "./agent-panel.js?v=0.4.6";
 import { PersonalAssistant } from "./personal-assistant.js?v=0.5.9";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
 import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
-import { TaskProgress } from "./task-progress.js?v=0.5.16";
+import { TaskProgress } from "./task-progress.js?v=0.6.1";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.5.18";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.6.1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -843,19 +843,22 @@ async function pollCollection() {
     renderIndexStatus();
     settings.updateCollectionStatus(data);
     void upstreamErrors.refreshRecords();
-    const {failed=0, pending=0, running=0, ready=0} = data.counts;
+    const {failed=0, pending=0, running=0, ready=0, retry_wait=0} = data.counts;
     const publicationFailed = data.publication_failed || 0;
-    if (previous && (previous.counts.failed !== failed || previous.publication_failed !== data.publication_failed))
+    if (previous && (previous.counts.failed !== failed || previous.counts.retry_wait !== data.counts.retry_wait || previous.publication_failed !== data.publication_failed))
       void upstreamErrors.refreshBadge();
     const notice = $("#collectionTranslationNotice");
-    notice.hidden = !(failed || pending || running || ready || publicationFailed);
-    $("#collectionTranslationText").textContent = failed
-      ? `${failed} 条新闻翻译失败，所在批次等待重试；已完成 ${ready} 条译文已保存${pending+running ? `，另有 ${pending+running} 条处理中` : ""}。`
-      : publicationFailed ? `${publicationFailed} 批新闻入库失败，译文已保存，可重试入库。`
-      : pending+running ? `${pending+running} 条新闻正在翻译，已完成 ${ready} 条；整批完成后统一入库。`
-      : `${ready} 条新闻已完成翻译，${data.running ? "等待本轮采集结束后统一入库" : "正在按批次统一入库"}。`;
+    const messages = [
+      failed && `${failed} 条新闻已隔离，可在采集记录中单条重试`,
+      publicationFailed && `${publicationFailed} 批新闻入库失败，待入库译文已保留`,
+      retry_wait && `${retry_wait} 条新闻等待自动重试`,
+      pending+running && `${pending+running} 条新闻正在翻译`,
+      ready && `${ready} 条新闻已完成翻译，等待入库`,
+    ].filter(Boolean);
+    notice.hidden = !messages.length;
+    $("#collectionTranslationText").textContent = messages.join("；");
     $("#retryCollectionTranslationBtn").hidden = !(failed || publicationFailed);
-    $("#retryCollectionTranslationBtn").textContent = failed ? "重试翻译" : "重试入库";
+    $("#retryCollectionTranslationBtn").textContent = failed && publicationFailed ? "重试失败项" : failed ? "重试隔离新闻" : "重试入库";
     if (previous && (previous.batch !== data.batch || previous.source_errors !== data.source_errors)) {
       sourceGroups = [];
       sourceCatalogByCollection.clear();

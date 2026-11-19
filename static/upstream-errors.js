@@ -3,7 +3,7 @@ import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
 import { CollectionHeatmap, heatStatus } from "./collection-heatmap.js?v=0.5.18";
-import { sourceDetailsSummary } from "./reader-sources.js?v=0.5.18";
+import { sourceDetailsSummary, sourceURL } from "./reader-sources.js?v=0.5.18";
 
 const recordsFrom = data => (data.records || (data.days || []).flatMap(day => day.groups.flatMap(group =>
   (group.entries || (group.labels || []).map(label => ({ label: label.replace(/ error$/, "") })))
@@ -19,10 +19,24 @@ const aggregateCountText = (value, incomplete = false) => incomplete
 const hasSourceError = record => record.error_count > 0 || record.status === "failed" || !!record.error;
 const noticesFrom = record => (record.notices || []).filter(notice => ["translation", "publication"].includes(notice.stage));
 const needsAttention = record => hasSourceError(record) || noticesFrom(record).length > 0;
+const sourcePending = record => record.source_pending ?? (record.publication_status === "pending");
 const showSourceDetails = record => record.ingested_count !== 0 || record.status !== "done"
-  || (record.publication_status && record.publication_status !== "done") || needsAttention(record);
+  || sourcePending(record) || needsAttention(record);
 const batchKey = record => record.run_id || `${record.date}T${record.time}`;
-const actionKey = (record, stage) => `${batchKey(record)}:${stage}:${stage === "translation" ? record.source_id : ""}`;
+const actionKey = (record, stage, itemId) => `${batchKey(record)}:${stage}:${stage === "translation" ? record.source_id : ""}${itemId ? ":" + itemId : ""}`;
+
+function originalLink(item, key) {
+  const href = sourceURL(item.url);
+  if (!href) return "";
+  const url = new URL(href);
+  const host = url.host.replace(/^www\./i, "");
+  const parts = url.pathname.split("/").filter(Boolean);
+  const slug = parts.at(-1) || "";
+  const label = (host.length > 28 ? "…" + host.slice(-26) : host) + (parts.length > 1 ? "/…/" : slug ? "/" : "")
+    + (slug.length > 18 ? slug.slice(0, 17) + "…" : slug);
+  return `<a href="${e(href)}" target="_blank" rel="noopener noreferrer" data-upstream-link="${e(key)}"
+    title="${e(href)}" aria-label="打开原文 · ${e(item.title)}（新标签页）">原文 · ${e(label)}</a>`;
+}
 
 function batchesFrom(records) {
   const batches = new Map();
@@ -45,11 +59,14 @@ function recordStatus(record, showErrorDetails) {
   if (record.status === "pending") return "等待采集";
   if (record.status === "running") return "采集中";
   if (record.status === "canceled") return "账号已移除 · 已取消采集";
-  if (noticesFrom(record).some(notice => notice.stage === "translation")) return "提示 · 翻译失败";
+  const translation = noticesFrom(record).find(notice => notice.stage === "translation");
+  if (translation) return translation.items?.length
+    ? translation.items.some(item => item.status === "failed") ? "有新闻已隔离" : "自动重试中"
+    : "提示 · 翻译失败";
   if (record.publication_status === "failed") return "提示 · 入库失败";
-  if (record.publication_status === "pending") return "等待整批入库";
+  if (sourcePending(record)) return "处理中";
   if (record.published_at && !record.published_at.startsWith(record.date)) return `${record.published_at.slice(0, 10)} 已入库`;
-  return "采集完成";
+  return record.ingested_count > 0 ? "已入库" : "采集完成";
 }
 
 function sourceTable(records, showErrorDetails) {
@@ -99,7 +116,7 @@ export class UpstreamErrors {
     this.loadedDay = "";
     this.sequence = 0;
     this.view = "all";
-    this.expandedBatches = new Set();
+    this.expandedDetails = new Set();
     this.retrying = new Set();
     this.actionFeedback = new Map();
     this.today = dateKey(new Date());
@@ -156,8 +173,8 @@ export class UpstreamErrors {
     this.content.addEventListener("toggle", event => {
       const details = event.target;
       if (!this.content.contains(details) || details.dataset.upstreamDetails === undefined) return;
-      if (details.open) this.expandedBatches.add(details.dataset.upstreamDetails);
-      else this.expandedBatches.delete(details.dataset.upstreamDetails);
+      if (details.open) this.expandedDetails.add(details.dataset.upstreamDetails);
+      else this.expandedDetails.delete(details.dataset.upstreamDetails);
     }, true);
     const sync = () => { if (!document.hidden) { this.refreshBadge(); this.refreshRecords(); } };
     window.addEventListener("focus", sync);
@@ -388,6 +405,7 @@ export class UpstreamErrors {
   render() {
     const focusedView = document.activeElement?.dataset.upstreamView;
     const focusedAction = document.activeElement?.dataset.upstreamActionKey;
+    const focusedLink = document.activeElement?.dataset.upstreamLink;
     const focusedDetails = document.activeElement?.closest("summary")?.parentElement?.dataset.upstreamDetails;
     const focusedClassification = document.activeElement?.dataset.upstreamClassification;
     const records = this.records;
@@ -420,6 +438,8 @@ export class UpstreamErrors {
         [...this.content.querySelectorAll("[data-upstream-view]")].find(button => button.dataset.upstreamView === focusedView)?.focus({ preventScroll: true });
       if (focusedAction !== undefined)
         [...this.content.querySelectorAll("[data-upstream-action-key]")].find(button => button.dataset.upstreamActionKey === focusedAction && !button.disabled)?.focus({ preventScroll: true });
+      if (focusedLink !== undefined)
+        (this.content.querySelector(`[data-upstream-link="${CSS.escape(focusedLink)}"]`) || this.content.querySelector(`[data-upstream-view="${this.view}"]`))?.focus({ preventScroll: true });
       if (focusedDetails !== undefined) {
         const summary = [...this.content.querySelectorAll("[data-upstream-details]")].find(details => details.dataset.upstreamDetails === focusedDetails)?.querySelector("summary");
         (summary || this.content.querySelector(`[data-upstream-view="${this.view}"]`))?.focus({ preventScroll: true });
@@ -439,7 +459,7 @@ export class UpstreamErrors {
     const status = failures.length && notices.size ? "错误与提示" : failures.length ? "采集错误" : notices.size ? "待处理提示"
       : records.every(record => record.status === "pending") ? "等待采集"
       : records.some(record => ["pending", "running"].includes(record.status)) ? "采集中"
-      : records.some(record => record.publication_status === "pending") ? "等待整批入库" : "已完成";
+      : records.some(record => record.publication_status === "pending") ? "处理中" : "已完成";
     const statusTag = failures.length ? 'class="upstream-error-tag status-text" data-status="failed"'
       : `class="card-tag${notices.size ? " highlight" : ""}"`;
     return `<article class="upstream-error-card" data-upstream-batch="${e(batch.key)}">
@@ -454,7 +474,7 @@ export class UpstreamErrors {
           <pre>${e(record.error || "未记录具体错误")}</pre><span class="upstream-copy-feedback" role="status"></span>
         </div>`).join("") : ""}
         ${[...notices.values()].map(({ record, notice }) => this.notice(record, notice)).join("")}
-        <details data-upstream-details="${e(batch.key)}"${this.expandedBatches.has(batch.key) ? " open" : ""}>
+        <details data-upstream-details="${e(batch.key)}"${this.expandedDetails.has(batch.key) ? " open" : ""}>
           ${sourceDetailsSummary(`来源明细（${sources.length}）`)}
           ${sourceTable(sources, showErrorDetails)}
         </details>
@@ -463,14 +483,31 @@ export class UpstreamErrors {
   }
 
   notice(record, notice) {
-    const key = actionKey(record, notice.stage), pending = this.retrying.has(key);
+    return notice.items?.length ? notice.items.map(item => this.noticeRow(record, notice, item)).join("")
+      : this.noticeRow(record, notice);
+  }
+
+  noticeRow(record, notice, item) {
+    const key = actionKey(record, notice.stage, item?.item_id), pending = this.retrying.has(key);
     const translation = notice.stage === "translation";
-    const label = translation ? "重试翻译" : "重试入库";
-    const message = translation ? `${record.label} · ${notice.count} 条新闻翻译失败` : "整批入库失败，译文已保留";
+    const label = item ? "重试此条" : translation ? "重试翻译" : "重试入库";
+    const status = item?.status === "failed" ? "已隔离" : item?.retry_at
+      ? `${item.retry_at.slice(5, 16).replace("T", " ")} 自动重试` : "自动重试中";
+    const message = item ? `${record.label} · ${status} · 已尝试 ${item.attempts} 次`
+      : translation ? `${record.label} · ${notice.count} 条新闻翻译失败` : "入库失败，已入库新闻不受影响，待入库译文已保留";
+    const ariaLabel = item ? `${label} · ${item.title}` : translation ? `${label} · ${record.label}` : label;
+    const error = item?.error || notice.error;
+    const reason = item?.reason || "未取得可用译文。";
+    const link = translation && item && this.view === "attention" ? originalLink(item, key) : "";
     return `<div class="field-item collection-record-notice">
+      ${item ? `<strong class="field-label">${e(item.title)}</strong>` : ""}
       <div class="button-row"><span class="muted"><strong>提示</strong> · ${e(message)}</span>
-        <button type="button" class="reader-tool-btn" data-upstream-action="${notice.stage}" data-upstream-action-key="${e(key)}" data-upstream-record="${record.index}" aria-label="${e(translation ? `${label} · ${record.label}` : label)}" aria-busy="${pending}"${pending ? " disabled" : ""}>${pending ? "正在提交…" : label}</button></div>
-      <div class="muted">${e(notice.error).replace(/\n/g, "<br>")}</div>
+        ${!item || item.status === "failed" ? `<button type="button" class="reader-tool-btn" data-upstream-action="${notice.stage}" data-upstream-action-key="${e(key)}" data-upstream-record="${record.index}" ${item ? `data-upstream-item="${e(item.item_id)}"` : ""} aria-label="${e(ariaLabel)}" aria-busy="${pending}"${pending ? " disabled" : ""}>${pending ? "正在提交…" : label}</button>` : ""}</div>
+      ${translation ? `<div class="muted">${e(reason)}${item ? "其他新闻可继续入库。" : ""}</div>
+        ${link ? `<div class="muted">${link}</div>` : ""}
+        ${error ? `<details data-upstream-details="${e(key)}"${this.expandedDetails.has(key) ? " open" : ""}>
+          ${sourceDetailsSummary("技术详情")}<div class="upstream-log-box"><pre>${e(error)}</pre></div></details>` : ""}`
+        : `<div class="muted">${e(error).replace(/\n/g, "<br>")}</div>`}
       ${this.actionFeedback.has(key) ? `<div class="inline-error" role="alert">${e(this.actionFeedback.get(key))}</div>` : ""}
     </div>`;
   }
@@ -479,8 +516,10 @@ export class UpstreamErrors {
     const index = button.dataset.upstreamRecord;
     const record = index.startsWith("active-") ? this.activeNotices[Number(index.slice(7))] : this.records[Number(index)];
     const stage = button.dataset.upstreamAction;
-    if (!record?.run_id || !noticesFrom(record).some(notice => notice.stage === stage)) return;
-    const key = actionKey(record, stage);
+    const itemId = button.dataset.upstreamItem;
+    const notice = record && noticesFrom(record).find(entry => entry.stage === stage);
+    if (!record?.run_id || !notice || (itemId && !notice.items?.some(item => item.item_id === itemId && item.status === "failed"))) return;
+    const key = actionKey(record, stage, itemId);
     if (this.retrying.has(key)) return;
     const restoreFocus = document.activeElement === button;
     this.retrying.add(key);
@@ -488,9 +527,10 @@ export class UpstreamErrors {
     this.render();
     try {
       const data = await api("/api/collection/retry-translation", { method: "POST", body: {
-        run_id: record.run_id, stage, ...(stage === "translation" ? { source_id: record.source_id } : {}),
+        run_id: record.run_id, stage, ...(stage === "translation" ? { source_id: record.source_id } : {}), ...(itemId ? { item_id: itemId } : {}),
       } });
-      toast(data.retried ? stage === "translation" ? "已加入翻译重试队列" : "已加入入库重试队列" : "该问题已处理，记录已更新");
+      toast(!data.retried ? "该问题已处理，记录已更新" : itemId ? "已安排重试此条新闻"
+        : stage === "translation" ? "已加入翻译重试队列" : "已加入入库重试队列");
       this.retrying.delete(key);
       await this.refreshRecords();
       await this.refreshBadge();

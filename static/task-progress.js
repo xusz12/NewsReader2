@@ -38,7 +38,7 @@ function topicTask(row, routing, block) {
   let state = job?.status === "running" || matching.running ? "running" : "pending";
   if ((job?.status==="pending" && !job.error_dismissed && (retry || job.error)) || blocked) state = "warning";
   if (job?.status === "failed" || matching.failed) state = "failed";
-  return {id:row.id, section:"taskProgressTopics", label:"主题", title:row.name || "新建主题", stage, state,
+  return {id:row.id, section:"taskProgressTopics", label:"主题", title:row.name || "新建主题", stage, state, failedMatches:matching.failed,
     error:[job?.error && job.status!=="running" && !job.error_dismissed && jobErrorText(job), reason].filter(Boolean).join(" · "),
     notes:[counts, backup, retry && `${retryTime(retry*1000)} 重试`].filter(Boolean)};
 }
@@ -59,6 +59,7 @@ export class TaskProgress {
     Object.assign(this,{classification,onSettings,onTopic,onReport,onReports});
     this.localIssues={};
     this.dismissedLocal={};
+    this.retryingMatches=new Set();
     try {
       const saved=JSON.parse(sessionStorage.getItem(localNoticeKey));
       if(saved && typeof saved==="object" && !Array.isArray(saved))this.dismissedLocal=saved;
@@ -92,6 +93,8 @@ export class TaskProgress {
     $("#taskProgressRefresh").onclick=event=>busy(event.currentTarget,()=>Promise.all([this.classification.refresh(),this.refresh()]));
     $("#taskProgressMoreReports").onclick=()=>{this.close();return busy(null,this.onReports);};
     this.panel.addEventListener("click",event=>{
+      const retry=event.target.closest("[data-retry-matching]");
+      if(retry)return this.retryMatching(retry.dataset.retryMatching);
       const button=event.target.closest("[data-task-id]");if(!button)return;
       this.close();
       return busy(null,()=>button.dataset.taskType==="topic" ? this.onTopic(button.dataset.taskId) : this.onReport(button.dataset.taskId,button.dataset.kind));
@@ -157,10 +160,30 @@ export class TaskProgress {
       this.clearing=false;button.removeAttribute("aria-busy");
     }
   }
-  async refresh() {
+  async retryMatching(topicId) {
+    if(this.retryingMatches.has(topicId))return;
+    const body={topic_id:topicId,database_token:this.data.database_token,notice_id:this.data.notices?.matching};
+    this.retryingMatches.add(topicId);
+    this.render();
+    try {
+      const {retried}=await api("/api/tasks/progress/retry-matching",{method:"POST",body});
+      toast(retried ? `已将 ${retried} 条新闻重新加入主题匹配队列` : "这些匹配任务的状态已更新");
+    } catch(error) {
+      toast(error.code==="task_database_changed" ? "新闻库已切换，请在最新进度中重试" : "匹配重试请求未能确认，请查看最新进度");
+    } finally {
+      await this.refresh();
+      this.retryingMatches.delete(topicId);
+      this.render();
+    }
+  }
+  refresh() {
     if(document.hidden)return;
-    if(this.refreshing){this.refreshAgain=true;return;}
-    clearTimeout(this.timer);this.refreshing=true;
+    if(this.refreshing){this.refreshAgain=true;return this.refreshing;}
+    clearTimeout(this.timer);
+    this.refreshing=this.readProgress();
+    return this.refreshing;
+  }
+  async readProgress() {
     try {
       const data=await api("/api/tasks/progress");
       if(!Array.isArray(data.topics?.items) || !Array.isArray(data.reports?.items) || !data.reports.counts)throw new Error("Invalid task progress");
@@ -169,9 +192,9 @@ export class TaskProgress {
       this.error=this.data?"主题追踪与日报进度暂时无法更新，显示上次结果":"暂时无法读取主题追踪与日报进度";
       this.render();
     } finally {
-      this.refreshing=false;
-      if(this.refreshAgain){this.refreshAgain=false;void this.refresh();}
-      else if(!document.hidden){
+      this.refreshing=null;
+      if(this.refreshAgain){this.refreshAgain=false;return this.refresh();}
+      if(!document.hidden){
         const working=this.data?.topics.items.some(topicWorking) || this.data?.reports.counts.pending || this.data?.reports.counts.running;
         this.timer=setTimeout(()=>this.refresh(),working?2000:30000);
       }
@@ -184,19 +207,30 @@ export class TaskProgress {
     for(const [index,row] of rows.entries()) {
       let node=existing.get(row.id);existing.delete(row.id);
       if(!node){node=document.createElement("li");node.className="agent-notice";node.dataset.id=row.id;
-        node.innerHTML=`<button type="button" class="agent-notice-open" data-task-type="${type}" data-task-id="${e(row.id)}"></button>`;}
+        node.innerHTML=`<button type="button" class="agent-notice-open" data-task-type="${type}" data-task-id="${e(row.id)}"></button>`+
+          (type==="topic" ? `<button type="button" class="agent-notice-dismiss" data-retry-matching="${e(row.id)}" hidden>重试匹配</button>` : "");}
       const button=node.firstElementChild;
       const html=`<strong>${e(row.title)}</strong><span class="task-progress-stage status-text" data-status="${e(row.state)}">${e(row.stage)}</span>` +
         (row.error ? `<span class="status-text" data-status="failed">${e(row.error)}</span>` : "") +
         row.notes.map(note=>`<span class="agent-notice-preview">${e(note)}</span>`).join("");
       if(row.kind)button.dataset.kind=row.kind;
       if(button.innerHTML!==html)button.innerHTML=html;
+      const retry=button.nextElementSibling;
+      if(retry) {
+        retry.hidden=!row.failedMatches;
+        const pending=this.retryingMatches.has(row.id);
+        retry.setAttribute("aria-label",`重试匹配 · ${row.title}`);
+        retry.setAttribute("aria-disabled",String(pending));
+        retry.setAttribute("aria-busy",String(pending));
+        retry.textContent=pending ? "提交中…" : "重试匹配";
+      }
       if(container.children[index]!==node)container.insertBefore(node,container.children[index] || null);
     }
     for(const node of existing.values())node.remove();
   }
   render(opening=false) {
     const focused=document.activeElement, focusInside=this.root.contains(focused);
+    const topicButton=focused?.closest("[data-retry-matching]")?.previousElementSibling;
     const p=this.classificationSnapshot?.progress, batch=p?.batch;
     const failed=p?.unacknowledged_failed ?? batch?.failed;
     const showClassification=!!(p && p.enabled!==false && batch?.total && (batch.pending || batch.running || failed));
@@ -279,6 +313,7 @@ export class TaskProgress {
     arc.style.strokeDashoffset=String(measurement?100-measurement.completed/measurement.total*100:0);
     arc.style.opacity=measurement && !measurement.completed?"0":"1";
     if(this.root.hidden)this.close();
-    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))this.restoreFocus(this.root.hidden?$("#upstreamErrorsBtn"):this.indicator);
+    if(focusInside && (!focused.isConnected || focused.closest("[hidden]")))
+      this.restoreFocus(this.root.hidden ? $("#upstreamErrorsBtn") : topicButton?.isConnected && !topicButton.closest("[hidden]") ? topicButton : this.indicator);
   }
 }

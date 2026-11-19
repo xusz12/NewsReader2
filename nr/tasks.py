@@ -154,7 +154,8 @@ def register(app, db, jobs):
         body = request.get_json(silent=True)
         if body is None and not request.content_length:
             body = {}
-        if not isinstance(body, dict) or set(body) - {"run_id", "source_id", "stage"} or (body and not body.get("run_id")):
+        if (not isinstance(body, dict) or set(body) - {"run_id", "source_id", "stage", "item_id"}
+                or (body and not body.get("run_id")) or ("item_id" in body and not body["item_id"])):
             return jsonify({"ok": False, "error": "collection_retry_invalid"}), 400
         try:
             count = jobs.collection.retry(**body)
@@ -190,6 +191,23 @@ def register(app, db, jobs):
             return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "task_database_changed" else 400
         except (sqlite3.Error, OSError):
             return jsonify(ok=False, error="task_notice_clear_failed"), 503
+
+    @app.post("/api/tasks/progress/retry-matching")
+    def api_task_progress_retry_matching():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(ok=False, error="invalid_task_notices"), 400
+        try:
+            with jobs.classification.lock:
+                with closing(db.connect()) as conn, conn:
+                    retried = task_progress.retry_matching(conn, body.get("topic_id"), body.get("database_token"), body.get("notice_id"))
+                if retried:
+                    jobs.classification.resume()
+            return jsonify(ok=True, retried=retried), 202
+        except ValueError as exc:
+            return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "task_database_changed" else 400
+        except (sqlite3.Error, OSError):
+            return jsonify(ok=False, error="task_matching_retry_failed"), 503
 
     @app.get("/api/news/classification")
     def api_classification_status():

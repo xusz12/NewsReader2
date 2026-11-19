@@ -149,6 +149,55 @@ def test_clear_covers_unlisted_failures_preserves_retries_and_new_errors(db, mon
         assert conn.execute("SELECT COUNT(*) FROM periodic_reports WHERE status='failed'").fetchone()[0] == 12
 
 
+def test_progress_retry_requeues_only_the_selected_topics_visible_failed_matches(db, monkeypatch):
+    import app
+    monkeypatch.setattr(app.runtime.db, 'connect', db)
+    resumes = []
+    monkeypatch.setattr(app.runtime.jobs.classification, 'resume', lambda: resumes.append(True))
+    with closing(db()) as conn, conn:
+        topic(conn, 'first')
+        topic(conn, 'second')
+        job(conn, 'research', 'first', 'failed')
+        job(conn, 'active', 'second', 'running')
+        check(conn, 'dismissed', 'first', 'failed')
+        for topic_id in ('first', 'second'):
+            check(conn, 'shared-news', topic_id, 'failed')
+        check(conn, 'old-revision', 'first', 'failed', revision=0)
+        check(conn, 'completed', 'first', 'done', matched=1, processed=1)
+        check(conn, 'working', 'first', 'running')
+        conn.execute("UPDATE topic_checks SET attempts=2,next_attempt_at=10,last_error='decision_refused' WHERE status='failed'")
+        conn.execute("UPDATE topic_checks SET lease_token='expired',lease_until=1 WHERE topic_id='first' AND item_id='shared-news'")
+        conn.execute("""UPDATE task_progress_notices SET dismissed=1 WHERE source='matching' AND
+            item_key=CAST((SELECT seq FROM topic_checks WHERE item_id='dismissed') AS TEXT)""")
+    observed = read(db)
+    payload = {'topic_id':'first', 'database_token':observed['database_token'], 'notice_id':observed['notices']['matching']}
+    with closing(db()) as conn, conn:
+        check(conn, 'new-failure', 'first', 'failed')
+        keep = """SELECT * FROM topic_checks WHERE topic_id<>'first' OR item_id<>'shared-news' ORDER BY seq"""
+        untouched = conn.execute(keep).fetchall()
+    url = '/api/tasks/progress/retry-matching'
+    with app.app.test_client() as client:
+        assert client.post(url, json=payload | {'database_token':'other'}).status_code == 409
+        assert client.post(url, json=payload | {'notice_id':True}).status_code == 400
+        assert client.post(url, json=[]).status_code == 400
+        result = client.post(url, json=payload)
+        assert result.status_code == 202 and result.json == {'ok':True, 'retried':1}
+        assert client.post(url, json=payload).json['retried'] == 0
+        with closing(db()) as conn, conn:
+            assert conn.execute(keep).fetchall() == untouched
+            assert tuple(conn.execute("""SELECT status,attempts,next_attempt_at,last_error,lease_token,lease_until FROM topic_checks
+                WHERE topic_id='first' AND item_id='shared-news'""").fetchone()) == ('pending',0,0,'',None,0)
+            assert dict(conn.execute("SELECT id,status FROM topic_jobs")) == {'research':'failed', 'active':'running'}
+            conn.execute("UPDATE topic_checks SET status='failed' WHERE topic_id='first' AND item_id='shared-news'")
+        assert client.post(url, json=payload).json['retried'] == 0
+        assert client.post(url, json=payload | {'topic_id':'second'}).json['retried'] == 1
+        fresh = read(db)
+        with closing(db()) as conn, conn:
+            conn.execute("UPDATE event_topics SET archived_at='now' WHERE id='first'")
+        assert client.post(url, json=payload | {'notice_id':fresh['notices']['matching']}).json['retried'] == 0
+    assert len(resumes) == 2
+
+
 def test_clear_classification_and_topic_messages_keeps_underlying_jobs(db):
     with closing(db()) as conn, conn:
         news(conn, 'input')

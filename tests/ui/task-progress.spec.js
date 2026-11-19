@@ -27,6 +27,73 @@ test.beforeEach(async({request})=>{
   await request.post('/__test/topics');await request.post('/__test/reports');
 });
 
+for (const [surface, options] of [
+  ['桌面', { viewport: { width: 1440, height: 900 } }],
+  ['手机', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }],
+]) test.describe(surface, () => {
+  test.use(options);
+  test('浮层重试匹配只重新排队所选主题，保留阅读位置和另一个主题的失败项', async ({page, request}) => {
+    await request.post('/__test/topics', {data:{failed_matching:true}});
+    const snapshot=await (await request.get('/api/tasks/progress')).json();
+    await page.goto('/');
+    const open=() => surface==='手机' ? indicator(page).tap() : indicator(page).press('Enter');
+    const first=panel(page).getByRole('button',{name:'重试匹配 · 北辰科技收购远川数据'});
+    const second=panel(page).getByRole('button',{name:'重试匹配 · 数据基础设施并购'});
+    for(const [theme, scheme, size] of [['light','light','small'],['dark','dark','standard'],
+      ['system','light','large'],['system','dark','extra-large'],['eink','light','standard']]) {
+      await page.emulateMedia({colorScheme:scheme});
+      await chooseTheme(page,theme);
+      const label=await page.locator(`#fontSizeSelect-native option[value="${size}"]`).textContent();
+      await page.getByRole('combobox',{name:'阅读字号',exact:true}).click();
+      await page.getByRole('option',{name:label,exact:true}).click();
+      await open();
+      await expect(first).toBeInViewport();
+      await expect(second).toBeInViewport();
+      if(surface==='手机') {
+        await expect(first).toHaveCSS('padding-top','2px');
+        expect((await first.boundingBox()).height).toBe(24);
+      }
+      expect(await panel(page).evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true);
+      if(theme==='dark')await panel(page).screenshot({path:`.ui-artifacts/task-progress-retry-${surface}.png`});
+      await panel(page).getByRole('button',{name:'关闭任务进度'}).click();
+    }
+    const requests=[];
+    let release;
+    const gate=new Promise(resolve=>{release=resolve;});
+    const endpoint='/api/tasks/progress/retry-matching';
+    await page.route('**'+endpoint,async route=>{
+      requests.push(route.request().postDataJSON());
+      if(requests.length===1)return route.fulfill({status:503,json:{ok:false,error:'task_matching_retry_failed'}});
+      await gate;
+      await route.continue();
+    });
+    await open();
+    const submit=()=>surface==='手机' ? first.tap() : first.press('Enter');
+    try {
+      await submit();
+      await expect(page.locator('#toast')).toContainText('匹配重试请求未能确认');
+      await expect(first).toBeEnabled();
+      await submit();
+      await expect(first).toBeDisabled();
+      await expect(first).toHaveAttribute('aria-busy','true');
+      await expect(second).toBeEnabled();
+      await page.evaluate(()=>document.dispatchEvent(new Event('tasks:changed')));
+      await first.evaluate(button=>button.click());
+      const response=page.waitForResponse(r=>r.url().endsWith(endpoint) && r.ok());
+      release();
+      expect((await (await response).json()).retried).toBe(1);
+      await expect(first).toBeHidden();
+      await expect(second).toBeVisible();
+      const target=panel(page).locator('[data-task-id="test-acquisition"]');
+      await expect(target).toContainText('待匹配 1 条');
+      if(surface==='桌面')await expect(target).toBeFocused();
+      await expect(page.locator('#toast')).toContainText('已将 1 条新闻重新加入主题匹配队列');
+      await expect(page.locator('#detailPanelTopics')).not.toHaveClass(/active/);
+      expect(requests).toEqual(Array(2).fill({topic_id:'test-acquisition',database_token:snapshot.database_token,notice_id:snapshot.notices.matching}));
+    } finally {release();}
+  });
+});
+
 test('分类关闭时主题和日报仍显示，阶段来自接口且完成后隐藏',async({page})=>{
   const state=await start(page,{reports:[{...report(),title:'市场速览'}]});
   await expect(indicator(page)).toHaveAttribute('aria-label','任务进度');

@@ -2,6 +2,7 @@
 import periodic_reports
 import news_classification
 import task_notices
+import topic_tracking
 
 
 ACTIVE_JOBS = """FROM event_topics t JOIN topic_jobs j ON j.rowid=(
@@ -57,15 +58,31 @@ def snapshot(conn):
             'total':sum(counts.values())}}
 
 
+def begin_notice_update(conn, token):
+    conn.execute("BEGIN IMMEDIATE")
+    if conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0] != token:
+        raise ValueError("task_database_changed")
+
+
+def retry_matching(conn, topic_id, token, notice_id):
+    if (not isinstance(topic_id, str) or not topic_id or not isinstance(token, str)
+            or type(notice_id) is not int or not 0 < notice_id < 2**63):
+        raise ValueError("invalid_task_notices")
+    begin_notice_update(conn, token)
+    return conn.execute(topic_tracking.REQUEUE_FAILED_CHECKS + f""" AND seq IN (
+        SELECT c.seq {ACTIVE_CHECKS}
+        JOIN task_progress_notices n ON n.source='matching' AND n.item_key=CAST(c.seq AS TEXT)
+        WHERE t.id=? AND {CHECK_SCOPE} AND c.status='failed' AND n.dismissed=0 AND n.id<=?)""",
+        (topic_id, topic_id, notice_id)).rowcount
+
+
 def dismiss(conn, token, limits, *, unread_only, batch_id=None):
     if not isinstance(token, str) or not isinstance(limits, dict) or not limits or any(
             key not in task_notices.SOURCES or type(value) is not int or not 0 < value < 2**63 for key, value in limits.items()):
         raise ValueError("invalid_task_notices")
     if "classification" in limits and not isinstance(batch_id, str):
         raise ValueError("invalid_task_notices")
-    conn.execute("BEGIN IMMEDIATE")
-    if conn.execute("SELECT database_token FROM periodic_report_meta WHERE singleton=1").fetchone()[0] != token:
-        raise ValueError("task_database_changed")
+    begin_notice_update(conn, token)
     for source, limit in limits.items():
         scope, params = "", []
         if source == 'classification':

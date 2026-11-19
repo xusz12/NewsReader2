@@ -205,7 +205,7 @@ def reset_collection():
         for table in ('items', 'item_state', 'topic_ingestions'):
             key = 'id' if table == 'items' else 'item_id'
             conn.execute(f"DELETE FROM {table} WHERE {key}='ui-late-arrival'")
-        for table in ('collection_items','collection_run_sources','collection_runs','news_read_previews'):
+        for table in ('collection_items','collection_ingestion_days','collection_run_sources','collection_runs','news_read_previews'):
             conn.execute(f'DELETE FROM {table}')
         conn.execute('UPDATE item_state SET read_at=NULL')
     return {"ok": True}
@@ -377,6 +377,10 @@ def fixture_topics():
                 stamp=topic_tracking.now()
                 conn.execute("""INSERT INTO topic_jobs(id,topic_id,kind,status,revision,config_json,created_at,updated_at)
                     VALUES (?,?,'refine','done',1,'{}',?,?)""",(ident+'-refine',ident,stamp,stamp))
+        if body.get("failed_matching"):
+            conn.execute("DELETE FROM topic_node_items WHERE item_id='ui-000'")
+            conn.execute("""UPDATE topic_checks SET status='failed',matched=0,processed=0,attempts=1,
+                last_error='decision_refused' WHERE item_id='ui-000'""")
         if body.get("many_topics"):
             for index in range(14):
                 ident=f"extra-topic-{index}"

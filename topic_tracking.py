@@ -22,6 +22,8 @@ HISTORY_NODE_LIMIT = 12
 NEW_EVENT_LIMIT = 3
 DEFAULT_HORIZONTAL_RULE = "仅收录使事件进入新阶段的正式决定、关键批准或否决、实施生效、完成或终止等重要进展。重复报道、日常表态、预测和局部细节不单独新增节点。"
 RULE_FIELDS = ("name", "definition", "include_scope", "exclude_scope", "horizontal_rule", "timeline_mode", "rules_revision")
+REQUEUE_FAILED_CHECKS = """UPDATE topic_checks SET status='pending',attempts=0,next_attempt_at=0,last_error='',
+    lease_token=NULL,lease_until=0 WHERE topic_id=? AND status='failed'"""
 ERRORS = {
     "topic_not_found": "主题不存在。",
     "topic_invalid_input": "请检查主题名称、定义、范围和历史起点。",
@@ -661,8 +663,7 @@ class Service:
                 config = {} if job["kind"] == "milestone" else news_summaries.capture_config(self.settings(), "topics")
                 conn.execute("""UPDATE topic_jobs SET status='pending',error='',config_json=?,lease_token=NULL,
                     lease_until=0,attempts=0,next_attempt_at=0,updated_at=? WHERE id=?""", (js(config), now(), job["id"]))
-            conn.execute("""UPDATE topic_checks SET status='pending',attempts=0,next_attempt_at=0,last_error=''
-                WHERE topic_id=? AND status='failed'""", (ident,))
+            conn.execute(REQUEUE_FAILED_CHECKS, (ident,))
         self.start()
 
     def set_archived(self, ident, archived):

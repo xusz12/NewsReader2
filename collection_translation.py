@@ -7,11 +7,57 @@ import llm_client
 import model_apis
 
 FIELDS = ("title", "summary", "quoted_text")
+ERROR_CODE_PATTERN = r"translation_[a-z_]+(?::(?:title|summary|quoted_text))?"
+FIELD_LABELS = {"title": "标题", "summary": "摘要", "quoted_text": "引文"}
+FAILURE_REASONS = {
+    "translation_invalid_fields": "模型已响应，但返回的译文字段与要求不符。",
+    "translation_invalid_json": "模型已响应，但返回的内容无法解析为译文。",
+    "translation_incomplete": "模型未完整返回译文。",
+    "translation_refused": "模型拒绝了这次翻译请求。",
+    "translation_unconfigured": "翻译服务缺少密钥或模型配置。",
+    "translation_pi_failed": "后备翻译任务执行失败。",
+    "collection_invalid_item": "采集到的新闻数据无效，无法入库。",
+    "HTTP_401": "翻译服务未接受当前凭据。",
+    "HTTP_403": "翻译服务拒绝了访问请求。",
+    "HTTP_404": "翻译服务找不到请求的资源。",
+    "HTTP_429": "翻译服务限制了本次请求。",
+    "TIMEOUT": "等待翻译服务响应超时。",
+    "REQUEST_FAILED": "翻译请求执行失败，未取得可用译文。",
+}
 
 
 def original_fields(raw):
     return {"title": raw["title"], "summary": raw.get("summary", ""),
             "quoted_text": raw.get("quoted_text_raw", "")}
+
+
+def failure_reason(error, raw):
+    def describe(code):
+        cause, _, field = code.partition(":")
+        if cause in FAILURE_REASONS:
+            return FAILURE_REASONS[cause]
+        if cause == "translation_not_chinese" and not field and raw.get("title"):
+            populated = [key for key, value in original_fields(raw).items() if value]
+            if len(populated) == 1:
+                field = populated[0]
+        label = FIELD_LABELS.get(field, "")
+        if cause == "translation_not_chinese":
+            return f"模型已响应，但{label or '部分字段的'}译文未检测到汉字。"
+        if cause == "translation_missing_field":
+            return f"模型已响应，但未返回有效的{label or '字段'}文本。"
+        if cause == "translation_invalid_text":
+            return f"模型返回的{label or '译文'}含有无效字符。"
+        if cause == "translation_invented_field":
+            return f"模型为原文中空缺的{label or '字段'}添加了内容。"
+        if re.fullmatch(r"HTTP_5\d\d", cause):
+            return "翻译服务报告了服务器错误。"
+        if re.fullmatch(r"HTTP_\d{3}", cause):
+            return "翻译服务返回了请求错误。"
+        return "未取得可用译文，记录中没有更具体的原因。"
+
+    parts = error.split(" | ")
+    codes = [part.partition(": ")[2] for part in parts[1:]] if len(parts) > 1 else parts
+    return "".join(dict.fromkeys(describe(code) for code in codes))
 
 
 def requires_translation(raw):
@@ -26,11 +72,15 @@ def validate(value, raw):
         raise ValueError("translation_invalid_fields")
     for name, original in original_fields(raw).items():
         if not isinstance(value[name], str) or (original and not value[name].strip()):
-            raise ValueError("translation_missing_field")
+            raise ValueError(f"translation_missing_field:{name}")
+        try:
+            value[name].encode("utf-8")
+        except UnicodeEncodeError:
+            raise ValueError(f"translation_invalid_text:{name}") from None
         if original and requires_translation(raw) and not llm_client._contains_cjk(value[name]):
-            raise ValueError("translation_not_chinese")
+            raise ValueError(f"translation_not_chinese:{name}")
         if not original and value[name].strip():
-            raise ValueError("translation_invented_field")
+            raise ValueError(f"translation_invented_field:{name}")
     return {key: value[key].strip() for key in FIELDS}
 
 
@@ -47,7 +97,11 @@ def parse(text, raw):
     text = text.strip()
     if text.startswith("```json\n") and text.endswith("```"):
         text = text[8:-3].strip()
-    return validate(json.loads(text), raw)
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError("translation_invalid_json") from None
+    return validate(value, raw)
 
 
 def http_translate(raw, settings, provider):
@@ -101,7 +155,7 @@ def translate(raw, settings):
             # Provider response bodies and credentials never become task errors.
             status = getattr(exc, "status_code", None)
             code = f"HTTP_{status}" if isinstance(status, int) else (
-                str(exc) if re.fullmatch(r"translation_[a-z_]+", str(exc)) else
+                str(exc) if re.fullmatch(ERROR_CODE_PATTERN, str(exc)) else
                 "TIMEOUT" if "timeout" in type(exc).__name__.lower() else "REQUEST_FAILED")
             failures.append(f"{provider}: {code}")
     raise RuntimeError("translation_failed | " + " | ".join(failures))

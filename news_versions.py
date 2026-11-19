@@ -74,7 +74,7 @@ def skip_duplicate_job(conn, job):
     if not ((owner and owner[0] != job["item_id"]) or already_published):
         return False
     changed = conn.execute("""UPDATE collection_items SET status='duplicate',error='',lease=NULL,lease_until=0
-        WHERE item_id=? AND status IN ('pending','running','ready','failed')""", (job["item_id"],)).rowcount
+        WHERE item_id=? AND status IN ('pending','running','ready','retry_wait','failed')""", (job["item_id"],)).rowcount
     if changed:
         # Preserve unknown historical counts; never invent a complete total.
         conn.execute("""UPDATE collection_run_sources SET added=MAX(0,added-1),duplicate_count=duplicate_count+1
@@ -90,7 +90,7 @@ def retire_duplicate_jobs(conn):
     # URL-only jobs need no per-item compatibility work on every startup.
     for job in conn.execute("""SELECT c.* FROM collection_items c
         JOIN news_title_versions v ON v.item_id=c.item_id
-        WHERE c.status IN ('pending','running','ready','failed')""").fetchall():
+        WHERE c.status IN ('pending','running','ready','retry_wait','failed')""").fetchall():
         if skip_duplicate_job(conn, job):
             runs.add(job["run_id"])
     for run_id in runs:

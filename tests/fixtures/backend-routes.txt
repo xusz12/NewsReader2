@@ -144,6 +144,7 @@ POST /api/settings/translation/test api_translation_test
 POST /api/settings/x-accounts/test api_settings_x_account_test
 POST /api/standalone-ideas api_standalone_idea_create
 POST /api/tasks/progress/dismiss api_task_progress_dismiss
+POST /api/tasks/progress/retry-matching api_task_progress_retry_matching
 POST /api/topics api_event_topics
 POST /api/topics/<topic_id>/archive api_event_topic_archive
 POST /api/topics/<topic_id>/initialize api_event_topic_initialize

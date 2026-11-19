@@ -1,7 +1,7 @@
 import { selectField as select } from "./form-controls.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion } from "./accordion.js";
-import { settingsHelpHTML } from "./settings-help.js?v=0.5.7";
+import { settingsHelpHTML } from "./settings-help.js?v=0.6.1";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.5.6";
 import { XAccountSettings } from "./x-account-settings.js";
 import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.5.9";
@@ -563,7 +563,7 @@ export class SettingsPanel {
       ${field("A 股交易日增加", "collection.trading", (d.collection?.trading || []).join("、"), 'placeholder="09:00、10:00、14:30"')}
       <p class="muted">使用 24 小时格式 HH:MM，以顿号、逗号或空格分隔；同一时间只执行一次。</p>
       ${field("新闻翻译并发上限", "collection.translation_concurrency", d.collection?.translation_concurrency ?? 4, 'type="number" min="1" max="32" step="1" required')}
-      <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。同一轮采集结束且所需翻译成功后统一入库。</p>
+      <p class="muted">默认 4，可设置 1–32。保存后应用于后续翻译请求；正在执行的请求会继续完成。抓取结束后，已就绪的新闻先入库。</p>
       <p id="settingsCollectionStatus" role="status"></p>
       <div class="button-row"><button class="btn-secondary" id="settingsCollectBtn" type="button">立即采集</button></div></section>
       <section class="settings-section-card" data-section="pipeline"><div class="section-card-title"><span>新闻流显示与数据清理</span></div><p class="muted">勾选只控制新闻流显示，不启停采集。删除会清除该来源当前数据，后续新新闻仍会采集。</p><div id="settingsSources">${this.sourceHTML()}</div></section>
@@ -762,12 +762,12 @@ export class SettingsPanel {
       ${config.docs_url ? `<p class="muted"><a href="${e(config.docs_url)}" target="_blank" rel="noopener noreferrer">${e(config.label)} API 文档</a></p>` : ""}
       <div class="translation-model-row">${select(config.translation_base_url ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : provider !== "deepseek" ? "请选择模型" : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" ${action("translationModelsBtn")} type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
-      <p class="muted" id="${id("translationStatus")}" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取和测试模型；已填写的模型名称会保留。"))}</p>
+      <p class="muted" id="${id("translationStatus")}" role="status">${e(state.notice || (configured ? "选择目录中的模型，或填写自定义模型。" : "保存 API 密钥后可获取模型、测试连接。"))}</p>
       <div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : '<p class="muted">尚未配置密钥</p>'}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
       ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret="${provider}" type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" ${action("saveSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? `<button class="btn-secondary" ${action("cancelSecretBtn")} type="button">取消</button>` : ""}</div>` : `<div class="button-row"><button class="btn-secondary" ${action("editSecretBtn")} type="button">更新密钥</button><button class="reader-action-btn danger" ${action("deleteSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
-      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥和当前选择的模型测试，无需先保存模型。</p></div><button class="btn-primary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试模型"}</button><div class="terminal-box" id="${id("translationTestTerminal")}" data-status="${testResultStatus(state.testResult)}" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
+      <div class="connection-test-section"><div><strong>模型连接测试</strong><p class="muted">使用已保存的密钥测试当前选择的模型，无需先保存模型。${config.translation_base_url ? "此项只检查模型能否响应。翻译异常的原因可在采集记录中查看。" : ""}</p></div><button class="btn-primary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试连接"}</button><div class="terminal-box" id="${id("translationTestTerminal")}" data-status="${testResultStatus(state.testResult)}" role="status">${e(state.testResult || "[READY] 连接测试器就绪 · 点击上方按钮发起探测")}</div></div>`;
   }
   async refreshTranslationModels(provider) {
     const state = this.apiState(provider);
@@ -791,11 +791,11 @@ export class SettingsPanel {
     if (state.testing) return;
     const seq = state.sequence;
     state.testing = true;
-    state.testResult = "[RUNNING] 正在测试当前模型…";
+    state.testResult = "[RUNNING] 正在测试模型连接…";
     updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult);
     try {
       const data = await api(`/api/settings/apis/${provider}/test`, { method: "POST", body: { model } });
-      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
+      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms${this.apiConfig(provider).translation_base_url ? " · 仅验证连接" : ""}`;
     } catch (error) {
       if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[FAIL] ${errorText(error)}`;
     } finally {
@@ -803,7 +803,7 @@ export class SettingsPanel {
       if (state === this.apiState(provider)) {
         updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult);
         this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
-        this.apiElement(provider, "translationTestBtn").textContent = "测试模型";
+        this.apiElement(provider, "translationTestBtn").textContent = "测试连接";
       }
     }
   }
@@ -860,7 +860,7 @@ export class SettingsPanel {
         return `<div class="field-item" data-collection-service="${e(provider)}"><span class="field-label">${index ? "后备" : "首选"} · ${e(label)}</span><span>${e(selected || "尚未配置模型")}</span><span class="muted">${e(missing)}</span></div>`;
       }).join("")}</div>
       <div class="button-row"><button class="btn-secondary" id="collectionApiSettingsBtn" type="button">配置翻译 API</button><button class="btn-secondary" id="collectionModelSettingsBtn" type="button">配置 Pi 模型</button></div>
-      <p class="muted">翻译服务不可用时，采集原文暂存，等待翻译完成后整批入库。</p>`;
+      <p class="muted">抓取结束后，已完成翻译的新闻先入库。失败新闻单独自动重试，仍失败可在采集记录中查看和重试。</p>`;
   }
   sourceHTML() {
     const hidden = new Set(this.draft.feed.hidden_source_subkeys || []);

@@ -11,7 +11,7 @@ import collection_translation
 import news_collection as collection
 import news_versions as versions
 from legacy_title_seed import seed_title, title_id, STAMP
-from test_news_collection import SOURCE, api, article, query, service
+from test_news_collection import SOURCE, api, article, exhaust_retries, query, service
 
 URL = 'https://www.reuters.com/world/version-test-2026-11-09/'
 
@@ -72,6 +72,7 @@ def test_changed_title_does_not_bypass_failed_original_job(service):
     ident = collect(service,'First title',publish=False)
     service.translate_once()
     collect(service,'Different section title',publish=False)
+    exhaust_retries(service)
     assert len(query(service,'SELECT * FROM collection_items')) == 1
     assert query(service,'SELECT item_id,status FROM collection_items')[0][:] == (ident,'failed')
     service.translator = lambda raw, _: collection_translation.original_fields(raw)
@@ -108,7 +109,7 @@ def test_existing_ids_need_no_original_title_baseline_and_are_not_rewritten(serv
     assert not query(service,'SELECT * FROM news_title_versions')
 
 
-@pytest.mark.parametrize('status',['pending','running','ready','failed'])
+@pytest.mark.parametrize('status',['pending','running','ready','retry_wait','failed'])
 def test_startup_retires_unpublished_title_duplicates_once_without_stalling_batches(service,status):
     with closing(service.connect()) as conn, conn:
         a = seed_title(conn,URL,'First')

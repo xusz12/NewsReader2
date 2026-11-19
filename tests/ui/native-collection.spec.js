@@ -82,12 +82,16 @@ test('translation retry stays visible until publication and never requests acqui
     return route.fulfill({status:202,json:{ok:true,retried:2}});
   });
   await start(page);
+  await expect(page.locator('#collectionTranslationText')).toContainText('2 条新闻已隔离');
   await page.locator('#retryCollectionTranslationBtn').click();
   await expect(page.locator('#collectionTranslationNotice')).toBeVisible();
   await expect(page.locator('#collectionTranslationText')).toContainText('2 条新闻正在翻译');
   await refreshCounts({pending:0,running:0,failed:0,ready:2,done:0});
   await expect(page.locator('#collectionTranslationNotice')).toBeVisible();
   await expect(page.locator('#collectionTranslationText')).toContainText('2 条新闻已完成翻译');
+  await expect(page.locator('#retryCollectionTranslationBtn')).toBeHidden();
+  await refreshCounts({pending:0,running:0,failed:0,retry_wait:1,done:1});
+  await expect(page.locator('#collectionTranslationText')).toContainText('1 条新闻等待自动重试');
   await expect(page.locator('#retryCollectionTranslationBtn')).toBeHidden();
   await refreshCounts({pending:0,running:0,failed:0,done:2});
   await expect(page.locator('#collectionTranslationNotice')).toBeHidden();
