@@ -552,14 +552,17 @@ end try
         }
 
     def validate_runtime_settings(self, payload: object) -> dict:
-        if not isinstance(payload, dict):
+        if not isinstance(payload, dict) or not payload.keys() & {
+            "llm", "agent", "feature_models", "api_models", "classification", "collection", "feed",
+            "x_accounts", "report_schedule", "report_windows", "news_summary", "database",
+        }:
             raise ValueError("invalid_payload")
         current_settings = configuration.current_runtime_settings()
-        llm = payload.get("llm")
+        llm = payload.get("llm", {})
         if not isinstance(llm, dict):
             raise ValueError("invalid_llm_settings")
 
-        translation = llm.get("translation")
+        translation = llm.get("translation", current_settings["llm"]["translation"])
         if not isinstance(translation, dict):
             raise ValueError("invalid_llm_settings")
 
@@ -599,7 +602,7 @@ end try
             if configured_db_path != current_configured_db_path:
                 raise ValueError("database_path_controlled_by_environment")
             configured_db_path = current_configured_db_path
-        elif configured_db_path:
+        elif configured_db_path and "database" in payload:
             configured_db_path = self.validate_existing_database_path(configured_db_path)
 
         if "news_summary" in payload and not isinstance(payload["news_summary"], dict):
@@ -857,24 +860,25 @@ def register(app, db, jobs, preferences, store, worker):
     @app.put("/api/settings")
     def api_settings_update():
         body = request.get_json(silent=True) or {}
-        try:
-            normalized = preferences.validate_runtime_settings(body)
-        except ValueError as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 400
         # Account revisions protect drafts from concurrent edits/removals and bind
         # them to the library. The legacy settings file never owns subscriptions.
         try:
             with jobs.summaries.lock, jobs.report_lock, jobs.classification.lock, closing(db.connect()) as conn, conn:
                 conn.execute("BEGIN IMMEDIATE")
+                normalized = preferences.validate_runtime_settings(body)
                 if "x_accounts" in body:
                     x_accounts.save(conn, body["x_accounts"], body.get("x_accounts_revision"))
                 save_app_settings(normalized)
-                jobs.classification.configure(**normalized["classification"])
+                if "classification" in body or "api_models" in body:
+                    jobs.classification.configure(**normalized["classification"])
         except ValueError as exc:
             return jsonify(ok=False, error=str(exc)), 409 if str(exc) == "x_accounts_changed" else 400
-        jobs.reports.schedule_wake.set()
-        jobs.collection.wake.set()
-        store.refresh_agent_session_expiries()
+        if body.keys() & {"report_schedule", "report_windows", "feature_models", "agent", "llm"}:
+            jobs.reports.schedule_wake.set()
+        if body.keys() & {"collection", "x_accounts", "llm", "api_models"}:
+            jobs.collection.wake.set()
+        if isinstance(body.get("agent"), dict) and "session_ttl_hours" in body["agent"]:
+            store.refresh_agent_session_expiries()
         return jsonify({"ok": True, **preferences.serialize_runtime_settings()})
 
     @app.put("/api/settings/tracked-default-rule-params")
@@ -883,9 +887,10 @@ def register(app, db, jobs, preferences, store, worker):
         params = body.get("default_rule_params")
         if not isinstance(params, dict):
             return jsonify({"ok": False, "error": "invalid_default_rule_params"}), 400
-        settings = configuration.current_runtime_settings()
-        settings["tracked"]["default_rule_params"] = tracked_rules.tracked_default_rule_params(params)
-        save_app_settings(settings)
+        with jobs.report_lock:
+            settings = configuration.current_runtime_settings()
+            settings["tracked"]["default_rule_params"] = tracked_rules.tracked_default_rule_params(params)
+            save_app_settings(settings)
         return jsonify({"ok": True, **preferences.serialize_runtime_settings()})
 
     @app.put("/api/settings/secrets/<provider>")

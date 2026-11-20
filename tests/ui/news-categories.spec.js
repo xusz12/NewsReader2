@@ -88,7 +88,7 @@ test('missing key and failed classification remain explicit, retry uses the queu
   progress.configured = false;
   await page.clock.runFor(31000);
   await page.getByRole('button', { name: '新闻分类进度', exact:true }).hover();
-  await expect(page.locator('#classificationProgressPanel')).toContainText('等待在新闻分类设置中配置 Jev');
+  await expect(page.locator('#classificationProgressPanel')).toContainText('等待在「API 密钥与连接」中配置 Jev');
   await page.locator('#classificationProgressSettings').click();
   await expect(page.locator('#settingsCategory-classification')).toHaveAttribute('aria-current', 'true');
 });

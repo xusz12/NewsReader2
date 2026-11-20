@@ -1,5 +1,5 @@
 import { api, escapeHTML as e, errorText } from "./ui.js";
-import { selectField } from "./form-controls.js";
+import { selectField } from "./form-controls.js?v=0.6.4";
 import { AnchoredPopover } from "./anchored-popover.js";
 
 // Session-local choices. A change preserves the transcript and applies to the next turn.

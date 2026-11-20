@@ -24,7 +24,7 @@ async function send(page, text) {
 }
 async function settings(page) {
   await page.locator("#personalAssistantSettingsBtn").click();
-  await expect(page.locator("#settingsDetailTitle")).toHaveText("个人助手");
+  await expect(page.locator("#settingsDetailTitle")).toHaveText("研读与助手");
   await expect(page.locator('[data-personal-field="name"]')).toHaveValue("测试助手");
 }
 
@@ -39,7 +39,7 @@ for (const width of [390,1440]) test(`首次名称留空，由用户命名后开
   await expect(name).toHaveValue("");
   await expect(page.locator("#personalSettingsStatus")).not.toContainText("名字不能为空");
   await name.fill("我取的名字");
-  await page.getByRole("button",{name:"保存个人助手",exact:true}).click();
+  await page.getByRole("button",{name:"保存本页",exact:true}).click();
   await expect(page.locator("#personalSettingsStatus")).toHaveText("个人助手已保存");
   await open(page,"我取的名字");
   await expect(page.locator("#personalAssistantInput")).toBeEnabled();
@@ -87,10 +87,10 @@ test("名字与 runtime 独立保存，原有模型设置不被改动", async ({
   const original=(await (await request.get("/api/settings")).json()).agent;
   await ready(page);await open(page);await settings(page);
   await page.locator('[data-personal-field="name"]').fill("望远");
-  await page.getByRole("combobox",{name:"Runtime",exact:true}).click();
+  await page.locator("#personalAssistantSettings").getByRole("combobox",{name:"Runtime",exact:true}).click();
   await page.getByRole("option",{name:"Codex",exact:true}).click();
   await expect(page.locator('[data-personal-field="codex.profile"], [data-personal-field="codex.provider"], input[name="personal.codex.model"]')).toHaveCount(0);
-  await page.getByRole("button",{name:"保存个人助手",exact:true}).click();
+  await page.getByRole("button",{name:"保存本页",exact:true}).click();
   await expect(page.locator("#personalSettingsStatus")).toHaveText("个人助手已保存");
   await page.locator("#personalAssistantBtn").click();
   await expect(page.locator("#personalAssistantName")).toHaveText("望远");

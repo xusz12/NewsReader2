@@ -1,4 +1,4 @@
-import { chooseTheme, openSettings } from "./helpers.js";
+import { openSettingsItem, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 
@@ -97,14 +97,14 @@ for (const width of [920, 921, 1279, 1280]) {
       await expect(page.locator('#feedColFeed')).toHaveJSProperty('inert', true);
       await page.locator('#mobileReaderBackBtn').click();
       await openSettings(page);
-      await expect(page.locator('#detailPanelSettings')).toBeHidden();
-      await page.locator('[data-settings-tab="system"]').click();
+      await expect(page.locator('#collectionSchedule')).toBeVisible();
+      await openSettingsItem(page, 'pipeline');
     } else {
       if (drawer) await page.locator('#openNavBtn').click();
       await page.locator('#leftNavSettingsBtn').click();
       await expect(page.locator('#feedColSettings')).toHaveCSS('width', '280px');
     }
-    await expect(page.locator('[data-section="system"]')).toBeVisible();
+    await expect(page.locator('#collectionSchedule')).toBeVisible();
     expect(await page.evaluate(() => [document.documentElement, ...document.querySelectorAll('.feed-column.active,.detail-panel.active')].filter(n => n.getClientRects().length).every(n => n.scrollWidth <= n.clientWidth + 1))).toBe(true);
     await page.screenshot({ path: `.ui-artifacts/v004-settings-${width}.png`, animations: 'disabled' });
     if (drawer && !mobile) {
@@ -124,7 +124,7 @@ test('v004 resize restores desktop selection and unlocks navigation', async ({ p
   await expect(page.locator('#leftNavDrawer')).toHaveJSProperty('inert', false);
   await expect(page.locator('#navDrawerBackdrop')).not.toHaveClass(/active/);
   await page.locator('#leftNavSettingsBtn').click();
-  await expect(page.locator('[data-section="system"]')).toBeVisible();
+  await expect(page.locator('#collectionSchedule')).toBeVisible();
 });
 
 test('v004 e-ink: opaque grayscale, hard shadow and no motion', async ({ page }) => {

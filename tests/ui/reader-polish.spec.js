@@ -1,5 +1,5 @@
+import { openSettingsItem, choosePicker } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { choosePicker } from './helpers.js';
 
 const path = '/api/news/ui-064';
 async function ready(page) {
@@ -222,7 +222,7 @@ test('saving settings updates the model of an already expanded unused Agent', as
   const original = (await (await request.get(path + '/agent/session')).json()).session.id;
   // Keyboard navigation leaves the Agent expanded while settings are saved.
   await page.locator('#leftNavSettingsBtn').press('Enter');
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await page.locator('#refreshModelsBtn').click();
   await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.locator('#settingsSaveBtn').click();

@@ -21,20 +21,20 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.1";
-import { SummaryPanel } from "./summary-panel.js?v=0.5.18";
-import { TopicPanel } from "./topic-panel.js?v=0.6.2";
-import { ReportPanel } from "./report-panel.js?v=0.6.3";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.4";
+import { SummaryPanel } from "./summary-panel.js?v=0.6.4";
+import { TopicPanel } from "./topic-panel.js?v=0.6.4";
+import { ReportPanel } from "./report-panel.js?v=0.6.4";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
-import { AgentPanel } from "./agent-panel.js?v=0.6.3";
-import { PersonalAssistant } from "./personal-assistant.js?v=0.6.3";
+import { AgentPanel } from "./agent-panel.js?v=0.6.4";
+import { PersonalAssistant } from "./personal-assistant.js?v=0.6.4";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
-import { ClassificationProgress } from "./classification-progress.js?v=translation-routing-1";
-import { TaskProgress } from "./task-progress.js?v=0.6.1";
+import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
+import { TaskProgress } from "./task-progress.js?v=0.6.4";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.6.1";
+import { UpstreamErrors } from "./upstream-errors.js?v=0.6.4";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -157,7 +157,9 @@ const topbarObserver = new ResizeObserver(() => {
   if (!$("#upstreamErrorsPanel").hidden) upstreamErrors.position();
 });
 topbarSides.forEach(node => topbarObserver.observe(node));
+const appearanceControls = {theme:$("#themeSelect"), fontSize:$("#fontSizeSelect")};
 const settings = new SettingsPanel({
+  appearanceControls,
   selects,
   onClassificationRefresh: () => classification.refresh(),
   onClassificationRetry: async () => {
@@ -624,7 +626,7 @@ function renderFeed() {
     (state.loading
       ? '<li class="list-message" role="status">正在读取新闻…</li>'
       : !state.items.length
-        ? '<li class="list-message">当前范围没有新闻。可切换筛选，或前往设置「信源与采集」获取新闻。</li>'
+        ? '<li class="list-message">当前范围没有新闻。可切换筛选，或前往设置「采集与处理 → 采集排期」立即采集。</li>'
         : state.more
           ? '<li class="load-more-row"><button class="btn-secondary" id="loadMoreBtn" type="button">加载更多</button></li>'
           : '<li class="list-message feed-end">已读到列表末尾</li>');
@@ -2003,17 +2005,16 @@ document.addEventListener("visibilitychange", syncVisibleCounts);
 window.addEventListener("focus", syncVisibleCounts);
 setInterval(syncVisibleCounts, 30000);
 $("#clearFavoritesBtn").onclick = clearFavorites;
-$("#themeSelect").value = document.documentElement.dataset.theme || "system";
-$("#themeSelect").onchange = (event) => {
-  document.documentElement.dataset.theme = event.target.value;
-  persist("newsreader_workbench_theme_mode", event.target.value);
-};
-$("#fontSizeSelect").value = document.documentElement.dataset.fontSize || "standard";
-$("#fontSizeSelect").onchange = (event) => {
-  document.documentElement.dataset.fontSize = event.target.value;
-  scheduleFeedDateHeaders();
-  persist("newsreader_workbench_font_size", event.target.value);
-};
+for (const [key, control] of Object.entries(appearanceControls)) {
+  control.value = document.documentElement.dataset[key] || control.value;
+  control.onchange = () => {
+    document.documentElement.dataset[key] = control.value;
+    persist(key === "theme" ? "newsreader_workbench_theme_mode" : "newsreader_workbench_font_size", control.value);
+    if (key === "fontSize") scheduleFeedDateHeaders();
+    settings.appearanceChanged(key, control.value);
+    selects.refresh(control.parentElement);
+  };
+}
 selects.refresh();
 $("#leftNavSettingsBtn").onclick = () => settings.toggle();
 $("#openNavBtn").onclick = openNav;
@@ -2134,7 +2135,7 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("beforeunload", (event) => {
   const dirty = standaloneIdeas.dirty || researchNotes.dirty || topics.dirty;
-  if (dirty || settings.dirty) {
+  if (dirty || settings.hasUnsavedChanges()) {
     event.preventDefault();
     event.returnValue = "";
   }

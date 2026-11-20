@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings } from './helpers.js';
 
 async function start(page, width = 1440) {
   await page.setViewportSize({ width, height: 900 });
@@ -23,7 +23,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'eink']) 
       latest: { version: 'v0.1.2', commit: 'b'.repeat(40) }, blockers: ['dirty_worktree'], checked_at: 1792555200,
     } }); });
     await start(page, width); await chooseTheme(page, theme);
-    await openSettings(page); await page.locator('[data-settings-tab="system"]').click();
+    await openSettings(page); await openSettingsItem(page, 'system');
     await page.locator('#checkUpdateBtn').click();
     await expect(page.locator('#updateResult')).toHaveAttribute('data-state', 'checking');
     await expect(page.locator('#updateConclusion')).toHaveText('正在检查最新稳定版本…');

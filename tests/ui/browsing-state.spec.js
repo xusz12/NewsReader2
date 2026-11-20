@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openNavigation, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openNavigation, openSettings } from './helpers.js';
 
 const storageKey = 'newsreader_workbench_shortcuts';
 const state = async request => (await (await request.get('/api/news/ui-064/detail')).json());
@@ -21,7 +21,7 @@ for (const width of [390, 1440]) test(`retired default and custom read shortcuts
   expect(preferences.bindings.read).toBeUndefined();
   expect(preferences.bindings.favorite).toEqual(['v']);
   await openSettings(page);
-  await page.locator('[data-settings-tab="shortcuts"]').click();
+  await openSettingsItem(page, 'shortcuts');
   await expect(page.locator('#shortcutSettings .shortcut-setting-row')).toHaveCount(9);
   await expect(page.locator('[data-shortcut-action="read"]')).toHaveCount(0);
   for (const selector of ['#keyboardBarKeys', '#shortcutHelpRows']) await expect(page.locator(selector)).not.toContainText('标为已读');

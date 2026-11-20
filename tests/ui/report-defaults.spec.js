@@ -1,5 +1,5 @@
+import { openSettingsItem, choosePicker, openSettings, openNavigation } from './helpers.js';
 import {test,expect} from '@playwright/test';
-import {choosePicker,openSettings,openNavigation} from './helpers.js';
 
 const kinds={morning:'早报',noon:'午报',evening:'晚报',weekly:'周报',monthly:'月报'};
 const group=kind=>['weekly','monthly'].includes(kind)?'periodic':'daily';
@@ -24,11 +24,11 @@ test.afterEach(async({request})=>{
 
 for(const width of [390,1440]) test('日报与周月报只有两组配置，独立保存撤销和重新载入 '+width,async({page,request})=>{
   await page.setViewportSize({width,height:900});
-  await page.goto('/');await openSettings(page);await page.locator('[data-settings-tab="models"]').click();
+  await page.goto('/');await openSettings(page);await openSettingsItem(page, 'models');
   await expect(page.locator('[data-model-feature]')).toHaveCount(5);
   await expect(page.locator('#modelSettings')).not.toContainText('自定义报告');
-  await expect(page.locator('[data-model-feature="reports"] .section-card-title')).toHaveText('日报（早／午／晚）');
-  await expect(page.locator('[data-model-feature="reports_periodic"] .section-card-title')).toHaveText('周报／月报');
+  await expect(page.locator('[data-model-feature="reports"] .section-card-title')).toHaveText('日报模型（早／午／晚）');
+  await expect(page.locator('[data-model-feature="reports_periodic"] .section-card-title')).toHaveText('周报与月报模型');
   for(const kind of ['morning','weekly']) {
     await choosePicker(page,'模型',`${group(kind)}-edited`,feature(kind));
   }
@@ -45,7 +45,7 @@ for(const width of [390,1440]) test('日报与周月报只有两组配置，独�
   expect(saved.feature_models.reports.runtime).toBe('pi');
   expect(Object.keys(saved.feature_models).sort()).toEqual(['reports','reports_periodic','summaries','topics']);
   expect(saved.agent).toEqual(original.agent);
-  await page.reload();await openSettings(page);await page.locator('[data-settings-tab="models"]').click();
+  await page.reload();await openSettings(page);await openSettingsItem(page, 'models');
   await expect(page.locator('[data-model-feature="reports"]').getByRole('combobox',{name:'模型',exact:true})).toHaveText('Test model');
   await expect(page.locator('[data-model-feature="reports_periodic"]').getByRole('combobox',{name:'模型',exact:true})).toHaveText('periodic-edited');
   await choosePicker(page,'模型','ui-catalog-a',feature('weekly'));

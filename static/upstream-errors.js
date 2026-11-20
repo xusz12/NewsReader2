@@ -1,7 +1,7 @@
 import { DatePicker, dateKey, localDate } from "./date-picker.js?v=feature-pickers-1";
 import { $, api, escapeHTML as e, errorText, toast } from "./ui.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
-import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
+import { classificationStatus } from "./classification-progress.js?v=0.6.4";
 import { CollectionHeatmap, heatStatus } from "./collection-heatmap.js?v=0.5.18";
 import { sourceDetailsSummary, sourceURL } from "./reader-sources.js?v=0.5.18";
 

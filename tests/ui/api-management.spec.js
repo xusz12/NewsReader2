@@ -1,17 +1,9 @@
+import { openSettingsItem, expandProvider, answerConfirm, choosePicker, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { answerConfirm, choosePicker, chooseTheme, openSettings } from './helpers.js';
 
 const card = (page, provider) => page.locator(`[data-api-provider="${provider}"]`);
 const action = (page, provider, name) => card(page, provider).locator(`[data-api-action="${name}"]`);
 const terminal = (page, provider) => card(page, provider).locator('.terminal-box');
-
-async function showProvider(page, provider) {
-  const section = provider === 'jev' ? 'classification' : 'deepseek';
-  if (await page.locator(`[data-settings-tab="${section}"]`).getAttribute('aria-current') === 'true') return;
-  const back = page.locator('#settingsCategoryBackBtn');
-  if (page.viewportSize().width <= 920 && await back.isVisible()) await back.click();
-  await page.locator(`[data-settings-tab="${section}"]`).click();
-}
 
 async function setup(page, request, configured = true) {
   const saved = await (await request.get('/api/settings')).json();
@@ -25,20 +17,19 @@ async function setup(page, request, configured = true) {
   await page.route('**/api/settings', route => route.request().method() === 'GET' ? route.fulfill({ json: saved }) : route.continue());
   await page.goto('/');
   await openSettings(page);
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  for (const id of ['deepseek','opencode-go','jev','openai-decisions']) await expandProvider(page, id);
   return saved;
 }
 
-test('all provider sections stay expanded, preserve independent drafts, and save only models', async ({ page, request }) => {
+test('expanded provider sections, preserve independent drafts, and save only models', async ({ page, request }) => {
   await setup(page, request, false);
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
   await expect(page.getByRole('combobox', { name: 'API 服务', exact: true })).toHaveCount(0);
-  await expect(page.locator('#translationSettings [data-api-provider]')).toHaveCount(2);
-  await expect(page.locator('#classificationApiSettings[data-api-provider="jev"]')).toHaveCount(1);
-  await expect(card(page, 'jev')).toBeHidden();
+  await expect(page.locator('#translationSettings [data-api-provider]')).toHaveCount(4);
+  await expect(card(page, 'jev')).toBeVisible();
   await expect(page.locator('#translationSettings [name^="classification."]')).toHaveCount(0);
   for (const provider of ['deepseek', 'jev', 'opencode-go']) {
-    await showProvider(page, provider);
     await expect(card(page, provider)).toBeVisible();
     await card(page, provider).locator('input[name]').fill(`${provider}-draft`);
     await page.locator(`#${provider}Secret`).fill(`${provider}-secret-draft`);
@@ -68,7 +59,6 @@ for (const provider of ['jev', 'opencode-go']) test(`${provider} key save and de
     await route.fulfill({ json: { ...saved, api_status: { ...saved.api_status, [provider]: { configured: route.request().method() !== 'DELETE', masked_key: 'new-••••5678' } } } });
   });
   await card(page, 'deepseek').locator('input[name]').fill('deepseek-keep');
-  await showProvider(page, provider);
   await card(page, provider).locator('input[name]').fill('model-keep');
   await page.locator(`#${provider}Secret`).fill('isolated-test-secret');
   await action(page, provider, 'saveSecretBtn').click();
@@ -123,7 +113,7 @@ test('translation providers explain what a passing connection test checked', asy
   for (const provider of ['deepseek', 'opencode-go']) {
     const panel = card(page, provider);
     const testButton = panel.getByRole('button', { name: '测试连接', exact: true });
-    await expect(panel.getByText(/此项只检查模型能否响应/)).toBeVisible();
+    await expect(terminal(page, provider)).toBeHidden();
     await testButton.click();
     await expect(terminal(page, provider)).toHaveText(`[PASS] 模型连接成功 · ${provider}-saved · 12ms · 仅验证连接`);
     await expect(testButton).toBeEnabled();
@@ -135,7 +125,6 @@ test('concurrent provider tests stay isolated and model edits invalidate late an
   const pending = {};
   await page.route('**/api/settings/apis/*/test', route => { pending[route.request().url().split('/').at(-2)] = route; });
   for (const provider of ['jev', 'opencode-go']) {
-    await showProvider(page, provider);
     await action(page, provider, 'translationTestBtn').click();
     await expect.poll(() => !!pending[provider]).toBe(true);
     expect(pending[provider].request().postDataJSON()).toEqual({ model: `${provider}-saved` });
@@ -145,7 +134,7 @@ test('concurrent provider tests stay isolated and model edits invalidate late an
   await pending['opencode-go'].fulfill({ json: { ok: true, message: 'OLD RESULT', model: 'opencode-go-saved', elapsed_ms: 12 } });
   await expect(terminal(page, 'jev')).toContainText('Jev 已连接');
   await expect(terminal(page, 'deepseek')).not.toContainText('Jev 已连接');
-  await expect(terminal(page, 'opencode-go')).toContainText('重新测试');
+  await expect(terminal(page, 'opencode-go')).toBeHidden();
   await expect(terminal(page, 'opencode-go')).not.toContainText('OLD RESULT');
   await expect(action(page, 'opencode-go', 'translationTestBtn')).toBeEnabled();
   await card(page, 'opencode-go').locator('input[name]').fill('');
@@ -234,25 +223,23 @@ test('OpenCode Go 订阅 filtered catalog and 429 reason preserve model drafts',
   expect(calls).toBe(1);
 });
 
-test('usage describes saved feature selections and fallback limits', async ({ page, request }) => {
+test('service help and feature defaults open from API connections without saving other drafts', async ({page, request}) => {
   await setup(page, request);
-  await expect(card(page, 'deepseek')).toContainText('按上方顺序切换 API');
-  await expect(card(page, 'jev')).toContainText('仅在开启自动备用时切换判断服务');
-  await expect(card(page, 'opencode-go')).toContainText('使用 Go 订阅完成新闻正文翻译与精读');
-  await expect(page.locator('[data-api-provider="opencode"]')).toHaveCount(0);
-  await expect(page.getByRole('radio',{name:'OpenCode',exact:true})).toHaveCount(0);
-  await expect(page.locator('[data-api-usage="chat"]')).toContainText('Codex · chat-model');
-  await expect(page.locator('[data-api-usage="reports"]')).toContainText('Pi · opencode-go / report-model');
-  await expect(page.locator('#apiUsageTitle').locator('..').locator('..')).toContainText('最多尝试 3 次');
+  await expect(page.locator('[data-api-usage]')).toHaveCount(0);
+  await page.locator('#settingsHelpBtn').click();
+  await expect(page.locator('#help-services-api-content')).toBeVisible();
+  await expect(page.locator('#help-services-api-content')).toContainText('Pi 后备');
+  await page.locator('#settingsHelpBtn').click();
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
+  await openSettingsItem(page,'translation');
   await page.locator('#apiFeatureSettingsBtn').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('模型与 Agent');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('研读与助手');
   await page.locator('#refreshModelsBtn').click();
   await choosePicker(page,'模型','ui-catalog-b','chat');
-  await page.locator('[data-settings-tab="deepseek"]').click();
-  await expect(page.locator('[data-api-usage="chat"]')).toContainText('chat-model');
-  await expect(page.locator('[data-api-usage="chat"]')).not.toContainText('ui-catalog-b');
-  await page.locator('#settingsSaveBtn').click();
-  await expect(page.locator('[data-api-usage="chat"]')).toContainText('ui-catalog-b');
+  await openSettingsItem(page, 'deepseek');
+  await expect(page.locator('#settingsSaveBtn')).toBeHidden();
+  await openSettingsItem(page, 'models');
+  await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue('ui-catalog-b');
 });
 
 for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-light', 'system-dark', 'eink']) {
@@ -261,15 +248,18 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-l
     if (theme.startsWith('system')) await page.emulateMedia({ colorScheme: theme.split('-')[1] });
     await setup(page, request);
     await chooseTheme(page, theme.startsWith('system') ? 'system' : theme);
-    const primary = page.getByRole('radio', {name:'OpenCode Go 订阅',exact:true});
+    await openSettingsItem(page, 'translation');
+    await openSettingsItem(page,'translation');
+  const primary = page.getByRole('radio', {name:'OpenCode Go 订阅',exact:true});
     await primary.focus();
     await primary.press('Space');
     await expect(primary).toBeChecked();
     await expect(page.locator('#translationRouteDescription')).toContainText('OpenCode Go 订阅 → DeepSeek → Pi');
     await page.locator('#translationRouting').scrollIntoViewIfNeeded();
     await page.screenshot({path:`.ui-artifacts/translation-routing-${width}-${theme}.png`});
+    await expect(page.locator('#apiFeatureSettingsBtn')).toBeVisible();
+    await openSettingsItem(page,'deepseek');
     for (const provider of ['deepseek', 'jev', 'opencode-go']) {
-      await showProvider(page, provider);
       await expect(card(page, provider)).toBeVisible();
       await card(page, provider).locator('input[name]').scrollIntoViewIfNeeded();
       await expect(card(page, provider).locator('input[name]')).toBeInViewport();
@@ -289,12 +279,11 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-l
     const styles = await card(page, 'opencode-go').locator('.field-input').evaluate(node => {
       const s = getComputedStyle(node); return {fontSize:s.fontSize, borderRadius:s.borderRadius, padding:s.padding, color:s.color};
     });
-    const existing = await page.locator('input[name="collection.daily"]').evaluate(node => {
+    const existing = await page.locator('[name="collection.translation_concurrency"]').evaluate(node => {
       const s = getComputedStyle(node); return {fontSize:s.fontSize, borderRadius:s.borderRadius, padding:s.padding, color:s.color};
     });
     expect(styles).toEqual(existing);
-    await page.locator('#apiFeatureSettingsBtn').scrollIntoViewIfNeeded();
-    await expect(page.locator('#apiFeatureSettingsBtn')).toBeInViewport();
+    await expect(picker).toBeInViewport();
     const panel = await page.locator('#detailPanelSettings').boundingBox();
     expect(panel.x).toBeGreaterThanOrEqual(0);
     expect(panel.x + panel.width).toBeLessThanOrEqual(width + 1);
@@ -316,6 +305,7 @@ for (const width of [1440, 390]) for (const theme of ['light', 'dark', 'system-l
 
 test('translation preference and fallback switches preserve both models and persist on save', async ({page, request}) => {
   await setup(page, request);
+  await openSettingsItem(page,'translation');
   const primary = page.getByRole('radio', {name:'OpenCode Go 订阅',exact:true});
   await primary.check();
   await expect(page.locator('#translationRouteDescription')).toContainText('OpenCode Go 订阅 → DeepSeek → Pi');
@@ -323,9 +313,9 @@ test('translation preference and fallback switches preserve both models and pers
   await expect(card(page,'opencode-go').locator('input[name]')).toHaveValue('opencode-go-saved');
   await page.getByRole('switch', {name:'API 均失败后尝试 Pi',exact:true}).uncheck();
   await expect(page.locator('#translationRouteDescription')).toHaveText('调用顺序：OpenCode Go 订阅 → DeepSeek。');
-  await showProvider(page,'jev');
+  await openSettingsItem(page,'deepseek');
   await card(page,'jev').locator('input[name]').fill('jev-independent');
-  await showProvider(page,'opencode-go');
+  await openSettingsItem(page,'translation');
   await expect(primary).toBeChecked();
   await page.locator('#closeSettingsBtn').click();
   await openSettings(page);
@@ -333,10 +323,12 @@ test('translation preference and fallback switches preserve both models and pers
   const saving = page.waitForRequest(r => r.url().endsWith('/api/settings') && r.method() === 'PUT');
   await page.locator('#settingsSaveBtn').click();
   const data = (await saving).postDataJSON();
-  expect(data.llm.translation).toEqual({provider:'opencode-go',model:'deepseek-saved',fallback_enabled:true,pi_fallback_enabled:false});
-  expect(data.api_models).toEqual({jev:{model:'jev-independent'},'opencode-go':{model:'opencode-go-saved'}});
+  expect(data).toEqual({llm:{translation:{provider:'opencode-go',pi_fallback_enabled:false}}});
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
-  await expect(page.locator('#translationRouteDescription')).toContainText('尚未配置密钥或模型');
+  await openSettingsItem(page,'deepseek');
+  await expect(card(page,'jev').locator('input[name]')).toHaveValue('jev-independent');
+  await expect(page.locator('#settingsSaveBtn')).toBeEnabled();
+  await openSettingsItem(page,'translation');
   await page.getByRole('switch', {name:'失败后切换其他 API',exact:true}).uncheck();
   await expect(page.locator('#translationRouteDescription')).toContainText('调用顺序：OpenCode Go 订阅。');
   await page.locator('#settingsResetBtn').click();

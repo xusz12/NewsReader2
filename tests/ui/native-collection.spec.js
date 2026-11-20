@@ -1,5 +1,5 @@
+import { openSettingsItem, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings } from './helpers.js';
 
 test.beforeEach(async ({request}) => { await request.post('/__test/reset-collection'); });
 test.afterEach(async ({request}) => { await request.post('/__test/reset-collection'); });
@@ -15,7 +15,7 @@ test('collection only queues work and arrivals preserve rows, scroll and paginat
   await start(page);
   await page.evaluate(() => {window.firstCard=document.querySelector('#feedCardList .news-card');});
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await openSettingsItem(page, 'pipeline');
   await page.locator('#settingsCollectBtn').click();
   await expect(page.locator('#settingsCollectBtn')).toBeDisabled();
   await page.keyboard.press('Escape');
@@ -103,7 +103,7 @@ test('collection schedule validates and saves without changing report time',asyn
   try {
     await start(page);
     await openSettings(page);
-    await page.locator('[data-settings-tab="pipeline"]').click();
+    await openSettingsItem(page, 'pipeline');
     await page.locator('[name="collection.daily"]').fill('24:00');
     await page.locator('#settingsSaveBtn').click();
     await expect(page.locator('#toast')).toContainText('HH:MM');
@@ -141,10 +141,10 @@ for (const width of [1440,390]) for(const theme of ['light','dark','system','ein
     await expect(page.locator('#collectionTranslationNotice')).toContainText('2 条新闻');
     await page.screenshot({path:`.ui-artifacts/collection-notice-${width}-${theme}.png`});
     await openSettings(page);
-    await page.locator('[data-settings-tab="pipeline"]').click();
+    await openSettingsItem(page, 'pipeline');
     await expect(page.locator('[name="collection.daily"]')).toHaveValue('00:01、04:00、08:00、12:00、18:00、21:00');
     await expect(page.getByText('采集来源', {exact:true})).toHaveCount(0);
-    await expect(page.locator('[data-section="pipeline"] .section-card-title').getByText('新闻流显示与数据清理', {exact:true})).toBeVisible();
+    await expect(page.locator('[data-workspace="collection"] #xAccountSettings .section-card-title').getByText('X 账号订阅', {exact:true})).toBeVisible();
     await expect(page.locator('[name="collection.translation_concurrency"]')).toHaveValue('4');
     await page.locator('[name="collection.translation_concurrency"]').fill('6');
     await page.locator('[name="collection.daily"]').fill('07:00、19:00');

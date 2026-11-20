@@ -2,7 +2,7 @@
 
 本地新闻阅读与研究工作台，汇集媒体报道和你关注的 X 账号发布的帖子。桌面和手机都能阅读，进度、收藏和想法保存在运行服务的电脑上。
 
-当前稳定版本：`v0.6.3`。[版本记录](CHANGELOG.md)
+当前稳定版本：`v0.6.4`。[版本记录](CHANGELOG.md)
 
 ## 界面与功能
 
@@ -31,13 +31,13 @@ npm run check:collection
 
 启动器会自动打开浏览器，默认端口为 `8080`。以后可直接在 Finder 中双击 `启动NewsReader.command`。其他启动方式和监听地址见[安装运行与维护](docs/handoff/03-operations.md#启动方式的区别)。
 
-首次采集时，在服务所在电脑上连接 Chrome 的 OpenCLI 扩展，到「设置 → 信源与采集」检查采集环境和翻译配置，再点「立即采集」。浏览器来源需要 Chrome 保持运行，公开 RSS 可独立采集。[OpenCLI 安装与升级](docs/opencli-integration.md) · [分类与翻译设置](docs/reading-and-research.md#新闻分类与翻译)
+首次采集时，在服务所在电脑上连接 Chrome 的 OpenCLI 扩展，到「设置 → API 与运行环境 → 采集环境检查」确认连接。在「采集与处理」选择正文翻译服务，然后回到「采集排期」点击「立即采集」。浏览器来源需要 Chrome 保持运行，公开 RSS 可独立采集。[OpenCLI 安装与升级](docs/opencli-integration.md) · [分类与翻译设置](docs/reading-and-research.md#新闻分类与翻译)
 
 ## 数据与配置
 
-- 在「设置 → 数据库与存储」选择已有的 SQLite 新闻库，保存并重启即可沿用阅读状态、收藏、想法和已缓存正文。[数据库选择顺序](docs/data-compatibility.md#继续使用原数据库)
+- 在「设置 → 阅读偏好与维护 → 数据库位置」选择已有的 SQLite 新闻库，保存本页并重启即可沿用阅读状态、收藏、想法和已缓存正文。[数据库选择顺序](docs/data-compatibility.md#继续使用原数据库)
 - 应用设置保存在 `app_settings.json`，API 密钥可在系统钥匙串中保存。个人助手的讨论和记忆另存于 `personal-assistant/`，备份时一并保存。[数据备份](docs/handoff/04-data-migration.md#制作一致性备份) · [助手备份](docs/personal-assistant.md#备份与验证)
-- 用启动器运行时，可到「设置 → 系统与版本」检查更新。自动更新需要干净的 Git 分支。[升级与回退](docs/handoff/03-operations.md#发布与回退)
+- 用启动器运行时，可到「设置 → 阅读偏好与维护 → 版本与更新」检查更新。自动更新需要干净的 Git 分支。[升级与回退](docs/handoff/03-operations.md#发布与回退)
 
 ## 开发与维护
 

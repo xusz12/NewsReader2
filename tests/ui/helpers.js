@@ -24,6 +24,23 @@ export async function openSettings(page) {
   await page.locator('#leftNavSettingsBtn').click();
 }
 
+export async function openSettingsItem(page, id) {
+  const nav = page.locator('#feedColSettings');
+  if (await nav.evaluate(node => node.inert)) await page.locator('#settingsCategoryBackBtn').click();
+  const item = page.locator(`#settingsCategory-${id}`);
+  const search = page.locator('#settingsSearchInput');
+  if (await search.inputValue()) await search.fill('');
+  if (!await item.isVisible()) {
+    const group = item.locator('xpath=ancestor::section[1]').locator('[data-settings-page]');
+    await group.click();
+  }
+  await item.click();
+}
+
+export async function expandProvider(page, provider) {
+  const entry = page.locator(`details[data-api-provider="${provider}"]`);
+  if (!await entry.evaluate(element => element.open)) await entry.locator('summary').click();
+}
 export async function answerConfirm(page, accept = true) {
   const dialog = page.locator('#appConfirmDialog');
   await dialog.waitFor({ state: 'visible' });

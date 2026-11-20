@@ -1,6 +1,5 @@
-import { choosePicker } from "./helpers.js";
+import { openSettingsItem, choosePicker, openSettings, openNavigation, chooseTheme } from './helpers.js';
 import {test,expect} from '@playwright/test';
-import {openSettings,openNavigation,chooseTheme} from './helpers.js';
 
 function fixture() {
   const record = {id:'report-evening',kind:'evening',kind_label:'晚报',title:'合成晚报',
@@ -19,7 +18,7 @@ function fixture() {
 }
 async function section(page,name) {
   if(await page.locator('#feedColSettings').evaluate(node=>node.inert)) await page.locator('#settingsCategoryBackBtn').click();
-  await page.locator(`[data-settings-tab="${name}"]`).click();
+  await openSettingsItem(page, name);
 }
 async function expectControlColor(page,tone) {
   const button=page.locator('[data-schedule-pause]');
@@ -52,7 +51,7 @@ async function observe(page) {
     return route.fulfill(state.failed ? {status:503,json:{ok:false,error:'report_schedule_unavailable'}} : {json:state.data});
   });
   await page.goto('/');await openSettings(page);await section(page,'schedules');
-  await expect(page.locator('[data-schedule-kind]')).toHaveCount(6);
+  await expect(page.locator('[data-schedule-kind]')).toHaveCount(5);
   return state;
 }
 
@@ -75,11 +74,12 @@ test('观察真实接口只读，不再显示最近执行',async({page,request})
   await page.goto('/');await openSettings(page);
   await expect(page.locator('#modelSettings')).toBeAttached();
   writes.length=0; // Startup's independent indexing is outside this observation.
-  await section(page,'schedules');
-  await expect(page.locator('[data-schedule-kind]')).toHaveCount(6);
-  await expect(page.locator('#scheduleSettings')).toContainText('任务服务未运行'); // Test server has no workers.
+  await page.locator('#settingsSearchInput').fill('报告排期');
+  await page.locator('#settingsSearchResults [data-target="scheduleSettings"]').click();
+  await expect(page.locator('[data-schedule-kind]')).toHaveCount(5);
+  await expect(page.locator('#reportTaskStatus')).toContainText('任务服务未运行'); // Test server has no workers.
   await expect(page.locator('[data-schedule-report]')).toHaveCount(0);
-  await expect(page.locator('#scheduleSettings')).not.toContainText('最近执行');
+  await expect(page.locator('#reportTaskStatus')).not.toContainText('最近执行');
   await expect(page.locator('[data-schedule-storage]')).toBeAttached();
   expect(writes.filter(url=>/reports|reindex|settings|mark-read/.test(url))).toEqual([]);
 });
@@ -91,6 +91,7 @@ test('手动清理更新大小，保留任务占用快照和设置草稿，取�
   await page.goto('/');await openSettings(page);await section(page,'schedules');
   await page.locator('[data-schedule-edit]').click();
   await choosePicker(page,'晚报小时','20 时');
+  await section(page,'cleanup');
   const clear=page.locator('[data-snapshot-clear]');
   await expect(clear).toBeEnabled();
   await expect(page.locator('[data-snapshot-protected]')).toContainText('任务使用中');
@@ -102,6 +103,7 @@ test('手动清理更新大小，保留任务占用快照和设置草稿，取�
   await page.locator('#appConfirmAccept').click();
   await expect(page.locator('[data-snapshot-result]')).toContainText('已清除');
   await expect(clear).toBeDisabled(); // All remaining material is in use.
+  await section(page,'schedules');
   await expect(page.getByRole('combobox',{name:'晚报小时',exact:true})).toHaveText('20 时');
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   const after=await (await request.get('/api/reports/schedule-status')).json();
@@ -116,13 +118,14 @@ test('手动清理更新大小，保留任务占用快照和设置草稿，取�
 test('清理失败显示原因并保留大小，空快照禁用清理按钮',async({page,request})=>{
   const state=await observe(page);
   await page.route('**/api/reports/snapshots/clear',route=>route.fulfill({status:409,json:{ok:false,error:'report_materials_busy'}}));
+  await section(page,'cleanup');
   const clear=page.locator('[data-snapshot-clear]');
   await clear.click();await page.locator('#appConfirmAccept').click();
   await expect(page.locator('[data-snapshot-error]')).toHaveText('新闻快照正在使用，请稍后清理。');
   await expect(page.locator('[data-snapshot-size]')).toHaveText('2.0 KiB');
   await expect(clear).toBeEnabled();
   state.data.snapshot_storage={bytes:0,clearable_bytes:0,protected_bytes:0,count:0,clearable_count:0};
-  await page.locator('[data-schedule-refresh]').click();
+  await page.locator('[data-snapshot-refresh]').click();
   await expect(clear).toBeDisabled();
   await expect(page.locator('[data-snapshot-size]')).toHaveText('0.0 KiB');
 });
@@ -183,7 +186,9 @@ for (const width of [320,390,1440]) test('暂停排期在各主题下保持清�
   await page.locator('[data-schedule-refresh]').click();
   await expect(page.locator('[data-schedule-pause]')).toHaveAccessibleName('恢复定时');
   await expect(page.locator('[data-schedule-kind="evening"] [data-schedule-next]')).toHaveText('已暂停');
-  await expect(page.locator('[data-schedule-kind="snapshot_cleanup"] [data-schedule-next]')).toContainText('11/06');
+  await section(page,'cleanup');
+  await expect(page.locator('[data-snapshot-next]')).toContainText('11/06');
+  await section(page,'schedules');
   for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
     await page.emulateMedia({colorScheme});await chooseTheme(page,theme);
     await expectControlColor(page,'success');
@@ -197,19 +202,20 @@ for (const width of [320,390,1440]) test('暂停排期在各主题下保持清�
 test('排期按下次时间从近到远排列，无日期的任务在最后',async({page})=>{
   const state = await observe(page);
   const kinds = () => page.locator('[data-schedule-kind]').evaluateAll(nodes => nodes.map(node=>node.dataset.scheduleKind));
-  expect(await kinds()).toEqual(['evening','monthly','morning','weekly','noon','snapshot_cleanup']);
+  expect(await kinds()).toEqual(['evening','monthly','morning','weekly','noon']);
   state.data.schedules.find(row=>row.kind==='morning').next_run_at=null;
   await page.locator('[data-schedule-refresh]').click();
-  await expect.poll(kinds).toEqual(['evening','monthly','weekly','noon','snapshot_cleanup','morning']);
+  await expect.poll(kinds).toEqual(['evening','monthly','weekly','noon','morning']);
 });
 
 test('排期默认文本、编辑可取消且不影响其他设置草稿，清理失败可见',async({page})=>{
   const state = await observe(page);
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('日报任务');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('研读与助手');
   await expect(page.locator('#scheduleRulesTitle')).toHaveText('报告排期');
   await expect(page.locator('[data-schedule-rules] [role="combobox"]:visible')).toHaveCount(0);
   await expect(page.locator('[data-schedule-kind="evening"] [data-schedule-rule]')).toHaveText('晚报 · 每天 21:30');
-  const cleanup = page.locator('[data-schedule-kind="snapshot_cleanup"]');
+  await section(page,'cleanup');
+  const cleanup = page.locator('[data-snapshot-schedule]');
   await expect(cleanup).toContainText('每 7 天');
   await expect(cleanup).toContainText('11/06 10:00');
   const draftModel = await changeChatModel(page);
@@ -224,10 +230,10 @@ test('排期默认文本、编辑可取消且不影响其他设置草稿，清�
   await section(page,'models');
   await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue(draftModel);
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
-  await section(page,'schedules');
+  await section(page,'cleanup');
   const row=state.data.schedules.find(row=>row.kind==='snapshot_cleanup');
   row.error='report_snapshot_cleanup_failed';row.last_run_at='2026-10-30T10:00:00+08:00';row.removed_count=3;
-  await page.locator('[data-schedule-refresh]').click();
+  await page.locator('[data-snapshot-refresh]').click();
   await expect(cleanup).toContainText('3 份材料');
   await expect(cleanup.getByRole('alert')).toContainText('5 分钟后自动重试');
 });
@@ -314,7 +320,9 @@ test('排期独立展示固定窗口，早于窗口结束的时间不能保存',
   await expect(evening.locator('[data-schedule-window]')).toHaveText('新闻窗口：前日 21:30—当日 21:30');
   await expect(page.locator('[data-schedule-kind="noon"] [data-schedule-window]')).toContainText('08:30—14:30');
   await page.locator('[data-schedule-edit]').click();
-  await expect(page.locator('[data-schedule-edit-note]')).toContainText('开始生成与新闻窗口独立设置');
+  await page.locator('#settingsHelpBtn').click();
+  await expect(page.locator('#help-research-reports-content')).toContainText('开始生成和新闻窗口分别设置');
+  await page.locator('#settingsHelpBtn').click();
   await choosePicker(page,'晚报小时','21 时');await choosePicker(page,'晚报分钟','29 分');
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('晚报生成时间不能早于新闻窗口结束（21:30）');
@@ -407,7 +415,7 @@ test('自动刷新保留设置草稿，离开分类后停止，失败保留最�
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('4');
   state.failed=true;
   await page.locator('[data-schedule-refresh]').click();
-  await expect(page.locator('#scheduleSettings')).toContainText('以下为上次结果');
+  await expect(page.locator('#reportTaskStatus')).toContainText('以下为上次结果');
   await expect(page.locator('[data-schedule-count="pending"]')).toHaveText('4');
   await expect(page.locator('[data-schedule-updated]')).toContainText('21:32');
   await section(page,'models');
@@ -415,7 +423,7 @@ test('自动刷新保留设置草稿，离开分类后停止，失败保留最�
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
   state.failed=false;await section(page,'schedules');
-  await expect(page.locator('#scheduleSettings')).not.toContainText('以下为上次结果');
+  await expect(page.locator('#reportTaskStatus')).not.toContainText('以下为上次结果');
   await page.locator('#closeSettingsBtn').click();
   const closed=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(closed);
 });
@@ -425,11 +433,11 @@ test('首次请求失败不伪造空队列，恢复后显示排期异常',async(
   const data=fixture();data.scheduler.status='error';data.scheduler.error='report_calendar_failed';data.calendar_warning=true;
   await page.route('**/api/reports/schedule-status',route=>route.fulfill(failed ? {status:503,json:{ok:false}} : {json:data}));
   await page.goto('/');await openSettings(page);await section(page,'schedules');
-  await expect(page.locator('#scheduleSettings')).toContainText('任务状态读取失败');
+  await expect(page.locator('#reportTaskStatus')).toContainText('任务状态读取失败');
   await expect(page.locator('[data-schedule-count]')).toHaveCount(0);
   failed=false;await page.locator('[data-schedule-refresh]').click();
-  await expect(page.locator('#scheduleSettings')).toContainText('交易日历读取失败');
-  await expect(page.locator('#scheduleSettings')).toContainText('排期检查失败');
+  await expect(page.locator('#reportTaskStatus')).toContainText('交易日历读取失败');
+  await expect(page.locator('#reportTaskStatus')).toContainText('排期检查失败');
 });
 
 test('迟到响应不覆盖已切换页面',async({page})=>{
@@ -437,9 +445,9 @@ test('迟到响应不覆盖已切换页面',async({page})=>{
   const held=new Promise(resolve=>release=resolve);
   await page.route('**/api/reports/schedule-status',async route=>{await held;await route.fulfill({json:fixture()}).catch(()=>{});});
   await page.goto('/');await openSettings(page);await section(page,'schedules');
-  await expect(page.locator('#scheduleSettings')).toContainText('正在读取任务状态');
-  await section(page,'models');release();
-  await expect(page.locator('[data-model-feature="reports"]')).toBeVisible();
+  await expect(page.locator('#reportTaskStatus')).toContainText('正在读取任务状态');
+  await section(page,'pipeline');release();
+  await expect(page.locator('#collectionSchedule')).toBeVisible();
   await expect(page.locator('#scheduleSettings')).toBeHidden();
 });
 
@@ -448,7 +456,7 @@ for(const width of [320,390,921,1440]) test('排期与快照管理沿用设置�
   await page.setViewportSize({width,height:1000});
   const state=await observe(page);
   await expect(page.locator('[data-schedule-count]')).toHaveText(['1','2','1']);
-  await expect(page.locator('#scheduleSettings')).toContainText('正在整理材料、生成报告');
+  await expect(page.locator('#reportTaskStatus')).toContainText('正在整理材料、生成报告');
   await page.locator('[data-schedule-rules]').scrollIntoViewIfNeeded();
   for(const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
     await page.emulateMedia({colorScheme});await chooseTheme(page,theme);
@@ -458,9 +466,11 @@ for(const width of [320,390,921,1440]) test('排期与快照管理沿用设置�
     await expect(page.getByRole('combobox',{name:'晚报小时',exact:true})).toBeHidden();
     await page.screenshot({path:`output/report-storage-check/schedules-${width}-${theme}-${colorScheme}.png`});
     await page.locator('[data-schedule-edit]').click();
+    await section(page,'cleanup');
     await page.locator('[data-snapshot-clear]').scrollIntoViewIfNeeded();
     await expect(page.locator('[data-snapshot-clear]')).toBeInViewport();
     await page.screenshot({path:`output/report-storage-check/storage-${width}-${theme}-${colorScheme}.png`});
+    await section(page,'schedules');
     const hour=await page.getByRole('combobox',{name:'晚报小时',exact:true}).boundingBox();
     const minute=await page.getByRole('combobox',{name:'晚报分钟',exact:true}).boundingBox();
     expect(hour.y).toBe(minute.y);
@@ -472,9 +482,10 @@ for(const width of [320,390,921,1440]) test('排期与快照管理沿用设置�
   if(width<=920) {
     await page.locator('#settingsCategoryBackBtn').click();
     const count=state.requests;await page.clock.runFor(30100);expect(state.requests).toBe(count);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(12);
+    await expect(page.locator('[data-settings-page]:visible')).toHaveCount(4);
     await section(page,'schedules');
   }
+  await section(page,'cleanup');
   await page.locator('[data-snapshot-clear]').scrollIntoViewIfNeeded();
   await expect(page.locator('[data-snapshot-size]')).toHaveText('2.0 KiB');
   expect(errors).toEqual([]);

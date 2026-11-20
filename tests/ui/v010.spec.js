@@ -1,3 +1,4 @@
+import {openSettingsItem, expandProvider} from "./helpers.js";
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ request }) => {
@@ -36,7 +37,8 @@ test('unconfigured translation settings ignore stale default candidates and pres
   await page.route('**/api/settings', route => route.fulfill({ json: saved }));
   await page.goto('/');
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page, 'deepseek');
   const dropdown = page.locator('select[name="llm.translation.model"]');
   await expect(dropdown.locator('option')).toHaveCount(1);
   await expect(page.locator('[data-api-provider="deepseek"]').getByRole('combobox', { name: '翻译模型', exact: true })).toHaveText('请先配置 API 密钥');
@@ -45,7 +47,8 @@ test('unconfigured translation settings ignore stale default candidates and pres
   saved.llm.translation.model = 'my-saved-model';
   await page.reload();
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page, 'deepseek');
   await expect(dropdown).toHaveValue('my-saved-model');
   await expect(dropdown.locator('option')).toHaveCount(2);
   await expect(page.locator('input[name="llm.translation.model"]')).toHaveValue('my-saved-model');

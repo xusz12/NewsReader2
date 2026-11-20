@@ -1,5 +1,4 @@
-import { answerConfirm } from "./helpers.js";
-import { openSettings } from "./helpers.js";
+import { openSettingsItem, expandProvider, answerConfirm, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
 
 const current = { ok: true, version: 'v0.0.6', commit: 'a'.repeat(40), repository: 'https://github.com/xusz12/NewsReader2.git' };
@@ -18,7 +17,7 @@ async function setup(page, checked = available) {
 }
 async function openSystem(page) {
   await openSettings(page);
-  await page.locator('[data-settings-tab="system"]').click();
+  await openSettingsItem(page, 'system');
   await expect(page.locator('#updateRepository')).toHaveText(current.repository);
 }
 
@@ -74,9 +73,10 @@ test('failed recheck clears the previous update action and can be retried', asyn
 
 test('unsaved settings prevent applying an update', async ({ page }) => {
   await setup(page);
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page, 'deepseek');
   await page.locator('input[name="llm.translation.model"]').fill('unsaved-test-model');
-  await page.locator('[data-settings-tab="system"]').click();
+  await openSettingsItem(page, 'system');
   await page.locator('#checkUpdateBtn').click();
   let submitted = false;
   await page.route('**/api/update/apply', route => { submitted = true; return route.abort(); });

@@ -1,5 +1,5 @@
+import { openSettingsItem, expandProvider, answerConfirm, chooseTheme, openNavigation, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { answerConfirm, chooseTheme, openNavigation, openSettings } from './helpers.js';
 const modal = page => page.locator('#appConfirmDialog');
 const errorPanel = page => page.locator('#upstreamErrorsPanel');
 const calendar = page => page.locator('#upstreamCalendar');
@@ -9,7 +9,7 @@ async function start(page, width = 1440) {
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
 }
 async function system(page) {
-  await openSettings(page); await page.locator('[data-settings-tab="system"]').click();
+  await openSettings(page); await openSettingsItem(page, 'system');
 }
 async function fakeErrors(page, today = '2024-03-01') {
   const days = [];
@@ -129,12 +129,13 @@ test('clear sessions and secret delete cancel, refuse changed targets, then exec
   await page.route('**/api/agent/sessions', route => { clears++; return route.fulfill({ json: { ok: true } }); });
   await page.route('**/api/settings/secrets/deepseek', route => { secrets++; return route.fulfill({ json: { ...saved, api_status: { ...saved.api_status, deepseek: { configured: false } } } }); });
   await start(page); await openSettings(page);
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'cleanup');
   await page.locator('#clearSessionsBtn').click(); await answerConfirm(page, false); expect(clears).toBe(0);
   await page.locator('#clearSessionsBtn').click(); await expect(modal(page)).toBeVisible(); changed = true; await answerConfirm(page);
   await expect(page.locator('#toast')).toContainText('新闻库已变化'); expect(clears).toBe(0);
   changed = false; await page.locator('#clearSessionsBtn').click(); await answerConfirm(page); await expect.poll(() => clears).toBe(1);
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page, 'deepseek');
   await page.locator('#deleteSecretBtn').click(); await answerConfirm(page, false); expect(secrets).toBe(0);
   await page.locator('#deleteSecretBtn').click(); await expect(modal(page)).toBeVisible();
   await page.locator('#editSecretBtn').evaluate(node => node.click());
@@ -193,9 +194,10 @@ test('discard-and-refresh cancels, guards newer settings, and preserves the brow
   await page.route('**/api/update/status', route => route.fulfill({ json: { run_id: 'restored-run', status: 'healthy', version: 'v0.1.2', commit } }));
   await start(page); await expect(page.locator('.brand-version')).toHaveText('v0.1.1');
   servingTarget = true; await system(page); await expect(page.locator('#refreshUpdateBtn')).toBeVisible();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page, 'deepseek');
   await page.locator('input[name="llm.translation.model"]').fill('unsaved-model');
-  await page.locator('[data-settings-tab="system"]').click();
+  await openSettingsItem(page, 'system');
   let navigations = 0, native = 0;
   page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations++; });
   page.on('dialog', async dialog => { expect(dialog.type()).toBe('beforeunload'); native++; await dialog.accept(); });

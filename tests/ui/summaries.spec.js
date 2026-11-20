@@ -93,7 +93,7 @@ test('compact confirmation keeps expiry protection and its inline settings link 
   await expect(body).not.toContainText('仅在总结通过基本检查');
   await expect(body).not.toContainText('预览有效 15 分钟');
   await expect(page.locator('#summaryExpiryNotice')).toBeHidden();
-  await expect(page.locator('.catchup-settings-hint')).toHaveText('范围可在 设置 › 积压新闻总结范围 中调整。');
+  await expect(page.locator('.catchup-settings-hint')).toHaveText('范围可在 设置 › 新闻总结 中调整。');
   await expect(page.locator('#modalSummarySettingsBtn')).toHaveCSS('text-decoration-line', 'underline');
   await page.clock.fastForward(16 * 60 * 1000);
   await expect(page.locator('#confirmSummaryBtn')).toBeDisabled();
@@ -165,7 +165,7 @@ test('scope settings persist, validate and retain drafts across navigation', asy
   await page.locator('#catchupSettingsBtn').click();
   await expect(page.locator('[data-section="catchup"]')).toBeVisible();
   await expect(page.locator('#settingsCatchupScope')).toContainText('候选未读 65 条');
-  expect(await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(n => n.dataset.settingsTab))).toEqual(['system', 'personal-assistant', 'models', 'deepseek', 'classification', 'schedules', 'pipeline', 'x', 'storage', 'catchup', 'shortcuts', 'help']);
+  await expect(page.locator('[data-settings-page]')).toHaveCount(4);
   await expect(page.locator('[data-section="catchup"]')).not.toContainText('全局默认值');
   await page.locator('[name="news_summary.max_days"]').fill('0');
   await page.locator('#settingsSaveBtn').click();
@@ -299,7 +299,7 @@ test('draft scope recalculates dates and counts, ignores old requests and clears
   await expect(scope).toContainText('当前填写：1 个自然日、最多 2 条');
   for (const value of ['', '0', '1.5']) {
     await items.fill(value);
-    await expect(scope).toHaveText('请输入有效的正整数以计算当前生效范围。');
+    await expect(scope).toHaveText('请输入有效的正整数以计算范围预览。');
   }
   await page.locator('#settingsResetBtn').click();
   await expect(scope).toContainText('按日期与条数纳入 65 条');

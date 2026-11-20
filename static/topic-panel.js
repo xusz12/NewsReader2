@@ -1,6 +1,6 @@
 import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
-import { jobErrorText } from "./topic-status.js";
+import { jobErrorText } from "./topic-status.js?v=0.6.4";
 
 const activeJob = job => job && ["pending", "running"].includes(job.status);
 const viewedDelay = 6000;
@@ -548,8 +548,8 @@ export class TopicPanel {
     let notice = "";
     if (topic.archived_at) notice = '<p class="muted topic-status" role="status">已归档，停止收录新新闻。恢复后从新的入库新闻继续跟踪。</p>';
     else if (this.matchingWaiting) notice = '<p class="muted topic-status" role="status">两家判断服务暂不可用，等待恢复或配置密钥。</p>';
-    else if (!this.configured) notice = '<p class="muted topic-status">判断服务尚未配置，相关新闻归属等待处理。请在新闻分类设置中配置。</p>';
-    else if (this.matchingError) notice = '<div class="button-row error-state topic-error" role="status">判断服务暂时无法完成主题判断，请检查新闻分类设置后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>';
+    else if (!this.configured) notice = '<p class="muted topic-status">判断服务尚未配置，相关新闻归属等待处理。请在「API 密钥与连接」中配置密钥。</p>';
+    else if (this.matchingError) notice = '<div class="button-row error-state topic-error" role="status">判断服务暂时无法完成主题判断，请检查「自动分类与判断」中的服务选择后重试。<button class="btn-secondary" type="button" data-topic-action="retry">重试</button></div>';
     const all = this.filter ? '<button class="reader-action-btn reader-action-btn--meta" type="button" data-topic-action="all">全部新闻</button>' : '';
     return `<section class="settings-section-card settings-section-card--compact" aria-labelledby="topicNewsLabel">
       <h2 class="section-card-title" id="topicNewsTitle" aria-labelledby="topicNewsLabel">

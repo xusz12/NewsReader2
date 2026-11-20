@@ -22,7 +22,7 @@ export class XAccountSettings {
     const root = $('#xAccountSettings');
     if (!root) return;
     const accounts = this.panel.draft.x_accounts || [];
-    root.innerHTML = `<div class="button-row"><button class="btn-secondary" id="showXAccountFormBtn" type="button" aria-expanded="${this.adding}" aria-controls="xAccountForm">添加账号</button></div>
+    root.innerHTML = `<div class="section-card-title"><span>X 账号订阅</span><button class="reader-tool-btn" id="showXAccountFormBtn" type="button" aria-expanded="${this.adding}" aria-controls="xAccountForm">添加账号</button></div>
       <section class="settings-section-card settings-section-card--compact" id="xAccountForm" ${this.adding ? '' : 'hidden'}>
       <label class="field-item"><span class="field-label">X 账号</span><input class="field-input" id="xAccountInput" placeholder="@账号或主页链接" value="${e(this.input)}" autocomplete="off" spellcheck="false"></label>
       <div class="button-row"><button class="btn-secondary" id="addXAccountBtn" type="button" aria-describedby="xAccountTestResult">添加</button><button class="btn-secondary" id="cancelXAccountBtn" type="button">取消</button></div>
@@ -45,7 +45,7 @@ export class XAccountSettings {
       toggle.onchange = () => {
         const account = accounts.find(a => a.handle === toggle.closest('[data-x-account]').dataset.xAccount);
         account[toggle.dataset.xOption] = toggle.checked;
-        this.panel.status('有未保存的更改');
+        this.panel.status('有未保存的更改', false, 'x');
       };
     });
     root.querySelectorAll('[data-remove-x]').forEach(button => {
@@ -113,8 +113,8 @@ export class XAccountSettings {
       this.testing = false; this.input = '';
       this.testResult = {status:'success', text:`测试通过：已获取 @${handle} 的 ${data.count} 条内容，账号已添加。`};
       const focused = $('#xAccountForm')?.contains(document.activeElement);
-      this.render(); panel.status('有未保存的更改');
-      if (focused && panel.open && panel.section === 'x') this.focusAdd();
+      this.render(); panel.status('有未保存的更改', false, 'x');
+      if (focused && panel.open && panel.page === 'collection') this.focusAdd();
     } catch (error) {
       if (sequence === this.testSequence) this.testResult = {status:'failed', text:`测试失败：${errorText(error)} 账号未添加。`};
     } finally {
@@ -124,17 +124,17 @@ export class XAccountSettings {
   }
   async remove(button) {
     if (this.pending) return;
-    const panel = this.panel, handle = button.dataset.removeX, library = panel.saved.database.path;
-    if (panel.saving) { toast('设置正在保存，请稍后再移除账号'); return; }
+    const panel = this.panel, handle = button.dataset.removeX, library = panel.saved.database.path, revision = panel.navigationRevision;
+    if (panel.savingSections.has('collection')) { toast('设置正在保存，请稍后再移除账号'); return; }
     const saved = panel.saved.x_accounts?.some(a => a.handle === handle);
     if (!saved) {
       panel.draft.x_accounts = panel.draft.x_accounts.filter(a => a.handle !== handle);
-      this.render(); panel.status('有未保存的更改'); this.focusAdd(); return;
+      this.render(); panel.status('有未保存的更改', false, 'x'); this.focusAdd(); return;
     }
     this.pending = true;
     try {
       const data = await api(`/api/settings/x-accounts/${encodeURIComponent(handle)}`);
-      if (!panel.open || panel.section !== 'x' || !button.isConnected || panel.saved.database.path !== library) return;
+      if (!panel.open || panel.page !== 'collection' || revision !== panel.navigationRevision || !button.isConnected || panel.saved.database.path !== library) return;
       if (data.x_accounts_revision !== panel.saved.x_accounts_revision) throw new Error('账号列表已变化，请刷新页面后重试');
       const p = data.source;
       const choice = await confirmAction({title:`移除账号 @${handle}`, trigger:button,
@@ -154,12 +154,12 @@ export class XAccountSettings {
       panel.draft.x_accounts = panel.draft.x_accounts.filter(a => a.handle !== handle);
       panel.saved.feed_source_subkeys = panel.draft.feed_source_subkeys = result.feed_source_subkeys;
       this.pending = false; this.render();
-      $('#settingsSources').innerHTML = panel.sourceHTML();
-      panel.status('账号已移除');
+      panel.renderSourceLists();
+      panel.status('账号已移除', false, 'x');
       panel.onSourceDeleted?.(result); panel.onSources?.(); panel.onSaved?.();
       toast(result.warning || (choice === 'delete' ? '账号及历史数据已删除' : '账号已移除，历史数据已保留'));
-      if (panel.open && panel.section === 'x') this.focusAdd();
-    } catch (error) { panel.status(errorText(error), true); throw error; }
+      if (panel.open && panel.page === 'collection') this.focusAdd();
+    } catch (error) { panel.status(errorText(error), true, 'x'); throw error; }
     finally {
       this.pending = false;
       // A draft edit may redraw the list while the preview is loading.

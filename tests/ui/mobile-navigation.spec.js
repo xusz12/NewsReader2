@@ -1,4 +1,4 @@
-import { openNavigation, openSettings } from "./helpers.js";
+import { openSettingsItem, expandProvider, openNavigation, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
 
 test.use({ viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
@@ -145,14 +145,12 @@ test('every settings subpage swipes back to its category and preserves the origi
   await openReader(page);
   const title = await page.locator('#articleMainTitle').textContent();
   await openSettings(page);
-  const list = page.locator('.settings-category-list');
-  for (const section of ['models', 'deepseek', 'classification', 'pipeline', 'storage', 'system']) {
+  const list = page.locator('#settingsDirectory');
+  for (const section of await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(node => node.dataset.settingsTab))) {
     const category = page.locator(`[data-settings-tab="${section}"]`);
-    await category.click();
-    const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-    await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 4 : 1);
-    for (const card of await cards.all()) await expect(card).toBeVisible();
-    await expect(page.locator('#settingsDetailTitle')).toBeFocused();
+    await openSettingsItem(page, section);
+    await expect(page.locator('#settingsContent > [data-workspace]:visible')).toHaveCount(1);
+    await expect.poll(() => page.locator('#detailPanelSettings').evaluate(node => node.contains(document.activeElement))).toBe(true);
     const scroll = await list.evaluate(node => node.scrollTop);
     await expect(page.locator('#feedColSettings')).toBeVisible();
     await expect(page.locator('#feedColSettings')).toHaveJSProperty('inert', true);
@@ -173,9 +171,9 @@ test('every settings subpage swipes back to its category and preserves the origi
 test('settings swipe preserves the draft while ignoring editing and canceled gestures', async ({ page }) => {
   await page.goto('/');
   await openSettings(page);
-  const categories = page.locator('.settings-category-card');
-  const categoryLabels = await categories.allTextContents();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  const categories = page.locator('[data-settings-page]');
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'deepseek');
   const input = page.locator('input[name="llm.translation.model"]');
   await input.fill('settings-swipe-draft');
   for (const gesture of [{ target: 'input[name="llm.translation.model"]' }, { dx: 50 }, { x: 60 }, { dx: 12, dy: 100 }, { cancel: true }, { multi: true }]) {
@@ -186,8 +184,8 @@ test('settings swipe preserves the draft while ignoring editing and canceled ges
   }
   await swipe(page, { target: '.settings-main' });
   await expect(page.locator('#detailPanelSettings')).toBeHidden();
-  await expect(categories.filter({ visible: true })).toHaveText(categoryLabels);
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await expect(categories.filter({visible:true})).toHaveCount(4);
+  await openSettingsItem(page, 'deepseek');
   await expect(input).toHaveValue('settings-swipe-draft');
   await expect(page.locator('#settingsStatus')).toHaveClass(/dirty-state/);
 });
@@ -201,7 +199,7 @@ test.describe('original sliding transitions', () => {
     await openSettings(page);
     await expect(page.locator('#modelSettings')).toBeAttached();
     const panel = page.locator('#detailPanelSettings');
-    for (const section of ['models', 'pipeline', 'deepseek', 'classification', 'catchup', 'storage', 'system']) {
+    for (const section of await page.locator('[data-settings-tab]').evaluateAll(nodes => nodes.map(node => node.dataset.settingsTab))) {
       await page.evaluate(() => {
         window.settingsFrames = [];
         window.samplingSettings = true;
@@ -212,8 +210,8 @@ test.describe('original sliding transitions', () => {
         };
         requestAnimationFrame(sample);
       });
-      await page.locator(`[data-settings-tab="${section}"]`).tap();
-      await expect(page.locator('#settingsDetailTitle')).toBeFocused();
+      await openSettingsItem(page, section);
+      await expect.poll(() => page.locator('#detailPanelSettings').evaluate(node => node.contains(document.activeElement))).toBe(true);
       await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
       const scrollOffsets = await page.evaluate(() => {
         window.samplingSettings = false;
@@ -224,9 +222,7 @@ test.describe('original sliding transitions', () => {
       const rect = await panel.boundingBox();
       expect(rect.x).toBe(0);
       expect(rect.width).toBe(402);
-      const cards = page.locator(`#settingsContent > [data-section="${section}"]`);
-      await expect(cards).toHaveCount(['classification', 'pipeline'].includes(section) ? 4 : 1);
-      for (const card of await cards.all()) await expect(card).toBeVisible();
+      await expect(page.locator('#settingsContent > [data-workspace]:visible')).toHaveCount(1);
       await page.locator('#settingsCategoryBackBtn').tap();
       await expect(panel).toBeHidden();
     }
@@ -235,7 +231,7 @@ test.describe('original sliding transitions', () => {
   test('settings subpage follows the finger over categories and rebounds or exits in 200ms', async ({ page }) => {
     await page.goto('/');
     await openSettings(page);
-    await page.locator('[data-settings-tab="deepseek"]').click();
+    await openSettingsItem(page, 'deepseek');
     const panel = page.locator('#detailPanelSettings');
     await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
     for (const dx of [50, 110]) {

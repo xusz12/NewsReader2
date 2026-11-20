@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openSettings, answerConfirm } from './helpers.js';
 import { test, expect } from "@playwright/test";
-import { chooseTheme, openSettings, answerConfirm } from "./helpers.js";
 
 const styles = (locator, properties) => locator.evaluate((node, keys) => {
   const css = getComputedStyle(node);
@@ -544,7 +544,7 @@ for (const [theme,width,scheme="light"] of [["light",1280],["dark",1279],["syste
 for (const width of [390,1280]) test('主题表单沿用设置控件、阅读字号同步 '+width,async({page,request})=>{
   await request.post('/__test/reset-reading');
   await page.setViewportSize({width,height:900});await page.goto('/');
-  await openSettings(page);await page.locator('[data-settings-tab="classification"]').click();
+  await openSettings(page);await openSettingsItem(page, 'classification');
   const inputStyle=await styles(page.locator('[name="classification.concurrency"]'),controlStyle);
   const labelStyle=await styles(page.locator('#classificationSettings').getByText('分类并发上限',{exact:true}),typography);
   if (width<=920) await page.locator('#settingsCategoryBackBtn').click();

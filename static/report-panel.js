@@ -3,7 +3,7 @@ import { readerText } from "./reader-highlights.js?v=0.5.8";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
-import { selectField } from "./form-controls.js";
+import { selectField } from "./form-controls.js?v=0.6.4";
 import { defaultReportWindows } from "./report-windows.js";
 import { Calendar, localDate, localDateTime } from "./date-picker.js?v=feature-pickers-1";
 
@@ -29,7 +29,7 @@ const selectedRange = (kind, selection, windows = defaultReportWindows) => {
   }
   return [shiftDay(day,window.start_day)+"T"+window.start, day+"T"+window.end];
 };
-import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.6.3";
+import { failureText, statusText, reportError, originText, progressText } from "./report-status.js?v=0.6.4";
 const requestId = () => globalThis.crypto.randomUUID?.() || [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2,"0")).join("");
 const dateText = (value, full = false) => {
   const date = new Date(value);

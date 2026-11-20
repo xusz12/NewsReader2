@@ -1,6 +1,7 @@
+import { timePickers } from "./form-controls.js?v=0.6.4";
 import { api, escapeHTML as e, singlePane, formatBytes } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
-import { statusText, progressText } from "./report-status.js?v=0.5.16";
+import { statusText, progressText } from "./report-status.js?v=0.6.4";
 import { defaultReportWindows, windowDays, windowLabel, windowError } from "./report-windows.js";
 
 const time = value => value ? new Intl.DateTimeFormat("zh-CN", {
@@ -14,45 +15,47 @@ const errors = {
 };
 const field = (label, value) => `<div class="field-item"><span class="field-label">${e(label)}</span><span>${e(value)}</span></div>`;
 const status = row => row.status === "done" ? "已完成" : statusText(row);
-const timePickers = (label, attributes) => `<div class="calendar-time">${[["hour",24,"小时","时"],["minute",60,"分钟","分"]].map(([part,count,suffix,unit]) => `<div class="field-item"><select class="field-select" ${attributes}="${part}" aria-label="${e(label+suffix)}">${Array.from({length:count},(_,i) => {const value=String(i).padStart(2,"0");return `<option value="${value}">${value} ${unit}</option>`;}).join("")}</select></div>`).join("")}</div>`;
 
 // Polling never starts tasks or saves configuration. Editable controls remain
 // mounted across refreshes; drafts belong to the shared settings save/reset flow.
 export class ScheduleObserver {
-  constructor({isVisible, getTimes, getWindows, onTimeChange, onWindowChange, onCancelEdit, selects}) {
-    Object.assign(this, {isVisible, getTimes, getWindows, onTimeChange, onWindowChange, onCancelEdit, selects, sequence: 0, editing: false});
+  constructor({isVisible, isSelected, getTimes, getWindows, onTimeChange, onWindowChange, onCancelEdit, selects}) {
+    Object.assign(this, {isVisible, isSelected, getTimes, getWindows, onTimeChange, onWindowChange, onCancelEdit, selects, sequence: 0, editing: false});
     document.addEventListener("visibilitychange", () => this.sync());
     singlePane.addEventListener("change", () => this.sync());
   }
-  mount(host) {
+  mount(host, statusHost, storageHost) {
+    this.statusHost = statusHost; this.storageHost = storageHost;
     this.stop();
     this.host = host; this.data = null; this.failed = false;
     this.pauseError = "";
     this.storageMessage = ""; this.storageError = "";
-    host.innerHTML = `<section class="settings-section-card" aria-labelledby="scheduleStatusTitle" data-schedule-status></section>
-      <section class="settings-section-card" aria-labelledby="scheduleRulesTitle" data-schedule-rules hidden>
-        <div class="section-card-title"><span id="scheduleRulesTitle">报告排期</span><div class="reader-action-toolbar"><button class="reader-tool-btn" type="button" data-schedule-pause aria-label="暂停定时" title="暂停定时"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path data-schedule-pause-icon d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button><button class="reader-tool-btn" type="button" data-schedule-edit aria-expanded="false">编辑</button></div></div>
+    host.innerHTML = `<section class="settings-section-card" aria-labelledby="scheduleRulesTitle" data-schedule-rules>
+        <div class="section-card-title"><span id="scheduleRulesTitle">报告排期</span><div class="reader-action-toolbar" data-schedule-actions hidden><button class="reader-tool-btn" type="button" data-schedule-pause aria-label="暂停定时" title="暂停定时"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path data-schedule-pause-icon d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button><button class="reader-tool-btn" type="button" data-schedule-edit aria-expanded="false">编辑</button></div><button type="button" class="reader-tool-btn" data-schedule-retry hidden>重新读取</button></div>
+        <p class="muted" role="status" data-schedule-loading></p>
         <p class="muted" role="status" data-schedule-paused hidden>已暂停自动生成，期间错过的期次不补生成。手动生成、已创建任务和快照清理照常。</p>
         <p class="error-state" role="alert" data-schedule-pause-error hidden></p>
         <p class="error-state" role="alert" data-schedule-calendar hidden>交易日历未就绪，早报与午报暂缓生成，其他定期报告照常。</p>
         <div class="section-stack" data-schedule-list></div>
-        <p class="muted" data-schedule-edit-note hidden>开始生成与新闻窗口独立设置。保存后用于后续期次，已有报告不变。</p>
-      </section>
-      <section class="settings-section-card" aria-labelledby="scheduleStorageTitle" data-schedule-storage hidden>
-        <div class="section-card-title"><span id="scheduleStorageTitle">报告材料快照</span><span class="muted" data-snapshot-size></span></div>
+      </section>`;
+    statusHost.innerHTML = '<section class="settings-section-card" aria-labelledby="scheduleStatusTitle" data-schedule-status></section>';
+    storageHost.innerHTML = `<section class="settings-section-card" aria-labelledby="scheduleStorageTitle" data-schedule-storage>
+        <div class="section-card-title"><span id="scheduleStorageTitle">报告材料快照</span><button type="button" class="reader-tool-btn" data-snapshot-refresh>刷新</button></div>
+        <p class="muted" data-snapshot-size></p>
+        <div class="field-item" data-snapshot-schedule hidden><strong data-snapshot-rule></strong><span class="muted" data-snapshot-next></span><span class="muted" data-snapshot-last hidden></span><span class="error-state" role="alert" data-snapshot-schedule-error hidden></span></div>
         <p class="muted" data-snapshot-protected hidden></p>
         <div class="button-row"><button class="reader-action-btn danger" type="button" id="clearReportSnapshotsBtn" data-snapshot-clear>清除报告材料快照</button></div>
         <p class="muted" role="status" data-snapshot-result hidden></p>
         <p class="error-state" role="alert" data-snapshot-error hidden></p>
       </section>`;
-    host.onclick = event => {
+    host.onclick = statusHost.onclick = storageHost.onclick = event => {
       if (event.target.closest("[data-schedule-pause]")) void this.changePause();
       if (event.target.closest("[data-snapshot-clear]")) void this.clearSnapshots();
       if (event.target.closest("[data-schedule-edit]")) {
         if (this.editing) this.onCancelEdit?.();
         this.setEditing(!this.editing);
       }
-      if (event.target.closest("[data-schedule-refresh]") && !this.loading) void this.refresh();
+      if (event.target.closest("[data-schedule-refresh], [data-schedule-retry], [data-snapshot-refresh]") && !this.loading) void this.refresh();
     };
     host.onchange = event => {
       const input = event.target.closest("[data-schedule-part], [data-window-part], [data-window-day]");
@@ -69,6 +72,10 @@ export class ScheduleObserver {
       }
       this.renderRules();
     };
+    this.scrollArea = host.closest(".settings-main");
+    this.observer?.disconnect();
+    this.observer = new IntersectionObserver(() => this.sync(), {root:this.scrollArea});
+    for (const card of [host,statusHost,storageHost]) this.observer.observe(card);
     this.render();
   }
   setEditing(editing) {
@@ -76,7 +83,15 @@ export class ScheduleObserver {
     this.editing = editing;
     this.renderRules();
   }
-  visible() {return !!this.host?.isConnected && this.isVisible() && !document.hidden;}
+  visible() {
+    if (!this.host?.isConnected || !this.isVisible() || document.hidden) return false;
+    if (this.isSelected()) return true;
+    const viewport = this.scrollArea.getBoundingClientRect();
+    return [this.host, this.statusHost, this.storageHost].some(card => {
+      const rect = card.getBoundingClientRect();
+      return rect.width > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
+    });
+  }
   sync() {
     if (!this.visible()) return this.stop();
     if (!this.active) {this.active = true; void this.refresh();}
@@ -159,9 +174,20 @@ export class ScheduleObserver {
     }
   }
   renderStorage() {
-    const host = this.host, storage = this.data?.snapshot_storage;
-    host.querySelector("[data-schedule-storage]").hidden = !this.data;
-    host.querySelector("[data-snapshot-size]").textContent = storage ? formatBytes(storage.bytes) : "大小暂不可用";
+    const host = this.storageHost, storage = this.data?.snapshot_storage;
+    host.querySelector("[data-snapshot-refresh]").disabled = !!this.loading;
+    host.querySelector("[data-snapshot-size]").textContent = storage ? formatBytes(storage.bytes) : this.failed ? "快照大小读取失败，请刷新重试。" : "正在读取快照大小…";
+    const rule = this.data?.schedules.find(row => row.kind === "snapshot_cleanup");
+    host.querySelector("[data-snapshot-schedule]").hidden = !rule;
+    if (rule) {
+      host.querySelector("[data-snapshot-rule]").textContent = `自动清理 · ${rule.frequency || rule.rule}`;
+      host.querySelector("[data-snapshot-next]").textContent = `下次清理：${time(rule.next_run_at)}`;
+      const last = host.querySelector("[data-snapshot-last]"), error = host.querySelector("[data-snapshot-schedule-error]");
+      last.hidden = !rule.last_run_at;
+      last.textContent = rule.last_run_at ? `上次清理：${time(rule.last_run_at)} · ${rule.removed_count} 份材料` : "";
+      error.hidden = !rule.error;
+      error.textContent = rule.error ? "清理失败，请检查数据库及磁盘空间，5 分钟后自动重试。" : "";
+    }
     const protectedSize = host.querySelector("[data-snapshot-protected]");
     protectedSize.textContent = storage?.protected_bytes ? `任务使用中 ${formatBytes(storage.protected_bytes)}` : "";
     protectedSize.hidden = !storage?.protected_bytes;
@@ -174,9 +200,15 @@ export class ScheduleObserver {
     host.querySelector("[data-snapshot-error]").hidden = !this.storageError;
   }
   renderRules() {
-    if (!this.data) return;
     const host = this.host, list = host.querySelector("[data-schedule-list]");
-    host.querySelector("[data-schedule-rules]").hidden = false;
+    host.querySelector("[data-schedule-actions]").hidden = !this.data;
+    host.querySelector("[data-schedule-retry]").hidden = !!this.data || !this.failed || this.loading;
+    const message = host.querySelector("[data-schedule-loading]");
+    message.hidden = !!this.data;
+    if (!this.data) {
+      message.textContent = this.failed ? "报告排期读取失败。" : "正在读取报告排期…";
+      return;
+    }
     host.querySelector("[data-schedule-calendar]").hidden = !this.data.calendar_warning;
     const pause = host.querySelector("[data-schedule-pause]");
     const paused = !!this.data.schedule_control?.paused;
@@ -192,8 +224,7 @@ export class ScheduleObserver {
     const edit = host.querySelector("[data-schedule-edit]");
     edit.textContent = this.editing ? "取消编辑" : "编辑";
     edit.setAttribute("aria-expanded", String(this.editing));
-    host.querySelector("[data-schedule-edit-note]").hidden = !this.editing;
-    const rows = [...this.data.schedules].sort((a,b) => (a.next_run_at || "9999").localeCompare(b.next_run_at || "9999"));
+    const rows = this.data.schedules.filter(row => row.kind in defaultReportWindows).sort((a,b) => (a.next_run_at || "9999").localeCompare(b.next_run_at || "9999"));
     const focus = list.contains(document.activeElement) ? document.activeElement : null;
     for (const [index, row] of rows.entries()) {
       const editable = row.editable !== false;
@@ -225,13 +256,10 @@ export class ScheduleObserver {
       node.querySelector("[data-schedule-window]").hidden = !window;
       node.querySelector("[data-schedule-window]").textContent = window ? `新闻窗口：${windowLabel(row.kind,window)}` : "";
       node.querySelector("[data-schedule-next]").textContent = row.paused ? "已暂停" : `下次排期：${row.next_run_at ? time(row.next_run_at) : "等待交易日历更新"}`;
-      node.querySelector("[data-schedule-latest]").textContent = editable
-        ? row.latest ? `最近一期：${time(row.latest.scheduled_at)} · ${status(row.latest)}` : "尚无自动生成记录"
-        : row.last_run_at ? `上次清理：${time(row.last_run_at)} · ${row.removed_count} 份材料` : "清理 7 天前的闲置快照，保留报告正文与来源";
+      node.querySelector("[data-schedule-latest]").textContent = row.latest ? `最近一期：${time(row.latest.scheduled_at)} · ${status(row.latest)}` : "尚无自动生成记录";
       const invalidWindow = window && windowError(window,value);
-      node.querySelector("[data-schedule-error]").hidden = !row.error && !invalidWindow;
-      node.querySelector("[data-schedule-error]").textContent = invalidWindow ? invalidWindow+"。"
-        : row.error ? "清理失败，请检查数据库及磁盘空间；5 分钟后自动重试。" : "";
+      node.querySelector("[data-schedule-error]").hidden = !invalidWindow;
+      node.querySelector("[data-schedule-error]").textContent = invalidWindow ? invalidWindow+"。" : "";
       // Ordinary polling changes text only. Keep an open Picker and its focus.
       if (list.children[index] !== node) list.insertBefore(node, list.children[index] || null);
     }
@@ -239,7 +267,7 @@ export class ScheduleObserver {
     if (focus && focus !== document.activeElement) focus.focus({preventScroll:true});
   }
   render() {
-    const host = this.host;
+    const host = this.statusHost;
     if (!host) return;
     const focus = host.contains(document.activeElement) ? document.activeElement : null;
     const refreshFocused = focus?.hasAttribute("data-schedule-refresh");
@@ -253,7 +281,6 @@ export class ScheduleObserver {
       <div class="catchup-metrics" aria-label="报告任务队列">${[["running","生成中","warning"],["pending","等待中","warning"],["failed","失败","danger"]].map(([key,label,color]) => `<span data-status="${data.queue[key] ? color : ""}">${label} <strong data-schedule-count="${key}">${e(data.queue[key])}</strong></span>`).join("")}</div>
       ${data.retrying ? `<p class="muted">其中 ${e(data.retrying)} 份等待自动重试。</p>` : ""}
       ${(data.current_reports || (data.current ? [data.current] : [])).map(row=>`<div class="field-item"><span>${e(row.title)}${row.model_label ? ` · ${e(row.model_label)}` : ""} · ${e(row.progress?.stage ? progressText(row) : phaseLabels[row.phase] || "正在生成")}</span></div>`).join("")}
-      <p class="muted">普通停机恢复后补晚报、周报和月报；主动暂停期间不补生成。</p>
       <p class="muted" data-schedule-updated>更新于 ${e(time(data.observed_at))} · 本页每 10 秒刷新</p>` : this.failed ? "" : '<p role="status">正在读取任务状态…</p>'}
     `;
     this.renderRules();

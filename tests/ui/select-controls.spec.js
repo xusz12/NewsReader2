@@ -1,5 +1,4 @@
-import { choosePicker } from "./helpers.js";
-import { chooseTheme, openSettings } from "./helpers.js";
+import { openSettingsItem, expandProvider, choosePicker, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
 
 async function settings(page, request, { model = 'catalog-a', many = false } = {}) {
@@ -20,7 +19,7 @@ async function settings(page, request, { model = 'catalog-a', many = false } = {
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
   await openSettings(page);
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await expect(page.locator('#modelSettings')).toBeVisible();
   return { saved, submitted: () => submitted };
 }
@@ -68,8 +67,11 @@ test('custom selects open only inside the visible field', async ({ page, request
   await checkField('模型');
   await checkField('推理强度');
   await checkField('临时会话保留时间');
-  await page.locator('[data-settings-tab="deepseek"]').click();
-  for (const provider of ['deepseek', 'opencode-go']) await checkField('翻译模型', page.locator(`[data-api-provider="${provider}"]`));
+  await openSettingsItem(page, 'deepseek');
+  for (const provider of ['deepseek', 'opencode-go']) {
+    await expandProvider(page, provider);
+    await checkField('翻译模型', page.locator(`[data-api-provider="${provider}"]`));
+  }
 });
 
 test('Codex only offers catalog models and preserves selection through save and reopen', async ({ page, request }) => {
@@ -87,7 +89,7 @@ test('Codex only offers catalog models and preserves selection through save and 
   expect(state.submitted().agent.codex.model).toBe('catalog-b');
   await page.reload();
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await expect(modelBox(page)).toHaveText('目录模型 B');
   await expect(customModel(page)).toHaveCount(0);
 });
@@ -118,7 +120,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   page.on('request', req => { if (req.url().endsWith('/api/settings/models')) refreshes.push(req.postDataJSON().runtime); });
   await page.goto('/');
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await page.locator('#refreshModelsBtn').click();
   await expect(customModel(page)).toHaveCount(0);
   await modelBox(page).click();
@@ -129,7 +131,7 @@ test('catalogs persist through real settings save, page reload, runtime changes 
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
   await page.reload();
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await expect(modelBox(page)).toHaveText('ui-catalog-b');
   await expect(customModel(page)).toHaveCount(0);
   await expect(page.locator('[data-model-feature="chat"]').getByRole('combobox', { name: '推理强度', exact: true })).toHaveText('medium');

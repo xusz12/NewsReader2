@@ -1,5 +1,5 @@
+import { openSettingsItem, expandProvider, openSettings, chooseTheme } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme } from './helpers.js';
 
 const card = (page, provider) => page.locator(`[data-api-provider="${provider}"]`);
 
@@ -20,7 +20,7 @@ async function setup(page, request) {
   });
   await page.goto('/');
   await openSettings(page);
-  await page.locator('[data-settings-tab="classification"]').click();
+  await openSettingsItem(page, 'classification');
   return {saved, writes};
 }
 
@@ -31,27 +31,32 @@ test('判断服务切换保存与撤销，密钥草稿独立且关闭分类不�
   await expect(jev).toBeChecked();
   const fallback = page.getByRole('switch', {name:'自动使用备用判断服务'});
   await expect(fallback).not.toBeChecked();
-  await page.locator('#jevSecret').fill('typesafe-draft');
-  await page.locator('#openai-decisionsSecret').fill('openai-draft');
-  await card(page, 'jev').locator('input[name]').fill('jev-pinned');
-  await card(page, 'openai-decisions').locator('input[name]').fill('gpt-6-luna');
   await page.getByRole('switch', {name:'启用自动分类'}).uncheck();
   await expect(decisions).toBeEnabled();
   await fallback.check();
   await decisions.check();
   await page.locator('#classificationApiSettingsBtn').click();
   await expect(page.locator('#apiTitle-openai-decisions')).toBeFocused();
-  await jev.check();
-  await decisions.check();
+  await expandProvider(page,'jev');
+  await page.locator('#jevSecret').fill('typesafe-draft');
+  await page.locator('#openai-decisionsSecret').fill('openai-draft');
+  await card(page, 'jev').locator('input[name]').fill('jev-pinned');
+  await card(page, 'openai-decisions').locator('input[name]').fill('gpt-6-luna');
+  await openSettingsItem(page, 'classification');
+  await page.locator('#settingsSaveBtn').click();
+  await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
+  expect(writes[0]).toEqual({classification:{provider:'openai-decisions',fallback_enabled:true,enabled:false,unread_only:false,concurrency:8}});
+  await page.locator('#classificationApiSettingsBtn').click();
   await expect(page.locator('#jevSecret')).toHaveValue('typesafe-draft');
   await expect(page.locator('#openai-decisionsSecret')).toHaveValue('openai-draft');
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
-  expect(writes[0].classification).toEqual({provider:'openai-decisions',fallback_enabled:true,enabled:false,unread_only:false,concurrency:8});
-  expect(writes[0].api_models.jev.model).toBe('jev-pinned');
-  expect(writes[0].api_models['openai-decisions'].model).toBe('gpt-6-luna');
+  expect(writes[1].api_models.jev.model).toBe('jev-pinned');
+  expect(writes[1].api_models['openai-decisions'].model).toBe('gpt-6-luna');
+  expect(Object.keys(writes[1]).sort()).toEqual(['api_models']);
   expect(JSON.stringify(writes)).not.toContain('openai-draft');
   expect(JSON.stringify(writes)).not.toContain('typesafe-draft');
+  await openSettingsItem(page, 'classification');
   await jev.check();
   await fallback.uncheck();
   await page.locator('#settingsResetBtn').click();
@@ -71,6 +76,8 @@ test('Decisions 密钥和连接测试只访问本服务，错误显示所选服�
     calls.push(route.request().postDataJSON());
     await route.fulfill({json:{ok:true, model:'gpt-6-luna', message:'模型连接成功', elapsed_ms:12}});
   });
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'openai-decisions');
   await page.locator('#openai-decisionsSecret').fill('test-openai-key');
   await card(page, 'openai-decisions').locator('[data-api-action="saveSecretBtn"]').click();
   await expect(card(page, 'openai-decisions').locator('.masked-secret')).toHaveText('sk-t••••1234');
@@ -82,6 +89,7 @@ test('Decisions 密钥和连接测试只访问本服务，错误显示所选服�
     ok:true, provider:'openai-decisions', provider_label:'OpenAI Decisions', enabled:true, configured:false,
     total:2, done:0, pending:2, running:0, failed:0, coverage:{total:2, done:0},
   }}));
+  await openSettingsItem(page, 'classification');
   await page.locator('#classificationRefreshBtn').click();
   await expect(page.locator('#classificationSettingsStatus')).toContainText('配置 OpenAI Decisions');
 });
@@ -120,6 +128,7 @@ for (const width of [1440,390]) for (const theme of ['light','dark','system-ligh
     await expect(fallback).toBeChecked();
     await page.locator('#classificationSettings').scrollIntoViewIfNeeded();
     await page.screenshot({path:`.ui-artifacts/decision-routing-${width}-${theme}.png`});
+    await page.locator('#classificationApiSettingsBtn').click();
     const input = card(page,'openai-decisions').locator('input[name]');
     await input.scrollIntoViewIfNeeded();
     await expect(input).toBeInViewport();

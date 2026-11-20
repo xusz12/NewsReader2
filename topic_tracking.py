@@ -46,7 +46,7 @@ ERRORS = {
     "topic_search_required": "历史研究没有完成联网检索，请检查 Agent 的搜索能力后重试。",
     "topic_interrupted": "上次任务中断，可重试继续。",
     "topic_source_changed": "处理期间新闻或主题已变化，请重试。",
-    "topic_runtime_failed": "主题整理失败，请检查模型与 Agent 设置后重试。",
+    "topic_runtime_failed": "主题整理失败，请检查「研读与助手」的主题追踪模型后重试。",
     "topic_invalid_request": "请求标识或内容不正确。",
     "topic_definition_changed": "定义已在其他页面修改。当前输入已保留，请取消编辑并重新打开后再修改。",
     "topic_draft_changed": "定义已更新，当前输入已保留。请重新载入最新定义后再继续。",

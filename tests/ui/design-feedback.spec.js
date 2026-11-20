@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings } from './helpers.js';
 
 test.beforeEach(async ({ request }) => {
   await request.post('/__test/reset-reading');
@@ -56,7 +56,7 @@ for (const width of [1440, 390, 320]) {
     await expect(theme).toHaveAccessibleDescription('墨水屏 (E-Ink)');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'eink');
     await openSettings(page);
-    await page.locator('[data-settings-tab="models"]').click();
+    await openSettingsItem(page, 'models');
     await expect(page.locator('#modelSettings')).toBeVisible();
     expect(await page.locator('select').evaluateAll(nodes => nodes.every(n => n.hidden && n.nextElementSibling?.getAttribute('role') === 'combobox'))).toBe(true);
     await expect(page.locator('[role="listbox"]')).toHaveCount(1);

@@ -1,5 +1,5 @@
+import { openSettingsItem, openSettings, chooseTheme, answerConfirm } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme, answerConfirm } from './helpers.js';
 
 const key = 'reuters/deletion-test';
 const button = page => page.locator(`[data-delete-source="${key}"]`);
@@ -9,7 +9,7 @@ async function start(page) {
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await openSettingsItem(page, 'cleanup');
   await expect(button(page)).toBeVisible();
 }
 test.beforeEach(async ({request}) => { await request.post('/__test/source-deletion'); });
@@ -112,10 +112,10 @@ test('loading is guarded, leaving settings suppresses a late preview, and readin
   await button(page).click();
   await expect(button(page)).toBeDisabled();
   await expect(button(page)).toHaveText('统计中…');
-  await page.locator('[data-settings-tab="system"]').click();
+  await openSettingsItem(page, 'system');
   release();
   await expect(button(page)).toBeEnabled();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('系统与版本');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('阅读偏好与维护');
   await expect(dialog(page)).toHaveCount(0);
   expect(reads).toBe(1);
 });

@@ -1,17 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme, withClassificationBatch } from './helpers.js';
+import { openSettings, openSettingsItem as section, chooseTheme, withClassificationBatch } from './helpers.js';
 
 const defaults = { enabled: true, concurrency: 8, unread_only: false, provider: 'jev', fallback_enabled: false };
 async function reset(request) {
   const saved = await (await request.get('/api/settings')).json();
   await request.put('/api/settings', { data: { llm: saved.llm, classification: defaults } });
-}
-async function section(page, name) {
-  const button = page.locator(`[data-settings-tab="${name}"]`);
-  if (await page.locator('#feedColSettings').evaluate(node => node.inert)) {
-    await page.locator('#settingsCategoryBackBtn').click();
-  }
-  await button.click();
 }
 async function save(page) {
   await page.locator('#settingsSaveBtn').click();
@@ -117,7 +110,7 @@ test('首次读取失败不伪造零进度，配置异常可重试失败项',asy
   const state={progress:{...progressFixture(),configured:false}};
   await page.route('**/api/news/classification',route=>route.fulfill({json:withClassificationBatch(state.progress)}));
   await page.locator('#classificationRefreshBtn').click();
-  await expect(page.locator('#classificationSettingsStatus')).toContainText('等待在新闻分类设置中配置 Jev');
+  await expect(page.locator('#classificationSettingsStatus')).toContainText('等待在「API 密钥与连接」中配置 Jev');
   await expect(page.locator('#classificationRetryBtn')).toBeHidden();
   Object.assign(state.progress,{configured:true,error:'invalid_api_key'});
   await page.locator('#classificationRefreshBtn').click();
@@ -156,7 +149,7 @@ for (const width of [390, 1050, 1440]) {
     await expect(page.locator('#classificationProgress')).toBeVisible();
     await openSettings(page);
     await section(page, 'classification');
-    await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+    await expect(page.locator('#settingsDetailTitle')).toHaveText('采集与处理');
     const enabled = page.getByRole('switch', { name: '启用自动分类' });
     const unread = page.getByRole('switch', { name: '仅对未读新闻分类' });
     const concurrency = page.getByRole('spinbutton', { name: '分类并发上限' });
@@ -184,7 +177,7 @@ for (const width of [390, 1050, 1440]) {
     await concurrency.fill('12');
     await enabled.uncheck();
     await page.locator('#classificationApiSettingsBtn').click();
-    await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+    await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
     await expect(page.locator('#apiTitle-jev')).toBeFocused();
     await expect(page.locator('#apiTitle-jev')).toBeInViewport();
     await expect(page.locator('#translationSettings [name^="classification."], #translationSettings [name$=".concurrency"], #translationSettings [name$=".unread_only"]')).toHaveCount(0);
@@ -274,7 +267,7 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark', 'eink']) 
     await page.goto('/');
     await chooseTheme(page, theme);
     await openSettings(page);
-    await expect(page.locator('.settings-category-card:visible')).toHaveCount(12);
+    await expect(page.locator('[data-settings-page]')).toHaveCount(4);
     await section(page, 'classification');
     await expect(page.getByRole('switch', { name: '启用自动分类' })).toBeVisible();
     expect(await page.locator('#classificationSettings').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

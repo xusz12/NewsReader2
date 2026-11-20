@@ -1,11 +1,11 @@
+import { openSettingsItem, openSettings, chooseTheme } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme } from './helpers.js';
 
 async function section(page, id) {
   if (await page.locator('#feedColSettings').evaluate(node => node.inert)) {
     await page.locator('#settingsCategoryBackBtn').click();
   }
-  await page.locator(`[data-settings-tab="${id}"]`).click();
+  await openSettingsItem(page, id);
 }
 async function start(page) {
   await page.goto('/');
@@ -21,7 +21,7 @@ for (const width of [1440, 390]) for (const appearance of ['light', 'dark', 'sys
     await start(page);
     await chooseTheme(page, appearance.startsWith('system-') ? 'system' : appearance);
     await expect(page.locator('#settingsDetailTitle')).toHaveText('帮助说明');
-    await expect(page.locator('#settingsHelp h3')).toHaveText(['新闻采集', '阅读中的新新闻', '新闻流显示与数据清理', '阅读与本地数据']);
+    await expect(page.locator('#settingsHelp h3')).toHaveText(['新闻采集', '模型与服务', '研读与助手', '阅读中的新新闻', '新闻流显示与数据清理', '阅读与本地数据']);
     await expect(page.locator('#settingsHelp [aria-expanded="true"]')).toHaveCount(0);
     const question = page.locator('#help-collection-source'), answer = page.locator('#help-collection-source-content');
     await question.click();
@@ -101,7 +101,7 @@ for (const width of [1440, 390]) {
     await input.fill(changed);
     await section(page, 'help');
     await expect(page.locator('#help-deletion-scope')).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('#settingsSaveBtn')).toBeVisible();
+    await expect(page.locator('#settingsSaveBtn')).toBeHidden();
     await page.keyboard.press('Escape');
     await openSettings(page);
     await section(page, 'help');

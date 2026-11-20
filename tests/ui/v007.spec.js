@@ -1,5 +1,5 @@
+import { openSettingsItem, openSettings } from './helpers.js';
 import {test,expect} from '@playwright/test';
-import {openSettings} from './helpers.js';
 
 test('opening the page reads the library without collecting', async({page})=>{
   const actions=[];
@@ -16,7 +16,7 @@ test('collection request failure leaves existing news and scroll intact',async({
   await page.evaluate(()=>{window.row=document.querySelector('#feedCardList .news-card');});
   await page.route('**/api/collection',route=>route.request().method()==='POST' ? route.fulfill({status:503,json:{error:'采集暂不可用'}}) : route.continue());
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await openSettingsItem(page, 'pipeline');
   await page.locator('#settingsCollectBtn').click();
   await expect(page.locator('#toast')).toContainText('采集暂不可用');
   await page.keyboard.press('Escape');

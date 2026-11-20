@@ -1,5 +1,7 @@
 import { escapeHTML as e } from "./ui.js";
 
+export const disclosureChevron = '<svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+
 // Shared, multi-open accordion. Expansion belongs to the view, not settings data.
 export class Accordion {
   constructor(root) {
@@ -40,9 +42,9 @@ export class Accordion {
       const trigger = `${id}-${item.id}`, panel = `${trigger}-content`, open = this.expanded.has(trigger);
       return `<div class="accordion-item">
         <${heading} class="accordion-heading"><button class="accordion-trigger" id="${e(trigger)}" data-accordion-trigger type="button" aria-expanded="${open}" aria-controls="${e(panel)}">
-          <span>${e(item.question)}</span><svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          <span>${e(item.question)}</span>${disclosureChevron}
         </button></${heading}>
-        <div class="accordion-content" id="${e(panel)}" aria-labelledby="${e(trigger)}" ${open ? "" : "hidden"}>${item.paragraphs.map(paragraph => `<p>${e(paragraph)}</p>`).join("")}</div>
+        <div class="accordion-content" id="${e(panel)}" aria-labelledby="${e(trigger)}" ${open ? "" : "hidden"}>${item.paragraphs.map(paragraph => `<p>${e(paragraph)}</p>`).join("")}${(item.links || []).map(([label, href]) => `<p><a href="${e(href)}" target="_blank" rel="noopener noreferrer">${e(label)}</a></p>`).join("")}</div>
       </div>`;
     }).join("")}</div>`;
   }

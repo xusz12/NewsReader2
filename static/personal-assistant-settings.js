@@ -1,12 +1,12 @@
 import { $, api, escapeHTML as e, errorText } from "./ui.js";
-import { selectField } from "./form-controls.js";
+import { selectField } from "./form-controls.js?v=0.6.4";
 import { confirmAction } from "./confirm-dialog.js";
 
 const base = "/api/personal-assistant";
 const field = (label, key, value, extra = "") => `<label class="field-item"><span class="field-label">${label}</span><input class="field-input" data-personal-field="${key}" value="${e(value)}" ${extra}></label>`;
 
 export class PersonalAssistantSettings {
-  constructor(selects) { this.selects = selects; this.files = []; this.editors = new Map(); this.path = "MEMORY.md"; this.sequence = 0; }
+  constructor(selects, onChange) { this.selects = selects; this.onChange = onChange; this.files = []; this.editors = new Map(); this.path = "MEMORY.md"; this.sequence = 0; }
   mount(host) {
     this.host = host;
     host.oninput = event => this.change(event);
@@ -14,26 +14,37 @@ export class PersonalAssistantSettings {
     host.onclick = event => {
       const button = event.target.closest("[data-personal-action]");
       if (!button) return;
-      const actions = {save:()=>this.save(), reset:()=>{this.draft=structuredClone(this.saved);this.notice="";this.render();},
-        catalog:()=>this.loadCatalog(), refresh:()=>this.load(), memorySave:()=>this.saveMemory(), memoryReset:()=>this.resetMemory(), memoryDelete:()=>this.deleteMemory()};
+      const actions = {catalog:()=>this.loadCatalog(), refresh:()=>this.load(), memorySave:()=>this.saveMemory(), memoryReset:()=>this.resetMemory(), memoryDelete:()=>this.deleteMemory()};
       void actions[button.dataset.personalAction]?.();
     };
     this.render();
   }
   get dirty() { return this.draft && JSON.stringify(this.draft) !== JSON.stringify(this.saved); }
+  reset() {
+    if (!this.saved || this.saving) return;
+    this.draft = structuredClone(this.saved);
+    this.notice = "";
+    this.render();
+  }
   async load() {
-    if (this.loading) return;
+    if (this.loading || this.saving) return;
+    const previousProfile = this.saved;
     this.loading = true;
     try {
       const [profile, memory] = await Promise.all([api(base+"/profile"), api(base+"/memory")]);
+      if (this.saving || previousProfile !== this.saved) return;
+      const changed = !this.draft || JSON.stringify(this.saved) !== JSON.stringify(profile.profile) || JSON.stringify(this.files) !== JSON.stringify(memory.files);
       if (!this.dirty) this.draft = structuredClone(profile.profile);
       this.saved = profile.profile;
       this.files = memory.files;
       this.notice = "";
-      this.render();
+      if (changed) this.render();
+      else if ($("#personalSettingsStatus", this.host)) $("#personalSettingsStatus", this.host).textContent = "";
       await this.loadMemory(this.path);
       if (!this.catalog) void this.loadCatalog();
-    } catch (error) { this.notice = errorText(error); this.render(); }
+    } catch (error) {
+      if (!this.saving && previousProfile === this.saved) { this.notice = errorText(error); this.render(); }
+    }
     finally { this.loading = false; }
   }
   async loadCatalog() {
@@ -61,13 +72,15 @@ export class PersonalAssistantSettings {
     const models = runtime === "pi" ? options.filter(x=>x.provider === c.provider) : options;
     const selected = models.find(x=>x.value === c.model);
     const efforts = selected?.reasoning_efforts || selected?.supported_reasoning_efforts || [];
+    const scrollArea = this.host.closest(".settings-main"), memory = $("#personalMemorySettings", this.host);
+    const memoryTop = memory?.getBoundingClientRect().top;
+    const keepMemory = memory?.getClientRects().length && memoryTop < scrollArea.getBoundingClientRect().bottom && memory.getBoundingClientRect().bottom > scrollArea.getBoundingClientRect().top;
     this.host.innerHTML = `<section class="settings-section-card">
       <div class="section-card-title"><span>身份与工作区</span></div>
       <fieldset class="form-fieldset section-stack" ${this.saving ? "disabled" : ""}>
       ${field("助手的名字", "name", d.name, 'maxlength="40" required placeholder="请输入你为助手取的名字"')}
       <label class="field-item"><span class="field-label">助手职责</span><textarea class="field-input" data-personal-field="instructions" rows="3" maxlength="4000">${e(d.instructions)}</textarea></label>
       <div class="field-item"><span class="field-label">本地工作区</span><code class="storage-path">${e(d.workspace)}</code></div>
-      <p class="muted">身份、讨论和记忆长期保存在本机。模型仍通过所选服务运行，查询到的资料会提供给该模型。</p>
       <div class="section-card-title"><span>个人助手模型</span></div>
       <div class="form-group-grid">${selectField("Runtime", "personal.runtime", runtime, [{value:"pi",label:"Pi"},{value:"codex",label:"Codex"}], null)}
       ${runtime === "pi" ? selectField("服务商", "personal.pi.provider", c.provider, providers, "请选择") : ""}
@@ -75,26 +88,22 @@ export class PersonalAssistantSettings {
       ${selectField("推理强度", `personal.${runtime}.reasoning_effort`, c.reasoning_effort || "", efforts.map(x=>typeof x === "string" ? x : {value:x.reasoning_effort || x.value,label:x.description || x.label || x.reasoning_effort}), "沿用默认", {preserveUnknown:false})}</div>
       ${c.model && !selected ? `<p class="muted">已保存的 ${e(c.model)} 当前不在模型列表中，请刷新列表或重新选择。</p>` : ""}
       <div class="button-row"><button type="button" class="btn-secondary" data-personal-action="catalog" ${this.catalogLoading ? "disabled" : ""}>刷新模型</button><span class="muted" role="status">${e(this.catalogNotice || "")}</span></div>
-      <p class="muted">切换模型会重新建立运行上下文，名字、讨论记录和长期记忆继续保留。此处只设置个人助手。</p>
-      <div class="button-row"><button type="button" class="btn-primary" data-personal-action="save">${this.saving ? "正在保存…" : "保存个人助手"}</button><button type="button" class="btn-secondary" data-personal-action="reset">撤销更改</button></div></fieldset>
+      </fieldset>
       <p class="status-text muted" id="personalSettingsStatus" role="status">${e(this.notice || "")}</p></section>
-      <section class="settings-section-card"><div class="section-card-title"><span>长期记忆</span><button type="button" class="reader-tool-btn" data-personal-action="refresh">刷新</button></div>
-      <p class="muted">助手会整理你明确表达的偏好、观点与判断依据。你可以查看、纠正或删除；删除记忆不会删除原始讨论。</p>
+      <section class="settings-section-card" id="personalMemorySettings" tabindex="-1"><div class="section-card-title"><span>长期记忆</span><button type="button" class="reader-tool-btn" data-personal-action="refresh">刷新</button></div>
       ${selectField("记忆文件", "personal.memory", this.path, this.files.map(f=>({value:f.path,label:f.path === "MEMORY.md" ? "长期记忆索引" : f.path.slice(6,-3)})), null)}
       <div id="personalMemoryEditor"></div></section>`;
     this.renderMemory(); this.syncButtons(); this.selects.refresh();
-    const restored = focusKey ? this.host.querySelector(`[data-personal-field="${focusKey}"]`) : memoryFocus ? this.host.querySelector("[data-personal-memory]") : null;
+    const restored = focusKey ? this.host.querySelector(`[data-personal-field="${focusKey}"]`) : memoryFocus ? this.host.querySelector("[data-personal-memory]") : document.getElementById(focused?.id);
     if (restored && !restored.matches(":disabled")) {
       restored.focus({preventScroll:true});
       if (selection) restored.setSelectionRange(...selection);
     }
+    if (keepMemory) scrollArea.scrollTop += $("#personalMemorySettings", this.host).getBoundingClientRect().top - memoryTop;
   }
   syncButtons() {
     if (!this.host) return;
-    for (const action of ["save", "reset"]) {
-      const button = this.host.querySelector(`[data-personal-action="${action}"]`);
-      if (button) button.disabled = !this.dirty || !!this.saving;
-    }
+    this.onChange();
     const editor = this.editors.get(this.path);
     for (const action of ["memorySave", "memoryReset"]) {
       const button = this.host.querySelector(`[data-personal-action="${action}"]`);
@@ -118,25 +127,28 @@ export class PersonalAssistantSettings {
     target[field] = input.value;
     if (key === "pi.provider") { this.draft.pi.model = ""; delete this.draft.pi.reasoning_effort; }
     if (key.endsWith(".model")) delete this.draft[this.draft.runtime].reasoning_effort;
-    this.notice = "有未保存的更改"; this.syncButtons();
+    this.notice = ""; this.syncButtons();
     $("#personalSettingsStatus").textContent = this.notice;
     if (["runtime", "pi.provider", "pi.model", "codex.model"].includes(key)) {
       this.render(); this.host.querySelector(`[data-select-trigger="${input.name}"]`)?.focus({preventScroll:true});
       if (key === "runtime") { this.catalog = null; void this.loadCatalog(); }
     }
   }
-  async save() {
-    if (this.saving || !this.dirty) return;
+  validate() {
     const name = this.host.querySelector('[data-personal-field="name"]');
     name.setCustomValidity(name.value.trim() ? "" : "请为助手取一个名字");
-    if (!name.reportValidity()) return;
+    return name.reportValidity();
+  }
+  async save(submitted) {
     this.saving = true; this.render();
     try {
-      const {profile} = await api(base+"/profile", {method:"PUT", body:this.draft});
-      this.saved = profile; this.draft = structuredClone(profile); this.notice = "个人助手已保存";
+      const {profile} = await api(base+"/profile", {method:"PUT", body:submitted});
+      if (JSON.stringify(this.draft) === JSON.stringify(submitted)) this.draft = structuredClone(profile);
+      this.saved = profile; this.notice = "个人助手已保存";
       document.dispatchEvent(new CustomEvent("personal-assistant:profile", {detail:profile}));
-    } catch (error) { this.notice = errorText(error); }
-    finally { this.saving = false; this.render(); }
+    } catch (error) {
+      this.notice = errorText(error); throw error;
+    } finally { this.saving = false; this.render(); }
   }
   async loadMemory(path) {
     const existing = this.editors.get(path);

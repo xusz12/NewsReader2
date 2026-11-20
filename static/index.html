@@ -24,7 +24,7 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.6.3</title>
+    <title>News Reader v0.6.4</title>
     <script>
       try {
         const m =
@@ -45,10 +45,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.6.3" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.6.3" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.6.4" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.6.4" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.6.3"
+      href="/static/style.css?v=0.6.4"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +92,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.6.3</span>
+            <span class="brand-version">v0.6.4</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -338,7 +338,7 @@
               <button
                 class="nav-settings-btn"
                 id="leftNavSettingsBtn"
-                title="系统与模型设置 (,)"
+                title="设置"
                 type="button"
               >
                 <div class="nav-settings-btn-inner">
@@ -731,79 +731,9 @@
             aria-labelledby="settingsListTitle"
           >
             <div class="feed-header settings-list-header"><div class="settings-list-heading"><h1 id="settingsListTitle" tabindex="-1">设置</h1><button class="reader-action-btn" id="closeSettingsBtn" type="button" title="返回阅读 (Esc)">返回阅读 <kbd>Esc</kbd></button></div></div>
-            <div class="settings-category-list" aria-label="设置分类">
-              <button class="settings-category-card" id="settingsCategory-system" data-settings-tab="system" data-title="系统与版本" data-description="查看当前版本、更新状态与版本记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <rect
-                      height="14"
-                      rx="2"
-                      ry="2"
-                      width="20"
-                      x="2"
-                      y="3"
-                    ></rect>
-                    <line x1="8" x2="16" y1="21" y2="21"></line>
-                    <line x1="12" x2="12" y1="17" y2="21"></line></svg
-                ></span><span class="settings-category-copy"><strong>系统与版本</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-personal-assistant" data-settings-tab="personal-assistant" data-title="个人助手" data-description="身份、工作区、模型与长期记忆。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/><path d="M8 8h8M8 12h5"/></svg></span><span class="settings-category-copy"><strong>个人助手</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-models" data-settings-tab="models" data-title="模型与 Agent" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                    ></path></svg
-                ></span><span class="settings-category-copy"><strong>模型与 Agent</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-deepseek" data-settings-tab="deepseek" data-title="API 管理" data-description="按服务商管理密钥与模型，查看功能用途和失效后的处理。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
-                    ></path>
-                    <polyline points="14 2 14 8 20 8"></polyline></svg
-                ></span><span class="settings-category-copy"><strong>API 管理</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-classification" data-settings-tab="classification" data-title="新闻分类" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="settings-category-copy"><strong>新闻分类</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-schedules" data-settings-tab="schedules" data-title="日报任务" data-description="查看报告排期、运行状态和执行记录。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="settings-category-copy"><strong>日报任务</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-pipeline" data-settings-tab="pipeline" data-title="信源与采集" data-description="配置定时采集与新闻流显示，清理已有数据。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <polyline
-                      points="22 12 18 12 15 21 9 3 6 12 2 12"
-                    ></polyline></svg
-                ></span><span class="settings-category-copy"><strong>信源与采集</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-x" data-settings-tab="x" data-title="X" data-description="" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 3h4l12 18h-4L4 3Zm16 0L4 21"/></svg></span><span class="settings-category-copy"><strong>X</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-storage" data-settings-tab="storage" data-title="数据库与存储" data-description="接入原有新闻库，查看与设置存储路径。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"
-                  ><svg
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg
-                ></span><span class="settings-category-copy"><strong>数据库与存储</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-catchup" data-settings-tab="catchup" data-title="积压新闻总结范围" data-description="设置总结的最大自然日与最多未读条数。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg></span><span class="settings-category-copy"><strong>积压新闻总结范围</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-shortcuts" data-settings-tab="shortcuts" data-title="快捷键" data-description="自定义快捷键与底部快捷键栏，保存在当前浏览器，保存后生效。" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M5 9h2m2 0h2m2 0h2m2 0h2M5 12h2m2 0h2m2 0h2m2 0h2M7 15h10"/></svg></span><span class="settings-category-copy"><strong>快捷键</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-              <button class="settings-category-card" id="settingsCategory-help" data-settings-tab="help" data-title="帮助说明" type="button" aria-controls="settingsContent" aria-current="false"><span class="settings-category-icon"><svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4M12 17h.01"/></svg></span><span class="settings-category-copy"><strong>帮助说明</strong></span><svg class="settings-category-arrow" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 5 7 7-7 7"/></svg></button>
-            </div>
+            <div class="feed-search-row"><label class="feed-search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg><input class="feed-search-input" id="settingsSearchInput" type="search" placeholder="搜索设置" aria-label="搜索全部设置" autocomplete="off"></label></div>
+            <nav class="settings-category-list" aria-label="设置目录" id="settingsDirectory"></nav>
+            <div class="settings-category-list" id="settingsSearchResults" aria-label="设置搜索结果" hidden></div>
           </section>
           <section
             class="detail-panel settings-detail"
@@ -826,13 +756,13 @@
                     stroke-width="2"
                   >
                     <path d="m15 18-6-6 6-6" />
-                  </svg>
+                  </svg><span>目录</span>
                 </button>
                 <div>
-
-                  <h2 id="settingsDetailTitle" tabindex="-1">系统与版本</h2>
+                  <h2 id="settingsDetailTitle" tabindex="-1">采集与处理</h2>
                 </div>
               </div>
+              <button class="reader-action-btn reader-action-btn--meta" id="settingsHelpBtn" type="button" hidden>帮助</button>
               <div class="settings-detail-actions" hidden>
                 <button
                   class="btn-secondary"
@@ -840,9 +770,9 @@
                   type="button"
                   disabled
                 >
-                  撤销更改</button
+                  撤销本页</button
                 ><button class="btn-primary" id="settingsSaveBtn" type="button">
-                  保存设置
+                  保存本页
                 </button>
               </div>
             </header>
@@ -852,10 +782,6 @@
               role="status"
             ></div>
             <div class="settings-main">
-              <p
-                class="settings-detail-description"
-                id="settingsDetailDescription"
-              ></p>
               <div class="settings-sheet" id="settingsContent"></div>
             </div>
           </section>
@@ -1021,9 +947,9 @@
         </button>
       </div>
     </div>
-    <script src="/static/error_ui.js?v=0.6.3"></script>
+    <script src="/static/error_ui.js?v=0.6.4"></script>
     <script
-      src="/static/app.js?v=0.6.3"
+      src="/static/app.js?v=0.6.4"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>

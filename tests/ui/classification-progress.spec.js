@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openSettings, withClassificationBatch } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings, withClassificationBatch } from './helpers.js';
 
 test.beforeEach(async ({page}) => {
   await page.route('**/api/tasks/progress',route=>route.fulfill({json:{ok:true,database_token:'test',topics:{items:[]},reports:{items:[],total:0,counts:{}}}}));
@@ -149,15 +149,15 @@ test('disabled classification hides pending progress and resumes after it is ena
   await expect(indicator(page)).toBeVisible();
 });
 
-test('classification recovery opens its own module and focuses inline Jev API management', async ({ page }) => {
+test('classification recovery opens its own module and focuses the Jev connection', async ({ page }) => {
   await start(page, { ...base(), configured: false });
   await indicator(page).hover();
   await page.locator('#classificationProgressSettings').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('采集与处理');
   await page.locator('#classificationApiSettingsBtn').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('新闻分类');
-  await expect(page.locator('#classificationApiSettings')).toBeVisible();
-  await expect(page.locator('#classificationApiSettings')).toContainText('Jev');
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
+  await expect(page.locator('#apiTitle-jev')).toBeVisible();
+  await expect(page.locator('#apiTitle-jev')).toContainText('Jev');
 });
 
 test('zero percent, failures and unread scope stay explicit without pretending completion', async ({ page }) => {
@@ -239,7 +239,7 @@ test('header progress uses only this persisted batch while settings keeps librar
   await page.reload();
   await expect(meter(page)).toHaveAttribute('aria-valuenow','5');
   await openSettings(page);
-  await page.locator('[data-settings-tab="classification"]').click();
+  await openSettingsItem(page, 'classification');
   await expect(page.locator('#classificationSettingsCompletionText')).toHaveText('1,005 / 1,020 条');
   state.progress.batch={id:'next',total:3,done:0,pending:3,running:0,failed:0};
   state.progress.done=1020;state.progress.total=1023;

@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openSettings, openNavigation, contrast } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings, openNavigation, contrast } from './helpers.js';
 
 for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'light'], ['eink', 'light'], ['system', 'dark']]) {
   test(`design corrections: button contrast, terminals and heading ${theme}/${colorScheme}`, async ({ page }) => {
@@ -14,7 +14,7 @@ for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'light'], ['ein
     await publish.hover();
     await expect.poll(() => contrast(publish)).toBeGreaterThanOrEqual(4.5);
     await openSettings(page);
-    await page.locator('[data-settings-tab="classification"]').click();
+    await openSettingsItem(page, 'classification');
     await page.getByRole('switch', { name: '启用自动分类', exact: true }).click();
     const save = page.locator('#settingsSaveBtn');
     await page.mouse.move(0, 0);
@@ -22,9 +22,11 @@ for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'light'], ['ein
     await save.hover();
     await expect.poll(() => contrast(save)).toBeGreaterThanOrEqual(4.5);
     for (const [section, terminal] of [['models', '#connTestTerminal'], ['deepseek', '#translationTestTerminal']]) {
-      await page.locator(`[data-settings-tab="${section}"]`).click();
+      await openSettingsItem(page, section);
+      if (section === 'deepseek') await page.locator('#apiTitle-deepseek').click();
       await expect(page.locator('.settings-detail-heading h2')).toHaveCSS('font-weight', '600');
-      if (section === 'models') await page.locator(terminal).evaluate(node=>{node.hidden=false;node.textContent='[SUCCESS] 本次模型请求成功。';});
+      await expect(page.locator(terminal)).toBeHidden();
+      await page.locator(terminal).evaluate(node=>{node.hidden=false;node.textContent='[SUCCESS] 本次模型请求成功。';});
       await expect(page.locator(terminal)).toBeVisible();
       if (theme === 'eink') {
         await expect(page.locator(terminal)).toHaveCSS('background-color', 'rgb(244, 244, 244)');

@@ -1,9 +1,9 @@
+import { openSettingsItem, choosePicker, chooseTheme, openSettings, contrast } from './helpers.js';
 import {test,expect} from '@playwright/test';
-import {choosePicker,chooseTheme,openSettings,contrast} from './helpers.js';
 
 async function openModels(page) {
   await page.goto('/'); await openSettings(page);
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
 }
 
 async function saveModels(request,data) {
@@ -47,9 +47,9 @@ for (const width of [390,1440]) test('连接测试状态区分成功失败与运
       await page.screenshot({path:`.ui-artifacts/connection-status-${width}-${theme}-${colorScheme}.png`});
     }
     if(width===390) await page.locator('#settingsCategoryBackBtn').click();
-    await page.locator('[data-settings-tab="system"]').click();
+    await openSettingsItem(page, 'system');
     if(width===390) await page.locator('#settingsCategoryBackBtn').click();
-    await page.locator('[data-settings-tab="models"]').click();
+    await openSettingsItem(page, 'models');
     for(const [index,status] of ['running','failed','success'].entries()) await expect(terminals[index]).toHaveAttribute('data-status',status);
     release();
     await expect(terminals[0]).toHaveAttribute('data-status','success');
@@ -96,8 +96,8 @@ test('各功能及报告类型同时展开、独立编辑保存和连接测试',
     await expect(page.locator('#connTestTerminal')).toBeHidden();
     await expect(page.locator('#connTestTerminal')).toHaveAttribute('data-status','ready');
     await expect(box(page,'chat','模型')).toHaveText('ui-catalog-b');
-    await page.locator('[data-settings-tab="system"]').click();
-    await page.locator('[data-settings-tab="models"]').click();
+    await openSettingsItem(page, 'system');
+    await openSettingsItem(page, 'models');
     await expect(box(page,'reports','模型')).toHaveText('ui-catalog-b');
     await page.locator('#settingsSaveBtn').click();
     await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
@@ -217,9 +217,9 @@ test('Pi refresh removes logged-out providers and accepts an empty catalog witho
     await expect(page.locator('#settingsSaveBtn')).toBeHidden();
     // Reopening the category refreshes again, even though settings are cached.
     const before=calls;
-    await page.locator('[data-settings-tab="system"]').click();
+    await openSettingsItem(page, 'system');
     stage=0;
-    await page.locator('[data-settings-tab="models"]').click();
+    await openSettingsItem(page, 'models');
     await expect.poll(()=>calls).toBeGreaterThan(before);
     await expect(section(page,'chat').getByRole('combobox',{name:'服务商',exact:true})).toHaveText('test');
     await expect(section(page,'chat').getByRole('combobox',{name:'模型',exact:true})).toHaveText('Test model');

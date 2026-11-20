@@ -1,10 +1,10 @@
+import { openSettingsItem, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, openSettings } from './helpers.js';
 
 const storageKey = 'newsreader_workbench_shortcuts';
 async function section(page, id = 'shortcuts') {
   if (await page.locator('#feedColSettings').evaluate(node => node.inert)) await page.locator('#settingsCategoryBackBtn').click();
-  await page.locator(`[data-settings-tab="${id}"]`).click();
+  await openSettingsItem(page, id);
 }
 async function start(page) {
   await page.goto('/');
@@ -245,11 +245,9 @@ for (const width of [320, 390, 921, 1440]) {
     for (const theme of ['light', 'dark', 'eink']) {
       await chooseTheme(page, theme);
       await openSettings(page);
-      await expect(page.locator('#feedColSettings .settings-category-card:visible strong')).toHaveText([
-        '系统与版本', '个人助手', '模型与 Agent', 'API 管理', '新闻分类', '日报任务',
-        '信源与采集', 'X', '数据库与存储', '积压新闻总结范围', '快捷键', '帮助说明',
-      ]);
-      await expect(page.locator('#feedColSettings, #detailPanelSettings').locator('#settingsSearchInput, .settings-eyebrow, .settings-category-meta, .settings-category-description, .settings-list-footer')).toHaveCount(0);
+      if (await page.locator('#feedColSettings').evaluate(node=>node.inert)) await page.locator('#settingsCategoryBackBtn').click();
+      await expect(page.locator('#settingsDirectory [data-settings-page] strong')).toHaveText(['采集与处理','研读与助手','API 与运行环境','阅读偏好与维护']);
+      await expect(page.locator('#settingsSearchInput')).toBeVisible();
       const heights = await page.locator('.settings-category-card').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
       expect(Math.max(...heights)).toBeLessThanOrEqual(40);
       await page.screenshot({ path: `.ui-artifacts/settings-compact-${width}-${theme}.png` });
@@ -265,6 +263,12 @@ for (const width of [320, 390, 921, 1440]) {
       await record(page, 'favorite', 'g');
       for (const category of ['classification', 'catchup']) {
         await section(page, category);
+        await expect(page.locator('#settingsSaveBtn')).toBeHidden();
+        if (category === 'classification') await page.locator('[name="classification.enabled"]').click();
+        else {
+          const days = page.locator('[name="news_summary.max_days"]');
+          await days.fill(String(Number(await days.inputValue()) + 1));
+        }
         const title = await page.locator('#settingsDetailTitle').boundingBox();
         for (const id of ['settingsSaveBtn', 'settingsResetBtn']) {
           const button = await page.locator(`#${id}`).boundingBox();
@@ -274,7 +278,9 @@ for (const width of [320, 390, 921, 1440]) {
         }
         await expect(page.locator('#settingsDetailTitle')).toHaveAttribute('title', await page.locator('#settingsDetailTitle').textContent());
         await page.screenshot({ path: `.ui-artifacts/settings-inline-actions-${category}-${width}-${theme}.png` });
+        await page.locator('#settingsResetBtn').click();
       }
+      await section(page);
       await page.locator('#settingsResetBtn').click();
       await page.keyboard.press('Escape');
     }

@@ -1,4 +1,4 @@
-import { answerConfirm } from "./helpers.js";
+import { openSettingsItem, expandProvider, answerConfirm } from './helpers.js';
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset-reading'); });
@@ -210,7 +210,7 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   await page.route('**/api/settings/apis/deepseek/test', route => route.fulfill({ json: { ok: true, message: '模型连接成功', model: route.request().postDataJSON().model, elapsed_ms: 15 } }));
   await start(page);
   await page.locator('#leftNavSettingsBtn').click();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');await expandProvider(page,'deepseek');
   await expect(page.locator('#deepseekSecret')).toHaveCount(0);
   await expect(page.locator('.masked-secret')).toHaveText('sk-f••••••••1234');
   const custom = page.locator('input[name="llm.translation.model"]');
@@ -241,7 +241,7 @@ test('key update/cancel, model discovery and custom selection preserve settings 
   await expect(page.locator('#translationTestTerminal')).toHaveAttribute('data-status','failed');
   await custom.fill('changed-model');
   await expect(page.locator('#translationTestTerminal')).toHaveAttribute('data-status','ready');
-  await expect(page.locator('#translationTestTerminal')).toContainText('[READY]');
+  await expect(page.locator('#translationTestTerminal')).toBeHidden();
   await page.locator('#deleteSecretBtn').click();
   await answerConfirm(page);
   await expect(page.locator('#deepseekSecret')).toBeVisible();

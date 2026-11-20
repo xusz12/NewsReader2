@@ -1,6 +1,4 @@
-import { choosePicker } from "./helpers.js";
-import { answerConfirm } from "./helpers.js";
-import { chooseTheme, openSettings } from "./helpers.js";
+import { openSettingsItem, expandProvider, choosePicker, answerConfirm, chooseTheme, openSettings } from './helpers.js';
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 const version = JSON.parse(fs.readFileSync(new URL("../../version.json", import.meta.url), "utf8")).version;
@@ -42,7 +40,7 @@ test("independent release shows its version and disabled update source", async (
   await expect(page).toHaveTitle(`News Reader ${version}`);
   await expect(page.locator(".brand-version")).toHaveText(version);
   await page.keyboard.press(",");
-  await page.locator('[data-settings-tab="system"]').click();
+  await openSettingsItem(page, 'system');
   await page.locator("#checkUpdateBtn").click();
   await expect(page.locator("#updateResult")).toContainText(
     "独立项目尚未配置更新仓库",
@@ -54,6 +52,75 @@ test("independent release shows its version and disabled update source", async (
   await expect(page.locator("#releaseNotes")).toContainText(
     "作为独立项目开始版本管理",
   );
+});
+
+test("page saves keep other drafts and edits made while the response is pending", async ({page, request}) => {
+  const original = (await (await request.get("/api/settings")).json()).news_summary;
+  const first = original.max_days === 17 ? 18 : 17;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route("**/api/settings", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    const response = await route.fetch();
+    await pending;
+    await route.fulfill({response});
+  });
+  try {
+    await ready(page);
+    await openSettings(page);
+    const field = page.locator('[name="collection.daily"]');
+    const initialTimes = await field.inputValue();
+    await field.fill("25:99");
+    const summary = page.locator('[data-settings-tab="catchup"]');
+    await openSettingsItem(page, 'catchup');
+    const days = page.locator('[name="news_summary.max_days"]');
+    await days.fill(String(first));
+    const sent = page.waitForRequest(req => req.url().endsWith("/api/settings") && req.method() === "PUT");
+    await page.locator("#settingsSaveBtn").click();
+    expect((await sent).postDataJSON()).toEqual({news_summary:{...original, max_days:first}});
+    await days.fill(String(first + 1));
+    await openSettingsItem(page, 'pipeline');
+    const received = page.waitForResponse(res => res.url().endsWith("/api/settings") && res.request().method() === "PUT");
+    release();
+    await received;
+    await expect(field).toHaveValue("25:99");
+    await page.locator("#settingsResetBtn").click();
+    await expect(field).toHaveValue(initialTimes);
+    await expect(page.locator("#settingsSaveBtn")).toBeHidden();
+    await expect(page.locator('[data-settings-page="research"] [data-unsaved]')).toBeVisible();
+    await openSettingsItem(page, 'catchup');
+    await expect(days).toHaveValue(String(first + 1));
+    await page.locator("#settingsResetBtn").click();
+    await expect(days).toHaveValue(String(first));
+    expect((await (await request.get("/api/settings")).json()).news_summary.max_days).toBe(first);
+  } finally {
+    release();
+    await request.put("/api/settings", {data:{news_summary:original}});
+  }
+});
+
+test("mobile collection times wrap and the shared picker appends to pasted times", async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.goto("/");
+  await openSettings(page);
+  await expect(page.locator('#feedColSettings [data-settings-page] strong')).toHaveText(["采集与处理","研读与助手","API 与运行环境","阅读偏好与维护"]);
+  await openSettingsItem(page, 'pipeline');
+  const manual = await page.locator("#settingsCollectBtn").boundingBox();
+  const detail = await page.locator(".settings-main").boundingBox();
+  expect(manual.y + manual.height).toBeLessThanOrEqual(detail.y + detail.height);
+  const daily = page.locator('[name="collection.daily"]');
+  await daily.fill("09:00、11:20、12:30、13:40、14:50、16:00");
+  expect(await daily.evaluate(node => node.scrollHeight - node.clientHeight)).toBeLessThanOrEqual(1);
+  await daily.fill("08:05\n12:05");
+  const picker = page.locator('[data-collection-times="daily"]');
+  await picker.getByRole("button",{name:"选择每天采集时间"}).click();
+  await picker.getByRole("combobox",{name:"每天采集时间小时"}).click();
+  await page.getByRole("option",{name:"18 时",exact:true}).click();
+  await picker.getByRole("combobox",{name:"每天采集时间分钟"}).click();
+  await page.getByRole("option",{name:"40 分",exact:true}).click();
+  await picker.getByRole("button",{name:"加入时刻"}).click();
+  await expect(daily).toHaveValue("08:05、12:05、18:40");
+  await expect(page.locator("#settingsSaveBtn")).toBeVisible();
 });
 
 test("three-column shell, real data and retired feature removal", async ({
@@ -204,7 +271,7 @@ test("settings draft, runtime, connection test and save use real contracts", asy
   await page.keyboard.press(",");
   await expect(page.locator("#feedColSettings")).toBeVisible();
   await expect(page.locator("#detailPanelSettings")).toBeVisible();
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await choosePicker(page,'Runtime','Codex','chat');
   await page.route("**/api/settings/models", (route) =>
     route.fulfill({
@@ -511,16 +578,16 @@ for (const [width, height] of viewports)
     }
     if (width <= 920) {
       await expect(page.locator("#feedColSettings")).toBeVisible();
-      await expect(page.locator("#detailPanelSettings")).not.toBeVisible();
+      await expect(page.locator("#collectionSchedule")).toBeVisible();
       await page.screenshot({
         animations: "disabled",
         path: `.ui-artifacts/settings-categories-${width}.png`,
       });
-      await page.locator('[data-settings-tab="models"]').click();
+      await openSettingsItem(page, 'models');
     } else {
       if (width >= 1280) await expect(page.locator("#leftNavDrawer")).toBeVisible();
       await expect(page.locator("#feedColSettings")).toBeVisible();
-      await page.locator('[data-settings-tab="models"]').click();
+      await openSettingsItem(page, 'models');
     }
     await expect(page.locator("#modelSettings")).toBeVisible();
     expect(await overflow()).toEqual([]);
@@ -546,7 +613,7 @@ test("late catalog and connection results cannot replace a changed draft", async
 }) => {
   await ready(page);
   await page.keyboard.press(",");
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await choosePicker(page,'Runtime','Codex','chat');
   let releaseCatalog;
   const catalogGate = new Promise((resolve) => (releaseCatalog = resolve));
@@ -626,7 +693,7 @@ test("database picker draft survives redraw and is submitted unchanged", async (
   );
   await ready(page);
   await page.keyboard.press(",");
-  await page.locator('[data-settings-tab="storage"]').click();
+  await openSettingsItem(page, 'storage');
   await page.locator("#pickDatabaseBtn").click();
   await expect(page.locator('[name="database.configured_path"]')).toHaveValue(
     "/tmp/newsreader selected.sqlite3",
@@ -653,7 +720,7 @@ test("failed settings save keeps draft and allows retry", async ({ page, request
   expect(baseline.ok()).toBe(true);
   await ready(page);
   await page.keyboard.press(",");
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await choosePicker(page,'Runtime','Codex','chat');
   await choosePicker(page,'模型','ui-catalog-b','chat');
   await page.route("**/api/settings", (route) =>
@@ -737,22 +804,11 @@ test("settings is an inline three-column workspace with compact categories", asy
     "aria-current",
     "page",
   );
-  await expect(page.locator("#settingsSearchInput, .settings-category-meta, .settings-category-description, .settings-list-footer")).toHaveCount(0);
-  await expect(page.locator(".settings-category-card:visible")).toHaveCount(12);
-  await expect(page.locator('[data-settings-tab="personal-assistant"]')).toBeVisible();
-  await expect(page.locator("[data-settings-tab]").first()).toHaveAttribute("data-settings-tab", "system");
-  await page.locator('[data-settings-tab="storage"]').click();
-  await expect(page.locator("#settingsDetailTitle")).toHaveText("数据库与存储");
-  await expect(page.locator('[data-section="storage"]')).toBeVisible();
-  for (const category of ["deepseek", "pipeline", "system", "models"]) {
-    await page.locator(`[data-settings-tab="${category}"]`).click();
-    const cards = page.locator(`#settingsContent > [data-section="${category}"]`);
-    const count = category === "pipeline" ? 4 : 1;
-    await expect(cards).toHaveCount(count);
-    for (const card of await cards.all()) await expect(card).toBeVisible();
-    await expect(
-      page.locator("#settingsContent > [data-section]:visible"),
-    ).toHaveCount(count);
+  await expect(page.locator("#settingsSearchInput")).toBeVisible();
+  await expect(page.locator("[data-settings-page]")).toHaveCount(4);
+  for (const [task, pageId] of [["storage","application"],["deepseek","services"],["pipeline","collection"],["models","research"]]) {
+    await openSettingsItem(page, task);
+    await expect(page.locator("#settingsContent > [data-workspace]:visible")).toHaveAttribute("data-workspace",pageId);
   }
   await chooseTheme(page, "dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -780,14 +836,15 @@ test("settings navigation preserves unsaved fields and the reading position", as
     .locator("#detailScrollArea")
     .evaluate((node) => node.scrollTop);
   await page.locator("#leftNavSettingsBtn").click();
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await choosePicker(page,'Runtime','Codex','chat');
   await choosePicker(page,'模型','ui-catalog-b','chat');
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'deepseek');
   await page
     .locator('input[name="llm.translation.model"]')
     .fill("translation-draft");
-  await page.locator('[data-settings-tab="models"]').click();
+  await openSettingsItem(page, 'models');
   await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
   await page.keyboard.press(",");
   await expect(page.locator("#feedColSettings")).not.toBeVisible();
@@ -797,13 +854,14 @@ test("settings navigation preserves unsaved fields and the reading position", as
   ).toBe(position);
   await page.keyboard.press(",");
   await expect(page.locator('select[name="agent.codex.model"]')).toHaveValue("ui-catalog-b");
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'deepseek');
   await expect(page.locator('input[name="llm.translation.model"]')).toHaveValue(
     "translation-draft",
   );
   await page.locator("#settingsResetBtn").click();
   await expect(page.locator("#settingsStatus")).toHaveText(
-    "已恢复已保存的配置",
+    "已撤销本页更改",
   );
   await expect(
     page.locator('input[name="llm.translation.model"]'),
@@ -820,18 +878,20 @@ test("mobile settings return to categories and keep the original reader", async 
   const title = await page.locator("#articleMainTitle").textContent();
   await openSettings(page);
   await expect(page.locator("#feedColSettings")).toBeVisible();
-  await expect(page.locator("#detailPanelSettings")).not.toBeVisible();
-  await page.locator('[data-settings-tab="storage"]').click();
+  await expect(page.locator("#collectionSchedule")).toBeVisible();
+  await openSettingsItem(page, 'storage');
   await expect(page.locator('[data-section="storage"]')).toBeVisible();
   await expect(page.locator("#feedColSettings")).toHaveJSProperty("inert", true);
   await page.locator("#settingsCategoryBackBtn").click();
   await expect(page.locator("#feedColSettings")).toBeVisible();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'deepseek');
   await page
     .locator('input[name="llm.translation.model"]')
     .fill("mobile-draft");
   await page.locator("#settingsCategoryBackBtn").click();
-  await page.locator('[data-settings-tab="deepseek"]').click();
+  await openSettingsItem(page, 'deepseek');
+  await expandProvider(page,'deepseek');
   await expect(page.locator('input[name="llm.translation.model"]')).toHaveValue(
     "mobile-draft",
   );

@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, openNavigation, openSettings } from './helpers.js';
 import {test,expect} from '@playwright/test';
-import {chooseTheme,openNavigation,openSettings} from './helpers.js';
 
 const codex={runtime:'codex',codex:{model:'ui-catalog-a',profile:'',provider:'',sandbox:'read-only',reasoning_effort:''},pi:{provider:'test-provider',model:'test-model'}};
 const pi={...codex,runtime:'pi'};
@@ -85,7 +85,7 @@ for(const width of [320,390,1440])test('模型信息沿用阅读布局，设置�
   const current=[a,b].map(row=>({...row,trigger:'manual',status:'running',phase:'editing',progress:{stage:'writing'}}));
   await page.route('**/api/reports/schedule-status',route=>route.fulfill({json:{...observation,worker_running:true,
     scheduler:{...observation.scheduler,status:'running'},concurrency:3,queue:{pending:0,running:2,failed:0},current:current[0],current_reports:current}}));
-  await openSettings(page);await page.locator('[data-settings-tab="schedules"]').click();
+  await openSettings(page);await openSettingsItem(page, 'schedules');
   const status=page.locator('section[aria-labelledby="scheduleStatusTitle"]');
   await expect(status).toContainText('最多并行 3 份');await expect(status).toContainText('Codex · ui-catalog-a');await expect(status).toContainText('Pi · test-model');
   expect(await status.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);

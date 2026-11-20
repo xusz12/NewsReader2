@@ -1,10 +1,10 @@
+import { openSettingsItem, openSettings, chooseTheme, contrast } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme, contrast } from './helpers.js';
 
 const account = (page, handle) => page.locator(`[data-x-account="${handle}"]`);
 async function start(page) {
   await page.goto('/'); await openSettings(page);
-  await page.locator('[data-settings-tab="x"]').click();
+  await openSettingsItem(page, 'x');
   await expect(page.locator('#showXAccountFormBtn')).toBeVisible();
   await expect(page.locator('#xAccountForm')).toBeHidden();
 }
@@ -62,8 +62,8 @@ test('add, normalize, independent switches, draft navigation, save, undo and dup
   expect(await page.locator('#xAccountInput').evaluate(el => el.validationMessage)).toContain('已经');
   await add(page, 'uixtesttwo');
   await account(page,'uixtesttwo').getByRole('switch', {name:'自动抓取全文 @uixtesttwo', exact:true}).check();
-  await page.locator('[data-settings-tab="pipeline"]').click();
-  await page.locator('[data-settings-tab="x"]').click();
+  await openSettingsItem(page, 'pipeline');
+  await openSettingsItem(page, 'x');
   await expect(row.getByRole('switch', {name:'自动翻译 @uixtestone', exact:true})).toBeChecked();
   await page.locator('#settingsSaveBtn').click();
   await expect(page.locator('#settingsStatus')).toHaveText('设置已保存');
@@ -73,7 +73,7 @@ test('add, normalize, independent switches, draft navigation, save, undo and dup
   await row.getByRole('switch', {name:'自动抓取全文 @uixtestone', exact:true}).check();
   await page.locator('#settingsResetBtn').click();
   await expect(row.getByRole('switch', {name:'自动抓取全文 @uixtestone', exact:true})).not.toBeChecked();
-  await page.reload(); await openSettings(page); await page.locator('[data-settings-tab="x"]').click();
+  await page.reload(); await openSettings(page); await openSettingsItem(page, 'x');
   await expect(row.getByRole('switch', {name:'自动翻译 @uixtestone', exact:true})).toBeChecked();
   expect(errors).toEqual([]);
 });
@@ -100,8 +100,8 @@ test('adding waits for content verification and only successful tests expose sav
     await expect(account(page,'uixtestprobe')).toHaveCount(0);
     await expect(page.locator('#settingsSaveBtn')).toBeHidden();
     await expect(page.locator('#settingsResetBtn')).toBeHidden();
-    await page.locator('[data-settings-tab="pipeline"]').click();
-    await page.locator('[data-settings-tab="x"]').click();
+    await openSettingsItem(page, 'pipeline');
+    await openSettingsItem(page, 'x');
     await expect(button).toHaveText('测试中...');
     await button.evaluate(el=>el.click());
     expect(calls).toBe(1);

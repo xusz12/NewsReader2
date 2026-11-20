@@ -13,7 +13,7 @@
 原 `news_index.sqlite3` 可以直接打开，无需转换、导出或重建。数据库路径按以下顺序确定：
 
 1. `NEWS_READER_DB_PATH` 环境变量。
-2. `app_settings.json` 中的 `database.path`（也可在“设置 → 数据”选择）。
+2. `app_settings.json` 中的 `database.path`（也可在「设置 → 阅读偏好与维护 → 数据库位置」选择）。
 3. 已存在的项目父目录 `news_index.sqlite3`，兼容原安装布局。
 4. 项目根目录下的 `news_index.sqlite3`，用于新安装。
 

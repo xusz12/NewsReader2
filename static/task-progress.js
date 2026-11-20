@@ -1,7 +1,7 @@
 import { $, api, busy, escapeHTML as e, toast } from "./ui.js";
-import { classificationStatus } from "./classification-progress.js?v=translation-routing-1";
-import { jobErrorText } from "./topic-status.js";
-import { failureText, statusText, reportProgress } from "./report-status.js?v=0.5.16";
+import { classificationStatus } from "./classification-progress.js?v=0.6.4";
+import { jobErrorText } from "./topic-status.js?v=0.6.4";
+import { failureText, statusText, reportProgress } from "./report-status.js?v=0.6.4";
 
 const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",
   update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};

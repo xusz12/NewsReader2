@@ -1,4 +1,4 @@
-import { AgentModelPicker } from "./agent-model-picker.js?v=0.4.6";
+import { AgentModelPicker } from "./agent-model-picker.js?v=0.6.4";
 import { confirmAction } from "./confirm-dialog.js";
 import { dismissOnOutsidePress } from "./outside-dismiss.js?v=report-layout-1";
 import {

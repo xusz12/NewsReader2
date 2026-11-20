@@ -1,5 +1,5 @@
+import { openSettingsItem, openSettings, chooseTheme, contrast } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { openSettings, chooseTheme, contrast } from './helpers.js';
 
 const checked_at = '2026-11-10T03:00:00+00:00';
 const environment = {ok:true, checked_at, checks:[
@@ -21,8 +21,9 @@ async function start(page) {
   await page.goto('/');
   await expect(page.locator('#feedCardList .news-card').first()).toBeVisible();
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
-  await expect(page.locator('#collectionServicesTitle')).toHaveText('采集服务配置');
+  await openSettingsItem(page, 'pipeline');
+  await expect(page.locator('#collectionSchedule')).toContainText('采集排期');
+  await openSettingsItem(page,'environment');
 }
 
 test('checks are explicit, retain settings drafts and invalidate account results after browser checks', async ({page}) => {
@@ -34,7 +35,9 @@ test('checks are explicit, retain settings drafts and invalidate account results
   await start(page);
   expect(calls).toBe(0);
   await expect(page.locator('[data-environment-check="x"]')).toContainText('未检查');
+  await openSettingsItem(page,'pipeline');
   await page.locator('[name="collection.daily"]').fill('07:00、19:00');
+  await openSettingsItem(page,'environment');
   await page.locator('#checkCollectionXBtn').click();
   await expect(page.locator('[data-environment-check="x"]')).toContainText('通过');
   await page.locator('#checkCollectionEnvironmentBtn').click();
@@ -43,11 +46,13 @@ test('checks are explicit, retain settings drafts and invalidate account results
   await expect(page.locator('[data-environment-check="x"] .status-dot')).toHaveAttribute('data-status','unchecked');
   await expect(page.locator('[data-environment-check="x"]')).toContainText('检查于');
   await expect(page.locator('[name="collection.daily"]')).toHaveValue('07:00、19:00');
+  await expect(page.locator('#settingsSaveBtn')).toBeHidden();
+  await openSettingsItem(page,'translation');
   await expect(page.locator('#settingsSaveBtn')).toBeVisible();
   await page.locator('#collectionApiSettingsBtn').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 管理');
-  await expect(page.locator('#settingsDetailTitle')).toBeFocused();
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
+  await expect(page.locator('summary:focus, #modelSettings:focus')).toHaveCount(1);
+  await openSettingsItem(page, 'pipeline');
   await expect(page.locator('[name="collection.daily"]')).toHaveValue('07:00、19:00');
   await expect(page.locator('[data-environment-check="runtime"]')).toContainText('2.0.3');
   expect(calls).toBe(2);
@@ -78,15 +83,18 @@ test('pending checks disable duplicates and survive navigation without saving dr
   });
   try {
     await start(page);
+    await openSettingsItem(page,'translation');
     await page.locator('[name="collection.translation_concurrency"]').fill('7');
+    await openSettingsItem(page,'environment');
     await page.locator('#checkCollectionEnvironmentBtn').click();
     await expect(page.locator('#checkCollectionXBtn')).toBeDisabled();
     await expect(page.locator('#checkCollectionEnvironmentBtn')).toHaveAttribute('aria-busy','true');
-    await page.locator('#collectionApiSettingsBtn').click();
+    await openSettingsItem(page,'deepseek');
     release();
-    await page.locator('[data-settings-tab="pipeline"]').click();
+    await openSettingsItem(page, 'pipeline');
     await expect(page.locator('[data-environment-check="runtime"]')).toContainText('2.0.3');
     await expect(page.locator('[name="collection.translation_concurrency"]')).toHaveValue('7');
+    await openSettingsItem(page,'environment');
     await expect(page.locator('#checkCollectionEnvironmentBtn')).toBeEnabled();
   } finally { release(); }
 });
@@ -95,23 +103,19 @@ test('services show saved routing, distinguish configured from tested and reuse 
   const settings = await (await request.get('/api/settings')).json();
   const preferred = settings.llm.translation.provider;
   const alternative = settings.api_providers.find(service => service.translation_base_url && service.id !== preferred);
-  const firstService = page.locator('#collectionServices [data-collection-service]').first();
-  await start(page);
-  await expect(firstService).toHaveAttribute('data-collection-service', preferred);
-  await expect(firstService).toContainText('缺少 API 密钥');
-  await expect(page.locator('#collectionServices')).toContainText('配置齐全不代表连接成功');
-  await page.locator('#collectionApiSettingsBtn').click();
+  await start(page);await openSettingsItem(page,'translation');
   const alternateRadio = page.getByRole('radio', {name: alternative.label, exact:true});
   await expect(alternateRadio).not.toBeChecked();
   await alternateRadio.check();
-  await expect(alternateRadio).toBeChecked();
-  await page.locator('[data-settings-tab="pipeline"]').click();
-  await expect(firstService).toHaveAttribute('data-collection-service', preferred);
+  await expect(page.locator('#translationRouteDescription')).toContainText(alternative.label);
+  await page.locator('#collectionApiSettingsBtn').click();
+  await expect(page.locator('#apiTitle-' + alternative.id)).toBeFocused();
+  await expect(page.locator('#settingsSaveBtn')).toBeHidden();
   expect((await (await request.get('/api/settings')).json()).llm.translation.provider).toBe(preferred);
-  await expect(page.locator('#settingsSaveBtn')).toBeVisible();
-  await page.locator('#collectionModelSettingsBtn').click();
-  await expect(page.locator('#settingsDetailTitle')).toHaveText('模型与 Agent');
-  await expect(page.locator('#settingsDetailTitle')).toBeFocused();
+  await openSettingsItem(page,'translation');
+  await page.locator('[name="llm.translation.pi_fallback_enabled"]').check();
+  await page.locator('#apiFeatureSettingsBtn').click();
+  await expect(page.locator('#modelSettings')).toBeFocused();
 });
 
 test('the latest check results and timestamps restore after reloading without running diagnostics', async ({page}) => {
@@ -127,7 +131,7 @@ test('the latest check results and timestamps restore after reloading without ru
   await expect(page.locator('[data-environment-check="bridge"]')).toContainText('未通过');
   await page.reload();
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await openSettingsItem(page, 'pipeline');
   await expect(page.locator('[data-environment-check="runtime"]')).toContainText('通过');
   await expect(page.locator('[data-environment-check="bridge"]')).toContainText('未通过');
   await expect(page.locator('[data-environment-check="bridge"]')).toContainText('2026/11/10 11:00:00');
@@ -198,7 +202,7 @@ for (const width of [1440,390]) for (const appearance of ['light','dark','system
       for (const scale of [.9,1,1.15,1.3]) {
         await page.evaluate(scale => document.documentElement.style.setProperty('--reading-scale',String(scale)),scale);
         const styles = await page.evaluate(() => {
-          const first = document.querySelector('#collectionEnvironment'), services = document.querySelector('#collectionServices');
+          const first = document.querySelector('#collectionEnvironment'), services = document.querySelector('#translationRouting');
           const original = document.querySelector('[name="collection.daily"]').closest('.settings-section-card');
           const style = node => { const s=getComputedStyle(node); return [s.padding,s.backgroundColor,s.borderRadius,s.fontSize]; };
           return {first:style(first),services:style(services),original:style(original),overflow:[first,services].some(n=>n.scrollWidth>n.clientWidth),
@@ -214,7 +218,8 @@ for (const width of [1440,390]) for (const appearance of ['light','dark','system
       await expect(page.locator('#checkCollectionXBtn')).toBeFocused();
       await expect(page.locator('#checkCollectionXBtn')).toHaveCSS('outline-width','2px');
       await page.screenshot({path:`.ui-artifacts/collection-environment-${width}-${appearance}.png`});
-      await page.locator('#collectionServicesTitle').scrollIntoViewIfNeeded();
+      await openSettingsItem(page,'translation');
+      await page.locator('#translationRouting').scrollIntoViewIfNeeded();
       await page.screenshot({path:`.ui-artifacts/collection-services-${width}-${appearance}.png`});
     });
   });

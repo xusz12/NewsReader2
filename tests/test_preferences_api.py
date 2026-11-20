@@ -10,7 +10,9 @@ import sys
 import textwrap
 import types
 import urllib
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pi_models
 from api_fixtures import _isolate_app_settings
@@ -380,6 +382,42 @@ def test_settings_default_pi_and_ignore_unknown_executor_fields(tmp_path: Path, 
     persisted = json.loads(settings_path.read_text(encoding="utf-8"))
     assert set(persisted["llm"]) == {"translation", "pi_chat"}
     assert persisted["llm"]["pi_chat"] == {"provider": "ollama", "model": "qwen3.5:4b"}
+
+
+def test_concurrent_page_saves_merge_llm_settings_and_keep_unrelated_values(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NEWS_READER_DB_PATH", str(tmp_path / "news.sqlite3"))
+    monkeypatch.setattr(preferences, "has_secret", lambda name: False)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    import app as app_module
+
+    importlib.reload(app_module)
+    app_module.ensure_db()
+    client = app_module.app.test_client()
+    classification = app_module.runtime.jobs.classification
+    revision = classification.config_revision
+    limits = {"max_items": 207, "max_days": 14}
+    assert client.put("/api/settings", json={"news_summary": limits}).status_code == 200
+    assert classification.config_revision == revision
+    initial = client.get("/api/settings").get_json()
+    start = Barrier(2)
+
+    def save_page(payload):
+        with app_module.app.test_client() as page:
+            start.wait(timeout=10)
+            return page.put("/api/settings", json=payload).status_code
+
+    chat = {"provider": "ollama", "model": "page-model"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        response_codes = list(pool.map(save_page, [
+            {"llm": {"pi_chat": chat}},
+            {"llm": {"translation": {"model": "page-translation"}}},
+        ]))
+    assert response_codes == [200, 200]
+    saved = client.get("/api/settings").get_json()
+    assert saved["llm"]["pi_chat"] == chat
+    assert saved["llm"]["translation"] == {**initial["llm"]["translation"], "model": "page-translation"}
+    assert saved["news_summary"] == limits
+    assert saved["x_accounts_revision"] == initial["x_accounts_revision"]
 
 
 def test_settings_secret_api_save_and_delete(tmp_path: Path, monkeypatch):

@@ -12,7 +12,7 @@
   register('input', 'invalid_translation_fallback', '翻译后备选项必须为开启或关闭。');
   register('input', 'unsupported_translation_provider', '请选择 DeepSeek 或 OpenCode Go 订阅作为首选翻译服务。');
   register('input', 'invalid_translation_model', '翻译模型名称格式无效。');
-  register('model', 'TRANSLATION_PROVIDERS_FAILED', '启用的翻译服务均未完成翻译，请在 API 管理中检查密钥与模型后重试。');
+  register('model', 'TRANSLATION_PROVIDERS_FAILED', '启用的翻译服务均未完成翻译，请在「API 密钥与连接」中检查密钥与模型后重试。');
   register('input', 'invalid_classification_concurrency', '分类并发上限必须是 1–32 的整数。');
   register('input', 'invalid_report_schedule', '请为每类报告选择有效的小时和分钟。');
   register('input', 'collection_schedule_invalid', '采集时间请使用 HH:MM 格式，以顿号、逗号或空格分隔；每组最多 48 个时刻。');
@@ -33,7 +33,7 @@
   register('input', 'invalid_classification_settings', '新闻分类设置格式无效。');
   register('input', 'invalid_classification_provider unsupported_decision_provider', '请选择 Jev 或 OpenAI Decisions 作为判断服务。');
   register('input', 'unsupported_decision_model', 'OpenAI Decisions 当前仅支持 gpt-6-luna；留空将使用此默认模型。');
-  register('input', 'classification_disabled', '自动分类已关闭，请先在新闻分类设置中开启。');
+  register('input', 'classification_disabled', '自动分类已关闭，请先在「自动分类与判断」中开启。');
   register('credentials', 'credentials codex_auth_required oar_auth_required authentication_error invalid_api_key', '身份验证失败。');
   register('model', 'models_unavailable', '获取模型列表失败。');
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');

@@ -1,5 +1,5 @@
+import { openSettingsItem, chooseTheme, collectionHeatmap, openSettings } from './helpers.js';
 import { test, expect } from '@playwright/test';
-import { chooseTheme, collectionHeatmap, openSettings } from './helpers.js';
 
 const today = '2026-11-09';
 const dailyErrors = { '2026-11-02': 0, '2026-11-03': 1, '2026-11-04': 3, '2026-11-05': 4, '2026-11-06': 7 };
@@ -54,7 +54,7 @@ test('real collection API exposes queued runs even with zero errors', async ({ p
   await expect(page.locator('.upstream-stat-value')).toHaveText(['0 条', '0 条', '0 条', '0 条']);
   await page.locator('#closeUpstreamErrorsBtn').click();
   await openSettings(page);
-  await page.locator('[data-settings-tab="pipeline"]').click();
+  await openSettingsItem(page, 'pipeline');
   await page.locator('#settingsCollectBtn').click();
   await expect(page.locator('#settingsCollectBtn')).toBeDisabled();
   await page.keyboard.press('Escape');
