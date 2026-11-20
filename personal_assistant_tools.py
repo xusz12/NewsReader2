@@ -12,9 +12,10 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import sqlite3
-import sys
 import tempfile
 import time
+
+from stdio_tools import StdioTools
 
 
 MEMORY_SEED = "# 长期记忆\n\n这里只保留已确认的个人偏好、观点和专题笔记索引。\n详细依据、推测条件、反例和观点变化保存在 notes/，并标明来源。\n"
@@ -200,7 +201,12 @@ TOOLS = [
 ]
 
 
-class ToolServer:
+class ToolServer(StdioTools):
+    name = "nr-personal-assistant"
+    instructions = "NR 全库只读查询和个人长期记忆。先读索引，按需取笔记；记录用户表达时附来源。"
+    tools = TOOLS
+    errors = (ValueError, TypeError, KeyError, OSError, sqlite3.Error)
+
     def __init__(self, db, workspace, state_db, job_id=None):
         self.db, self.memory, self.state_db = Path(db), Memory(Path(workspace)), Path(state_db)
         self.job_id = job_id
@@ -237,31 +243,6 @@ class ToolServer:
             return self.memory.write(arguments.pop("path"), **arguments, guard=self.check_writer)
         raise ValueError("未知工具")
 
-    def respond(self, message):
-        if not isinstance(message, dict) or "id" not in message:
-            return None
-        response = {"jsonrpc": "2.0", "id": message["id"]}
-        method = message.get("method")
-        if method == "initialize":
-            result = {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
-                      "serverInfo": {"name": "nr-personal-assistant", "version": "1.0.0"},
-                      "instructions": "NR 全库只读查询和个人长期记忆。先读索引，按需取笔记；记录用户表达时附来源。"}
-        elif method == "ping":
-            result = {}
-        elif method == "tools/list":
-            result = {"tools": TOOLS}
-        elif method == "tools/call":
-            try:
-                params = message.get("params", {})
-                value = self.call(params["name"], params.get("arguments", {}))
-                result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]}
-            except (ValueError, TypeError, KeyError, OSError, sqlite3.Error) as error:
-                result = {"isError": True, "content": [{"type": "text", "text": str(error)[:500]}]}
-        else:
-            return response | {"error": {"code": -32601, "message": "Method not found"}}
-        return response | {"result": result}
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True)
@@ -270,15 +251,7 @@ def main():
     parser.add_argument("--job-id")
     args = parser.parse_args()
     server = ToolServer(args.db, args.workspace, args.state_db, args.job_id)
-    for line in sys.stdin.buffer:
-        try:
-            if len(line) > 1_000_000:
-                raise ValueError()
-            response = server.respond(json.loads(line))
-        except (ValueError, UnicodeError):
-            response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
-        if response is not None:
-            print(json.dumps(response, ensure_ascii=False), flush=True)
+    server.serve()
 
 
 if __name__ == "__main__":

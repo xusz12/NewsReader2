@@ -147,7 +147,7 @@ class Plan:
         self.targets[prefix + "agent_sessions"] = f"id IN ({sessions})"
         self.process_ids = [r[0] for r in conn.execute(f"SELECT id FROM {prefix}agent_jobs WHERE session_id IN ({sessions})")]
         for row in conn.execute("SELECT id,executor_session_id FROM source_delete_sessions"):
-            for name in {row[0], row[1], f"newsreader-codex-agent-{row[0]}", f"newsreader-oar-pi-{row[0]}"} - {""}:
+            for name in {row[0], row[1], f"newsreader-codex-agent-{row[0]}", f"newsreader-oar-pi-{row[0]}", f"newsreader-oar-dsh-{row[0]}"} - {""}:
                 # Do not remove a runtime shared with another library/session.
                 if conn.execute(f"SELECT 1 FROM {prefix}agent_sessions WHERE id NOT IN ({sessions}) AND (id=? OR executor_session_id=?)", (name, name)).fetchone():
                     continue

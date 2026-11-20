@@ -18,7 +18,7 @@ export class PersonalAssistant {
       <div class="agent-actions"><button type="button" class="agent-btn" id="personalAssistantNew" aria-label="新讨论" title="新讨论">＋</button><button type="button" class="agent-btn" id="personalAssistantSettingsBtn" aria-label="个人助手设置" title="个人助手设置">${icon("settings")}</button><button type="button" class="agent-btn" id="personalAssistantExpand"></button><button type="button" class="agent-btn" id="personalAssistantClose" aria-label="关闭个人助手" title="关闭">✕</button></div></div>
       <div class="agent-context" id="personalThreadPicker"></div>
       <div class="agent-chat-stream" id="personalAssistantMessages" role="log" aria-label="个人助手讨论" aria-live="off" tabindex="0"></div>
-      <div class="agent-context"><p id="personalAssistantStatus" role="status" aria-live="polite"></p><button type="button" class="reader-tool-btn" id="personalAssistantReload" hidden>重新读取</button></div>
+      <div class="agent-context"><p id="personalAssistantStatus" role="status" aria-live="polite"></p><button type="button" class="reader-tool-btn" id="personalAssistantReload" hidden>重新读取</button><button type="button" class="reader-tool-btn" id="personalAssistantRetry" hidden>重试本轮</button></div>
       <div class="agent-input-row"><textarea class="agent-input" rows="1" data-auto-rows data-auto-min-rows="1" data-auto-max-rows="5" id="personalAssistantInput" aria-label="与个人助手对话" aria-describedby="personalAssistantInputHint" placeholder="聊聊新闻，或继续之前的想法…" maxlength="20000"></textarea><span class="sr-only" id="personalAssistantInputHint">电脑按 Enter 发送，Shift Enter 换行；手机按发送按钮或 Ctrl / Command Enter 发送。</span><button type="button" class="agent-send-btn" id="personalAssistantSend" aria-label="发送消息">${icon("send")}</button></div>`;
     this.input = $("#personalAssistantInput");
     this.popover = new AnchoredPopover({panel:this.panel, trigger:this.trigger,
@@ -29,6 +29,7 @@ export class PersonalAssistant {
     bindAgentWindowSize(this.panel, $("#personalAssistantExpand"), () => this.popover.position());
     $("#personalAssistantNew").onclick = () => this.newDiscussion();
     $("#personalAssistantSettingsBtn").onclick = () => {this.popover.close(); this.onSettings();};
+    $("#personalAssistantRetry").onclick = () => this.send(this.snapshot?.job?.id);
     $("#personalAssistantReload").onclick = () => this.load();
     $("#personalAssistantSend").onclick = () => active(this.snapshot?.job) ? this.stop() : this.send();
     this.input.oninput = () => {this.drafts.set(this.threadId || "new", this.input.value); this.resize(); this.renderStatus();};
@@ -88,7 +89,7 @@ export class PersonalAssistant {
   }
   renderIdentity() {
     $("#personalAssistantName").textContent = this.profile?.name || "个人助手";
-    $("#personalAssistantRuntime").textContent = this.profile?.runtime === "codex" ? "Codex" : "Pi";
+    $("#personalAssistantRuntime").textContent = {codex:"Codex",dsh:"DSH",pi:"Pi"}[this.snapshot?.thread?.runtime || this.profile?.runtime] || "Pi";
     this.trigger.title = this.profile?.name ? `与${this.profile.name}对话` : "个人助手";
   }
   renderThreads() {
@@ -146,8 +147,9 @@ export class PersonalAssistant {
   renderStatus() {
     const job=this.snapshot?.job, busy=active(job), other=active(this.activeJob) && this.activeJob.thread_id !== this.threadId;
     const needsName=!!this.profile && !this.profile.name?.trim();
-    $("#personalAssistantStatus").textContent=this.notice || (needsName ? "名字由你定义，可在个人助手设置中填写" : busy ? (job.stop_requested ? "正在停止…" : "正在查阅资料、整理记忆并回复…") : other ? "另一条讨论正在回复，可切回查看或停止" : this.snapshot?.thread.current_library === false ? "这条讨论属于另一新闻库，请开启新讨论" : job?.error_text || (job?.status === "done" ? "本轮已完成 · 讨论已保存" : "每个讨论独立，长期记忆共用"));
+    $("#personalAssistantStatus").textContent=this.notice || (needsName ? "名字由你定义，可在个人助手设置中填写" : busy ? (job.stop_requested ? "正在停止…" : ({searching:"正在搜索网页…",fetching:"正在抓取来源网页…",writing:"正在回复…"}[job.progress] || "正在查阅资料、整理记忆并回复…")) : other ? "另一条讨论正在回复，可切回查看或停止" : this.snapshot?.thread.current_library === false ? "这条讨论属于另一新闻库，请开启新讨论" : job?.error_text || (job?.status === "done" ? "本轮已完成 · 讨论已保存" : "每个讨论独立，长期记忆共用"));
     $("#personalAssistantStatus").classList.toggle("error-state", !!this.loadFailed || job?.status === "failed");
+    $("#personalAssistantRetry").hidden = this.sending || other || !["failed","stopped"].includes(job?.status) || this.snapshot?.thread.current_library === false;
     $("#personalAssistantReload").hidden=!this.loadFailed;
     const button=$("#personalAssistantSend"); button.innerHTML=icon(busy?"stop":"send");
     button.setAttribute("aria-label",busy?"停止回复":"发送消息");button.title=busy?"停止回复":"发送消息";
@@ -157,9 +159,9 @@ export class PersonalAssistant {
     const picker=$("#personalThreadPicker select");
     if (picker && picker.disabled !== !!this.sending) {picker.disabled=!!this.sending;this.selects.refresh();}
   }
-  async send() {
+  async send(retryJob = null) {
     const text=this.input.value.trim();
-    if(!this.profile?.name?.trim() || !text || this.sending || this.loading || active(this.activeJob) || active(this.snapshot?.job)) return;
+    if(!this.profile?.name?.trim() || (!text && !retryJob) || this.sending || this.loading || active(this.activeJob) || active(this.snapshot?.job)) return;
     this.sending=true;this.notice="正在保存消息…";this.renderStatus();clearTimeout(this.timer);
     const originalKey=this.threadId||"new";
     try {
@@ -168,11 +170,12 @@ export class PersonalAssistant {
         this.threadId=thread.id;this.creatingNew=false;this.threads.unshift(thread);persist(lastThreadKey,thread.id);
         this.drafts.set(thread.id,text);
       }
-      this.pendingRequest ||= {id:requestId(),text,thread:this.threadId};
-      if(this.pendingRequest.text !== text || this.pendingRequest.thread !== this.threadId) this.pendingRequest={id:requestId(),text,thread:this.threadId};
-      this.snapshot=await api(base+"/threads/"+this.threadId+"/messages",{method:"POST",body:{text,request_id:this.pendingRequest.id}});
+      this.pendingRequest ||= {id:requestId(),text,thread:this.threadId,retryJob};
+      if(this.pendingRequest.retryJob !== retryJob || this.pendingRequest.text !== text || this.pendingRequest.thread !== this.threadId) this.pendingRequest={id:requestId(),text,thread:this.threadId,retryJob};
+      this.snapshot=await api(base+"/threads/"+this.threadId+"/messages",{method:"POST",body:{text,request_id:this.pendingRequest.id,retry_job:retryJob}});
       this.pendingRequest=null;this.activeJob=active(this.snapshot.job)?this.snapshot.job:null;
-      this.input.value="";this.drafts.delete(originalKey);this.drafts.delete(this.threadId);this.notice="";
+      if (!retryJob) { this.input.value="";this.drafts.delete(originalKey);this.drafts.delete(this.threadId); }
+      this.notice="";this.renderIdentity();
       const thread=this.threads.find(t=>t.id===this.threadId); if(thread) Object.assign(thread,this.snapshot.thread);
       this.renderThreads();this.renderMessages(true);
     } catch(error) {this.notice=errorText(error);}

@@ -61,6 +61,8 @@ def pi_runtime(tmp_path):
         'model': 'fixture', 'reasoning_effort': 'off', 'prompt': 'first question', 'resume_prompt': 'follow-up question'}
 
     def run(timeout=25):
+        if request["task"] in {"news_chat", "web_research"} and "web_tools" not in request:
+            request["web_tools"] = managed_tools()
         return oar_client.run_once([node, str(oar_client.ROOT / 'scripts/oar_bridge.mjs')], request, env, timeout)
 
     try:
@@ -77,39 +79,33 @@ def search_config(exposure='direct', extra_args=()):
         'exposure': exposure, 'toolExposure': {'hidden_tool': 'hidden'}}}}
 
 
+def managed_tools(*args):
+    return {"command": sys.executable, "args": [str(oar_client.ROOT / "tests/fixtures/pi_news_mcp.py"), "--managed", *map(str, args)]}
+
+
 @pytest.mark.parametrize('exposure', ['direct', 'codemode', 'deferred'])
-def test_native_search_filters_and_results_survive_oar_and_resume(pi_runtime, exposure):
+def test_only_managed_search_and_fetch_survive_resume(pi_runtime, exposure):
     source, cwd, state, request, calls, responses, run = pi_runtime
     original = json.dumps(search_config(exposure))
     (source / 'mcp.json').write_text(original)
-    tool = 'mcp__search__web_search'
-    if exposure == 'codemode':
-        responses.append(('codemode', {'code': f'text(await tools.{tool}({{query:"fixture"}}));'}))
-    else:
-        if exposure == 'deferred':
-            responses.append(('tool_search', {'query': 'web_search'}))
-        responses.append((tool, {'query': 'fixture'}))
-    tool_turn = list(responses)
-    responses.append('search-summary')
+    search = 'mcp__nr_web__web_search'
+    fetch = 'mcp__nr_web__web_fetch'
+    responses.extend([(search, {'query': 'fixture'}), (fetch, {'url': 'https://example.test/news'}), 'search-summary'])
     assert run() == 'search-summary'
     native = json.loads((state / 'session.json').read_text())
-    assert native['runtime'] == 'oar'
-    assert not (state / 'route.json').exists()
+    responses.append('follow-up')
+    assert run() == 'follow-up'
+    assert json.loads((state / 'session.json').read_text()) == native
+    assert 'search-summary' in json.dumps(calls[-1]['messages'])
     assert 'synthetic-search-evidence' in json.dumps(calls[-1]['messages'])
     for call in calls:
-        names = [t['function']['name'] for t in call.get('tools', [])]
-        assert 'mcp__search__hidden_tool' not in names
-    responses.extend([*tool_turn, 'follow-up-search'])
-    assert run() == 'follow-up-search'
-    assert json.loads((state / 'session.json').read_text())['id'] == native['id']
-    assert 'search-summary' in json.dumps(calls[-1]['messages'])
-    assert sum('synthetic-search-evidence' in str(m.get('content')) for m in calls[-1]['messages'] if m['role'] == 'tool') >= 2
+        assert {t['function']['name'] for t in call.get('tools', [])} == {search, fetch}
     assert (source / 'mcp.json').read_text() == original
     assert not list(state.glob('config-*'))
 
 
 @pytest.mark.parametrize('trusted', [False, True])
-def test_project_resources_follow_native_trust_without_cli_fallback(pi_runtime, trusted):
+def test_project_tools_cannot_replace_managed_search(pi_runtime, trusted):
     source, cwd, state, request, calls, responses, run = pi_runtime
     project = cwd / '.pi'
     project.mkdir()
@@ -121,8 +117,8 @@ def test_project_resources_follow_native_trust_without_cli_fallback(pi_runtime, 
     (source / 'trust.json').write_text(json.dumps({str(cwd.resolve()): trusted}))
     assert run() == 'fixture-answer'
     names = [t['function']['name'] for t in calls[0].get('tools', [])]
-    assert ('mcp__search__web_search' in names) == trusted
-    assert marker.exists() == trusted
+    assert 'mcp__search__web_search' not in names
+    assert not marker.exists()
     assert json.loads((state / 'session.json').read_text())['runtime'] == 'oar'
     assert not (state / 'route.json').exists()
 
@@ -146,8 +142,8 @@ def test_pi_archive_has_no_tools_or_history_and_each_attempt_is_independent(pi_r
 def test_pi_timeout_reaps_rpc_search_process_and_detached_tool(pi_runtime, tmp_path):
     source, cwd, state, request, calls, responses, run = pi_runtime
     pids = tmp_path / 'tool-pids.json'
-    (source / 'mcp.json').write_text(json.dumps(search_config(extra_args=[pids])))
-    responses.append(('mcp__search__web_search', {'query': 'fixture'}))
+    request['web_tools'] = managed_tools('--pid-file', pids)
+    responses.append(('mcp__nr_web__web_search', {'query': 'fixture'}))
     with pytest.raises(RuntimeError, match='pi_timeout'):
         run(timeout=6)
     assert pids.exists(), 'Fixture never reached the tool; cancellation was not exercised'
@@ -158,12 +154,11 @@ def test_pi_timeout_reaps_rpc_search_process_and_detached_tool(pi_runtime, tmp_p
     assert not list(state.glob('config-*'))
 
 
-def test_pi_research_is_ephemeral_and_uses_native_search(pi_runtime):
+def test_pi_research_is_ephemeral_and_uses_managed_search(pi_runtime):
     source, cwd, state, request, calls, responses, run = pi_runtime
     (source / 'mcp.json').write_text(json.dumps(search_config('deferred')))
     request['task'] = 'web_research'
-    responses.extend([('tool_search', {'query': 'web_search'}),
-                      ('mcp__search__web_search', {'query': 'fixture'}), 'researched'])
+    responses.extend([('mcp__nr_web__web_search', {'query': 'fixture'}), 'researched'])
     assert run() == 'researched'
     assert 'synthetic-search-evidence' in json.dumps(calls[-1]['messages'])
     assert not (state / 'session.json').exists()
@@ -179,11 +174,17 @@ def test_summary_runner_counts_only_completed_successful_pi_search(pi_runtime, m
     monkeypatch.setattr(news_summaries, '_pi_subprocess_env', lambda: {
         'PATH': os.environ['PATH'], 'HOME': str(source.parent), 'PI_OFFLINE': '1',
         'NEWS_READER_PI_AGENT_DIR': str(source)})
-    responses.extend([('mcp__search__web_search', {'query': 'fixture'}), 'researched'])
+    original_request = news_summaries.runtime_request
+    def managed_request(*args, **kwargs):
+        result = original_request(*args, **kwargs)
+        result["web_tools"] = managed_tools(*(["--fail"] if failed else []), *result["web_tools"]["args"][1:])
+        return result
+    monkeypatch.setattr(news_summaries, "runtime_request", managed_request)
+    responses.extend([('mcp__nr_web__web_search', {'query': 'fixture'}), 'researched'])
     config = {'runtime': 'pi', 'pi_provider': 'nr-fixture', 'pi_model': 'fixture', 'pi_reasoning_effort': 'off'}
     diagnostics = []
     assert news_summaries.run_oar(config, 'research', lambda: False, diagnostics, allow_research=True) == 'researched'
     assert diagnostics[0]['research_tools'] == (0 if failed else 1)
-    assert diagnostics[0]['tools'] == ['mcp__search__web_search']
+    assert diagnostics[0]['tools'] == ['mcp__nr_web__web_search']
     for call in calls:
         assert not {'read', 'bash', 'write', 'edit'} & {t['function']['name'] for t in call.get('tools', [])}

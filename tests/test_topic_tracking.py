@@ -364,7 +364,7 @@ def test_milestone_failure_retry_reuses_jev_and_preserves_articles(env,monkeypat
     assert service.detail(ident)['job']['status']=='done'
 
 
-@pytest.mark.parametrize("runtime", ["pi", "codex"])
+@pytest.mark.parametrize("runtime", ["pi", "codex", "dsh"])
 @pytest.mark.parametrize("independent", [False, True])
 def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtime, independent):
     _, service, _ = env
@@ -375,13 +375,13 @@ def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtim
         settings['feature_models'] = normalize_feature_models({}, settings)
         settings['agent']['runtime'] = 'pi' if runtime == 'codex' else 'codex'
     chosen = settings['feature_models']['topics'] if independent else settings['agent']
-    pi = chosen['pi'] if independent else settings['llm']['pi_chat']
+    native = chosen.setdefault('dsh', {}) if runtime == 'dsh' else chosen['pi'] if independent else settings['llm']['pi_chat']
     recorded = []
     original_runner = service.runner
 
     def select_model(name):
-        if runtime == "pi":
-            pi.update(provider="global-provider", model=name)
+        if runtime != "codex":
+            native.update(provider="global-provider", model=name)
         else:
             chosen["codex"].update(model=name, reasoning_effort="high")
 
@@ -400,12 +400,13 @@ def test_research_uses_selected_settings_with_job_snapshot_and_retry(env, runtim
     assert service.process_one()
     assert service.detail(topic["id"])["job"]["status"] == "failed"
     select_model("model-retry")
+    chosen["runtime"] = "pi" if runtime == "codex" else "codex"
     service.retry(topic["id"])
     assert service.process_one()
     assert service.detail(topic["id"])["topic"]["status"] == "ready"
-    for config, model in zip(recorded, ["model-first", "model-second", "model-retry"], strict=True):
+    for config, model in zip(recorded, ["model-first", "model-second", "model-second"], strict=True):
         assert config["runtime"] == runtime
-        if runtime == "pi":
+        if runtime != "codex":
             assert (config["pi_provider"], config["pi_model"]) == ("global-provider", model)
         else:
             assert config["codex"] == {"model": model,
@@ -1081,9 +1082,10 @@ def test_topic_api_validation_and_delete_preserve_news(env,api,monkeypatch):
         assert conn.execute('SELECT COUNT(*) FROM topic_ingestions').fetchone()[0]==1
 
 
-@pytest.mark.parametrize('runtime,tool,success',[('codex','webSearch',True),('codex','commandExecution',False),
-                                               ('pi','mcp__tavily__web_search',True),('pi','bash',False)])
-def test_research_requires_web_tool_and_reports_it(tmp_path,monkeypatch,runtime,tool,success):
+@pytest.mark.parametrize('runtime,tool,evidence',[
+    ('codex','webSearch',1), ('codex','commandExecution',None), ('pi','mcp__tavily__web_search',None),
+    ('pi','bash',None), ('pi','mcp__nr_web__web_search',0), ('dsh','mcp__nr_web__web_fetch',0)])
+def test_research_requires_web_tool_and_reports_it(tmp_path,monkeypatch,runtime,tool,evidence):
     import sys
     ident = '11111111-1111-4111-8111-111111111111'
     events = [{'type':'oar_session','id':ident,'runtime':'oar-'+runtime,'resumed':False},
@@ -1093,13 +1095,12 @@ def test_research_requires_web_tool_and_reports_it(tmp_path,monkeypatch,runtime,
     path=tmp_path/'model.py'
     path.write_text('import sys,json\nsys.stdin.read()\nfor event in '+repr(events)+': print(json.dumps(event),flush=True)')
     monkeypatch.setattr(news_summaries.codex_client,'require_ready',lambda:None)
-    monkeypatch.setattr(news_summaries,'bridge_command',lambda *a,**k:[sys.executable,str(path)])
     monkeypatch.setattr(news_summaries,'bridge_command',lambda *a:[sys.executable,str(path)])
     config={'runtime':runtime,'codex':{'model':'test','profile':'','sandbox':'read-only'},'pi_provider':'test','pi_model':'test'}
     diagnostics=[]
-    if success:
+    if evidence is not None:
         assert news_summaries.run_oar(config,'test',lambda:False,diagnostics,allow_research=True)=='answer'
-        assert diagnostics[0]['research_tools']==1
+        assert diagnostics[0]['research_tools']==evidence
     else:
         with pytest.raises(RuntimeError):
             news_summaries.run_oar(config,'test',lambda:False,diagnostics,allow_research=True)

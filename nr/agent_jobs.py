@@ -5,6 +5,7 @@ import os
 import re
 import selectors
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -82,7 +83,7 @@ def _agent_oar_request(job: dict, session: dict, context: dict, history: list[di
         state_dir=runtime_dir, provider=session.get("executor_provider") or DEFAULT_PI_CHAT_PROVIDER,
         model=job.get("model") or DEFAULT_PI_CHAT_MODEL,
         reasoning_effort=json.loads(session.get("executor_config") or "{}").get("reasoning_effort", ""),
-        task="news_chat",
+        task="news_chat", runtime=session.get("provider") or "pi",
     )
     payload["history_replayed"] = bool(history)
     # Resource limits are enforced by the worker timeout/cancellation path;
@@ -114,7 +115,7 @@ class AgentWorker:
             if bool(previous) != bool(thread_id):
                 raise RuntimeError("codex_session_invalid")
             return bridge_command(executor_id), codex_client.oar_environment(), runtime_dir
-        executor_id = agent_sessions._full_pi_executor_session_id(session["id"]) if not previous or agent_sessions._is_legacy_pi_executor_session(previous) else previous
+        executor_id = agent_sessions._full_pi_executor_session_id(session["id"], session.get("provider") or "pi") if not previous or agent_sessions._is_legacy_pi_executor_session(previous) else previous
         runtime_dir = self.store.agent_session_runtime_dir(executor_id)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         return bridge_command(executor_id), _pi_subprocess_env(), runtime_dir
@@ -166,7 +167,12 @@ class AgentWorker:
             terminate_group(proc)
 
     def run_agent_job(self, job: dict, session: dict, context: dict, history: list[dict]) -> None:
-        previous_executor_session_id = str(session.get("executor_session_id") or "")
+        selected = session
+        binding = json.loads(job.get("model_binding") or "{}")
+        isolated_retry = bool(binding and binding != agent_sessions._agent_job_model(selected))
+        if isolated_retry:
+            session = {**selected, **binding, "executor_config": json.dumps(binding["executor_config"]), "executor_session_id": ""}
+        retry_dir = None
         is_codex = session.get("provider") == "codex"
         runtime_errors = codex_client.ERROR_MESSAGES if is_codex else OAR_ERROR_MESSAGES
         protocol_code = "codex_protocol_error" if is_codex else "oar_protocol_error"
@@ -187,7 +193,13 @@ class AgentWorker:
         executor_session_id = ""
         config_id = ""
         try:
-            command, env, _runtime_dir = self._agent_process_command(job, session, context, history)
+            if isolated_retry:
+                retry_dir = tempfile.TemporaryDirectory(prefix="newsreader-article-retry-")
+                _runtime_dir = Path(retry_dir.name)
+                command = bridge_command(job["id"])
+                env = codex_client.oar_environment() if is_codex else _pi_subprocess_env()
+            else:
+                command, env, _runtime_dir = self._agent_process_command(job, session, context, history)
             # Cancellation during command preparation must not start a new runtime.
             if self._agent_cancel_requested(job["id"]):
                 raise RuntimeError("oar_stopped")
@@ -346,6 +358,8 @@ class AgentWorker:
             # copies carrying this invocation's token, never another worker's config.
             if _runtime_dir and config_id:
                 cleanup_oar_config(_runtime_dir, config_id)
+            if retry_dir:
+                retry_dir.cleanup()
 
         conn = self.db.agent_connect()
         try:
@@ -357,7 +371,7 @@ class AgentWorker:
             if not row:
                 # Deletion can race process preparation; reap any directory recreated
                 # after it was staged, and do not persist a new Codex thread mapping.
-                if _runtime_dir:
+                if _runtime_dir and not isolated_retry:
                     self.store._remove_agent_runtime_dir(_runtime_dir.name)
                 return
             output = output or (row["answer_text"] if row else "") or ""
@@ -381,12 +395,15 @@ class AgentWorker:
             else:
                 status, error = "succeeded", ""
             with conn:
-                if status == "succeeded" and is_codex:
+                if status == "succeeded" and is_codex and not isolated_retry:
                     try:
                         codex_client.write_thread(_runtime_dir, codex_config, codex_parser.thread_id)
                     except (OSError, RuntimeError):
                         status, error = "failed", "codex_session_invalid"
-                if status == "succeeded" and executor_session_id:
+                if status == "succeeded" and isolated_retry:
+                    self.store._remove_agent_runtime_dir(selected["executor_session_id"])
+                    conn.execute("UPDATE agent_sessions SET executor_session_id='' WHERE id=?", (session["id"],))
+                elif status == "succeeded" and executor_session_id:
                     conn.execute("UPDATE agent_sessions SET executor_session_id=? WHERE id=?", (executor_session_id, session["id"]))
                 conn.execute(
                     """

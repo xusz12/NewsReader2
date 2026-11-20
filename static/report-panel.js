@@ -3,7 +3,7 @@ import { readerText } from "./reader-highlights.js?v=0.5.8";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
-import { selectField } from "./form-controls.js?v=0.6.4";
+import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.4";
 import { defaultReportWindows } from "./report-windows.js";
 import { Calendar, localDate, localDateTime } from "./date-picker.js?v=feature-pickers-1";
 
@@ -552,7 +552,7 @@ export class ReportPanel {
     node.textContent = draft.modelLoading ? "正在读取 Runtime 和模型…" : draft.modelFailed ? "Runtime 和模型读取失败" : draft.modelLabel || "模型尚未配置";
     if (draft.modelOverride && !draft.modelLoading && !draft.modelFailed) {
       const c = draft.modelChoices, selected = c[c.runtime];
-      node.textContent = [c.runtime === "codex" ? "Codex" : "Pi", selected.model || "默认模型", selected.reasoning_effort, "临时"].filter(Boolean).join(" · ");
+      node.textContent = [runtimeOptions.find(option => option.value === c.runtime)?.label, selected.model || "默认模型", selected.reasoning_effort, "临时"].filter(Boolean).join(" · ");
     }
     this.creationHost.querySelector("[data-creation-model-reload]").hidden = !draft.modelFailed;
     this.creationHost.querySelector('[type="submit"]').disabled = !!(draft.submitting || draft.modelLoading || draft.modelFailed || !draft.kind || this.invalidModelChoice());
@@ -563,7 +563,7 @@ export class ReportPanel {
   }
   invalidModelChoice() {
     const d = this.creation, c = d.modelChoices;
-    return d.modelOverride && (d.catalogs[this.creationCatalogKey()]?.loading || c.runtime === "pi" && (!c.pi.provider || !c.pi.model));
+    return d.modelOverride && (d.catalogs[this.creationCatalogKey()]?.loading || c.runtime !== "codex" && (!c[c.runtime].provider || !c[c.runtime].model));
   }
   renderModelChoices() {
     const d = this.creation, host = $("#reportModelChoices");
@@ -576,7 +576,7 @@ export class ReportPanel {
     if (modelValue && !options.some(m=>m.value === modelValue)) options.push({value:modelValue,label:selected.model});
     const model = models.find(m=>m.value === selected.model && (codex || m.provider === selected.provider));
     const next = document.createElement("div");
-    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,[{value:"codex",label:"Codex"},{value:"pi",label:"Pi"}],null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复默认模型</button></div>`;
+    next.innerHTML = `<div class="form-group-grid">${selectField("Runtime","reportRuntime",c.runtime,runtimeOptions,null)}${selectField("模型","reportModel",modelValue,options,codex?"沿用本机默认":"请选择模型")}${selectField("推理程度","reportEffort",selected.reasoning_effort || "",model?.reasoning_efforts || [],"沿用默认")}</div><p class="muted" role="status" ${catalog.loading || catalog.error?'':'hidden'}>${e(catalog.loading?"正在读取模型目录…":catalog.notice || catalog.error || "")}</p><div class="button-row" ${d.modelOverride || catalog.error?'':'hidden'}><button class="reader-tool-btn" type="button" data-report-catalog-reload ${catalog.error?'':'hidden'}>重试</button><button class="reader-tool-btn" type="button" data-report-model-reset ${d.modelOverride?'':'hidden'}>恢复默认模型</button></div>`;
     next.querySelector('[name="reportModel"]').disabled = !catalog.options || !!catalog.loading || d.submitting;
     next.querySelector('[name="reportEffort"]').disabled = !!catalog.loading || d.submitting || !model?.reasoning_efforts?.length;
     next.querySelector('[name="reportRuntime"]').disabled = d.submitting;
@@ -604,7 +604,7 @@ export class ReportPanel {
     const state = d.catalogs[key] = {loading:true,options:d.catalogs[key]?.options || []};
     this.renderModelChoices(); this.renderCreationModel();
     try {
-      const data = await api("/api/reports/model-options",{method:"POST",body:{runtime:d.modelChoices.runtime,kind:d.kind}});
+      const data = await api("/api/reports/model-options",{method:"POST",body:{runtime:d.modelChoices.runtime,kind:d.kind,...(reload && d.modelChoices.runtime === "dsh" ? {refresh:true} : {})}});
       Object.assign(state,data.catalog);
     } catch(error) {state.error = reportError(error);}
     finally {
@@ -617,16 +617,16 @@ export class ReportPanel {
     if (input.name === "reportRuntime") c.runtime = input.value;
     else if (input.name === "reportModel") {
       const selected = c[c.runtime];
-      const [provider,model] = c.runtime === "pi" && input.value ? JSON.parse(input.value) : ["",input.value];
+      const [provider,model] = c.runtime !== "codex" && input.value ? JSON.parse(input.value) : ["",input.value];
       if (selected.model === model && (c.runtime === "codex" || selected.provider === provider)) return;
       selected.model = model;
-      if (c.runtime === "pi") selected.provider = provider;
+      if (c.runtime !== "codex") selected.provider = provider;
       selected.reasoning_effort = "";
     } else c[c.runtime].reasoning_effort = input.value;
     if (JSON.stringify(c) === previous) return;
     const selected = c[c.runtime];
     d.modelOverride = {runtime:c.runtime, model:selected.model || "", reasoning_effort:selected.reasoning_effort || "",
-      ...(c.runtime === "pi" ? {provider:selected.provider || ""} : {})};
+      ...(c.runtime !== "codex" ? {provider:selected.provider || ""} : {})};
     d.requestId = requestId(); d.error = "";
     this.renderModelChoices(); this.renderCreationModel(); this.renderCreationPeriod();
     // Preserve keyboard focus after replacing dependent Picker options.

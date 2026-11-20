@@ -4,6 +4,7 @@ from pathlib import Path
 import codex_client
 import oar_client
 import pi_models
+import dsh_models
 from llm_client import _pi_subprocess_env
 
 
@@ -11,7 +12,7 @@ def run(config, prompt, *, task, timeout):
     if task not in {"translation", "connection_test"}:
         raise ValueError("invalid_runtime_task")
     runtime = config.get("runtime")
-    if runtime not in {"pi", "codex"} or (task == "translation" and runtime != "pi"):
+    if runtime not in {"pi", "dsh", "codex"} or (task == "translation" and runtime == "codex"):
         raise ValueError("invalid_agent_runtime")
     with tempfile.TemporaryDirectory(prefix="newsreader-runtime-") as directory:
         root = Path(directory)
@@ -23,11 +24,11 @@ def run(config, prompt, *, task, timeout):
             parser = codex_client.OarEventParser().parse
             env = codex_client.oar_environment()
         else:
-            selected = pi_models.normalize_config(config.get("pi", {}))
+            selected = (dsh_models if runtime == "dsh" else pi_models).normalize_config(config.get(runtime, {}))
             if not selected["provider"] or not selected["model"]:
-                raise ValueError("pi_model_not_selected")
+                raise ValueError(f"{runtime}_model_not_selected")
             request = oar_client.bridge_request(prompt=prompt, resume_prompt="", state_dir=root / "state",
-                task=task, **selected)
+                task=task, runtime=runtime, **selected)
             request["cwd"] = str(root)
             parser = oar_client.parse_event
             env = _pi_subprocess_env()

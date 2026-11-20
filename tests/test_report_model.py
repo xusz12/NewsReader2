@@ -330,3 +330,32 @@ def test_pi_reserves_thinking_and_output_within_registry_capacity(monkeypatch):
     assert result["output_tokens"] == 65536 and result["input_tokens"] == 834464
     assert result["max_output_tokens"] == 384000 and result["output_budget_version"] == 2
     assert model.capacity({**config, "reasoning_effort": "off"})["output_tokens"] == 32768
+
+
+@pytest.mark.parametrize("context,output_metadata,reserve", [
+    (1048576, {}, 32768),
+    (65536, {}, 16384),
+    (1048576, {"maxTokens": None}, 32768),
+    (1048576, {"maxTokens": True}, 32768),
+    (1048576, {"maxTokens": 8192}, 8192),
+    (1048576, {"maxTokens": 131072}, 65536),
+])
+def test_dsh_report_output_reserve(monkeypatch, context, output_metadata, reserve):
+    metadata = {"contextWindow": context, "reasoning_efforts": ["xhigh"], **output_metadata}
+    monkeypatch.setattr(model.dsh_models, "metadata", lambda _: metadata)
+    config = {"runtime": "dsh", "provider": "fixture", "model": "selected", "reasoning_effort": "xhigh"}
+    result = model.capacity(config)
+    assert result["context_window"] == context
+    assert result["output_tokens"] == reserve
+    assert result["input_tokens"] == context - reserve - max(4096, context // 10)
+    if type(output_metadata.get("maxTokens")) is int:
+        assert result["max_output_tokens"] == output_metadata["maxTokens"]
+    else:
+        assert "max_output_tokens" not in result
+
+
+@pytest.mark.parametrize("context", [{}, {"contextWindow": None}, {"contextWindow": 0}, {"contextWindow": 4096}])
+def test_dsh_report_requires_native_context_even_with_known_output_limit(monkeypatch, context):
+    monkeypatch.setattr(model.dsh_models, "metadata", lambda _: {"maxTokens": 8192, **context})
+    with pytest.raises(RuntimeError, match="^report_model_capacity_unknown$"):
+        model.capacity({"runtime": "dsh", "provider": "fixture", "model": "selected"})

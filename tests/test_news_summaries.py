@@ -1323,7 +1323,7 @@ def test_draft_scope_handles_empty_unread_and_unconfigured_agent(setup):
     assert not calls
 
 
-@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('runtime', ['pi', 'codex', 'dsh'])
 @pytest.mark.parametrize('web', [False, True])
 def test_oar_task_request_preserves_model_and_material_policy(runtime, web, tmp_path):
     config = {'runtime': runtime, 'codex': {'model': 'selected', 'reasoning_effort': 'high', 'sandbox': 'read-only'},

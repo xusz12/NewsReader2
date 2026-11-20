@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execute, prepareConfig, validateRequest } from '../scripts/oar_bridge.mjs';
+import { apply as applyDshPolicy } from '../scripts/dsh_policy.mjs';
 
 async function fixture(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'newsreader-oar-unit-'));
@@ -449,4 +450,62 @@ test('research evidence requires a completed tool and failed calls remain failur
     {type: 'oar_tool', tool: 'web_search', phase: 'completed', success: false},
     {type: 'oar_tool', tool: 'web_search', phase: 'completed', success: true},
   ]);
+});
+
+test('DSH disposes jobs surviving the main turn and ignores late output', async t => {
+  const base = await fixture(t);
+  const request = {...base, runtime:'dsh', task:'material_summary', agentDir:base.state_dir};
+  await fs.writeFile(path.join(base.state_dir, 'policy-native-id'), 'ready');
+  const stopped = [], published = [];
+  const native = {id:'native-id', events(fn) {this.event = fn;}, records:()=>[],
+    async stopTask(id) {stopped.push(id); this.event({kind:'text_delta',text:'late'});},
+    async dispose() {this.event({kind:'text_delta',text:'disposed'});}};
+  const complete = async () => {
+    native.event({kind:'task_started', taskId:'old'}); native.event({kind:'task_ended',taskId:'old'});
+    native.event({kind:'task_started', taskId:'background'});
+    return {kind:'ended', outcome:{kind:'completed'}, text:'final'};
+  };
+  assert.ok(await execute(request, {session:async()=>native}, {}, e=>published.push(e), undefined, complete));
+  assert.deepEqual(stopped,['background']);
+  assert.equal(published.at(-1).answer,'final');
+  assert.equal(published.some(e=>e.type==='text_delta'),false);
+});
+
+test('DSH report metadata uses the selected route and only consults its installed model catalog', async t => {
+  const {state_dir: home} = await fixture(t);
+  const route = {provider: 'opencode-go', model: 'selected'};
+  const config = {home, route, metadata: path.join(home, 'metadata.json'), servers: []};
+  const agent = {session: {id: 'fixture'}, scope: {ctx: {tools: {definitions: () => [], restrict() {}}}}};
+  const installed = {provider: route.provider, settingsNs: 'llm-pi-ai', declared: false};
+  const catalog = [{id: 'other', maxTokens: 64000}, {id: route.model, maxTokens: 131072}];
+  for (const example of [
+    {entry: installed, catalog, expected: 131072},
+    {entry: installed, configured: 8192, expected: 8192},
+    {entry: installed, catalog: [catalog[0]]},
+    {entry: installed, catalog: new Error('catalog unavailable')},
+    {entry: {...installed, declared: true}},
+    {entry: {...installed, settingsNs: 'another-adapter'}},
+    {entry: {...installed, provider: 'another-provider'}},
+  ]) {
+    const lookups = [];
+    const llm = {
+      async resolveModelInfo(provider, model) {
+        assert.deepEqual({provider, model}, route);
+        return {provider, id: model, context: {contextWindow: 1048576}, defaultMaxTokens: example.configured};
+      },
+      listConfigurableProviders: () => [example.entry],
+      async discoverModels(namespace, request) {
+        lookups.push([namespace, request]);
+        if (example.catalog instanceof Error) throw example.catalog;
+        return example.catalog;
+      },
+    };
+    let created;
+    applyDshPolicy({llm, on(event, handler) { assert.equal(event, 'agent/created'); created = handler; }}, config);
+    await created({agent});
+    const metadata = JSON.parse(await fs.readFile(config.metadata, 'utf8'));
+    assert.equal(metadata.contextWindow, 1048576);
+    assert.equal(metadata.maxTokens, example.expected);
+    assert.deepEqual(lookups, example.catalog ? [['llm-pi-ai', {provider: route.provider}]] : []);
+  }
 });

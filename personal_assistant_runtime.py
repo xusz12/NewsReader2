@@ -34,11 +34,11 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
             thread_id=native_id, cwd=workspace, resume_prompt=resume_prompt)
         parse = parser.parse
     else:
-        choice = profile["pi"]
+        choice = profile[runtime]
         if not choice.get("provider") or not choice.get("model"):
-            raise RuntimeError("pi_model_not_selected")
+            raise RuntimeError(f"{runtime}_model_not_selected")
         request = oar_client.bridge_request(prompt=prompt, resume_prompt=resume_prompt, state_dir=state_dir,
-            provider=choice["provider"], model=choice["model"], reasoning_effort=choice.get("reasoning_effort", ""))
+            runtime=runtime, task="personal_assistant", provider=choice["provider"], model=choice["model"], reasoning_effort=choice.get("reasoning_effort", ""))
         parse = oar_client.parse_event
     request.update(task="personal_assistant", cwd=str(workspace), nr_tools=config)
     argv = oar_client.bridge_command(state_dir.parent.name)
@@ -52,7 +52,7 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
         if stopped():
             raise RuntimeError("assistant_stopped")
         process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   cwd=workspace, env=_pi_subprocess_env() if runtime == "pi" else codex_client.oar_environment(),
+                                   cwd=workspace, env=_pi_subprocess_env() if runtime != "codex" else codex_client.oar_environment(),
                                    start_new_session=True, bufsize=0)
         os.set_blocking(process.stdin.fileno(), False)
         selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")

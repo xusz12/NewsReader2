@@ -8,6 +8,7 @@ from model_apis import normalize_api_models, normalize_translation
 import report_schedule
 import collection_schedule
 import pi_models
+import dsh_models
 
 
 PROJECT_DB_PATH = Path(__file__).resolve().parent / "news_index.sqlite3"
@@ -45,7 +46,7 @@ def feature_model_config(settings: dict, feature: str = "chat") -> dict:
     """The weekly/monthly group initially inherits the former shared report choice."""
     agent = settings.get("agent", {})
     legacy = {"runtime": agent.get("runtime", "pi"), "codex": agent.get("codex", {}),
-              "pi": settings.get("llm", {}).get("pi_chat", {})}
+              "dsh": agent.get("dsh", {}), "pi": settings.get("llm", {}).get("pi_chat", {})}
     features = settings.get("feature_models", {})
     fallback = features.get("reports", legacy) if feature in REPORT_MODEL_FEATURES.values() else legacy
     return deepcopy(features.get(feature, fallback) if feature != "chat" else legacy)
@@ -71,7 +72,7 @@ def normalize_feature_models(value: object, settings: dict) -> dict:
         if feature == "reports_periodic" and feature not in settings.get("feature_models", {}):
             previous = deepcopy(result["reports"])
         selected = value.get(feature, previous)
-        if not isinstance(selected, dict) or selected.get("runtime", previous["runtime"]) not in ("pi", "codex"):
+        if not isinstance(selected, dict) or selected.get("runtime", previous["runtime"]) not in ("pi", "codex", "dsh"):
             raise ValueError("invalid_feature_models")
         pi = selected.get("pi", previous["pi"])
         if not isinstance(pi, dict):
@@ -85,8 +86,9 @@ def normalize_feature_models(value: object, settings: dict) -> dict:
             normalized_pi = pi_models.normalize_config(pi, pi_defaults)
         except ValueError as exc:
             raise ValueError("invalid_feature_models") from exc
+        dsh = dsh_models.normalize_config(selected.get("dsh", previous.get("dsh", {})))
         result[feature] = {"runtime": selected.get("runtime", previous["runtime"]),
-                           "codex": normalize_config(selected.get("codex", previous["codex"])), "pi": normalized_pi}
+                           "codex": normalize_config(selected.get("codex", previous["codex"])), "pi": normalized_pi, "dsh": dsh}
     return result
 
 
@@ -148,6 +150,7 @@ DEFAULT_APP_SETTINGS = {
     },
     "agent": {
         "session_ttl_hours": 72,
+        "dsh": {"provider": "", "model": ""},
         "runtime": "pi",
         "codex": {"model": "", "sandbox": "read-only"},
     },
@@ -265,8 +268,12 @@ def load_app_settings() -> dict:
     agent = payload.get("agent") if isinstance(payload, dict) else None
     if isinstance(agent, dict):
         from codex_client import saved_preferences
-        if agent.get("runtime") in ("pi", "codex"):
+        if agent.get("runtime") in ("pi", "codex", "dsh"):
             base["agent"]["runtime"] = agent["runtime"]
+        try:
+            base["agent"]["dsh"] = dsh_models.normalize_config(agent.get("dsh", {}))
+        except ValueError:
+            pass
         if isinstance(agent.get("codex"), dict):
             try:
                 base["agent"]["codex"] = saved_preferences(agent["codex"])

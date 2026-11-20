@@ -32,16 +32,17 @@ def archive_api(tmp_path, monkeypatch):
     return app, client, f"/api/news/{item['id']}", settings
 
 
-@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('runtime', ['pi', 'codex', 'dsh'])
 @pytest.mark.parametrize('message_source', ['legacy', 'persisted'])
 def test_full_research_and_quote_reach_archive_model(archive_api, monkeypatch, runtime, message_source):
     app, client, path, settings = archive_api
     settings['agent']['runtime'] = runtime
+    settings['agent']['dsh'] = {'provider':'fixture','model':'dsh-model'}
     captured = {}
     summary = '政策利率下调未必降低企业实际融资成本：关键在于银行是否把资金成本下降传导给企业，以及信用风险溢价是否抵消降息效果。现有讨论尚缺企业实际贷款利率的证据。'
 
     def pi_run(command, request, env, timeout):
-        assert request['task'] == 'chat_archive'
+        assert request['task'] == 'chat_archive' and request['runtime'] == runtime and 'web_tools' not in request
         captured['prompt'] = request['prompt']
         return summary
 
@@ -99,13 +100,14 @@ def test_archive_summary_boundary_preserves_saved_findings_on_failure(archive_ap
     assert client.get(path + '/detail').json['notes'] == saved_notes
 
 
-@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('runtime', ['pi', 'codex', 'dsh'])
 @pytest.mark.parametrize('message_source', ['legacy', 'persisted'])
 @pytest.mark.parametrize('source_length', [20, 400])
 @pytest.mark.parametrize('outcome', ['valid', 'compressed', 'still_long', 'empty', 'empty_recovered', 'empty_transport_recovered', 'empty_after_retry', 'retry_error'])
 def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime, message_source, source_length, outcome):
     app, client, path, settings = archive_api
     settings['agent']['runtime'] = runtime
+    settings['agent']['dsh'] = {'provider':'fixture','model':'dsh-model'}
     messages = [{'role': 'user', 'content': '  研究结论？  ', 'quote_text': '引用资料' * 100},
                 {'role': 'assistant', 'content': '研' * (source_length - 5)}]
     limit = min(300, source_length)
@@ -146,7 +148,7 @@ def test_archive_length_retry_and_atomic_save(archive_api, monkeypatch, runtime,
     def pi_run(command, request, env, timeout):
         assert request['task'] == 'chat_archive'
         states.append(Path(request['state_dir']))
-        assert 'newsreader-oar-archive-' in str(states[-1])
+        assert ('newsreader-oar-dsh-archive-' if runtime == 'dsh' else 'newsreader-oar-archive-') in str(states[-1])
         assert request['resume_prompt'] == request['prompt']
         return generate(request['prompt'])
 
@@ -253,17 +255,18 @@ def store_conversation(app, client, path, messages):
     return session_id
 
 
-@pytest.mark.parametrize('runtime', ['pi', 'codex'])
+@pytest.mark.parametrize('runtime', ['pi', 'codex', 'dsh'])
 @pytest.mark.parametrize('client_copy', ['last_reply', 'stale', 'omitted'])
 def test_persisted_session_is_archive_source(archive_api, monkeypatch, runtime, client_copy):
     app, client, path, settings = archive_api
     settings['agent']['runtime'] = runtime
+    settings['agent']['dsh'] = {'provider':'fixture','model':'dsh-model'}
     session_id = store_conversation(app, client, path, MULTI_TOPIC_CONVERSATION)
     before = client.get(path + '/agent/session').json
     captured = {}
 
     def pi_run(command, request, env, timeout):
-        assert request['task'] == 'chat_archive'
+        assert request['task'] == 'chat_archive' and request['runtime'] == runtime and 'web_tools' not in request
         captured['prompt'] = request['prompt']
         return '合成归档测试结果。'
 

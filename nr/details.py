@@ -176,7 +176,6 @@ def enqueue_ai_job(conn: sqlite3.Connection, url: str) -> bool:
 
 
 def generate_news_translation(settings: dict, *, title: str, source: str, content: str) -> dict:
-    """Use one settings snapshot: preferred HTTP API, other APIs, then optional Pi."""
     config = settings["llm"]["translation"]
     preferred = model_apis.canonical_provider(config["provider"])
     providers = [preferred]
@@ -209,16 +208,18 @@ def generate_news_translation(settings: dict, *, title: str, source: str, conten
         except LLMClientError as exc:
             failed(provider, exc)
     if config.get("pi_fallback_enabled", True):
-        pi = settings["llm"]["pi_chat"]
+        runtime = config.get("fallback_runtime", "pi")
+        pi = settings["agent"]["dsh"] if runtime == "dsh" else settings["llm"]["pi_chat"]
         try:
             result = generate_pi_fallback_translation(title=title, source=source, content=content,
                                                       pi_provider=pi["provider"], pi_model=pi["model"],
+                                                      **({"runtime": runtime} if runtime == "dsh" else {}),
                                                       **({"reasoning_effort": pi["reasoning_effort"]} if pi.get("reasoning_effort") else {}))
             if source == "Twitter/X":
                 result.update(key_points_zh=[], conclusion_zh="")
-            return completed("pi", result)
+            return completed(runtime, result)
         except LLMClientError as exc:
-            failed("pi", exc)
+            failed(runtime, exc)
     raise LLMClientError("TRANSLATION_PROVIDERS_FAILED: " + " | ".join(
         f"{attempt['provider']}:{attempt['error']}" for attempt in attempts))
 

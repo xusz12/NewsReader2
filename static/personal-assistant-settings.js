@@ -1,5 +1,5 @@
 import { $, api, escapeHTML as e, errorText } from "./ui.js";
-import { selectField } from "./form-controls.js?v=0.6.4";
+import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.4";
 import { confirmAction } from "./confirm-dialog.js";
 
 const base = "/api/personal-assistant";
@@ -14,7 +14,7 @@ export class PersonalAssistantSettings {
     host.onclick = event => {
       const button = event.target.closest("[data-personal-action]");
       if (!button) return;
-      const actions = {catalog:()=>this.loadCatalog(), refresh:()=>this.load(), memorySave:()=>this.saveMemory(), memoryReset:()=>this.resetMemory(), memoryDelete:()=>this.deleteMemory()};
+      const actions = {catalog:()=>this.loadCatalog(true), refresh:()=>this.load(), memorySave:()=>this.saveMemory(), memoryReset:()=>this.resetMemory(), memoryDelete:()=>this.deleteMemory()};
       void actions[button.dataset.personalAction]?.();
     };
     this.render();
@@ -47,12 +47,12 @@ export class PersonalAssistantSettings {
     }
     finally { this.loading = false; }
   }
-  async loadCatalog() {
+  async loadCatalog(refresh = false) {
     if (!this.draft) return;
     const seq = ++this.sequence, draft = structuredClone(this.draft);
     this.catalogLoading = true; this.catalogNotice = "正在读取模型…"; this.render();
     try {
-      const data = await api(base+"/model-options", {method:"POST", body:draft});
+      const data = await api(base+"/model-options", {method:"POST", body:{...draft, refresh}});
       if (seq !== this.sequence) return;
       this.catalog = data.catalog; this.catalogNotice = data.catalog.notice || "模型列表已更新";
     } catch (error) { if (seq === this.sequence) this.catalogNotice = errorText(error); }
@@ -69,7 +69,7 @@ export class PersonalAssistantSettings {
     }
     const d = this.draft, runtime = d.runtime, c = d[runtime], options = this.catalog?.options || [];
     const providers = [...new Set(options.map(x=>x.provider).filter(Boolean))];
-    const models = runtime === "pi" ? options.filter(x=>x.provider === c.provider) : options;
+    const models = runtime !== "codex" ? options.filter(x=>x.provider === c.provider) : options;
     const selected = models.find(x=>x.value === c.model);
     const efforts = selected?.reasoning_efforts || selected?.supported_reasoning_efforts || [];
     const scrollArea = this.host.closest(".settings-main"), memory = $("#personalMemorySettings", this.host);
@@ -82,9 +82,9 @@ export class PersonalAssistantSettings {
       <label class="field-item"><span class="field-label">助手职责</span><textarea class="field-input" data-personal-field="instructions" rows="3" maxlength="4000">${e(d.instructions)}</textarea></label>
       <div class="field-item"><span class="field-label">本地工作区</span><code class="storage-path">${e(d.workspace)}</code></div>
       <div class="section-card-title"><span>个人助手模型</span></div>
-      <div class="form-group-grid">${selectField("Runtime", "personal.runtime", runtime, [{value:"pi",label:"Pi"},{value:"codex",label:"Codex"}], null)}
-      ${runtime === "pi" ? selectField("服务商", "personal.pi.provider", c.provider, providers, "请选择") : ""}
-      ${selectField("模型", `personal.${runtime}.model`, c.model, models, runtime === "pi" ? "请选择模型" : "沿用本机默认", {preserveUnknown:false})}
+      <div class="form-group-grid">${selectField("Runtime", "personal.runtime", runtime, runtimeOptions, null)}
+      ${runtime !== "codex" ? selectField("服务商", `personal.${runtime}.provider`, c.provider, providers, "请选择") : ""}
+      ${selectField("模型", `personal.${runtime}.model`, c.model, models, runtime !== "codex" ? "请选择模型" : "沿用本机默认", {preserveUnknown:false})}
       ${selectField("推理强度", `personal.${runtime}.reasoning_effort`, c.reasoning_effort || "", efforts.map(x=>typeof x === "string" ? x : {value:x.reasoning_effort || x.value,label:x.description || x.label || x.reasoning_effort}), "沿用默认", {preserveUnknown:false})}</div>
       ${c.model && !selected ? `<p class="muted">已保存的 ${e(c.model)} 当前不在模型列表中，请刷新列表或重新选择。</p>` : ""}
       <div class="button-row"><button type="button" class="btn-secondary" data-personal-action="catalog" ${this.catalogLoading ? "disabled" : ""}>刷新模型</button><span class="muted" role="status">${e(this.catalogNotice || "")}</span></div>
@@ -125,11 +125,11 @@ export class PersonalAssistantSettings {
     const target = parts.reduce((v,k)=>v[k], this.draft);
     if (target[field] === input.value) return;
     target[field] = input.value;
-    if (key === "pi.provider") { this.draft.pi.model = ""; delete this.draft.pi.reasoning_effort; }
+    if (key.endsWith(".provider")) { this.draft[this.draft.runtime].model = ""; delete this.draft[this.draft.runtime].reasoning_effort; }
     if (key.endsWith(".model")) delete this.draft[this.draft.runtime].reasoning_effort;
     this.notice = ""; this.syncButtons();
     $("#personalSettingsStatus").textContent = this.notice;
-    if (["runtime", "pi.provider", "pi.model", "codex.model"].includes(key)) {
+    if (["runtime", "pi.provider", "pi.model", "codex.model", "dsh.provider", "dsh.model"].includes(key)) {
       this.render(); this.host.querySelector(`[data-select-trigger="${input.name}"]`)?.focus({preventScroll:true});
       if (key === "runtime") { this.catalog = null; void this.loadCatalog(); }
     }

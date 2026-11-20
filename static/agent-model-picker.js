@@ -1,5 +1,5 @@
 import { api, escapeHTML as e, errorText } from "./ui.js";
-import { selectField } from "./form-controls.js?v=0.6.4";
+import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.4";
 import { AnchoredPopover } from "./anchored-popover.js";
 
 // Session-local choices. A change preserves the transcript and applies to the next turn.
@@ -58,6 +58,7 @@ export class AgentModelPicker {
     if (!retry && runtime && this.catalogs[runtime]) return;
     const params = new URLSearchParams();
     if (runtime) params.set("runtime", runtime);
+    if (retry && runtime === "dsh") params.set("refresh", "1");
     if (c.session) params.set("session_id", c.session.id);
     this.loading = true; this.error = ""; this.render();
     try {
@@ -65,7 +66,7 @@ export class AgentModelPicker {
       if (revision !== this.revision) return;
       this.choices ||= data.choices;
       this.catalogs[data.runtime] = data.catalog;
-      this.error = data.catalog.error || "";
+      this.error = data.catalog.error ? data.catalog.notice || data.catalog.error : "";
     } catch (error) { if (revision === this.revision) this.error = errorText(error); }
     finally {
       this.loading = false;
@@ -90,7 +91,7 @@ export class AgentModelPicker {
       if (value && !options.some(m=>m.value===value)) options.push({value,label:config.model});
       const model = models.find(m=>m.value === config.model && (codex || m.provider === config.provider));
       const label = text => `<span class="sr-only">Agent </span>${text}`;
-      next.innerHTML = `<div class="form-group-grid">${selectField(label("Runtime"),"agentRuntime",runtime,[{value:"codex",label:"Codex"},{value:"pi",label:"Pi"}],null)}${selectField(label("模型"),"agentModel",value,options,codex?"默认模型":"选择模型")}${selectField(label("推理程度"),"agentEffort",config.reasoning_effort || "",model?.reasoning_efforts || [],"默认")}</div>`;
+      next.innerHTML = `<div class="form-group-grid">${selectField(label("Runtime"),"agentRuntime",runtime,runtimeOptions,null)}${selectField(label("模型"),"agentModel",value,options,codex?"默认模型":"选择模型")}${selectField(label("推理程度"),"agentEffort",config.reasoning_effort || "",model?.reasoning_efforts || [],"默认")}</div>`;
       for (const select of next.querySelectorAll("select")) {
         select.disabled = !!(c.busy || this.saving || this.loading || !catalog ||
           select.name === "agentEffort" && !model?.reasoning_efforts?.length);
@@ -116,21 +117,21 @@ export class AgentModelPicker {
       // Do not send through the old executor while the new runtime is still being selected.
       this.blocked = true; choices.runtime = input.value; this.onBusy(); this.render(); await this.load();
       if (revision !== this.revision) return;
-      if (this.error) {this.choices = null; this.blocked = false; this.onBusy(); return;}
+      if (this.error) {this.blocked = false; this.onBusy(); this.render(); return;}
     } else if (input.name === "agentModel") {
       const config = choices[choices.runtime];
-      const [provider,model] = choices.runtime === "pi" && input.value ? JSON.parse(input.value) : ["",input.value];
+      const [provider,model] = choices.runtime !== "codex" && input.value ? JSON.parse(input.value) : ["",input.value];
       config.model = model; config.reasoning_effort = "";
-      if (choices.runtime === "pi") config.provider = provider;
+      if (choices.runtime !== "codex") config.provider = provider;
     } else if (input.name === "agentEffort") choices[choices.runtime].reasoning_effort = input.value;
     else return;
     const selected = choices[choices.runtime];
-    if (choices.runtime === "pi" && (!selected.model || !selected.provider)) {this.render(); return;}
+    if (choices.runtime !== "codex" && (!selected.model || !selected.provider)) {this.render(); return;}
     this.saving = true; this.error = ""; this.onBusy(); this.render();
     try {
       const data = await api(`/api/news/${encodeURIComponent(c.item.id)}/agent/session/model`, {method:"PATCH", body:{session_id:c.session?.id || "", selection:{
         runtime:choices.runtime, model:selected.model || "", reasoning_effort:selected.reasoning_effort || "",
-        ...(choices.runtime === "pi" ? {provider:selected.provider} : {}),
+        ...(choices.runtime !== "codex" ? {provider:selected.provider} : {}),
       }}});
       if (revision !== this.revision) return;
       this.onUpdate(data);

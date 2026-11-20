@@ -23,6 +23,7 @@ import news_collection
 import news_summaries
 import periodic_reports
 import pi_models
+import dsh_models
 import source_deletion
 import x_accounts
 from feed_sources import (
@@ -582,13 +583,18 @@ end try
             raise ValueError("invalid_agent_session_ttl")
 
         runtime = agent_payload.get("runtime", current_settings["agent"].get("runtime", "pi"))
-        if not isinstance(runtime, str) or runtime not in {"pi", "codex"}:
+        if not isinstance(runtime, str) or runtime not in {"pi", "codex", "dsh"}:
             raise ValueError("invalid_agent_runtime")
         codex_config = codex_client.normalize_config(agent_payload.get("codex", current_settings["agent"]["codex"]))
         if codex_config != current_settings["agent"]["codex"]:
             codex_config = model_catalogs.validate_effort(codex_config)
+        dsh_config = dsh_models.normalize_config(agent_payload.get("dsh", current_settings["agent"]["dsh"]))
+        if dsh_config != current_settings["agent"]["dsh"]:
+            dsh_models.validate_effort(dsh_config)
         feature_models = normalize_feature_models(payload.get("feature_models", {}), current_settings)
         for feature, config in feature_models.items():
+            if config["dsh"] != current_settings["feature_models"][feature].get("dsh", {}):
+                dsh_models.validate_effort(config["dsh"])
             if config["codex"] != current_settings["feature_models"][feature]["codex"]:
                 config["codex"] = model_catalogs.validate_effort(config["codex"])
             if config["pi"] != current_settings["feature_models"][feature]["pi"] and config["pi"].get("reasoning_effort"):
@@ -631,6 +637,7 @@ end try
                 "session_ttl_hours": int(ttl),
                 "runtime": runtime,
                 "codex": codex_config,
+                "dsh": dsh_config,
             },
             "database": {
                 "path": configured_db_path,
@@ -821,6 +828,8 @@ def register(app, db, jobs, preferences, store, worker):
             except ValueError as exc:
                 return jsonify(ok=False, error=str(exc)), 400
             return jsonify(ok=True, catalog=model_catalogs.safe_catalog(config))
+        if body.get("runtime") == "dsh":
+            return jsonify(ok=True, catalog=dsh_models.catalog(refresh=body.get("refresh") is True))
         if body.get("runtime") == "pi":
             return jsonify(ok=True, catalog=pi_chat_settings_snapshot("", "")["catalog"])
         return jsonify(ok=False, error="invalid_agent_runtime"), 400

@@ -125,7 +125,7 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
 
 
 @pytest.mark.parametrize('route,tool_source', [('assistant', 'nr_tools'),
-    ('news', 'builtin'), ('migrate_cli', 'builtin'), ('import_cli', 'builtin')])
+    ('news', 'managed_web'), ('migrate_cli', 'builtin'), ('import_cli', 'builtin')])
 def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, route, tool_source):
     import shutil
     import threading
@@ -140,6 +140,8 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
     sample = cwd / 'sample.txt'
     sample.write_text('local-tool-evidence', encoding='utf-8')
     tool_name, tool_args = 'read', {'path': str(sample)}
+    if tool_source == 'managed_web':
+        tool_name, tool_args = 'mcp__nr_web__web_search', {'query':'fixture'}
     nr_tools = None
     if tool_source == 'nr_tools':
         import sqlite3
@@ -195,6 +197,7 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
     request = {'cwd': str(cwd), 'state_dir': str(state), 'provider': 'nr-upgrade-test',
                'model': 'fixture', 'prompt': 'Read the sample and retain this first question.',
                'resume_prompt': 'Continue the same conversation.', 'reasoning_effort': 'off', 'task': 'news_chat'}
+    request['web_tools'] = {'command':sys.executable, 'args':[str(oar_client.ROOT / 'tests/fixtures/pi_news_mcp.py'), '--managed']}
     if nr_tools:
         request.update(nr_tools=nr_tools, task='personal_assistant')
     if route == 'news':
@@ -233,8 +236,9 @@ def test_installed_pi_runs_tools_and_resumes_across_bridge_processes(tmp_path, r
         tools = [tool['function']['name'] for tool in requests[0]['tools']]
         assert tool_name in tools
         if nr_tools:
-            assert all(name.startswith('mcp__nr_assistant__') for name in tools)
-        assert any(message['role'] == 'tool' and 'local-tool-evidence' in str(message['content'])
+            assert {name for name in tools if not name.startswith('mcp__nr_assistant__')} == {'mcp__nr_web__web_fetch', 'mcp__nr_web__web_search'}
+        evidence = 'synthetic-search-evidence' if tool_source == 'managed_web' else 'local-tool-evidence'
+        assert any(message['role'] == 'tool' and evidence in str(message['content'])
                    for message in requests[1]['messages'])
         resumed = requests[2]['messages']
         assert any(message['role'] == 'assistant' and 'first-answer' in str(message['content'])

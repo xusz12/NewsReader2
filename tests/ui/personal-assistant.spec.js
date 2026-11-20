@@ -122,6 +122,22 @@ test("停止与失败有明确状态，关窗继续运行，草稿不会丢失",
   await send(page,"继续讨论");
 });
 
+for (const width of [390,1440]) test(`联网进度和停止后的重试保留草稿 ${width}`, async ({page,request}) => {
+  await request.post("/__test/personal-assistant",{data:{mode:"web_search"}});
+  await page.setViewportSize({width,height:900});await ready(page);await open(page);
+  const input=page.locator("#personalAssistantInput"), status=page.locator("#personalAssistantStatus");
+  await input.fill("上次那条新闻后来怎么样了？");await page.locator("#personalAssistantSend").click();
+  await expect(status).toContainText("正在搜索网页");
+  await request.post("/__test/personal-assistant",{data:{mode:"web_fetch"}});
+  await expect(status).toContainText("正在抓取来源网页");
+  await input.fill("下一条问题的草稿");
+  await page.getByRole("button",{name:"停止回复",exact:true}).click();await expect(status).toContainText("已停止");
+  await request.post("/__test/personal-assistant",{data:{mode:"success"}});
+  await page.locator("#personalAssistantRetry").click();await expect(status).toContainText("本轮已完成");
+  await expect(input).toHaveValue("下一条问题的草稿");
+  await expect(page.locator("#personalAssistantMessages .user")).toHaveCount(1);
+});
+
 for (const width of [390,1440]) test(`已停止的空回复不会在下一轮重新显示为生成中 ${width}`, async ({page,request}) => {
   await request.post("/__test/personal-assistant", {data:{mode:"wait_empty"}});
   await page.setViewportSize({width,height:900});await ready(page);await open(page);

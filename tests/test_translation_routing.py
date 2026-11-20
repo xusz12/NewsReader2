@@ -35,7 +35,7 @@ def test_legacy_settings_gain_routing_and_old_writes_preserve_switches(api_fixtu
     legacy = {'llm': {'translation': {'provider': 'deepseek', 'model': 'deepseek-custom'}}}
     preferences.save_app_settings(legacy)
     assert configuration.load_app_settings()['llm']['translation'] == {
-        'provider':'deepseek', 'model':'deepseek-custom', 'fallback_enabled':True, 'pi_fallback_enabled':True}
+        'provider':'deepseek', 'model':'deepseek-custom', 'fallback_enabled':True, 'pi_fallback_enabled':True, 'fallback_runtime':'pi'}
     value = config('opencode-go', False, False)
     response = client.put('/api/settings', json={'llm':value['llm'], 'api_models':value['api_models']})
     assert response.status_code == 200

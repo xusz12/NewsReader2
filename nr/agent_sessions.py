@@ -70,12 +70,12 @@ def _agent_job_rows(conn: sqlite3.Connection, session_id: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _full_pi_executor_session_id(session_id: str) -> str:
-    return f"newsreader-oar-pi-{session_id}"
+def _full_pi_executor_session_id(session_id: str, runtime: str = "pi") -> str:
+    return f"newsreader-oar-{runtime}-{session_id}"
 
 
 def _is_legacy_pi_executor_session(executor_session_id: str) -> bool:
-    return bool(executor_session_id) and not executor_session_id.startswith("newsreader-oar-pi-")
+    return bool(executor_session_id) and not executor_session_id.startswith(("newsreader-oar-pi-", "newsreader-oar-dsh-"))
 
 
 def _agent_executor_settings() -> dict:
@@ -84,19 +84,40 @@ def _agent_executor_settings() -> dict:
     if settings["agent"].get("runtime") == "codex":
         config = codex_client.normalize_config(settings["agent"]["codex"])
         return dict(provider="codex", model=config["model"], executor_provider="codex", executor_config=config)
-    config = settings["llm"].get("pi_chat", {})
+    runtime = settings["agent"].get("runtime", "pi")
+    config = settings["agent"]["dsh"] if runtime == "dsh" else settings["llm"].get("pi_chat", {})
     provider = (config.get("provider") or "").strip()
     model = (config.get("model") or "").strip()
     if not provider or not model:
-        raise ValueError("pi_model_not_selected")
-    return dict(provider="pi", model=model, executor_provider=provider,
+        raise ValueError(f"{runtime}_model_not_selected")
+    return dict(provider=runtime, model=model, executor_provider=provider,
                 executor_config={"reasoning_effort": config["reasoning_effort"]} if config.get("reasoning_effort") else {})
+
+
+def _agent_job_model(session, previous=None):
+    if previous is not None and previous["model_binding"]:
+        return json.loads(previous["model_binding"])
+    runtime = previous["provider"] if previous is not None else session["provider"]
+    model = previous["model"] if previous is not None else session["model"]
+    provider = session["executor_provider"]
+    config = json.loads(session["executor_config"] or "{}")
+    if runtime != session["provider"]:
+        choice = _agent_model_choices()[runtime]
+        provider = "codex" if runtime == "codex" else choice["provider"]
+        config = choice if runtime == "codex" else {}
+    if model != session["model"] or runtime != session["provider"]:
+        config = {key: value for key, value in config.items() if key != "reasoning_effort"}
+        if runtime == "codex":
+            config["model"] = model
+    return {"provider": runtime, "model": model, "executor_provider": provider,
+            "executor_config": config}
 
 
 def _serialize_agent_job(row: sqlite3.Row | dict | None) -> dict | None:
     if not row:
         return None
     payload = dict(row)
+    payload.pop("model_binding", None)
     payload["cancel_requested"] = bool(payload.get("cancel_requested"))
     return payload
 
@@ -187,7 +208,7 @@ def _agent_model_choices(session=None):
 
 
 def _agent_choice_settings(choices):
-    return {"agent": {"runtime": choices["runtime"], "codex": choices["codex"]},
+    return {"agent": {"runtime": choices["runtime"], "codex": choices["codex"], "dsh": choices.get("dsh", {})},
             "llm": {"pi_chat": choices["pi"]}}
 
 
@@ -307,6 +328,8 @@ class AgentSessions:
         if "model_override" not in session_columns:
             conn.execute("ALTER TABLE agent_sessions ADD COLUMN model_override INTEGER NOT NULL DEFAULT 0")
         job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_jobs)")}
+        if "model_binding" not in job_columns:
+            conn.execute("ALTER TABLE agent_jobs ADD COLUMN model_binding TEXT NOT NULL DEFAULT ''")
         if "progress" not in job_columns:
             conn.execute("ALTER TABLE agent_jobs ADD COLUMN progress TEXT NOT NULL DEFAULT ''")
         agent_notifications.ensure_schema(conn)
@@ -427,7 +450,7 @@ class AgentSessions:
                 compatibility = codex_client.ERROR_MESSAGES.get(str(exc), codex_client.ERROR_MESSAGES["codex_session_invalid"])
             payload.update(runtime="codex", runtime_label="Codex", runtime_compatibility=compatibility, history_compatibility="", executor_config=config)
             return payload
-        runtime_key = executor_id if executor_id and not _is_legacy_pi_executor_session(executor_id) else _full_pi_executor_session_id(payload["id"])
+        runtime_key = executor_id if executor_id and not _is_legacy_pi_executor_session(executor_id) else _full_pi_executor_session_id(payload["id"], payload.get("provider") or "pi")
         payload.update(news_chat.agent_runtime_metadata(runtime_key))
         payload["history_compatibility"] = ""
         if _is_legacy_pi_executor_session(executor_id):
@@ -568,8 +591,10 @@ class AgentSessions:
         question: str,
         quote_text: str = "",
         quote_source: str = "",
+        previous=None,
     ) -> sqlite3.Row:
         session = self._agent_claim_legacy_session(conn, session)
+        binding = _agent_job_model(session, previous)
         active = conn.execute(
             """
         SELECT id FROM agent_jobs
@@ -586,21 +611,22 @@ class AgentSessions:
             """
         INSERT INTO agent_jobs
           (id, session_id, item_id, provider, model, question, quote_text, quote_source,
-           status, answer_text, error, cancel_requested, created_at, updated_at, db_scope, notify_enabled)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', '', '', 0, ?, ?, ?, 1)
+           status, answer_text, error, cancel_requested, created_at, updated_at, db_scope, notify_enabled, model_binding)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', '', '', 0, ?, ?, ?, 1, ?)
         """,
             (
                 job_id,
                 session["id"],
                 session["item_id"],
-                session["provider"],
-                session["model"],
+                binding["provider"],
+                binding["model"],
                 question,
                 quote_text,
                 quote_source,
                 stamp,
                 stamp,
                 session["db_scope"],
+                json.dumps(binding),
             ),
         )
         conn.execute(
@@ -702,6 +728,7 @@ class AgentSessions:
                     session = self._agent_create_session(conn, item, detail or {})
                 else:
                     session = _agent_refresh_unused_session(conn, session, context)
+                old_job = None
                 if retry_job_id:
                     old_job = self._agent_job_for_item(conn, item_id, retry_job_id)
                     if not old_job or old_job["session_id"] != session["id"]:
@@ -713,7 +740,7 @@ class AgentSessions:
                     question = old_job["question"]
                     quote_text = old_job["quote_text"]
                     quote_source = old_job["quote_source"]
-                job = self._agent_insert_job(conn, session, question=question, quote_text=quote_text, quote_source=quote_source)
+                job = self._agent_insert_job(conn, session, question=question, quote_text=quote_text, quote_source=quote_source, previous=old_job)
                 session = conn.execute("SELECT * FROM agent_sessions WHERE id=?", (session["id"],)).fetchone()
                 response_payload = self._agent_session_response(conn, session, context["context_hash"])
                 response_payload["job"] = _serialize_agent_job(job)
@@ -874,7 +901,8 @@ def register(app, store, worker):
         try:
             choices = _agent_model_choices(session)
             runtime = request.args.get("runtime", choices["runtime"])
-            catalog = report_model.catalog(_agent_choice_settings(choices), runtime, "chat")
+            catalog = report_model.catalog(_agent_choice_settings(choices), runtime, "chat",
+                refresh=request.args.get("refresh") == "1")
             return jsonify(ok=True, choices=choices, runtime=runtime, catalog=catalog)
         except (ValueError, RuntimeError) as exc:
             if str(exc) == "codex_advanced_config_removed":
@@ -902,7 +930,7 @@ def register(app, store, worker):
                 return jsonify(ok=False, error=str(exc)), 400
             config = (dict(provider="codex", model=selected["codex"]["model"], executor_provider="codex",
                            executor_config=selected["codex"]) if selected["runtime"] == "codex" else
-                      dict(provider="pi", model=selected["model"], executor_provider=selected["provider"],
+                      dict(provider=selected["runtime"], model=selected["model"], executor_provider=selected["provider"],
                            executor_config={"reasoning_effort": selected.get("reasoning_effort", "")}))
             with conn:
                 conn.execute("BEGIN IMMEDIATE")
@@ -918,7 +946,7 @@ def register(app, store, worker):
                     current = store._agent_create_session(conn, item, detail or {}, config)
                 else:
                     # A fresh native turn receives the saved transcript. Never resume a turn with changed settings.
-                    for runtime_id in {current["executor_session_id"], _full_pi_executor_session_id(current["id"]),
+                    for runtime_id in {current["executor_session_id"], _full_pi_executor_session_id(current["id"]), _full_pi_executor_session_id(current["id"], "dsh"),
                                        f"newsreader-codex-agent-{current['id']}"} - {""}:
                         store._remove_agent_runtime_dir(runtime_id)
                 conn.execute("UPDATE agent_sessions SET provider=?, model=?, executor_provider=?, executor_config=?, "

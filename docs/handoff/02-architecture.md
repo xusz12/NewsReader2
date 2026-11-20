@@ -10,11 +10,9 @@
 
 - 项目锁定 `@botiverse/oar@0.124.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
 - 第一批新闻 Chat／文章 Agent／对话归档摘要的 Pi、Codex 均固定经过 `oar_client.py` → `scripts/oar_bridge.mjs` → OAR，不保留这批功能的 CLI 回退。旧同步接口仍在，同样使用 OAR；当前新闻面板使用后台 Agent jobs。
-- Pi 新闻任务通过 OAR 管理 RPC 进程。`scripts/pi_rpc_entry.mjs` 只补充原生资源和归档的启动策略，不另行解析事件。聊天保留 MCP、codemode、tool_search、扩展与原项目信任规则；旧 CLI 原生会话成功恢复后才提交 OAR 映射。凭据与资源使用私有副本，包含 MCP OAuth 凭据。
-- Codex 新闻任务由 OAR 管理 app-server，沿用旧原生 ID，固定只读沙箱、不请求审批、标准速度和实时搜索。自定义模型输入、服务商覆盖与 Profile 已停用；旧空字段兼容，非空覆盖的已绑定会话明确拒绝。
-- 归档使用独立临时会话，每次字数重试重新生成；Pi 禁用工具和原生持久会话，Codex 禁用搜索并用原生 ephemeral 线程。OAR 0.106.0 的 ephemeral 缺口由受版本／代码接缝检查的 `scripts/oar_codex_ephemeral.mjs` 内存补丁补齐，升级时必须复验；不修改依赖文件、不退回 CLI。Codex 的“仅材料”仍包含提示词约束，不能宣称其所有内置工具已被统一禁用。
-- 新闻总结／主题的 Pi、Codex 统一经 `news_summaries.run_oar()`；材料整理关闭搜索，主题研究按已完成搜索事件检查检索证据，使用独立临时会话。个人助手 Pi、Codex 经 `personal_assistant_runtime.run()` 调用同一 OAR bridge，用 `mcpServers` 显式接入 NR 查询、讨论与记忆工具。全部报告由 `report_model.run()` 经 OAR 执行，Pi 长报告与 Codex 共用报告 MCP 工作区，Codex 保留原生子 Agent。
-- Pi 翻译后备及 Pi/Codex 连接测试经 `runtime_tasks.run()` 使用独立 OAR 会话；原生 CLI 执行与事件解析分支已删除。模型目录与容量仍使用无推理的 Pi SDK／Codex app-server；翻译等直接模型 HTTP API 及 Jev 专用判断继续保留。
+- Pi、Codex、外置 DSH 经 OAR 执行文章问答、个人助手、总结、主题和报告任务。Pi 使用私有配置，DSH 在私有目录恢复原生会话，两者按任务注册 NR 工具。Codex 使用本机 app-server 和原生搜索。
+- 文章问答及联网研究的 `nr_web` 只调用 DeepSeek Search 和 Fetch。必联网任务检查本次工具进程写入的成功记录。个人助手同时挂载 `nr_assistant` 查询新闻、讨论和记忆。模型推理与检索凭据分别读取。
+- 归档、材料任务、后备翻译及连接测试使用临时会话。长报告使用报告 MCP 工作区。直接翻译、分类和判断仍走专用 API。外置安装、模型目录及状态边界见[运行时说明](../runtime-migration.md)。
 - 真实依赖与本地模拟模型验证新旧会话、实际搜索工具、过滤、信任、归档不落盘、停止与进程树清理。自动化用本地模型服务，另通过 computer use 验证真实模型与页面，公网搜索限制单独记录；验收细目见[统一调用迁移清单](../runtime-migration.md)。
 
 ### 阅读查询与加载（2026-11-12）
@@ -32,7 +30,7 @@
 
 - 设置页在「模型与 Agent」中以始终展开的共享分区分别编辑 Chat、主题追踪、新闻总结、日报（早／午／晚）及周报／月报。Chat 保持 `agent.runtime / agent.codex / llm.pi_chat` 的原有存储与 API 契约；主题、总结保存在 `feature_models.topics / summaries`；早午晚报共用 `feature_models.reports`，周报与月报共用 `feature_models.reports_periodic`，没有自定义报告模型配置，每项含 `runtime`、`codex`、`pi`。各功能分别保留两种 Runtime 的选择，切换不清空另一种配置。
 - `settings.feature_model_config()` 返回独立副本。旧文件缺少主题、总结或报告总配置时从原 Chat 配置填充；缺少周月报组配置时从原 `reports` 独立复制，明确设置优先；首次保存固化这些初值，以后改变 Chat 或旧客户端省略 `feature_models` 均不覆盖其他功能。`normalize_feature_models()` 校验 Runtime、模型字段和 Codex 配置，设置接口对变化的 Codex 配置核验目录模型及推理强度，拒绝非空 Profile／服务商覆盖；Codex 目录按本机配置目录和可执行文件缓存，Pi 按其服务商注册表读取。
-- 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究、精简及手动重试显式读取 topics；报告通过 `report_model.configuration()` 和 `settings.report_model_feature(kind)` 将五种报告类型映射到日报与周月报两组配置；历史自定义任务的未绑定配置兼容读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
+- 新闻总结通过 `news_summaries.capture_config()` 读取 summaries；主题创建、研究和精简保存各自的 topics 模型快照，重试沿用任务已保存的快照；报告通过 `report_model.configuration()` 和 `settings.report_model_feature(kind)` 将五种报告类型映射到日报与周月报两组配置；历史自定义任务的未绑定配置兼容读取 reports。任务和已有 Chat 会话的配置快照不被设置更新改写，后续新任务使用各功能当前配置；显式重试沿用对应服务既有的重新取配置规则。
 - Pi 的可选 `reasoning_effort` 随各功能的 `pi`／`llm.pi_chat` 保存；`pi_models.py` 统一规范化并按 SDK 元数据验证。目录复用 `scripts/report_model.mjs` 的无推理请求分支，每次创建 ModelRuntime 读取当前 auth、环境及 models 配置，使用 `getAvailable()` 和 `getSupportedThinkingLevels()`；不再解析外部 CLI 表格来生成设置候选。有效空目录与读取错误区分，前端均撤下旧 Pi 候选，已有配置单独保留。所有 Pi 生成调用通过 OAR `SessionOptions.effort` 执行；Chat 在 executor_config／旧同步会话配置中固定档位，主题和总结写入任务快照，报告默认与临时配置均携带档位。
 - `connection_tests.py` 使用当前功能草稿，经 `runtime_tasks.run()` 创建隔离 OAR 请求。Pi/Codex 均要求精确返回 `NEWSREADER_CONNECTION_OK`，不恢复或保存原生会话，禁用外部 MCP、搜索与扩展等能力，拒绝实际工具调用。保留 45 秒生成超时和全局单次执行锁；只有完整结果与进程正常退出均满足才成功。测试说明一次模型请求成功，不证明搜索或其他工具可用。
 - 主题新闻归属与重要进展筛选使用「新闻分类」设置中的 Jev。正文精读与翻译在「API 管理」独立选择 DeepSeek 或 OpenCode Go 订阅，并配置跨 API 后备和 Pi 后备。功能配置分离只改变模型选择来源，不改变权限、工具或认证边界。
@@ -187,7 +185,7 @@ flowchart LR
 3. Jev 的现有 worker 优先领取新主题判断，再合并同一新闻符合范围的主分类请求；主分类仍只看标题，独立 `tracked_<id>` Choice 使用标题和已有摘要。每个主题分别属于／不属于／信息不足，一条新闻可多归属；信息不足不纳入且不抓正文。分类开关、unread_only及阅读状态仅约束主分类；并发门和限流与主题共享。
 4. 每个判断保存标题＋摘要指纹、模型和概率；租约180秒，普通错误最多 4 轮，默认重试间隔 5 秒，凭据和限流错误不消耗次数。更改标题／摘要会重新排队；回写核验当前内容、主题版本和租约，数据库切换后旧响应不会写进新库。
 5. 新主题仅使用 events；匹配完成至少3秒后安排 milestone 任务，由现有 Jev worker 共享并发／限流执行，不读取 Agent 配置。每个主题最多一个活动任务，每次判断一条新闻，下一条可看到刚新增的节点。输入为标题／摘要、该新闻的规则快照及最近80个非month节点的ID／日期／标题；Choice 返回新增节点、某个已有节点、不收录或信息不足。新节点原样使用标题／摘要及报道日期；已有节点仅增加新闻关联，其余结果保留纵向新闻。返回结果校验选项、概率、租约、主题生命周期版本及内容指纹，拒绝过期回写。milestone复用持久任务表，租约180秒、普通错误最多 4 轮，默认重试间隔 5 秒，限流和配置错误不消耗次数；失败显示在主题详情并可重试。旧monthly主题仍由Agent按同一规则快照分批（最多60条）更新同月节点，不联网、不抓正文。
-6. 定义和初始化使用当前「模型与 Agent → 主题追踪」配置，Codex只接受原生web_search研究事件；Pi需要可辨识的web/browser/tavily/brave/exa/firecrawl等联网工具。仅工具发现或本地工具不算完成搜索。所有初始节点要求实际来源URL，来源仅内部留存。后续总结明确禁用Codex搜索，并拒绝任何工具事件。
+6. 定义和初始化使用「研读与助手 → 主题追踪」配置。Codex 按原生搜索完成事件核验，Pi 与 DSH 按 NewsReader 的 DeepSeek 搜索或抓取工具成功取得来源的记录核验。所有初始节点要求实际来源URL，来源仅内部留存。后续总结明确禁用Codex搜索，并拒绝任何工具事件。
 7. 模型请求不持有写事务；Agent研究任务持久化配置和输入快照，租约1020秒，子进程最长900秒。失败或租约到期可在主题详情重试；参数不完整、来源变化及非法模型引用均不保存部分结果。最多32个未归档主题（含创建中），删除主题不改变 items/item_state 或首次入库账本。
 8. 主题详情分页默认40条、最多400条；`topic_activity` 的新闻未读数量以 `item_state.read_at IS NULL` 统计，排除已从新闻库删除的记录；详情 `is_new` 与新闻流红点共用这一状态。`unread_ids` 在同一读事务中返回该主题整批未读新闻ID，包含未加载分页，不受节点筛选影响；前端只在完整主题详情连续可见6秒后，通过新闻流的 `ItemStateQueue` / `ReadBatchWriter` 标读这批ID，保存成功再调用 `seen` 确认重要进展。没有逐条打开或滚动标读；期间新收录新闻不进入旧批次。共享保存队列原地更新红点、`new`、阅读器状态及导航计数，失败回滚，过期详情的新闻状态和未读ID列表按写入版本校正。同一新闻跨主题共享新闻浏览状态，成功保存后不可逆，不再用主题 `seen_at` 决定 `new`。
 9. `seen` 仅保存重要进展的主题查看截止时间；详情在读事务前捕获 `observed_at`，避免后到的进展被旧确认清除。`/api/nav-summary.topics_unseen` 按有未读新闻或未查看进展的未归档ready主题去重计数；主题ISO时间保留微秒。普通轮询不重置同一批次的6秒计时；离开主题、手机返回列表、打开新闻正文、筛选／编辑页面及后台隐藏均取消计时，新批次重新计时。匹配／研究后台在 `main()` 启动；创建或重试研究也会唤醒工作线程。

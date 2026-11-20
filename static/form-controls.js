@@ -1,5 +1,7 @@
 import { escapeHTML as e } from "./ui.js";
 
+export const runtimeOptions = [{value:"codex",label:"Codex"}, {value:"pi",label:"Pi"}, {value:"dsh",label:"DSH"}];
+
 export function selectField(label, path, value, options, placeholder = "沿用默认", { preserveUnknown = true } = {}) {
   const values = options.map((x) =>
     typeof x === "string" ? { value: x, label: x } : x,

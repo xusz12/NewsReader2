@@ -16,6 +16,7 @@ FAILURE_REASONS = {
     "translation_refused": "模型拒绝了这次翻译请求。",
     "translation_unconfigured": "翻译服务缺少密钥或模型配置。",
     "translation_pi_failed": "后备翻译任务执行失败。",
+    "translation_dsh_failed": "后备翻译任务执行失败。",
     "collection_invalid_item": "采集到的新闻数据无效，无法入库。",
     "HTTP_401": "翻译服务未接受当前凭据。",
     "HTTP_403": "翻译服务拒绝了访问请求。",
@@ -128,14 +129,15 @@ def http_translate(raw, settings, provider):
 
 
 def pi_translate(raw, settings):
-    config = settings["llm"]["pi_chat"]
+    runtime = settings["llm"]["translation"].get("fallback_runtime", "pi")
+    config = settings["agent"]["dsh"] if runtime == "dsh" else settings["llm"]["pi_chat"]
     if not config.get("provider") or not config.get("model"):
         raise ValueError("translation_unconfigured")
     prompt = "\n\n".join(part["content"] for part in messages(raw))
     try:
-        output = runtime_tasks.run({"runtime": "pi", "pi": config}, prompt, task="translation", timeout=135)
+        output = runtime_tasks.run({"runtime": runtime, runtime: config}, prompt, task="translation", timeout=135)
     except RuntimeError:
-        raise ValueError("translation_pi_failed") from None
+        raise ValueError(f"translation_{runtime}_failed") from None
     return parse(output, raw)
 
 
@@ -148,9 +150,9 @@ def translate(raw, settings):
     if config.get("fallback_enabled", True):
         providers += [p for p in model_apis.TRANSLATION_PROVIDERS if p != preferred]
     failures = []
-    for provider in [*providers, *(["pi"] if config.get("pi_fallback_enabled", True) else [])]:
+    for provider in [*providers, *([config.get("fallback_runtime", "pi")] if config.get("pi_fallback_enabled", True) else [])]:
         try:
-            return pi_translate(raw, settings) if provider == "pi" else http_translate(raw, settings, provider)
+            return pi_translate(raw, settings) if provider in ("pi", "dsh") else http_translate(raw, settings, provider)
         except Exception as exc:
             # Provider response bodies and credentials never become task errors.
             status = getattr(exc, "status_code", None)

@@ -2,7 +2,7 @@ import { readerSources, sourceURL, updateSourceState } from "./reader-sources.js
 import { $, api, escapeHTML as e, errorText, toast, markdown, singlePane, formatBytes as bytes } from "./ui.js";
 
 const running = job => !!job && ["pending", "generating", "checking"].includes(job.status);
-const runtimeLabel = data => `${data?.runtime === "pi" ? "Pi Agent" : "Codex Agent"} · ${data?.model || "沿用本机默认"}`;
+const runtimeLabel = data => `${{pi:"Pi Agent",dsh:"DSH Agent",codex:"Codex Agent"}[data?.runtime] || ""} · ${data?.model || "沿用本机默认"}`;
 const range = data => `${data.start_date || data.window_start} → ${data.end_date || data.window_end}`;
 const count = value => Number(value || 0).toLocaleString("zh-CN");
 function requestUUID() {

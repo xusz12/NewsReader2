@@ -51,8 +51,9 @@ def current_runtime_settings() -> dict:
     if isinstance(agent, dict) and agent.get("session_ttl_hours") in AGENT_SESSION_TTL_OPTIONS:
         merged["agent"]["session_ttl_hours"] = int(agent["session_ttl_hours"])
     if isinstance(agent, dict):
-        if isinstance(agent.get("runtime"), str) and agent["runtime"] in {"pi", "codex"}:
+        if isinstance(agent.get("runtime"), str) and agent["runtime"] in {"pi", "codex", "dsh"}:
             merged["agent"]["runtime"] = agent["runtime"]
+        merged["agent"]["dsh"] = agent.get("dsh", merged["agent"]["dsh"])
         try:
             merged["agent"]["codex"] = codex_client.saved_preferences(agent.get("codex", {}))
         except ValueError:

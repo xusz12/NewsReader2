@@ -662,7 +662,9 @@ class Service:
             if job:
                 if job["kind"] == "refine" and refinement_status(conn, ident)["refine_cooldown"]:
                     raise ValueError("topic_refine_cooldown")
-                config = {} if job["kind"] == "milestone" else news_summaries.capture_config(self.settings(), "topics")
+                config = json.loads(job["config_json"] or "{}")
+                if job["kind"] != "milestone" and not config:
+                    config = news_summaries.capture_config(self.settings(), "topics")
                 conn.execute("""UPDATE topic_jobs SET status='pending',error='',config_json=?,lease_token=NULL,
                     lease_until=0,attempts=0,next_attempt_at=0,updated_at=? WHERE id=?""", (js(config), now(), job["id"]))
             conn.execute(REQUEUE_FAILED_CHECKS, (ident,))

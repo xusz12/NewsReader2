@@ -378,13 +378,14 @@ def generate_pi_fallback_translation(
     content: str,
     pi_provider: str,
     pi_model: str,
+    runtime: str = "pi",
     reasoning_effort: str = "",
     timeout: int = 90,
     max_chars: int = 12000,
 ) -> dict[str, Any]:
     body = (content or "").strip()
     if not body:
-        raise LLMClientError("PI_FALLBACK_EMPTY_CONTENT")
+        raise LLMClientError(f"{runtime.upper()}_FALLBACK_EMPTY_CONTENT")
 
     truncated = False
     if len(body) > max_chars:
@@ -406,21 +407,21 @@ def generate_pi_fallback_translation(
 
     from runtime_tasks import run
     try:
-        raw_output = run({"runtime": "pi", "pi": {"provider": pi_provider, "model": pi_model,
+        raw_output = run({"runtime": runtime, runtime: {"provider": pi_provider, "model": pi_model,
                          "reasoning_effort": reasoning_effort}}, prompt, task="translation", timeout=timeout)
     except RuntimeError as exc:
         if str(exc) == "oar_timeout":
-            raise LLMClientError("PI_FALLBACK_TIMEOUT") from None
-        raise LLMClientError("PI_FALLBACK_FAILED") from None
+            raise LLMClientError(f"{runtime.upper()}_FALLBACK_TIMEOUT") from None
+        raise LLMClientError(f"{runtime.upper()}_FALLBACK_FAILED") from None
     except ValueError:
-        raise LLMClientError("PI_FALLBACK_UNCONFIGURED") from None
+        raise LLMClientError(f"{runtime.upper()}_FALLBACK_UNCONFIGURED") from None
 
     raw_output = (raw_output or "").strip()
     raw_payload = {
-        "provider": "pi-fallback-structured",
+        "provider": f"{runtime}-fallback-structured",
         "truncated": truncated,
-        "pi_provider": pi_provider,
-        "pi_model": pi_model,
+        f"{runtime}_provider": pi_provider,
+        f"{runtime}_model": pi_model,
         "transport": "oar",
     }
 
@@ -428,7 +429,7 @@ def generate_pi_fallback_translation(
         parsed = json.loads(raw_output)
         normalized = _validate_structured_translation_payload(parsed)
         return {
-            "model": pi_model or "pi-fallback",
+            "model": pi_model or f"{runtime}-fallback",
             **normalized,
             "raw_json": json.dumps(
                 {
@@ -442,10 +443,10 @@ def generate_pi_fallback_translation(
     except Exception as exc:
         body_zh = raw_output.strip()
         if not body_zh or not _contains_cjk(body_zh):
-            detail = str(exc) if isinstance(exc, LLMClientError) else "PI_FALLBACK_INVALID_OUTPUT"
+            detail = str(exc) if isinstance(exc, LLMClientError) else f"{runtime.upper()}_FALLBACK_INVALID_OUTPUT"
             raise LLMClientError(detail)
         return {
-            "model": pi_model or "pi-fallback",
+            "model": pi_model or f"{runtime}-fallback",
             "key_points_zh": [],
             "conclusion_zh": "",
             "body_zh": body_zh,

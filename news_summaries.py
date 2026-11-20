@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS news_summaries (
  config_json TEXT NOT NULL,validation_json TEXT NOT NULL,body_hash TEXT NOT NULL);
 """
 ERRORS = {
+    "dsh_model_not_selected": "请先在模型管理中选择 DSH 服务商和模型。",
     "pi_model_not_selected": "请先在模型管理中选择 Pi 服务商和模型；不会自动使用旧默认。",
     "invalid_summary_limits": "总结限制必须是有效的正整数。",
     "summary_preview_invalid": "预览不存在、已过期或不属于此数据库；请重新预览。",
@@ -94,13 +95,17 @@ def native_config_stamp(config):
             "mcp.json",
         )
     )
+    if config["runtime"] == "dsh":
+        root = Path(os.environ.get("DSH_HOME") or Path.home() / ".dsh")
+        names = ("cordis.patch.yml", ".credentials.yaml", ".env", "profiles/acp/cordis.patch.yml",
+                 "profiles/desktop/cordis.patch.yml", "profiles/web/cordis.patch.yml")
     paths = [root / name for name in names]
     if config["runtime"] == "codex":
         paths.extend(
             p / ".codex/config.toml"
             for p in (codex_client.ROOT, *codex_client.ROOT.parents)
         )
-    else:
+    elif config["runtime"] == "pi":
         paths.extend(
             codex_client.ROOT / ".pi" / name for name in ("settings.json", "mcp.json")
         )
@@ -289,12 +294,12 @@ def runtime_request(config, prompt, state_dir, *, allow_research=False):
         request = codex_client.oar_request(config["codex"], prompt, state_dir=state_dir, resume_prompt="")
         request.update(task=task, web_search="live" if allow_research else "disabled")
         return request
-    if config["runtime"] != "pi":
+    if config["runtime"] not in {"pi", "dsh"}:
         raise ValueError("invalid_runtime")
     return bridge_request(
         prompt=prompt, resume_prompt="", state_dir=state_dir,
         provider=config["pi_provider"], model=config["pi_model"],
-        reasoning_effort=config.get("pi_reasoning_effort", ""), task=task,
+        reasoning_effort=config.get("pi_reasoning_effort", ""), task=task, runtime=config["runtime"],
     )
 
 
@@ -318,14 +323,14 @@ def capture_config(settings, feature="summaries"):
     }
     if config["runtime"] == "codex":
         config["codex"] = codex_client.normalize_config(agent["codex"])
-    elif config["runtime"] == "pi":
+    elif config["runtime"] in {"pi", "dsh"}:
         config.update(
-            pi_provider=agent["pi"].get("provider", ""),
-            pi_model=agent["pi"].get("model", ""),
-            pi_reasoning_effort=agent["pi"].get("reasoning_effort", ""),
+            pi_provider=agent[agent["runtime"]].get("provider", ""),
+            pi_model=agent[agent["runtime"]].get("model", ""),
+            pi_reasoning_effort=agent[agent["runtime"]].get("reasoning_effort", ""),
         )
         if not config["pi_provider"] or not config["pi_model"]:
-            raise ValueError("pi_model_not_selected")
+            raise ValueError(f"{config['runtime']}_model_not_selected")
     else:
         raise ValueError("invalid_runtime")
     config["native_config_stamp"] = sha(native_config_stamp(config))
@@ -406,13 +411,9 @@ def run_oar(config, prompt, cancel, diagnostics, *, allow_research=False):
                 if is_codex:
                     if tool != "webSearch":
                         raise RuntimeError("summary_tool_used")
-                elif tool == "tool_search":
-                    pass
-                elif isinstance(tool, str) and re.search(r"(^|[_./-])(web|web_search|web_fetch|fetch_url|tavily|brave|exa|browser|firecrawl)([_./-]|$)", tool, re.I):
-                    pass
-                else:
+                elif tool not in {"mcp__nr_web__web_search", "mcp__nr_web__web_fetch"}:
                     raise RuntimeError("topic_search_required")
-                if tool != "tool_search" and evt.get("phase") == "completed" and evt.get("success") is True:
+                if is_codex and evt.get("phase") == "completed" and evt.get("success") is True:
                     research_tools += 1
             if evt["type"] == "oar_result":
                 terminal = evt
@@ -465,6 +466,9 @@ def run_oar(config, prompt, cancel, diagnostics, *, allow_research=False):
             or not str(terminal.get("answer") or "").strip()
         ):
             raise RuntimeError("summary_runtime_failed")
+        if allow_research and not is_codex:
+            receipt = tmp / "web-evidence"
+            research_tools = sum(line in {"web_search", "web_fetch"} for line in receipt.read_text().splitlines()) if receipt.is_file() else 0
         return terminal["answer"]
     except (UnicodeError, subprocess.TimeoutExpired, ValueError, AttributeError):
         raise RuntimeError("summary_runtime_failed") from None
@@ -1060,7 +1064,7 @@ class Service:
                 "locked_count": len(rows), "feed_visible_unread_count": visible,
                 "hidden_source_unread_count": len(rows) - visible,
                 "runtime": agent["runtime"],
-                "model": agent.get("codex", {}).get("model", "") if agent["runtime"] == "codex" else agent["pi"].get("model", ""),
+                "model": agent.get("codex", {}).get("model", "") if agent["runtime"] == "codex" else agent[agent["runtime"]].get("model", ""),
             }
         finally:
             c.close()

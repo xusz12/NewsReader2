@@ -38,6 +38,9 @@
   register('model', 'models_unavailable', '获取模型列表失败。');
   register('model', 'translation_test_failed', '翻译模型连接测试失败。');
   register('model', 'model model_not_found model_not_supported oar_model_unavailable', '所选模型不存在或不可用。');
+  register('model', 'dsh_model_not_selected', '请先选择 DSH 服务商与模型。');
+  register('model', 'oar_dsh_missing', 'macOS 可安装官方 DeepSeek Harness 桌面版，也可用 npm install -g @deepseek-ai/dsh 安装 CLI。已有安装可用 OAR_DSH_BIN 指定 dsh 可执行文件。');
+  register('model', 'invalid_dsh_reasoning_effort', '所选 DSH 模型不支持该推理强度。');
   register('model', 'pi_model_not_selected', '尚未选择模型。');
   register('input', 'invalid_pi_reasoning_effort', '所选 Pi 模型不支持此推理强度，请刷新目录后重新选择。');
   register('model', 'pi_model_catalog_unavailable', '无法确认 Pi 模型支持的推理强度，请刷新目录后重试。');

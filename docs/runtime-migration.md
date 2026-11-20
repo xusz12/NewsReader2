@@ -1,10 +1,24 @@
 # Runtime 统一调用迁移清单
 
-更新：2026-11-16。按功能逐批迁移，每批同时覆盖 Pi、Codex。目标是统一 Agent 的启动、会话、事件、取消和清理；直接模型 API、分类等专用服务不为了形式统一而改成 Agent。
+2026-11-16 的迁移分批覆盖 Pi、Codex。目标是统一 Agent 的启动、会话、事件、取消和清理；直接模型 API、分类等专用服务不为了形式统一而改成 Agent。
 
 OAR 负责管理底层 runtime。底层仍需要 Pi RPC 进程和 Codex app-server；要撤掉的是 NR 自己维护的多套执行与事件解析分支。
 
-## 当前进度与顺序
+## 外置 DSH 与 DeepSeek 联网工具（2026-11-20）
+
+NewsReader 通过 OAR 0.124.0 调用本机 DSH。探测时优先使用 `OAR_DSH_BIN` 指定的可执行文件，其次使用 `PATH` 中可用的 `dsh`。macOS 还会在个人与系统「应用程序」目录查找官方 DeepSeek Harness 桌面版，并通过系统注册的应用标识 `com.deepseek.dsh` 查找移到其他位置的安装。OAR 直接调用应用包内的 `Contents/Resources/runtime/cli/bin/dsh`，设置页显示识别出的桌面版本和模型数量。另装 CLI 的方式是 `npm install -g @deepseek-ai/dsh`。[官方桌面版说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/README.md)
+
+设置中选择 DSH 后才探测安装并读取目录，成功的目录缓存两分钟，可手动刷新。各功能分别保存服务商、模型和推理档位。先读取 DSH 的 ACP 与全局模型配置；仅有旧桌面或 Web 配置时，优先读取桌面配置中的模型路由。[OAR DSH 适配器](https://github.com/botiverse/oar/blob/v0.124.0/docs/runtimes/dsh.md)
+
+报告预检从 DSH 读取所选模型的上下文长度，优先采用该模型显式配置的输出上限。若服务商在 DSH 内置模型目录中，预检可按同一服务商和模型 ID 补全输出上限。只提供上下文长度时，报告最多预留 32,768 个输出 token，且不超过上下文的四分之一。缺少有效上下文长度时，预检会提示检查模型配置。
+
+在「设置 → API 密钥与连接 → DeepSeek」配置密钥。工具进程按环境变量、系统钥匙串的顺序取用凭据。文章问答、个人助手和联网主题研究通过本地 stdio MCP 使用 `web_search` 和 `web_fetch`。模型仍通过自己选定的服务商推理，搜索与抓取由 DeepSeek 按成功请求分别计费。主题定义和初始化要求工具取得有效来源，工具调用记录和模型自己给出的链接都不能代替这项检查。[DeepSeek 网页搜索与抓取](https://api-docs.deepseek.com/zh-cn/guides/search/)
+
+Pi 与 DSH 在这些会话中直接暴露 NR 注册的工具。个人助手也可读取新闻库、讨论及记忆。Codex 沿用原生搜索。DSH 原生对话在 NR 的私有目录中续聊，每轮只发布已完成的会话数据；归档、材料总结、翻译、连接测试和报告使用临时目录。长报告仅开放报告工具。主题任务和文章提问重试都使用原任务的模型。手动更换文章会话模型后，重试旧问题会临时使用其原模型，下一轮新问题使用当前会话的选择。翻译后备使用所选 Pi 或 DSH 的文章问答配置，旧开关沿用，默认 Pi。
+
+2026-11-20 在隔离新闻库用 Pi 和外置 DSH 0.2.2-rc.5 验收。两者都选用 OpenCode Go 的 `qwen3.8-flash`。在同一篇测试文章追问旧报道的后续与官方发布日期，两者均实际搜索并抓取来源，给出 Python 3.15.0 的 2026-10-09 发布日期及官网链接。第二轮确认版本号时均复用各自原生会话，直接根据上一轮回答。个人助手也分别通过 `discussion_search` 找到测试讨论，再引用外部官方来源作答。[Python 官方发行页](https://www.python.org/downloads/release/python-3150/)
+
+## 历次迁移
 
 | 批次 | 功能 | 当前状态／后续工作 |
 | --- | --- | --- |
@@ -18,7 +32,7 @@ OAR 负责管理底层 runtime。底层仍需要 Pi RPC 进程和 Codex app-serv
 
 正文翻译、精读、采集内容翻译、X 评论总结的 DeepSeek／OpenCode Go HTTP API，以及 Jev 分类、主题归属与事件判断，继续使用各自的直接 API。它们无需 OAR 适配，不属于“迁移未完成”。Pi 翻译后备与直接 HTTP API 分开处理。
 
-## 第一批的调用与边界
+## v0.5.10 第一批的调用与边界
 
 - 当前新闻面板通过 `/api/news/<id>/agent/jobs` 创建后台任务，支持流式回答、停止与重试；旧 `/api/news/<id>/chat` 同步接口仍保留，但两者的 Pi、Codex 执行都经过 OAR。归档继续使用 `/chat/archive`。
 - Pi 新闻请求明确标为 `task=news_chat`，使用 `createPiRuntime({execution:"subprocess"})`。OAR 管理 RPC、流式事件、原生会话和进程树，NR 不再选择或解析这批功能的 CLI JSON 路径。
@@ -46,7 +60,7 @@ OAR 负责管理底层 runtime。底层仍需要 Pi RPC 进程和 Codex app-serv
 - **Pi：** OAR 管理 RPC；原生 `--no-session` 不落盘原生会话，`--no-tools` 与通配排除禁用工具，不读项目上下文或技能。临时配置和 NR 目录在结束或超时后清理。
 - **Codex：** OAR 0.124.0 尚无公开的 ephemeral 会话选项。`scripts/oar_codex_ephemeral.mjs` 对锁定版本的 OAR 加载代码做一个受检查的内存补丁，只向原生 `thread/start` 补充 `ephemeral:true`，不修改 node_modules，不另写原生 RPC 客户端。版本或代码接缝改变时明确报错，不退回 CLI，也不改用持久会话。归档关闭 web search，维持只读沙箱，并要求只整理给定材料；OAR 的 Codex 接口尚不能统一禁用所有内置工具，因此不把提示词约束描述成完整的工具隔离。
 
-升级 OAR 时必须重新检查该补丁和原生归档用例；上游提供等价公开能力后删除补丁，改用公开选项。新增 runtime（例如 DSH）的后台任务可能越过主轮次继续执行，接入前须单独适配其任务生命周期；不能直接复用“本轮结束就释放进程”。
+升级 OAR 时必须重新检查该补丁和原生归档用例；上游提供等价公开能力后删除补丁，改用公开选项。DSH 的后台任务可能越过主轮次，宿主跟踪任务 ID，在会话释放前停止仍在运行的任务。
 
 ## 第二批的调用与边界
 

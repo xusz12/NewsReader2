@@ -30,6 +30,7 @@ for name, path in {
 (RUNTIME / 'settings.json').write_text(json.dumps({'llm': {'pi_chat': {'provider': 'test', 'model': 'test-model'}}}))
 import agent_notifications
 import database_schema
+import dsh_models
 import flask
 import model_catalogs
 import news_classification
@@ -48,6 +49,13 @@ module.ensure_db()
 personal_mode = {"value": "success"}
 def fixture_personal(**kwargs):
     mode = personal_mode["value"]
+    if mode == "web_search":
+        for tool in ("web_search", "web_fetch"):
+            kwargs["emit"]({"type":"oar_tool", "tool":"mcp__nr_web__" + tool})
+            while personal_mode["value"] == tool:
+                if kwargs["stopped"]():
+                    raise RuntimeError("assistant_stopped")
+                time.sleep(.02)
     until = time.monotonic() + (30 if mode in ("wait", "wait_empty") else .2)
     if mode != "wait_empty":
         kwargs["emit"]({"type":"text_delta", "delta":"正在查阅 NR…"})
@@ -437,6 +445,11 @@ pi_models.metadata = periodic_reports.report_model.pi_metadata = lambda request:
     'options': [{'value': name, 'label': name, 'provider': provider, 'reasoning_efforts': ['off', 'low', 'high']}
                 for provider in ('test', 'test-provider') for name in ('test-model', 'comparison-model')],
     'reasoning_efforts': ['off', 'low', 'high']}
+
+
+dsh_models.catalog = lambda **kwargs: {'error': '', 'notice': '', 'options': [
+    {'provider': 'fixture', 'value': 'news-model', 'label': 'news-model', 'reasoning_efforts': ['low', 'high']}]}
+dsh_models.metadata = lambda request: {'contextWindow': 65536, 'maxTokens': 8192, 'reasoning_efforts': ['low', 'high']}
 
 
 def fixture_report_model(config, prompt):

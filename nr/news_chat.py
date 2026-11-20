@@ -11,6 +11,7 @@ from flask import jsonify, request
 
 import codex_client
 import pi_models
+import dsh_models
 from llm_client import _pi_subprocess_env
 from nr import configuration, database, ideas, preferences, reader_items, tracked_rules
 from oar_client import (
@@ -149,6 +150,8 @@ def build_chat_prompt(
 def agent_runtime_metadata(runtime_key: str) -> dict:
     # News Chat always uses OAR, even while an old native session awaits its
     # first migrated turn. route.json is no longer an execution policy here.
+    if runtime_key.startswith("newsreader-oar-dsh-"):
+        return {"runtime": "oar-dsh", "runtime_label": "DSH", "runtime_compatibility": ""}
     return {"runtime": "oar-pi", "runtime_compatibility": ""}
 
 
@@ -362,32 +365,36 @@ class NewsChat:
         pi_provider: str,
         pi_model: str,
         reasoning_effort: str = "",
+        runtime: str = "pi",
         session_id: str = "",
         reset: bool = False,
         timeout: int = 180,
     ) -> dict:
         if (not pi_provider or not pi_model) and (not session_id or reset):
-            raise ValueError("pi_model_not_selected")
+            raise ValueError(f"{runtime}_model_not_selected")
         prompt = question.strip()
         if not prompt:
             raise ValueError("empty_question")
 
-        session = (session_id or "").strip()
+        prefix = "newsreader-oar-dsh-chat-" if runtime == "dsh" else "newsreader-oar-chat-"
+        session = "" if reset else (session_id or "").strip()
         legacy_native_id = ""
-        if session and not reset and not session.startswith("newsreader-oar-chat-"):
+        if session and not reset and not session.startswith(prefix):
+            if runtime == "dsh":
+                raise RuntimeError("pi_session_invalid")
             if not re.fullmatch(r"[a-zA-Z0-9_-]{1,200}", session):
                 raise RuntimeError("pi_session_invalid")
             legacy_native_id = session
             session = "newsreader-oar-chat-" + hashlib.sha256(session.encode()).hexdigest()
-        if session and not re.fullmatch(r"newsreader-oar-chat-[a-zA-Z0-9_-]+", session):
+        if session and not re.fullmatch(prefix + r"[a-zA-Z0-9_-]+", session):
             raise RuntimeError("pi_session_invalid")
         if not session or reset:
-            session = f"newsreader-oar-chat-{uuid.uuid4()}"
+            session = f"{prefix}{uuid.uuid4()}"
         runtime_dir = self.store.agent_session_runtime_dir(session)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         chat_prompt = build_chat_prompt(title=title, source=source, published_at=published_at,
                                        content=content, question=prompt, context_level=context_level)
-        config_path = runtime_dir / "pi-config.json"
+        config_path = runtime_dir / f"{runtime}-config.json"
         if config_path.exists():
             saved_pi = json.loads(config_path.read_text())
             pi_provider, pi_model = saved_pi["provider"], saved_pi["model"]
@@ -397,16 +404,16 @@ class NewsChat:
             pi_provider, pi_model = "", ""
             reasoning_effort = ""
         request_payload = bridge_request(prompt=chat_prompt, resume_prompt=prompt, state_dir=runtime_dir,
-                                         provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort, task="news_chat")
+                                         provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort, task="news_chat", runtime=runtime)
         if legacy_native_id:
             request_payload["legacy_native_id"] = legacy_native_id
         answer = run_oar_once(bridge_command(session), request_payload, _pi_subprocess_env(), timeout)
         if not config_path.exists() and pi_provider and pi_model:
-            config_path.write_text(json.dumps(pi_models.normalize_config({"provider": pi_provider, "model": pi_model, "reasoning_effort": reasoning_effort})), encoding="utf-8")
+            config_path.write_text(json.dumps((dsh_models if runtime == "dsh" else pi_models).normalize_config({"provider": pi_provider, "model": pi_model, "reasoning_effort": reasoning_effort})), encoding="utf-8")
             config_path.chmod(0o600)
-        return {"provider": "pi", "session_id": session, "model": pi_model, "answer": answer, **agent_runtime_metadata(session)}
+        return {"provider": runtime, "session_id": session, "model": pi_model, "answer": answer, **agent_runtime_metadata(session)}
 
-    def run_pi_chat_archive(self, *, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, reasoning_effort: str = "", timeout: int = 90) -> dict:
+    def run_pi_chat_archive(self, *, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, reasoning_effort: str = "", runtime: str = "pi", timeout: int = 90) -> dict:
         prompt = build_chat_archive_prompt(
             title=title,
             source=source,
@@ -414,7 +421,8 @@ class NewsChat:
             messages=messages,
         )
         # A private OAR session: never append archival instructions to the chat.
-        session = f"newsreader-oar-archive-{uuid.uuid4()}"
+        prefix = "newsreader-oar-dsh-archive-" if runtime == "dsh" else "newsreader-oar-archive-"
+        session = prefix + str(uuid.uuid4())
         runtime_dir = self.store.agent_session_runtime_dir(session)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         try:
@@ -422,7 +430,7 @@ class NewsChat:
                 prompt, max_length=chat_archive_summary_limit(messages),
                 generate=lambda text: run_oar_once(bridge_command(session), bridge_request(
                     prompt=text, resume_prompt=text, state_dir=runtime_dir,
-                    provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort, task="chat_archive"), _pi_subprocess_env(), timeout),
+                    provider=pi_provider, model=pi_model, reasoning_effort=reasoning_effort, task="chat_archive", runtime=runtime), _pi_subprocess_env(), timeout),
             )
             runtime_metadata = agent_runtime_metadata(session)
         finally:
@@ -430,7 +438,7 @@ class NewsChat:
         summary = summary.strip()
         if not summary:
             raise RuntimeError("pi_empty_archive")
-        return {"provider": "pi", "model": pi_model, "summary": summary, **runtime_metadata}
+        return {"provider": runtime, "model": pi_model, "summary": summary, **runtime_metadata}
 
     def run_codex_chat(self, *, question: str, session_id: str = "", reset: bool = False,
                        title: str, source: str, published_at: str, content: str, context_level: str, **unused) -> dict:
@@ -526,12 +534,17 @@ def register(app, chat, db, store):
                          else configuration.current_runtime_settings()["agent"]["runtime"] == "codex")
             if session_id.startswith("newsreader-codex-") and not session_id.startswith("newsreader-codex-chat-") and not reset:
                 raise RuntimeError("codex_session_invalid")
+            use_dsh = (session_id.startswith("newsreader-oar-dsh-chat-") if session_id and not reset
+                       else configuration.current_runtime_settings()["agent"]["runtime"] == "dsh")
+            if use_dsh:
+                pi_config = configuration.current_runtime_settings()["agent"]["dsh"]
             runner = chat.run_codex_chat if use_codex else chat.run_pi_chat
             payload = runner(
                 item_id=item_id,
                 question=question,
                 session_id=session_id,
                 pi_provider=pi_config["provider"],
+                **({"runtime": "dsh"} if use_dsh else {}),
                 pi_model=requested_model or pi_config["model"],
                 **({"reasoning_effort": pi_config["reasoning_effort"]} if not use_codex and pi_config.get("reasoning_effort") else {}),
                 reset=reset,
@@ -584,6 +597,7 @@ def register(app, chat, db, store):
 
         requested_model = (body.get("model") or "").strip()
         pi_config = preferences.current_pi_chat_config()
+        archive_runtime = configuration.current_runtime_settings()["agent"]["runtime"]
         pi_model = requested_model or pi_config["model"]
 
         conn = db.connect()
@@ -626,6 +640,7 @@ def register(app, chat, db, store):
                     messages = normalize_chat_messages(nonempty) if nonempty else []
                     if not any(message["role"] == "assistant" for message in messages):
                         return jsonify({"ok": False, "error": "empty_archive_source"}), 400
+                    archive_runtime = saved["provider"]
                     if saved["provider"] == "codex":
                         archive_config = json.loads(saved["executor_config"])
                     else:
@@ -644,12 +659,16 @@ def register(app, chat, db, store):
                 elif not re.fullmatch(r"[a-zA-Z0-9_-]{1,200}", sync_session_id):
                     raise RuntimeError("pi_session_invalid")
                 else:
-                    pi_path = store.agent_session_runtime_dir(sync_session_id) / "pi-config.json"
+                    archive_runtime = "dsh" if sync_session_id.startswith("newsreader-oar-dsh-chat-") else "pi"
+                    pi_path = store.agent_session_runtime_dir(sync_session_id) / f"{archive_runtime}-config.json"
                     if pi_path.exists():
                         pi_config = json.loads(pi_path.read_text())
                         pi_model = pi_config["model"]
-            elif configuration.current_runtime_settings()["agent"].get("runtime") == "codex":
+            elif archive_runtime == "codex":
                 archive_config = configuration.current_runtime_settings()["agent"]["codex"]
+            elif archive_runtime == "dsh":
+                pi_config = configuration.current_runtime_settings()["agent"]["dsh"]
+                pi_model = requested_model or pi_config["model"]
             if archive_config is not None:
                 payload = run_codex_chat_archive(title=(item["title"] or "").strip(), source=(item["source"] or "").strip(),
                     published_at=(item["published_at"] or "").strip(), messages=messages, config=archive_config)
@@ -661,6 +680,7 @@ def register(app, chat, db, store):
                     messages=messages,
                     pi_provider=pi_config["provider"],
                     pi_model=pi_model,
+                    **({"runtime": "dsh"} if archive_runtime == "dsh" else {}),
                     **({"reasoning_effort": pi_config["reasoning_effort"]} if pi_config.get("reasoning_effort") else {}),
                 )
         except ValueError as exc:

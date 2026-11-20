@@ -3,6 +3,7 @@
 import report_model
 
 from nr import configuration
+from pathlib import Path
 import copy
 import json
 import pytest
@@ -14,7 +15,7 @@ def fixture(tmp_path, monkeypatch):
     app, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
     settings = copy.deepcopy(configuration.current_runtime_settings())
     monkeypatch.setattr(configuration, 'current_runtime_settings', lambda:settings)
-    monkeypatch.setattr(report_model, 'catalog', lambda *args: {'options':[{'value':'chosen','provider':'test','reasoning_efforts':['low','high']}], 'error':''})
+    monkeypatch.setattr(report_model, 'catalog', lambda *args, **kwargs: {'options':[{'value':'chosen','provider':'test','reasoning_efforts':['low','high']}], 'error':''})
     monkeypatch.setattr(report_model, 'pi_metadata', lambda *args: {'reasoning_efforts':['low','high']})
     return app, client, '/api/news/' + item['id'] + '/agent', settings
 
@@ -44,6 +45,40 @@ def test_change_model_keeps_transcript_and_next_job_uses_choice(fixture, runtime
     with app.runtime.db.agent_connect() as conn:
         saved = dict(conn.execute('SELECT * FROM agent_sessions WHERE id=?', (session['id'],)).fetchone())
     assert json.loads(saved['executor_config'])['reasoning_effort'] == 'high'
+
+
+def test_retry_uses_original_dsh_binding_after_manual_model_switch(fixture, tmp_path, monkeypatch):
+    import sys
+    from nr import agent_jobs
+
+    app, client, base, settings = fixture
+    settings["agent"].update(runtime="dsh", dsh={"provider":"fixture","model":"original","reasoning_effort":"high"})
+    first = client.post(base + "/jobs", json={"question":"原问题"}).json
+    thread = first["session"]["id"]
+    with app.runtime.db.agent_connect() as conn:
+        conn.execute("UPDATE agent_jobs SET status='failed' WHERE id=?", (first["job_id"],))
+    assert client.patch(base + "/session/model", json={"session_id":thread,
+        "selection":{"runtime":"codex","model":"chosen"}}).status_code == 200
+    executor = "newsreader-codex-agent-" + thread
+    native = app.runtime.sessions.agent_session_runtime_dir(executor)
+    native.mkdir(parents=True, exist_ok=True)
+    with app.runtime.db.agent_connect() as conn:
+        conn.execute("UPDATE agent_sessions SET executor_session_id=? WHERE id=?", (executor, thread))
+    retry = client.post(base + "/jobs/" + first["job_id"] + "/retry", json={})
+    assert retry.status_code == 202 and retry.json["job"]["model"] == "original"
+    capture = tmp_path / "capture"
+    program = ("import json,sys,pathlib\n"
+               "r=json.load(sys.stdin);pathlib.Path(sys.argv[1]).write_text(json.dumps(r))\n"
+               "print(json.dumps({'type':'oar_result','outcome':'completed','answer':'重试完成'}))")
+    monkeypatch.setattr(agent_jobs, "bridge_command", lambda _: [sys.executable, "-c", program, str(capture)])
+    assert app.runtime.agent.process_pending_agent_once()
+    request = json.loads(capture.read_text())
+    assert (request["runtime"], request["provider"], request["model"], request["reasoning_effort"]) == ("dsh", "fixture", "original", "high")
+    assert not Path(request["state_dir"]).exists() and not native.exists()
+    snapshot = client.get(base + "/session").json
+    assert snapshot["session"]["provider"] == "codex" and snapshot["jobs"][-1]["status"] == "succeeded"
+    new = client.post(base + "/jobs", json={"question":"下一轮"}).json["job"]
+    assert (new["provider"], new["model"]) == ("codex", "chosen")
 
 
 def test_unused_manual_choice_persists_and_invalid_or_stale_updates_do_not_apply(fixture):

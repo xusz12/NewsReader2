@@ -55,7 +55,7 @@ def working_batches(sources, config):
     # Bound work, not the model's capability. The coordinator can cross these
     # arbitrary boundaries at any time through source search and event records.
     target = WORK_TOKENS
-    if config.get("runtime") == "pi":
+    if config.get("runtime") in ("pi", "dsh"):
         target = min(96000, max(WORK_TOKENS, config["limits"]["input_tokens"] // 8),
                      max(WORK_TOKENS, config["limits"].get("output_tokens", WORK_TOKENS) * 2))
     budget = min(target, config["limits"]["input_tokens"] // 2)
@@ -399,7 +399,7 @@ def generate_workspace(snapshot, config, call, checkpoint, progress, state_store
         try:
             call(selected, prompt+continuation)
         except RuntimeError as exc:
-            if str(exc) != "report_output_truncated" or config["runtime"] != "pi" or expanded:
+            if str(exc) != "report_output_truncated" or config["runtime"] not in ("pi", "dsh") or expanded:
                 raise
             current = selected["limits"]["output_tokens"]
             ceiling = min(selected["limits"].get("max_output_tokens", current),

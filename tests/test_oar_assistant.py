@@ -164,6 +164,7 @@ def test_installed_pi_assistant_has_only_nr_tools_and_migrates_mapping(service, 
     state = service.root / 'runtime' / thread / str(service.profile()['epoch'])
     mapping = json.loads((state / 'session.json').read_text())
     assert mapping['runtime'] == 'cli'
+    managed_start = len(calls)
     responses.append('继续讨论。')
     service.runner = personal_assistant_runtime.run
     send(service, '继续讨论', thread=thread)
@@ -173,7 +174,8 @@ def test_installed_pi_assistant_has_only_nr_tools_and_migrates_mapping(service, 
     assert not (state / 'route.json').exists()
     assert not marker.exists()
     assert not list(state.glob('config-*'))
-    for call in calls:
+    for call in calls[managed_start:]:
         names = {t['function']['name'] for t in call.get('tools', [])}
-        assert len(names) == 6 and all(n.startswith('mcp__nr_assistant__') for n in names)
+        assert {n for n in names if not n.startswith('mcp__nr_assistant__')} == {'mcp__nr_web__web_search', 'mcp__nr_web__web_fetch'}
+        assert len(names) == 8
     assert '已保存关注方向。' in json.dumps(calls[-1]['messages'], ensure_ascii=False)

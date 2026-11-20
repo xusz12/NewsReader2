@@ -84,7 +84,7 @@ def test_catalog_validation_does_not_hold_database_write_lock(service, db, monke
 
 
 def test_failed_codex_catalog_is_not_misreported_as_unsupported_reasoning(service, db, monkeypatch):
-    monkeypatch.setattr(pr.report_model, 'catalog', lambda *args: {'options': [], 'error': 'unavailable'})
+    monkeypatch.setattr(pr.report_model, 'catalog', lambda *args, **kwargs: {'options': [], 'error': 'unavailable'})
     with pytest.raises(RuntimeError, match='^report_model_catalog_failed$'):
         add(service, {'runtime': 'codex', 'model': 'astra', 'reasoning_effort': 'high'})
     assert rows(db) == []

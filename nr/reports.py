@@ -62,7 +62,7 @@ def register(app, db, jobs, store, worker):
             if not isinstance(kind, str) or kind not in periodic_reports.KINDS:
                 raise ValueError("report_model_selection_invalid")
             catalog = periodic_reports.report_model.catalog(jobs.reports.settings(), body.get("runtime"),
-                periodic_reports.report_model_feature(kind))
+                periodic_reports.report_model_feature(kind), refresh=body.get("refresh") is True)
             return jsonify(ok=True, catalog=catalog)
         except (ValueError, RuntimeError) as exc:
             return report_request_error(exc)

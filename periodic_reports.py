@@ -434,7 +434,7 @@ def model_label(config):
     if config.get("runtime") == "codex":
         selected = config.get("codex", {})
         return " · ".join(filter(None, ("Codex", selected.get("model") or "默认模型", selected.get("reasoning_effort"))))
-    return " · ".join(filter(None, ("Pi", config.get("model") or "未配置模型", config.get("reasoning_effort"))))
+    return " · ".join(filter(None, ("DSH" if config.get("runtime") == "dsh" else "Pi", config.get("model") or "未配置模型", config.get("reasoning_effort"))))
 
 
 def stored_snapshot(conn, report):
@@ -886,7 +886,7 @@ class Service:
             progress = lambda stage, **details: self.update_progress(job, stage, source_count=len(snapshot["sources"]), **details)
             progress("preparing")
             if snapshot["sources"] and ("limits" not in config or
-                    (config["runtime"] == "pi" and config["limits"].get("output_budget_version") != 2)):
+                    (config["runtime"] in ("pi", "dsh") and config["limits"].get("output_budget_version") != 2)):
                 config["limits"] = report_model.capacity(config)
                 with closing(self.connect()) as conn, conn:
                     changed = conn.execute("UPDATE periodic_reports SET config_json=?,lease_until=? WHERE id=? AND lease=? AND status='running'",
@@ -895,7 +895,7 @@ class Service:
                         raise RuntimeError("report_interrupted")
             # Stable routing identity per report, including retries after a
             # restart. Keep it out of the immutable saved model selection.
-            if config["runtime"] == "pi":
+            if config["runtime"] in ("pi", "dsh"):
                 config = {**config, "session_id": "newsreader-report-" + job["id"]}
             config = {**config, "_cancelled": lambda: self.stopped.is_set()}
             result = generate(snapshot, config, self.runner, lambda key, fn: self.checkpoint(job, step_prefix+key, fn), progress=progress,
@@ -1037,7 +1037,7 @@ class Service:
         for kind in KINDS:
             selected = report_model.selection(settings, report_model_feature(kind))
             model_defaults[kind] = {"model_settings": selected,
-                "model_label": model_label({**selected["pi"], "runtime": selected["runtime"], "codex": selected["codex"]})}
+                "model_label": model_label({**selected[selected["runtime"]], "runtime": selected["runtime"], "codex": selected["codex"]})}
         try:
             periods = {row["kind"]: row for row in preview_periods(at, report_schedule.Schedule({"report_schedule": times, "report_windows": windows}))}
         except (OSError, ValueError, TypeError, KeyError, AttributeError):

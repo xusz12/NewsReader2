@@ -17,6 +17,7 @@ import uuid
 import codex_client
 import model_catalogs
 import pi_models
+import dsh_models
 import oar_client
 from settings import feature_model_config
 from oar_client import parse_event, terminate_group
@@ -55,7 +56,7 @@ def estimate_tokens(text: str) -> int:
 def limits(context_window, max_output=32768, *, effective_percent=100, source, output_budget=32768):
     if not isinstance(context_window, int) or isinstance(context_window, bool) or context_window < 8192:
         raise RuntimeError("report_model_capacity_unknown")
-    if not isinstance(max_output, int) or max_output < 1:
+    if type(max_output) is not int or max_output < 1:
         max_output = 32768
     output = min(max_output, output_budget, context_window // 4)
     effective = min(100, max(1, effective_percent if isinstance(effective_percent, int) else 100))
@@ -68,15 +69,21 @@ def limits(context_window, max_output=32768, *, effective_percent=100, source, o
 
 def capacity(config):
     """Read model metadata only. This performs no inference or credential export."""
-    if config["runtime"] == "pi":
+    runtime = config["runtime"]
+    if runtime in {"pi", "dsh"}:
         try:
-            metadata = pi_metadata({"action": "metadata", "provider": config["provider"], "model": config["model"]})
+            read_metadata = dsh_models.metadata if runtime == "dsh" else pi_metadata
+            metadata = read_metadata({"action": "metadata", "provider": config["provider"], "model": config["model"]})
             # Most reasoning providers count thinking against maxTokens too.
             # A 32k total cap left the observed Flash/max turn only ~6k tokens
             # for JSON (25,773 thinking tokens).
             reasoning = bool(metadata.get("reasoning_efforts")) and config.get("reasoning_effort") != "off"
-            return {**limits(metadata["contextWindow"], metadata["maxTokens"], source="pi-model-registry", output_budget=65536 if reasoning else 32768),
-                    "max_output_tokens": metadata["maxTokens"], "output_budget_version": 2}
+            max_output = metadata.get("maxTokens") if runtime == "dsh" else metadata["maxTokens"]
+            budget = limits(metadata["contextWindow"], max_output, source=f"{runtime}-model-registry",
+                            output_budget=65536 if reasoning else 32768)
+            if type(max_output) is int and max_output > 0:
+                budget["max_output_tokens"] = max_output
+            return {**budget, "output_budget_version": 2}
         except RuntimeError as exc:
             if str(exc) == "report_model_dependencies_missing":
                 raise
@@ -153,7 +160,7 @@ def selection(settings: dict, feature="reports") -> dict:
     agent = feature_model_config(settings, feature)
     return {"runtime": agent.get("runtime", "pi"),
             "codex": codex_client.normalize_config(agent.get("codex", {})),
-            "pi": pi_models.normalize_config(agent.get("pi", {}))}
+            "pi": pi_models.normalize_config(agent.get("pi", {})), "dsh": dsh_models.normalize_config(agent.get("dsh", {}))}
 
 
 def pi_command():
@@ -164,7 +171,9 @@ def pi_metadata(request):
     return pi_models.metadata(request, argv=pi_command())
 
 
-def catalog(settings: dict, runtime: str, feature="reports") -> dict:
+def catalog(settings: dict, runtime: str, feature="reports", *, refresh=False) -> dict:
+    if runtime == "dsh":
+        return dsh_models.catalog(refresh=refresh)
     if runtime == "pi":
         return pi_models.filter_catalog(pi_metadata({"action": "catalog"}))
     if runtime != "codex":
@@ -180,7 +189,7 @@ def configuration(settings: dict, *, resolve=True, override=None, feature="repor
         if not isinstance(override, dict) or set(override) - {"runtime", "model", "provider", "reasoning_effort"}:
             raise ValueError("report_model_selection_invalid")
         runtime = override.get("runtime")
-        if runtime not in ("codex", "pi"):
+        if runtime not in ("codex", "pi", "dsh"):
             raise ValueError("report_model_selection_invalid")
         for key, limit in (("model", 120), ("provider", 40), ("reasoning_effort", 20)):
             value = override.get(key, "")
@@ -206,21 +215,22 @@ def configuration(settings: dict, *, resolve=True, override=None, feature="repor
                 if effort and effort not in entry.get("reasoning_efforts", []):
                     raise ValueError("report_reasoning_unsupported")
         else:
-            agent["pi"] = {key: override.get(key, "") for key in ("provider", "model")}
-            if not all(agent["pi"].values()):
+            agent[runtime] = {key: override.get(key, "") for key in ("provider", "model")}
+            if not all(agent[runtime].values()):
                 raise ValueError("report_model_selection_invalid")
             if effort:
-                metadata = pi_metadata({"action": "metadata", **agent["pi"]})
+                metadata = (dsh_models.metadata if runtime == "dsh" else pi_metadata)({"action": "metadata", **agent[runtime]})
                 if effort not in metadata.get("reasoning_efforts", []):
                     raise ValueError("report_reasoning_unsupported")
-                agent["pi"]["reasoning_effort"] = effort
+                agent[runtime]["reasoning_effort"] = effort
     if agent.get("runtime") == "codex":
         config = {"runtime": "codex", "codex": codex_client.normalize_config(agent.get("codex", {}))}
     else:
-        pi = agent["pi"]
+        runtime = agent.get("runtime", "pi")
+        pi = agent[runtime]
         if not pi.get("provider") or not pi.get("model"):
             raise RuntimeError("report_model_unconfigured")
-        config = {"runtime": "pi", "provider": pi["provider"], "model": pi["model"]}
+        config = {"runtime": runtime, "provider": pi["provider"], "model": pi["model"]}
         if pi.get("reasoning_effort"):
             config["reasoning_effort"] = pi["reasoning_effort"]
     if resolve:
@@ -245,7 +255,7 @@ def report_request(config, prompt, directory, bridge):
         request.update(codex=selected, web_search="disabled", report_launch_args=codex_restrictions(selected, bridge))
     else:
         request.update(provider=config["provider"], model=config["model"],
-                       reasoning_effort=config.get("reasoning_effort") or "off",
+                       reasoning_effort=config.get("reasoning_effort") or ("" if config["runtime"] == "dsh" else "off"),
                        report_session_id=config.get("session_id") or str(uuid.uuid4()))
     return request
 

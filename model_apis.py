@@ -102,8 +102,8 @@ API_PROVIDERS = {
         "test_url": "https://api.deepseek.com/beta/chat/completions",
         "translation_base_url": "https://api.deepseek.com/beta",
         "model_path": "llm.translation.model",
-        "description": "用于新闻正文翻译、中文精读及 X 评论总结；旧版主题与市场标签接口也使用此服务。",
-        "fallback": "正文翻译与精读按上方顺序切换 API，全部失败后可尝试 Pi。原文保留，可重新翻译。X 评论总结及旧版功能仍单独使用 DeepSeek。",
+        "description": "用于正文翻译、中文精读、X 评论总结及旧版标签。Pi 和 DSH 的联网搜索与网页抓取共用此密钥，按成功请求单独计费。",
+        "fallback": "正文翻译与精读按上方顺序切换 API，全部失败后可尝试选定的 Pi 或 DSH。原文保留，可重新翻译。X 评论总结及旧版功能仍单独使用 DeepSeek。",
     },
     "jev": {
         "label": "Jev", "secret_name": "TYPESAFE_API_KEY",
@@ -147,7 +147,7 @@ def canonical_provider(provider: str) -> str:
 def normalize_translation(value: object, *, defaults: dict | None = None) -> dict:
     if not isinstance(value, dict):
         raise ValueError("invalid_llm_settings")
-    result = {"provider": "deepseek", "model": "", "fallback_enabled": True, "pi_fallback_enabled": True}
+    result = {"provider": "deepseek", "model": "", "fallback_enabled": True, "pi_fallback_enabled": True, "fallback_runtime": "pi"}
     result.update({key: val for key, val in (defaults or {}).items() if key in result})
     result.update({key: val for key, val in value.items() if key in result})
     provider, model = result["provider"], result["model"]
@@ -155,6 +155,8 @@ def normalize_translation(value: object, *, defaults: dict | None = None) -> dic
         raise ValueError("unsupported_translation_provider")
     if not isinstance(model, str) or len(model.strip()) > 120 or any(ord(c) < 32 for c in model):
         raise ValueError("invalid_translation_model")
+    if result["fallback_runtime"] not in ("pi", "dsh"):
+        raise ValueError("invalid_translation_fallback")
     for key in ("fallback_enabled", "pi_fallback_enabled"):
         if type(result[key]) is not bool:
             raise ValueError("invalid_translation_fallback")

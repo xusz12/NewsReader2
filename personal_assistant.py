@@ -26,6 +26,7 @@ import oar_client
 import personal_assistant_runtime
 from personal_assistant_tools import Memory
 import pi_models
+import dsh_models
 from settings import feature_model_config, resolve_app_settings_path
 
 
@@ -55,9 +56,9 @@ def normalize_profile(value, previous, *, require_name=True):
             raise ValueError(f"{'名字' if key == 'name' else '助手职责'}不能为空，最多 {limit} 字")
         result[key] = text.strip()
     runtime = value.get("runtime", previous["runtime"])
-    if runtime not in ("pi", "codex"):
-        raise ValueError("请选择 Pi 或 Codex")
-    result.update(runtime=runtime, pi=pi_models.normalize_config(value.get("pi", previous["pi"])),
+    if runtime not in ("pi", "codex", "dsh"):
+        raise ValueError("请选择 Pi、Codex 或 DSH")
+    result.update(runtime=runtime, dsh=dsh_models.normalize_config(value.get("dsh", previous.get("dsh", {}))), pi=pi_models.normalize_config(value.get("pi", previous["pi"])),
                   codex=codex_client.normalize_config(value.get("codex", previous["codex"])))
     return result
 
@@ -101,6 +102,7 @@ class Service:
                 connection.executescript("""
                     CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL, epoch INTEGER NOT NULL DEFAULT 1);
                     CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, title TEXT NOT NULL, library TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS thread_models (thread_id TEXT PRIMARY KEY REFERENCES threads(id), selection TEXT NOT NULL, epoch INTEGER NOT NULL);
                     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), status TEXT NOT NULL,
                         stop_requested INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
                     CREATE UNIQUE INDEX IF NOT EXISTS one_active_turn ON jobs((1)) WHERE status IN ('queued','running');
@@ -111,6 +113,14 @@ class Service:
                 initial = {"id": str(uuid.uuid4()), "name": "", "instructions": "作为我的个人新闻助手，结合 NR 新闻、我的想法与长期记忆和我讨论。理解判断的依据与变化，保留不确定性。",
                            **feature_model_config(self.settings(), "chat")}
                 connection.execute("INSERT OR IGNORE INTO profile(id,data) VALUES(1,?)", (json.dumps(initial, ensure_ascii=False),))
+                columns = {r["name"] for r in connection.execute("PRAGMA table_info(jobs)")}
+                if "progress" not in columns:
+                    connection.execute("ALTER TABLE jobs ADD COLUMN progress TEXT NOT NULL DEFAULT ''")
+                saved = connection.execute("SELECT data,epoch FROM profile WHERE id=1").fetchone()
+                previous = json.loads(saved["data"])
+                selected = {"runtime": previous["runtime"], previous["runtime"]: previous[previous["runtime"]]}
+                connection.execute("""INSERT OR IGNORE INTO thread_models(thread_id,selection,epoch)
+                    SELECT DISTINCT thread_id,?,? FROM jobs""", (json.dumps(selected), saved["epoch"]))
             try:
                 lock = self.work_lock()
             except RuntimeError:
@@ -129,6 +139,7 @@ class Service:
         with self.connect() as connection:
             row = connection.execute("SELECT data,epoch FROM profile WHERE id=1").fetchone()
         value = json.loads(row["data"])
+        value["dsh"] = dsh_models.normalize_config(value.get("dsh", {}))
         value["codex"] = codex_client.saved_preferences(value.get("codex", {}))
         return value | {"epoch": row["epoch"], "workspace": str(self.workspace)}
 
@@ -141,10 +152,11 @@ class Service:
             value = normalize_profile(payload, previous)
             if value["codex"] != previous["codex"]:
                 value["codex"] = model_catalogs.validate_effort(value["codex"])
+            if value["dsh"] != previous["dsh"]:
+                dsh_models.validate_effort(value["dsh"])
             value.pop("epoch", None)
             value.pop("workspace", None)
             connection.execute("UPDATE profile SET data=?,epoch=epoch+1 WHERE id=1", (json.dumps(value, ensure_ascii=False),))
-            shutil.rmtree(self.root / "runtime", ignore_errors=True)
         return self.profile()
 
     def list_threads(self, offset=0):
@@ -169,14 +181,15 @@ class Service:
             thread = connection.execute("SELECT * FROM threads WHERE id=?", (thread_id,)).fetchone()
             if not thread:
                 raise LookupError("讨论不存在")
+            bound = connection.execute("SELECT selection FROM thread_models WHERE thread_id=?", (thread_id,)).fetchone()
             rows = connection.execute("SELECT * FROM messages WHERE thread_id=? AND (?=0 OR id<?) ORDER BY id DESC LIMIT 101", (thread_id, before, before)).fetchall()
             job = connection.execute("SELECT * FROM jobs WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (thread_id,)).fetchone()
-        return {"thread": dict(thread) | {"current_library": thread["library"] == str(self.db_path().resolve())},
+        return {"thread": dict(thread) | ({"runtime": json.loads(bound["selection"])["runtime"]} if bound else {}) | {"current_library": thread["library"] == str(self.db_path().resolve())},
                 "messages": [dict(row) for row in reversed(rows[:100])], "has_more": len(rows) > 100,
                 "job": (dict(job) | {"error_text": ERRORS.get(job["error"], ERRORS["assistant_failed"]) if job["error"] else ""}) if job else None}
 
-    def send(self, thread_id, text, request_id):
-        if not isinstance(text, str) or not text.strip() or len(text) > 20000:
+    def send(self, thread_id, text, request_id, retry_job=None):
+        if retry_job is None and (not isinstance(text, str) or not text.strip() or len(text) > 20000):
             raise ValueError("请输入 1–20000 字的消息")
         try:
             if str(uuid.UUID(request_id)) != request_id:
@@ -194,18 +207,37 @@ class Service:
             snapshot = self.snapshot(thread_id)
             if not snapshot["thread"]["current_library"]:
                 raise ValueError("这条讨论属于另一新闻库，请在当前库开启新讨论")
-            profile = self.profile()
-            if not profile["name"].strip():
-                raise RuntimeError("assistant_name_required")
-            if profile["runtime"] == "pi" and not all(profile["pi"].get(key) for key in ("provider", "model")):
-                raise RuntimeError("pi_model_not_selected")
             lock = self.work_lock()
             try:
                 with self.connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    profile = self.profile()
+                    bound = connection.execute("SELECT * FROM thread_models WHERE thread_id=?", (thread_id,)).fetchone()
+                    if bound:
+                        profile.update(json.loads(bound["selection"]), epoch=bound["epoch"])
+                    if not profile["name"].strip():
+                        raise RuntimeError("assistant_name_required")
+                    runtime = profile["runtime"]
+                    if runtime != "codex" and not all(profile[runtime].get(key) for key in ("provider", "model")):
+                        raise RuntimeError(f"{runtime}_model_not_selected")
+                    connection.execute("INSERT OR IGNORE INTO thread_models VALUES(?,?,?)",
+                        (thread_id, json.dumps({"runtime": runtime, runtime: profile[runtime]}), profile["epoch"]))
+                    if retry_job is not None:
+                        last = connection.execute("SELECT id,status FROM jobs WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (thread_id,)).fetchone()
+                        if not last or last["id"] != retry_job or last["status"] not in ("failed", "stopped"):
+                            raise ValueError("这轮回复无法重试")
+                        user = connection.execute("SELECT id,content FROM messages WHERE job_id=? AND role='user'", (retry_job,)).fetchone()
+                        text = user["content"]
+                        snapshot["messages"] = [m for m in snapshot["messages"] if m["job_id"] != retry_job]
                     timestamp = now()
                     connection.execute("INSERT INTO jobs(id,thread_id,status,created_at,updated_at) VALUES(?,?,'queued',?,?)", (request_id, thread_id, timestamp, timestamp))
-                    current = connection.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,?,'user',?,'done',?)", (thread_id, request_id, text.strip(), timestamp)).lastrowid
-                    connection.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,?,'assistant','','queued',?)", (thread_id, request_id, timestamp))
+                    if retry_job is None:
+                        current = connection.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,?,'user',?,'done',?)", (thread_id, request_id, text.strip(), timestamp)).lastrowid
+                        connection.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,?,'assistant','','queued',?)", (thread_id, request_id, timestamp))
+                    else:
+                        current = user["id"]
+                        connection.execute("UPDATE messages SET job_id=? WHERE job_id=?", (request_id, retry_job))
+                        connection.execute("UPDATE messages SET content='',status='queued' WHERE job_id=? AND role='assistant'", (request_id,))
                     connection.execute("UPDATE threads SET title=CASE WHEN title='新讨论' THEN ? ELSE title END,updated_at=? WHERE id=?", (text.strip()[:40], timestamp, thread_id))
                 worker = threading.Thread(target=self.execute, args=(request_id, thread_id, current, profile, snapshot, lock), daemon=True, name="personal-assistant")
                 worker.start()
@@ -268,13 +300,19 @@ class Service:
 
             def emit(event):
                 nonlocal content, last_flush
+                if event.get("type") == "oar_tool":
+                    tool = event.get("tool", "")
+                    progress = {"mcp__nr_web__web_search":"searching", "webSearch":"searching", "mcp__nr_web__web_fetch":"fetching"}.get(tool, "tool")
+                    with self.connect() as connection:
+                        connection.execute("UPDATE jobs SET progress=? WHERE id=? AND status='running' AND stop_requested=0", (progress, job_id))
                 if event.get("type") == "text_delta":
                     content = event["delta"] if event.get("replace") else content + event["delta"]
                     if len(content) > 500000:
                         raise RuntimeError("assistant_failed")
                     if time.monotonic() - last_flush > .2:
                         with self.connect() as connection:
-                            connection.execute("UPDATE messages SET content=? WHERE job_id=? AND role='assistant'", (content, job_id))
+                            connection.execute("UPDATE jobs SET progress='writing' WHERE id=? AND status='running' AND stop_requested=0", (job_id,))
+                            connection.execute("UPDATE messages SET content=? WHERE job_id=? AND role='assistant' AND EXISTS(SELECT 1 FROM jobs WHERE jobs.id=messages.job_id AND jobs.status='running' AND jobs.stop_requested=0)", (content, job_id))
                         last_flush = time.monotonic()
 
             prompt, resume_prompt = self.prompts(profile, thread_id, message_id, snapshot)
@@ -295,6 +333,11 @@ class Service:
         finally:
             try:
                 with self.connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    stop = connection.execute("SELECT stop_requested FROM jobs WHERE id=?", (job_id,)).fetchone()
+                    if stop and stop["stop_requested"]:
+                        status, error = "stopped", "assistant_stopped"
+                        shutil.rmtree(state_dir, ignore_errors=True)
                     connection.execute("UPDATE jobs SET status=?,error=?,updated_at=? WHERE id=?", (status, error, now(), job_id))
                     connection.execute("UPDATE messages SET status=?,content=? WHERE job_id=? AND role='assistant'", (status, content, job_id))
                     connection.execute("UPDATE threads SET updated_at=? WHERE id=?", (now(), thread_id))
@@ -341,7 +384,10 @@ def register(app, db_path, settings):
 
     @bp.post("/model-options")
     def model_options():
-        value = normalize_profile(payload(), service.profile(), require_name=False)
+        body = payload()
+        value = normalize_profile(body, service.profile(), require_name=False)
+        if value["runtime"] == "dsh":
+            return jsonify(ok=True, catalog=dsh_models.catalog(refresh=body.get("refresh") is True))
         catalog = pi_models.catalog() if value["runtime"] == "pi" else model_catalogs.safe_catalog(value["codex"])
         return jsonify(ok=True, catalog=catalog)
 
@@ -359,7 +405,7 @@ def register(app, db_path, settings):
     @bp.post("/threads/<thread_id>/messages")
     def send(thread_id):
         value = payload()
-        return jsonify(ok=True, **service.send(thread_id, value.get("text"), value.get("request_id")))
+        return jsonify(ok=True, **service.send(thread_id, value.get("text"), value.get("request_id"), value.get("retry_job")))
 
     @bp.post("/threads/<thread_id>/stop")
     def stop(thread_id):

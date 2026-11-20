@@ -21,20 +21,21 @@ test.beforeEach(async ({request}) => {
   }});
 });
 
-for (const width of [390, 1440]) for (const runtime of ['pi', 'codex'])
+for (const width of [390, 1440]) for (const runtime of ['pi', 'codex', 'dsh'])
   test(`临时模型仅用于当前会话，新会话与其他新闻沿用默认 ${width} ${runtime}`, async ({page, request}) => {
     await page.setViewportSize({width, height:900});
     const original = await (await request.get('/api/settings')).json();
     const base = '/api/news/ui-000/agent';
-    const model = runtime === 'pi' ? 'comparison-model' : 'ui-catalog-a';
+    const model = {pi:'comparison-model',codex:'ui-catalog-a',dsh:'news-model'}[runtime];
+    const option = {pi:model+' · test',codex:model,dsh:model+' · fixture'}[runtime];
     await page.goto('/');
     await page.locator('#feedColFeed [data-filter="all"]').click();
     await openNews(page, 'ui-000');
     await page.locator('#agentModelTrigger').click();
     await expect(page.locator('#agentModelTitle')).toHaveText('当前会话模型');
-    if (runtime === 'codex') await choosePicker(page, 'Agent Runtime', 'Codex');
+    if (runtime !== 'pi') await choosePicker(page, 'Agent Runtime', runtime === 'dsh' ? 'DSH' : 'Codex');
     await expect(page.getByRole('combobox', {name:'Agent 模型', exact:true})).toBeEnabled();
-    await choosePicker(page, 'Agent 模型', runtime === 'pi' ? model + ' · test' : model);
+    await choosePicker(page, 'Agent 模型', option);
     await expect(page.getByRole('combobox', {name:'Agent 推理程度', exact:true})).toBeEnabled();
     await choosePicker(page, 'Agent 推理程度', 'high');
     await expect(page.locator('#agentModelTrigger')).toHaveAttribute('title', `当前会话模型：${model} · high`);

@@ -1,5 +1,5 @@
 import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.5";
-import { selectField as select, timePickers } from "./form-controls.js?v=0.6.4";
+import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.4";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
 import { settingsHelpHTML } from "./settings-help.js?v=0.6.5";
@@ -35,7 +35,7 @@ function set(object, path, value) {
   target[last] = value;
 }
 const pagePaths = {
-  collection: ["collection", "x_accounts", "classification", "llm.translation.provider", "llm.translation.fallback_enabled", "llm.translation.pi_fallback_enabled"],
+  collection: ["collection", "x_accounts", "classification", "llm.translation.provider", "llm.translation.fallback_enabled", "llm.translation.pi_fallback_enabled", "llm.translation.fallback_runtime"],
   research: ["news_summary", "report_schedule", "report_windows", "agent", "llm.pi_chat", ...Object.keys(modelFeatures).filter(key => key !== "chat").map(key => "feature_models." + key)],
   services: ["llm.translation.model", "api_models"],
   application: ["appearance.theme", "appearance.fontSize", "feed", "keyboard", "database.configured_path"],
@@ -434,14 +434,14 @@ export class SettingsPanel {
     this.status("已撤销本页更改");
   }
   modelPaths(feature = "chat") {
-    return feature === "chat" ? {runtime:"agent.runtime",codex:"agent.codex",pi:"llm.pi_chat"}
-      : {runtime:`feature_models.${feature}.runtime`,codex:`feature_models.${feature}.codex`,pi:`feature_models.${feature}.pi`};
+    return feature === "chat" ? {runtime:"agent.runtime",codex:"agent.codex",pi:"llm.pi_chat",dsh:"agent.dsh"}
+      : {runtime:`feature_models.${feature}.runtime`,codex:`feature_models.${feature}.codex`,pi:`feature_models.${feature}.pi`,dsh:`feature_models.${feature}.dsh`};
   }
   modelConfig(feature = "chat") {
-    if (feature === "chat") return {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat};
+    if (feature === "chat") return {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat,dsh:this.draft.agent.dsh || {provider:"",model:""}};
     this.draft.feature_models ||= {};
     return this.draft.feature_models[feature] ||= clone(feature.startsWith("reports_") ? this.modelConfig("reports")
-      : {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat});
+      : {runtime:this.draft.agent.runtime,codex:this.draft.agent.codex,pi:this.draft.llm.pi_chat,dsh:this.draft.agent.dsh || {provider:"",model:""}});
   }
   modelState(feature) {
     if (!this.modelStates.has(feature)) this.modelStates.set(feature, {connectionSequence:0, catalogSequence:0, connectionResult:"", catalogNotice:"", testing:false});
@@ -505,14 +505,14 @@ export class SettingsPanel {
     }
     if (input.name.startsWith("news_summary.")) this.loadCatchupScope(250);
     if (feature) this.invalidateModelTest(feature);
-    if (input.name === paths.pi+".provider" && event.type === "change") {
-      config.pi.model = "";
-      delete config.pi.reasoning_effort;
+    if (config.runtime !== "codex" && input.name === paths[config.runtime]+".provider" && event.type === "change") {
+      config[config.runtime].model = "";
+      delete config[config.runtime].reasoning_effort;
       this.renderModels(feature);
-      $(`[data-select-trigger="${paths.pi}.provider"]`)?.focus({preventScroll:true});
+      $(`[data-select-trigger="${paths[config.runtime]}.provider"]`)?.focus({preventScroll:true});
     }
-    if (input.name === paths.pi+".model" && !unchanged) {
-      delete config.pi.reasoning_effort;
+    if (config.runtime !== "codex" && input.name === paths[config.runtime]+".model" && !unchanged) {
+      delete config[config.runtime].reasoning_effort;
       this.renderReasoning(feature);
     }
     if (input.name === paths.runtime) {
@@ -558,22 +558,26 @@ export class SettingsPanel {
     return this.catalogs.get(this.catalogKey(runtime, this.modelConfig(feature).codex, feature)) || {};
   }
   codexOptions(feature) { return this.modelCatalog(feature, "codex").options?.filter(option => option.source !== "saved") || []; }
-  piOptions(feature) { return this.modelCatalog(feature, "pi").model_options_by_provider?.[this.modelConfig(feature).pi.provider] || []; }
+  providerOptions(feature) {
+    const config = this.modelConfig(feature), catalog = this.modelCatalog(feature);
+    if (config.runtime === "dsh") return (catalog.options || []).filter(m => m.provider === config.dsh?.provider);
+    return catalog.model_options_by_provider?.[config.pi.provider] || [];
+  }
   canTestModel(feature) {
     const config = this.modelConfig(feature), selected = config[config.runtime];
-    const model = (config.runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
+    const model = (config.runtime !== "codex" ? this.providerOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
     return !this.modelState(feature).testing && (config.runtime === "codex" && !selected.model && !selected.reasoning_effort || !!model && (!selected.reasoning_effort || model.reasoning_efforts?.includes(selected.reasoning_effort)));
   }
   modelNotice(feature) {
     const config = this.modelConfig(feature), catalog = this.modelCatalog(feature);
     const selected = config[config.runtime];
-    const model = (config.runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
-    const missing = config.runtime === "pi" && config.pi.provider && !model;
+    const model = (config.runtime !== "codex" ? this.providerOptions(feature) : this.codexOptions(feature)).find(option => option.value === selected.model);
+    const missing = config.runtime !== "codex" && selected.provider && !model;
     const unsupported = model && selected.reasoning_effort && !model.reasoning_efforts?.includes(selected.reasoning_effort);
-    return [this.modelState(feature).catalogNotice || catalog.error || catalog.notice,
+    return [this.modelState(feature).catalogNotice || catalog.notice || catalog.error,
       config.runtime === "codex" && config.codex.model && !this.codexOptions(feature).some(option => option.value === config.codex.model)
         ? `已保存的 ${config.codex.model} 当前不在模型列表中，请刷新列表或重新选择。` : "",
-      missing ? `已保存或选择的 ${config.pi.provider} / ${config.pi.model || "未选模型"} 当前不在可用目录中，请重新登录或选择模型。` : "",
+      missing ? `已保存或选择的 ${selected.provider} / ${selected.model || "未选模型"} 当前不在可用目录中，请重新登录或选择模型。` : "",
       unsupported ? `当前模型已不支持保存的推理强度 ${selected.reasoning_effort}，请重新选择。` : ""].filter(Boolean).join(" ");
   }
   renderModelNotice(feature) {
@@ -588,7 +592,7 @@ export class SettingsPanel {
     const editors = target?.matches("[data-model-feature]") ? [target] : target?.querySelectorAll("[data-model-feature]") || [];
     const features = selectedFeature ? [selectedFeature] : Array.from(editors, editor => editor.dataset.modelFeature);
     for (const feature of features) {
-      if (!this.modelState(feature).testing && this.modelConfig(feature).runtime === "pi")
+      if (!this.modelState(feature).testing && this.modelConfig(feature).runtime !== "codex")
         void this.refreshModels({feature, automatic:true}).catch(() => {});
     }
   }
@@ -606,7 +610,7 @@ export class SettingsPanel {
     const runtime = this.modelConfig(feature).runtime, path = this.modelPaths(feature)[runtime], current = $(`select[name="${path}.reasoning_effort"]`);
     if (!current) return;
     const config = this.modelConfig(feature)[runtime];
-    const efforts = (runtime === "pi" ? this.piOptions(feature) : this.codexOptions(feature)).find(option => option.value === config.model)?.reasoning_efforts || [];
+    const efforts = (runtime !== "codex" ? this.providerOptions(feature) : this.codexOptions(feature)).find(option => option.value === config.model)?.reasoning_efforts || [];
     const container = document.createElement("div");
     container.innerHTML = select("推理强度", path+".reasoning_effort", config.reasoning_effort || "", efforts, "沿用默认", {preserveUnknown:false});
     container.querySelector("select").disabled = !efforts.length;
@@ -821,7 +825,7 @@ export class SettingsPanel {
     const config = settings.llm.translation, preferred = config.provider || "deepseek";
     const others = settings.api_providers.filter(p => p.translation_base_url && p.id !== preferred).map(p => p.id);
     return [preferred, ...(config.fallback_enabled !== false ? others : []),
-      ...(config.pi_fallback_enabled !== false ? ["pi"] : [])];
+      ...(config.pi_fallback_enabled !== false ? [config.fallback_runtime || "pi"] : [])];
   }
   translationRoutingHTML() {
     const config = this.draft.llm.translation;
@@ -829,17 +833,18 @@ export class SettingsPanel {
       ${field("新闻翻译并发上限", "collection.translation_concurrency", this.draft.collection.translation_concurrency ?? 4, 'type="number" min="1" max="32" step="1" required')}
       <fieldset class="field-options" aria-label="首选翻译服务"><legend class="field-label">首选翻译服务</legend>${this.draft.api_providers.filter(p => p.translation_base_url).map(p => `<label class="settings-toggle"><input type="radio" name="llm.translation.provider" value="${p.id}" ${config.provider === p.id ? "checked" : ""}><span>${e(p.label)}</span></label>`).join("")}</fieldset>
       <label class="settings-toggle settings-switch"><span>失败后切换其他 API</span><input type="checkbox" role="switch" name="llm.translation.fallback_enabled" ${config.fallback_enabled !== false ? "checked" : ""}></label>
-      <label class="settings-toggle settings-switch"><span>API 均失败后尝试 Pi</span><input type="checkbox" role="switch" name="llm.translation.pi_fallback_enabled" ${config.pi_fallback_enabled !== false ? "checked" : ""}></label>
+      <label class="settings-toggle settings-switch"><span>API 均失败后使用后备运行时</span><input type="checkbox" role="switch" name="llm.translation.pi_fallback_enabled" ${config.pi_fallback_enabled !== false ? "checked" : ""}></label>
+      ${select("翻译后备运行时", "llm.translation.fallback_runtime", config.fallback_runtime || "pi", runtimeOptions.filter(r => r.value !== "codex"), null)}
       <p class="muted" id="translationRouteDescription" role="status"></p>
       <div class="button-row"><button class="reader-action-btn reader-action-btn--meta" id="collectionApiSettingsBtn" type="button">管理翻译 API 密钥</button>
-      <button class="reader-action-btn reader-action-btn--meta" id="apiFeatureSettingsBtn" type="button">配置 Pi 后备模型</button></div>`;
+      <button class="reader-action-btn reader-action-btn--meta" id="apiFeatureSettingsBtn" type="button">配置后备问答模型</button></div>`;
   }
   updateTranslationRoute() {
     const description = $("#translationRouteDescription");
     if (!description) return;
     $("#apiFeatureSettingsBtn").hidden = this.draft.llm.translation.pi_fallback_enabled === false;
-    const order = this.translationOrder(), labels = {pi:"Pi", ...Object.fromEntries(this.draft.api_providers.map(p => [p.id, p.label]))};
-    const missing = order.filter(p => p !== "pi" && (!this.draft.api_status?.[p]?.configured || (p !== "deepseek" && !get(this.draft, this.apiConfig(p).model_path)?.trim())));
+    const order = this.translationOrder(), labels = {pi:"Pi", dsh:"DSH", ...Object.fromEntries(this.draft.api_providers.map(p => [p.id, p.label]))};
+    const missing = order.filter(p => !["pi", "dsh"].includes(p) && (!this.draft.api_status?.[p]?.configured || (p !== "deepseek" && !get(this.draft, this.apiConfig(p).model_path)?.trim())));
     description.textContent = `调用顺序：${order.map(p => labels[p]).join(" → ")}。${missing.length ? `${missing.map(p => labels[p]).join("、")} 尚未配置密钥或模型，无法调用。` : ""}`;
   }
   updateDecisionKeys() {
@@ -901,7 +906,7 @@ export class SettingsPanel {
     const custom = options.some(option => option.value === model) ? "" : model;
     const id = control => this.apiId(provider, control);
     const action = control => `id="${id(control)}" data-api-action="${control}"`;
-    return `<div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
+    return `${provider === "deepseek" ? '<p class="muted">Pi 和 DSH 使用此密钥搜索和抓取网页，按成功请求单独计费。</p>' : ""}<div class="field-item"><label class="field-label" ${editing ? `for="${provider}Secret"` : ""}>API 密钥</label>
       ${configured ? `<code class="masked-secret">${e(service.masked_key || "••••••••")}</code>` : ''}
       ${service.environment_override ? `<p class="muted">当前由 ${e(config.secret_name)} 环境变量提供；保存和删除仅影响本地钥匙串，环境变量仍优先生效。</p>` : ""}
       ${editing ? `<input class="field-input" id="${provider}Secret" data-api-secret="${provider}" type="password" autocomplete="new-password" value="${e(state.secretDraft)}" placeholder="输入新的 API 密钥" ${state.savingSecret ? "disabled" : ""}><div class="button-row"><button class="btn-secondary" ${action("saveSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>保存密钥</button>${configured ? `<button class="btn-secondary" ${action("cancelSecretBtn")} type="button">取消</button>` : ""}</div>` : `<div class="button-row"><button class="btn-secondary" ${action("editSecretBtn")} type="button">更新密钥</button><button class="reader-action-btn danger" ${action("deleteSecretBtn")} type="button" ${state.savingSecret ? "disabled" : ""}>删除密钥</button></div>`}</div>
@@ -1035,17 +1040,19 @@ export class SettingsPanel {
     const d = this.modelConfig(feature), paths = this.modelPaths(feature), codex = d.runtime === "codex", state = this.modelState(feature);
     const catalog = this.modelCatalog(feature), options = this.codexOptions(feature);
     const model = options.find(x=>x.value === d.codex.model);
-    const notice = this.modelNotice(feature), piModel = this.piOptions(feature).find(option => option.value === d.pi.model);
+    const selected = d[d.runtime] || {}, selectedPath = paths[d.runtime];
+    const providers = d.runtime === "dsh" ? [...new Set((catalog.options || []).map(m => m.provider))] : catalog.provider_options || [];
+    const notice = this.modelNotice(feature), piModel = this.providerOptions(feature).find(option => option.value === selected.model);
     const id = control => this.modelId(feature, control);
     const action = control => `id="${id(control)}" data-model-action="${control}"`;
     panel.innerHTML = `<div class="section-card-title"><span>${modelFeatures[feature]}</span></div><div class="form-group-grid">
-      ${select("Runtime", paths.runtime, d.runtime, [{value:"codex",label:"Codex"},{value:"pi",label:"Pi"}], null)}
+      ${select("Runtime", paths.runtime, d.runtime, runtimeOptions, null)}
       ${codex ? `${select("模型",paths.codex+".model",d.codex.model,options,"沿用本机默认",{preserveUnknown:false})}${select("推理强度",paths.codex+".reasoning_effort",d.codex.reasoning_effort,model?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}`
-      : `${select("服务商",paths.pi+".provider",d.pi.provider,catalog.provider_options || [],"请选择服务商",{preserveUnknown:false})}${select("模型",paths.pi+".model",d.pi.model,this.piOptions(feature),"请选择模型",{preserveUnknown:false})}${select("推理强度",paths.pi+".reasoning_effort",d.pi.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}`}</div>
+      : `${select("服务商",selectedPath+".provider",selected.provider,providers,"请选择服务商",{preserveUnknown:false})}${select("模型",selectedPath+".model",selected.model,this.providerOptions(feature),"请选择模型",{preserveUnknown:false})}${select("推理强度",selectedPath+".reasoning_effort",selected.reasoning_effort || "",piModel?.reasoning_efforts || [],"沿用默认",{preserveUnknown:false})}`}</div>
       <div class="button-row"><button class="btn-secondary" ${action("refreshModelsBtn")} type="button" ${state.pendingCatalog?'disabled':''}>刷新模型目录</button><button class="btn-secondary" ${action("testConnectionBtn")} type="button" ${this.canTestModel(feature)?'':'disabled'}>${state.testing?'测试中…':'运行连接测试'}</button></div>
       <p class="muted" id="${id("modelsNotice")}" role="status" ${notice?'':'hidden'}>${e(notice)}</p><div class="terminal-box" id="${id("connTestTerminal")}" data-status="${testResultStatus(state.connectionResult)}" role="status" ${state.connectionResult?'':'hidden'}>${e(state.connectionResult || "")}</div>
       ${feature === "chat" ? `<div class="form-group-grid" id="chatRetention">${select("临时会话保留时间","agent.session_ttl_hours",String(this.draft.agent.session_ttl_hours),[{value:"24",label:"24 小时"},{value:"72",label:"72 小时"}],null)}</div>` : ""}`;
-    $(`select[name="${codex ? paths.codex : paths.pi}.reasoning_effort"]`, panel).disabled = !(codex ? model : piModel)?.reasoning_efforts?.length;
+    $(`select[name="${selectedPath}.reasoning_effort"]`, panel).disabled = !(codex ? model : piModel)?.reasoning_efforts?.length;
     this.selects.refresh(panel);
   }
   updateCollectionStatus(data) {
@@ -1395,19 +1402,19 @@ export class SettingsPanel {
     const button = this.modelElement(feature, "refreshModelsBtn");
     if (button) button.disabled = true;
     try {
-      const data = await api("/api/settings/models", {method:"POST", body:draft});
+      const data = await api("/api/settings/models", {method:"POST", body:{...draft, refresh:!automatic}});
       if (!current()) return;
       const unchanged = JSON.stringify(this.modelCatalog(feature)) === JSON.stringify(data.catalog);
-      if (draft.runtime === "pi" || !data.catalog.error || data.catalog.options?.length || !this.catalogs.has(key))
+      if (draft.runtime !== "codex" || !data.catalog.error || data.catalog.options?.length || !this.catalogs.has(key))
         this.catalogs.set(key, clone(data.catalog));
       if (automatic && unchanged) return;
-      state.catalogNotice = data.catalog.error || data.catalog.notice || "模型目录已刷新";
+      state.catalogNotice = data.catalog.notice || data.catalog.error || "模型目录已刷新";
       this.invalidateModelTest(feature);
       render();
     } catch (error) {
       if (!current()) return;
       state.catalogNotice = errorText(error);
-      if (draft.runtime === "pi") this.catalogs.set(key, {error:state.catalogNotice});
+      if (draft.runtime !== "codex") this.catalogs.set(key, {error:state.catalogNotice});
       this.invalidateModelTest(feature);
       render();
       throw error;
@@ -1452,7 +1459,7 @@ export class SettingsPanel {
     const state = this.modelState(feature), draft = this.modelDraft(feature), fingerprint = JSON.stringify(draft), seq = ++state.connectionSequence;
     state.testing = true;
     const selected = draft[draft.runtime];
-    const target = [draft.runtime === "pi" ? selected.provider : "Codex", selected.model || "本机默认", selected.reasoning_effort || "默认推理强度"].join(" · ");
+    const target = [draft.runtime !== "codex" ? selected.provider : "Codex", selected.model || "本机默认", selected.reasoning_effort || "默认推理强度"].join(" · ");
     state.connectionResult = `[RUNNING] ${target} · 正在测试…`;
     const terminal = this.modelElement(feature, "connTestTerminal");
     updateTestResult(terminal, state.connectionResult, true);

@@ -79,6 +79,17 @@ test('临时 Pi 使用独立模型和推理程度，窗口不变并共用取材'
   expect((await (await request.get('/api/settings')).json()).feature_models.reports.runtime).toBe('codex');
 });
 
+test('临时 DSH 报告使用所选模型和推理档位',async({page})=>{
+  await open(page);await expand(page);
+  await choosePicker(page,'Runtime','DSH');
+  await choosePicker(page,'模型','news-model · fixture');
+  await choosePicker(page,'推理程度','high');
+  await expect(page.locator('#reportCreationModel')).toHaveText('DSH · news-model · high · 临时');
+  const {body,report}=await submit(page);
+  expect(body.model_override).toEqual({runtime:'dsh',provider:'fixture',model:'news-model',reasoning_effort:'high'});
+  expect(report.model_label).toBe('DSH · news-model · high');
+});
+
 test('恢复默认模型移除临时选择；目录读取失败可以重试',async({page})=>{
   await page.route('**/api/reports/model-options',route=>route.fulfill({status:409,json:{ok:false,error:'report_model_catalog_failed'}}),{times:1});
   await open(page);await expand(page);

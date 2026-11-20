@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import signal
 import selectors
 import time
@@ -13,6 +14,9 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 ERROR_MESSAGES = {
+    "oar_dsh_missing": "未找到本机 DSH。macOS 可安装官方 DeepSeek Harness 桌面版，也可用 npm install -g @deepseek-ai/dsh 安装 CLI。已有安装可用 OAR_DSH_BIN 指定 dsh 可执行文件。",
+    "oar_dsh_incompatible": "当前 DSH 版本或配置不支持此操作，请检查本机 DSH。",
+    "dsh_model_not_selected": "请先选择 DSH 服务商与模型。",
     "oar_quota": "服务明确报告账户额度不足。",
     "oar_rate_limited": "服务限制请求频率。",
     "oar_input_too_large": "输入超出服务限制。",
@@ -24,12 +28,12 @@ ERROR_MESSAGES = {
     "oar_node_version": "OAR 需要 Node.js 24 或更高版本。",
     "oar_dependency_missing": "OAR 依赖缺失，请在项目目录执行 npm ci --ignore-scripts。",
     "oar_compatibility_mismatch": "OAR 版本与归档适配不匹配，请更新并验证适配后重试；归档尚未写入。",
-    "oar_auth_required": "当前 Pi 模型未登录或没有可用凭据，请在 Pi 中检查登录，或选择已可用的模型。",
-    "oar_runtime_failed": "OAR 运行失败，请检查本机 Pi 模型与扩展配置。",
+    "oar_auth_required": "当前运行时未登录或没有可用凭据，请检查服务商登录，或选择已可用的模型。",
+    "oar_runtime_failed": "OAR 运行失败，请检查本机运行时与模型配置。",
     "oar_turn_failed": "Agent 未完整完成本轮请求，请检查模型可用性后重试。",
     "oar_legacy_session_missing": "旧 Pi 会话文件已不可用；旧后台聊天仍保留，请在聊天面板接续或明确开启新会话。",
     "oar_empty_answer": "Agent 未返回有效答案，请重试。",
-    "oar_model_unavailable": "所选 Pi 模型不存在，请检查模型配置。",
+    "oar_model_unavailable": "所选模型不存在，请检查模型配置。",
     "oar_protocol_error": "Agent 返回不完整，未收到有效的完成结果，请重试。",
 }
 
@@ -41,9 +45,15 @@ def bridge_command(session_id: str) -> list[str]:
     return [node, str(ROOT / "scripts/oar_bridge.mjs"), "--session-id", session_id]
 
 
-def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "", task: str = "news_chat") -> dict:
+def bridge_request(*, prompt: str, resume_prompt: str, state_dir: Path, provider: str, model: str, reasoning_effort: str = "", task: str = "news_chat", runtime: str = "pi") -> dict:
+    tools = {}
+    if task in {"news_chat", "personal_assistant", "web_research"}:
+        args = [str(ROOT / "deepseek_web_tools.py")]
+        if task == "web_research":
+            args += ["--evidence", str(state_dir / "web-evidence")]
+        tools["web_tools"] = {"command": sys.executable, "args": args}
     return {"prompt": prompt, "resume_prompt": resume_prompt, "state_dir": str(state_dir),
-            "cwd": str(ROOT), "provider": provider, "model": model,
+            "cwd": str(state_dir if task in {"material_summary", "web_research", "chat_archive"} else ROOT), "runtime": runtime, **tools, "provider": provider, "model": model,
             **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
             **({"task": task} if task else {}),
             "config_id": uuid.uuid4().hex}
