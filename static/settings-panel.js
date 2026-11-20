@@ -1,8 +1,8 @@
-import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.4";
+import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.5";
 import { selectField as select, timePickers } from "./form-controls.js?v=0.6.4";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
-import { settingsHelpHTML } from "./settings-help.js?v=0.6.4";
+import { settingsHelpHTML } from "./settings-help.js?v=0.6.5";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
 import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.4";
@@ -105,6 +105,7 @@ export class SettingsPanel {
     window.addEventListener("focus", refreshPi);
     document.addEventListener("visibilitychange", refreshPi);
     this.apiStates = new Map();
+    this.apiTestBatch = null;
     this.selects = selects;
     this.scheduleFieldsObserver = new ResizeObserver(() => {
       if (this.open && this.page === "collection" && $("#collectionSchedule")) resizeAutoFields($("#collectionSchedule"));
@@ -422,12 +423,11 @@ export class SettingsPanel {
       this.modelStates.clear();
     }
     if (page === "services") {
+      this.apiTestBatch = null;
       for (const state of this.apiStates.values()) {
-        state.sequence++;
-        state.testing = false;
+        this.invalidateApiTest(state);
         state.refreshing = false;
         state.notice = "";
-        state.testResult = "";
       }
     }
     this.render();
@@ -488,12 +488,12 @@ export class SettingsPanel {
     const apiConfig = this.draft.api_providers.find(config => config.model_path === input.name);
     if (apiConfig) {
       const provider = apiConfig.id, state = this.apiState(provider);
-      state.sequence++;
-      state.notice = "模型已变化，可以测试当前选择。";
-      state.testResult = "";
-      updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult, true);
-      this.apiElement(provider, "translationStatus").textContent = state.notice;
-      this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
+      if (!unchanged) {
+        this.invalidateApiTest(state);
+        state.notice = "模型已变化，可以测试当前选择。";
+        this.apiElement(provider, "translationStatus").textContent = state.notice;
+        this.renderApiTests(provider);
+      }
       this.syncModelFields(input, this.translationOptions(provider));
     }
     if (apiConfig || input.name.startsWith("llm.translation.")) this.updateTranslationRoute();
@@ -795,8 +795,8 @@ export class SettingsPanel {
   }
   apiState(provider) {
     if (!this.apiStates.has(provider)) this.apiStates.set(provider, {
-      secretDraft: "", editingSecret: false, catalog: null, notice: "", testResult: "", sequence: 0,
-      testing: false, refreshing: false, savingSecret: false,
+      secretDraft: "", editingSecret: false, catalog: null, notice: "", testResult: null, sequence: 0,
+      testing: null, refreshing: false, savingSecret: false,
     });
     return this.apiStates.get(provider);
   }
@@ -805,10 +805,17 @@ export class SettingsPanel {
   }
   apiId(provider, control) { return provider === "deepseek" ? control : `${provider}-${control}`; }
   apiElement(provider, control) { return document.getElementById(this.apiId(provider, control)); }
-  canTestApi(provider) {
+  apiTestBlocker(provider) {
     const config = this.apiConfig(provider);
-    return !!this.draft.api_status?.[provider]?.configured && !this.apiState(provider).testing
-      && (provider === "deepseek" || !!(get(this.draft, config.model_path) || config.default_model));
+    if (this.apiState(provider).savingSecret) return "密钥正在更新，请稍后再试";
+    if (!this.draft.api_status?.[provider]?.configured) return "未配置 API 密钥";
+    if (provider !== "deepseek" && !config.default_model && !get(this.draft, config.model_path)?.trim()) return "尚未选择或填写模型";
+    return "";
+  }
+  invalidateApiTest(state) {
+    state.sequence++;
+    state.testing = null;
+    state.testResult = null;
   }
   translationOrder(settings = this.draft) {
     const config = settings.llm.translation, preferred = config.provider || "deepseek";
@@ -858,6 +865,7 @@ export class SettingsPanel {
       const selection = active?.tagName === "INPUT" && active.selectionStart !== null ? [active.selectionStart, active.selectionEnd] : null;
       $("[data-credential-status]", panel).textContent = this.draft.api_status[provider]?.configured ? "已配置密钥" : "未配置密钥";
       $("[data-provider-fields]", panel).innerHTML = this.apiProviderHTML(provider);
+      this.renderApiTests(provider);
       this.selects.refresh(panel);
       if (active) {
         const focus = (focusSelector && $(focusSelector, panel)) || this.apiElement(provider, "editSecretBtn") || $(`#${provider}Secret`, panel);
@@ -867,7 +875,9 @@ export class SettingsPanel {
       return;
     }
     const groups = [["翻译服务", true], ["判断服务", false]];
-    root.innerHTML = groups.map(([label, translation]) => {
+    root.innerHTML = `<div class="section-stack">
+      <div class="section-card-title"><span>API 密钥与连接</span><button class="reader-tool-btn" id="testAllApisBtn" type="button" aria-controls="apiTestSummary">测试全部服务</button></div>
+      <div class="terminal-box" id="apiTestSummary" role="status" aria-atomic="true" tabindex="0" hidden></div></div>` + groups.map(([label, translation]) => {
       const cards = this.draft.api_providers.filter(config => !!config.translation_base_url === translation).map(({id,label}) =>
         `<details class="settings-section-card settings-section-card--compact settings-disclosure" data-api-provider="${id}" ${this.apiState(id).expanded ? "open" : ""}>
         <summary class="section-card-title" id="apiTitle-${id}"><span>${e(label)}</span><span class="muted" data-credential-status>${this.draft.api_status[id]?.configured ? "已配置密钥" : "未配置密钥"}</span>${disclosureChevron}</summary>
@@ -877,6 +887,7 @@ export class SettingsPanel {
     for (const details of $$("details[data-api-provider]", root)) {
       details.ontoggle = () => { this.apiState(details.dataset.apiProvider).expanded = details.open; };
     }
+    this.renderApiTests();
     this.selects.refresh(root);
     this.updateDecisionKeys();
     this.updateTranslationRoute();
@@ -897,8 +908,8 @@ export class SettingsPanel {
       <div class="field-action-row">${select(config.translation_base_url ? "翻译模型" : "模型", config.model_path, model, options, configured ? (config.default_model ? `使用默认模型（${config.default_model}）` : provider !== "deepseek" ? "请选择模型" : "使用默认模型") : "请先配置 API 密钥")}<button class="btn-secondary" ${action("translationModelsBtn")} type="button" ${configured ? "" : "hidden"} ${state.refreshing ? "disabled" : ""}>${state.refreshing ? "正在获取…" : "获取模型"}</button></div>
       ${field("自定义模型（可选）", config.model_path, custom, 'maxlength="120"')}
       <p class="muted" id="${id("translationStatus")}" role="status">${e(state.notice)}</p>
-      <div class="button-row"><button class="btn-secondary" ${action("translationTestBtn")} type="button" ${this.canTestApi(provider) ? "" : "disabled"}>${state.testing ? "正在测试…" : "测试连接"}</button></div>
-      <div class="terminal-box" id="${id("translationTestTerminal")}" data-status="${testResultStatus(state.testResult)}" role="status" ${state.testResult ? "" : "hidden"}>${e(state.testResult)}</div>`;
+      <div class="button-row"><button class="btn-secondary" ${action("translationTestBtn")} type="button">测试连接</button></div>
+      <div class="terminal-box" id="${id("translationTestTerminal")}" role="status" hidden></div>`;
   }
   async refreshTranslationModels(provider) {
     const state = this.apiState(provider);
@@ -919,25 +930,99 @@ export class SettingsPanel {
       }
     }
   }
-  async testTranslation(provider) {
-    const state = this.apiState(provider), model = get(this.draft, this.apiConfig(provider).model_path) || "";
-    if (state.testing) return;
-    const seq = state.sequence;
-    const request = state.testing = {};
-    state.testResult = "[RUNNING] 正在测试模型连接…";
-    updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult, true);
-    try {
-      const data = await api(`/api/settings/apis/${provider}/test`, { method: "POST", body: { model } });
-      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[PASS] ${data.message} · ${data.model} · ${data.elapsed_ms}ms${this.apiConfig(provider).translation_base_url ? " · 仅验证连接" : ""}`;
-    } catch (error) {
-      if (state === this.apiState(provider) && seq === state.sequence) state.testResult = `[FAIL] ${errorText(error)}`;
-    } finally {
-      if (state.testing === request) {
-        state.testing = false;
-        updateTestResult(this.apiElement(provider, "translationTestTerminal"), state.testResult, true);
-        this.apiElement(provider, "translationTestBtn").disabled = !this.canTestApi(provider);
-        this.apiElement(provider, "translationTestBtn").textContent = "测试连接";
+  renderApiTests(provider) {
+    const providers = provider ? [provider] : this.draft.api_providers.map(config => config.id);
+    for (const id of providers) {
+      const state = this.apiState(id), button = this.apiElement(id, "translationTestBtn");
+      if (!button) continue;
+      button.disabled = !!state.testing || !!this.apiTestBlocker(id);
+      button.setAttribute("aria-busy", String(!!state.testing));
+      button.textContent = state.testing ? "正在测试…" : "测试连接";
+      const result = state.testResult;
+      let text = "";
+      if (state.testing) text = "[RUNNING] 正在测试模型连接…";
+      else if (result) text = `[${result.passed ? "PASS" : "FAIL"}] ${result.message}`;
+      updateTestResult(this.apiElement(id, "translationTestTerminal"), text, true);
+    }
+    this.renderApiTestSummary();
+  }
+  renderApiTestSummary() {
+    const button = $("#testAllApisBtn"), report = $("#apiTestSummary");
+    if (!button) return;
+    const providers = this.draft.api_providers;
+    const running = !!this.apiTestBatch?.running;
+    button.disabled = running || !providers.length;
+    button.setAttribute("aria-busy", String(running));
+    button.textContent = running ? "正在测试全部服务…" : "测试全部服务";
+    report.hidden = !this.apiTestBatch;
+    if (report.hidden) return;
+    let passed = 0, pending = 0;
+    const failures = [], skipped = [];
+    for (const {id, label} of providers) {
+      const {testing, testResult} = this.apiState(id), blocker = this.apiTestBlocker(id);
+      if (blocker) skipped.push(`${label} · 未测试 · ${blocker}`);
+      else if (testing) pending++;
+      else if (testResult?.passed) passed++;
+      else if (testResult) failures.push(`${label} · 连接失败 · ${testResult.message}`);
+      else skipped.push(`${label} · 未测试 · 请重新测试当前配置`);
+    }
+    const total = providers.length;
+    let summary;
+    if (pending) {
+      summary = `正在测试 API 服务，已完成 ${total - pending}/${total} 项。`;
+      report.dataset.status = "running";
+    } else if (passed === total) {
+      summary = `全部 ${total} 项 API 服务连接成功。`;
+      report.dataset.status = "success";
+    } else {
+      const counts = [`共 ${total} 项服务`, `${passed} 项通过`];
+      if (failures.length) counts.push(`${failures.length} 项连接失败`);
+      if (skipped.length) counts.push(`${skipped.length} 项未测试`);
+      summary = counts.join("，") + "。";
+      report.dataset.status = failures.length ? "failed" : "ready";
+    }
+    const text = [summary, ...failures, ...skipped].join("\n");
+    if (report.textContent !== text) report.textContent = text;
+  }
+  testApiConnection(provider) {
+    const state = this.apiState(provider);
+    if (this.apiTestBlocker(provider)) {
+      state.testing = null;
+      state.testResult = null;
+      return;
+    }
+    if (state.testing) return state.testing;
+    const config = this.apiConfig(provider), model = get(this.draft, config.model_path) || "";
+    const request = api(`/api/settings/apis/${provider}/test`, {
+      method: "POST", body: {model}, signal: AbortSignal.timeout(45000),
+    }).then(data => {
+      if (data.ok !== true || !data.model || !data.message || !Number.isFinite(data.elapsed_ms)) {
+        return {passed:false, message:"未收到完整的连接测试结果"};
       }
+      const message = `${data.message} · ${data.model} · ${data.elapsed_ms}ms`;
+      return {passed:true, message:config.translation_base_url ? message + " · 仅验证连接" : message};
+    }, error => ({
+      passed: false, message: error.name === "TimeoutError" ? "模型连接测试超时，请重试。" : errorText(error),
+    })).then(result => {
+      if (state.testing !== request) return;
+      state.testing = null;
+      state.testResult = result;
+      this.renderApiTests(provider);
+    });
+    state.testing = request;
+    state.testResult = null;
+    return request;
+  }
+  async testAllApis() {
+    if (this.apiTestBatch?.running) return;
+    const batch = this.apiTestBatch = {running:true};
+    try {
+      const requests = this.draft.api_providers.map(({id}) => this.testApiConnection(id));
+      this.renderApiTests();
+      await Promise.all(requests);
+    } finally {
+      batch.running = false;
+      if (this.apiTestBatch === batch) this.renderApiTestSummary();
     }
   }
   renderModels(feature) {
@@ -1134,17 +1219,19 @@ export class SettingsPanel {
         editSecretBtn: () => { this.apiState(provider).editingSecret = true; this.renderTranslation(provider); $(`#${provider}Secret`).focus(); },
         cancelSecretBtn: () => { this.apiState(provider).secretDraft = ""; this.apiState(provider).editingSecret = false; this.renderTranslation(provider); this.apiElement(provider, "editSecretBtn").focus(); },
         translationModelsBtn: () => this.refreshTranslationModels(provider),
-        translationTestBtn: () => this.testTranslation(provider),
+        translationTestBtn: () => {
+          const request = this.testApiConnection(provider);
+          this.renderApiTests(provider);
+          return request;
+        },
         saveSecretBtn: () => this.saveSecret(provider),
         deleteSecretBtn: () => this.deleteSecret(provider),
       };
-      if (actions[button.dataset.apiAction]) void busy(button, actions[button.dataset.apiAction]).finally(() => {
-        const test = this.apiElement(provider, "translationTestBtn");
-        if (test) test.disabled = !this.canTestApi(provider);
-      });
+      if (actions[button.dataset.apiAction]) void busy(button, actions[button.dataset.apiAction]).finally(() => this.renderApiTests(provider));
       return;
     }
     const actions = {
+      testAllApisBtn: () => this.testAllApis(),
       checkCollectionEnvironmentBtn: () => this.collectionEnvironment.check("environment"),
       checkCollectionXBtn: () => this.collectionEnvironment.check("x"),
       collectionApiSettingsBtn: () => this.selectSection("deepseek", {target:"apiTitle-" + this.draft.llm.translation.provider}),
@@ -1252,7 +1339,10 @@ export class SettingsPanel {
             const normalized = get(submitted, path) !== undefined && get(submitted, path) !== get(data, path);
             if (this.saved.api_status[id] === apiStatus[id] && data.api_status?.[id] && !this.apiState(id).savingSecret) {
               this.saved.api_status[id] = this.draft.api_status[id] = data.api_status[id];
-              if (normalized || JSON.stringify(apiStatus[id]) !== JSON.stringify(data.api_status[id])) this.renderTranslation(id);
+              if (normalized || JSON.stringify(apiStatus[id]) !== JSON.stringify(data.api_status[id])) {
+                this.invalidateApiTest(this.apiState(id));
+                this.renderTranslation(id);
+              }
             }
           }
         }
@@ -1394,6 +1484,7 @@ export class SettingsPanel {
       return;
     }
     state.savingSecret = true;
+    this.renderApiTests(provider);
     try {
       const data = await api(`/api/settings/secrets/${provider}`, { method: "PUT", body: { key } });
       toast(`${this.apiConfig(provider).label} 密钥已保存`);
@@ -1415,9 +1506,8 @@ export class SettingsPanel {
     }
     const state = this.apiState(provider);
     state.catalog = null;
-    state.sequence++;
+    this.invalidateApiTest(state);
     state.notice = "";
-    state.testResult = "";
     this.updateTranslationRoute();
     this.updateDecisionKeys();
   }
@@ -1428,6 +1518,7 @@ export class SettingsPanel {
     if (!await confirmAction({ title: `删除 ${config.label} 密钥`, trigger: `#${this.apiId(provider, "deleteSecretBtn")}`, message: `删除已保存的 ${config.label} API 密钥？删除后，依赖该密钥的服务需重新配置。${status?.environment_override ? "环境变量提供的密钥仍会生效。" : ""}`, action: "删除密钥" })) return;
     if (this.apiState(provider) !== state || this.saved.api_status[provider] !== status || this.draft !== draft || state.secretDraft !== secret || state.editingSecret !== editing) return toast("密钥设置已变化，请重新操作");
     state.savingSecret = true;
+    this.renderApiTests(provider);
     try {
       const data = await api(`/api/settings/secrets/${provider}`, { method: "DELETE" });
       toast(`${config.label} 密钥已删除`);

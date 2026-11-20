@@ -4,26 +4,28 @@ import { test, expect } from '@playwright/test';
 const card = (page, provider) => page.locator(`[data-api-provider="${provider}"]`);
 const action = (page, provider, name) => card(page, provider).locator(`[data-api-action="${name}"]`);
 const terminal = (page, provider) => card(page, provider).locator('.terminal-box');
+const providers = ['deepseek', 'opencode-go', 'jev', 'openai-decisions'];
 
-async function setup(page, request, configured = true) {
+async function setup(page, request, { configured = true, expand = true, configure } = {}) {
   const saved = await (await request.get('/api/settings')).json();
-  for (const provider of ['deepseek', 'jev', 'opencode-go']) saved.api_status[provider] = { configured, masked_key: `${provider}••••1234` };
+  for (const provider of providers) saved.api_status[provider] = { configured, masked_key: configured ? `${provider}••••1234` : '' };
   saved.llm.translation = {provider:'deepseek', model:'deepseek-saved', fallback_enabled:true, pi_fallback_enabled:true};
   saved.api_models = { jev: { model: 'jev-saved' }, 'opencode-go': { model: 'opencode-go-saved' } };
   saved.agent.runtime = 'codex';
   saved.agent.codex.model = 'chat-model';
   saved.agent.codex.reasoning_effort = '';
   saved.feature_models.reports = { runtime: 'pi', pi: { provider: 'opencode-go', model: 'report-model' }, codex: {} };
+  configure?.(saved);
   await page.route('**/api/settings', route => route.request().method() === 'GET' ? route.fulfill({ json: saved }) : route.continue());
   await page.goto('/');
   await openSettings(page);
   await openSettingsItem(page, 'deepseek');
-  for (const id of ['deepseek','opencode-go','jev','openai-decisions']) await expandProvider(page, id);
+  if (expand) for (const id of providers) await expandProvider(page, id);
   return saved;
 }
 
 test('expanded provider sections, preserve independent drafts, and save only models', async ({ page, request }) => {
-  await setup(page, request, false);
+  await setup(page, request, {configured: false});
   await expect(page.locator('#settingsDetailTitle')).toHaveText('API 与运行环境');
   await expect(page.getByRole('combobox', { name: 'API 服务', exact: true })).toHaveCount(0);
   await expect(page.locator('#translationSettings [data-api-provider]')).toHaveCount(4);
@@ -52,7 +54,7 @@ test('expanded provider sections, preserve independent drafts, and save only mod
 });
 
 for (const provider of ['jev', 'opencode-go']) test(`${provider} key save and delete preserve other providers and model drafts`, async ({ page, request }) => {
-  const saved = await setup(page, request, false);
+  const saved = await setup(page, request, {configured: false});
   const calls = [];
   await page.route('**/api/settings/secrets/*', async route => {
     calls.push({ url: route.request().url(), method: route.request().method() });
@@ -79,7 +81,7 @@ for (const provider of ['jev', 'opencode-go']) test(`${provider} key save and de
 });
 
 test('late secret save preserves another provider input, focus and open model menu', async ({ page, request }) => {
-  const saved = await setup(page, request, false);
+  const saved = await setup(page, request, {configured: false});
   let pending;
   await page.route('**/api/settings/secrets/opencode-go', route => { pending = route; });
   await page.locator('#opencode-goSecret').fill('opencode-go-key-to-save');
@@ -118,6 +120,169 @@ test('translation providers explain what a passing connection test checked', asy
     await expect(terminal(page, provider)).toHaveText(`[PASS] 模型连接成功 · ${provider}-saved · 12ms · 仅验证连接`);
     await expect(testButton).toBeEnabled();
   }
+});
+
+async function captureProbes(page) {
+  const calls = [];
+  await page.route('**/api/settings/apis/*/test', route => {
+    const provider = new URL(route.request().url()).pathname.split('/').at(-2);
+    calls.push({provider, route, body: route.request().postDataJSON()});
+  });
+  return calls;
+}
+
+function passProbe(call, model = call.body.model, message = '模型连接成功') {
+  return call.route.fulfill({json: {ok: true, message, model, elapsed_ms: 12}});
+}
+
+for (const width of [1440, 390]) test(`bulk API test identifies failures and incomplete configurations at ${width}px`, async ({page, request}) => {
+  await page.setViewportSize({width, height: 844});
+  const calls = await captureProbes(page);
+  await setup(page, request, {expand: false, configure(saved) {
+    saved.api_status['openai-decisions'].configured = false;
+    saved.api_models['opencode-go'].model = '';
+  }});
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  if (await page.locator('#feedColSettings').evaluate(node => node.inert)) await page.locator('#settingsCategoryBackBtn').click();
+  await page.locator('#settingsSearchInput').fill(width === 390 ? 'API连接测试' : '测试全部服务');
+  await page.locator('[data-target="testAllApisBtn"]').click();
+  await expect(button).toBeFocused();
+  await expect(report).toBeHidden();
+  expect(calls).toHaveLength(0);
+  await button.press('Enter');
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute('aria-busy', 'true');
+  await expect.poll(() => calls.length).toBe(2);
+  expect(calls.map(call => call.provider).sort()).toEqual(['deepseek', 'jev']);
+  const jev = calls.find(call => call.provider === 'jev');
+  expect(jev.body).toEqual({model: 'jev-saved'});
+  const message = '模型测试失败（HTTP 401）。密钥鉴权失败，请检查密钥是否有效。';
+  await jev.route.fulfill({status: 502, json: {ok: false, error: 'api_test_failed', reason: 'authentication_failed', message}});
+  await expect(report).toContainText('已完成 3/4');
+  await expect(report).toContainText(message);
+  await passProbe(calls.find(call => call.provider === 'deepseek'));
+  await expect(report).toContainText('共 4 项服务，1 项通过，1 项连接失败，2 项未测试。');
+  await expect(report).toContainText(`Jev · 连接失败 · ${message}`);
+  await expect(report).toContainText('OpenCode Go 订阅 · 未测试 · 尚未选择或填写模型');
+  await expect(report).toContainText('OpenAI Decisions · 未测试 · 未配置 API 密钥');
+  await expect(report).toHaveAttribute('data-status', 'failed');
+  await expect(button).toBeEnabled();
+  await expect(page.locator('details[data-api-provider][open]')).toHaveCount(0);
+  await expect(page.locator('#settingsSaveBtn')).toBeHidden();
+  await expandProvider(page, 'jev');
+  await expect(terminal(page, 'jev')).toHaveText(`[FAIL] ${message}`);
+  await action(page, 'jev', 'translationTestBtn').click();
+  await expect.poll(() => calls.length).toBe(3);
+  await passProbe(calls[2]);
+  await expect(report).toContainText('2 项通过，2 项未测试');
+  await expect(report).not.toContainText('连接失败');
+});
+
+test('bulk API test shares in-flight requests and uses current models without saving drafts', async ({page, request}) => {
+  const calls = await captureProbes(page), writes = [];
+  page.on('request', req => {
+    if (req.method() === 'PUT' && new URL(req.url()).pathname.startsWith('/api/settings')) writes.push(req.url());
+  });
+  await setup(page, request, {expand: false});
+  await expandProvider(page, 'opencode-go');
+  await card(page, 'opencode-go').locator('input[name]').fill('go-draft');
+  await action(page, 'opencode-go', 'editSecretBtn').click();
+  await page.locator('#opencode-goSecret').fill('unsaved-test-key');
+  await action(page, 'opencode-go', 'translationTestBtn').click();
+  await expect.poll(() => calls.length).toBe(1);
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  await button.click();
+  await expect.poll(() => calls.length).toBe(4);
+  expect(calls.map(call => call.provider).sort()).toEqual([...providers].sort());
+  const models = {'opencode-go': 'go-draft', deepseek: 'deepseek-saved', jev: 'jev-saved', 'openai-decisions': ''};
+  for (const call of calls) expect(call.body).toEqual({model: models[call.provider]});
+  await expect(report).toContainText('已完成 0/4');
+  await Promise.all(calls.map(call => passProbe(call, call.body.model || 'gpt-6-luna')));
+  await expect(report).toHaveText('全部 4 项 API 服务连接成功。');
+  await expect(report).toHaveAttribute('data-status', 'success');
+  await expect(button).toBeEnabled();
+  await expect(terminal(page, 'opencode-go')).toContainText('go-draft');
+  await expect(page.locator('#opencode-goSecret')).toHaveValue('unsaved-test-key');
+  await expect(page.locator('#settingsSaveBtn')).toBeEnabled();
+  expect(writes).toEqual([]);
+});
+
+test('bulk API test reports every missing key and leaves unsaved credentials private', async ({page, request}) => {
+  const calls = await captureProbes(page);
+  await setup(page, request, {configured: false, expand: false});
+  await expandProvider(page, 'deepseek');
+  await page.locator('#deepseekSecret').fill('unsaved-test-key');
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  await button.click();
+  await expect(report).toContainText('共 4 项服务，0 项通过，4 项未测试。');
+  expect((await report.innerText()).match(/未配置 API 密钥/g)).toHaveLength(4);
+  await expect(button).toBeEnabled();
+  expect(calls).toHaveLength(0);
+});
+
+test('bulk API test reports independent transport and response errors and retries every service', async ({page, request}) => {
+  const calls = await captureProbes(page);
+  await setup(page, request, {expand: false});
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  await button.click();
+  await expect.poll(() => calls.length).toBe(4);
+  const byId = Object.fromEntries(calls.map(call => [call.provider, call]));
+  await byId.deepseek.route.abort('connectionrefused');
+  await byId.jev.route.fulfill({status: 504, json: {ok: false, error: 'api_test_timeout'}});
+  await byId['openai-decisions'].route.fulfill({json: {ok: true}});
+  await passProbe(byId['opencode-go']);
+  await expect(report).toContainText('1 项通过，3 项连接失败');
+  await expect(report).toContainText('DeepSeek · 连接失败 · 网络请求失败');
+  await expect(report).toContainText('Jev · 连接失败 · 模型连接测试超时');
+  await expect(report).toContainText('OpenAI Decisions · 连接失败 · 未收到完整的连接测试结果');
+  await button.click();
+  await expect.poll(() => calls.length).toBe(8);
+  for (const call of calls.slice(4)) await passProbe(call, call.body.model || 'gpt-6-luna');
+  await expect(report).toHaveText('全部 4 项 API 服务连接成功。');
+});
+
+test('bulk API test ignores obsolete responses after a model edit or page reset', async ({page, request}) => {
+  const calls = await captureProbes(page);
+  await setup(page, request, {configured: false, expand: false, configure(saved) { saved.api_status.jev.configured = true; }});
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  await button.click();
+  await expect.poll(() => calls.length).toBe(1);
+  await expandProvider(page, 'jev');
+  await card(page, 'jev').locator('input[name]').fill('new-model');
+  await passProbe(calls[0], 'jev-saved', '过期结果');
+  await expect(report).toContainText('Jev · 未测试 · 请重新测试当前配置');
+  await expect(terminal(page, 'jev')).toBeHidden();
+  await button.click();
+  await expect.poll(() => calls.length).toBe(2);
+  expect(calls[1].body).toEqual({model: 'new-model'});
+  await page.locator('#settingsResetBtn').click();
+  await passProbe(calls[1]);
+  await expect(report).toBeHidden();
+  await expect(terminal(page, 'jev')).toBeHidden();
+  await expect(button).toBeEnabled();
+});
+
+test('bulk API test does not reuse an earlier success after skipping a key update', async ({page, request}) => {
+  const calls = await captureProbes(page);
+  await setup(page, request, {configured: false, expand: false, configure(saved) { saved.api_status.jev.configured = true; }});
+  const button = page.locator('#testAllApisBtn'), report = page.locator('#apiTestSummary');
+  await button.click();
+  await expect.poll(() => calls.length).toBe(1);
+  await passProbe(calls[0]);
+  await expect(report).toContainText('1 项通过，3 项未测试');
+  let saving;
+  await page.route('**/api/settings/secrets/jev', route => { saving = route; });
+  await expandProvider(page, 'jev');
+  await action(page, 'jev', 'editSecretBtn').click();
+  await page.locator('#jevSecret').fill('new-test-key');
+  await action(page, 'jev', 'saveSecretBtn').click();
+  await expect.poll(() => !!saving).toBe(true);
+  await button.click();
+  await expect(report).toContainText('Jev · 未测试 · 密钥正在更新');
+  await saving.fulfill({status: 500, json: {ok: false, error: 'secret_save_failed'}});
+  await expect(report).toContainText('Jev · 未测试 · 请重新测试当前配置');
+  await expect(report).toContainText('0 项通过，4 项未测试');
+  expect(calls).toHaveLength(1);
 });
 
 test('concurrent provider tests stay isolated and model edits invalidate late answers', async ({ page, request }) => {

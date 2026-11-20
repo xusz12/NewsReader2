@@ -1,14 +1,14 @@
 {
-  "checked_at": "2026-11-19T16:47:54.769057+00:00",
-  "fingerprint": "162a3d55255a6380e02eb471ae91cf7f64bcd4ddb718cee7fa78f2840cc5a99a",
-  "newsreader_version": "0.6.3",
+  "checked_at": "2026-11-20T04:23:59.004230+00:00",
+  "fingerprint": "7243d2c191f3590ca40a304f6d02ee038d0d317795d4076851ea6dd77adf9e75",
+  "newsreader_version": "0.6.5",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 6.38,
+      "seconds": 6.09,
       "error": "",
       "samples": [
         {
@@ -18,7 +18,7 @@
           "source_name": "Reuters"
         },
         {
-          "title": "Trump says US will 'see what happens' in conflict with Iran after January 1",
+          "title": "Trump says no rush on Iran decision, looks to next year",
           "url": "https://www.reuters.com/world/trump-says-us-will-see-what-happens-conflict-with-iran-after-january-1-2026-11-19/",
           "time": "2026-11-19 20:11:04",
           "source_name": "Reuters"
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.41,
+      "seconds": 13.59,
       "error": "",
       "samples": [
         {
-          "title": "FCC votes to ban Chinese telecoms from direct access to US phone numbers",
-          "url": "https://www.reuters.com/world/fcc-votes-ban-chinese-telecoms-direct-access-us-phone-numbers-2026-11-19/",
-          "time": "2026-11-20 00:29:48",
+          "title": "Asian shares head for worst week since 2020 as AI rout deepens",
+          "url": "https://www.reuters.com/world/china/global-markets-global-markets-2026-11-20/",
+          "time": "2026-11-20 09:46:30",
           "source_name": "Reuters"
         },
         {
-          "title": "Mexico's Sheinbaum hopes to seal trade deal in next meeting with Trump",
-          "url": "https://www.reuters.com/world/china/mexicos-sheinbaum-hopes-seal-trade-deal-next-meeting-with-trump-2026-11-19/",
-          "time": "2026-11-20 00:17:33",
+          "title": "Alibaba defrauded shareholders by concealing ties to suspected spy in Nvidia scandal, lawsuit says",
+          "url": "https://www.reuters.com/business/retail-consumer/alibaba-defrauded-shareholders-by-concealing-ties-suspected-spy-nvidia-scandal-2026-11-19/",
+          "time": "2026-11-20 07:09:49",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.83,
+      "seconds": 4.38,
       "error": "",
       "samples": [
+        {
+          "title": "Trump, Xi and Putin release 'peace declaration' from unprecedented summit",
+          "url": "https://www.reuters.com/world/china/trumps-historic-meeting-with-xi-putin-headlines-asia-trip-2026-11-18/",
+          "time": "2026-11-19 07:05:40",
+          "source_name": "Reuters"
+        },
         {
           "title": "Top UN court finds Myanmar committed genocide against Muslim Rohingya",
           "url": "https://www.reuters.com/world/asia-pacific/top-un-court-finds-myanmar-committed-state-sponsored-genocide-against-muslim-2026-11-19/",
           "time": "2026-11-19 20:02:11",
-          "source_name": "Reuters"
-        },
-        {
-          "title": "Trump says US will 'see what happens' in conflict with Iran after January 1",
-          "url": "https://www.reuters.com/world/trump-says-us-will-see-what-happens-conflict-with-iran-after-january-1-2026-11-19/",
-          "time": "2026-11-19 20:11:04",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.46,
+      "seconds": 4.4,
       "error": "",
       "samples": [
         {
-          "title": "Take-Two set to shatter sales records as 'GTA VI' launches to massive fanfare",
-          "url": "https://www.reuters.com/lifestyle/take-two-set-shatter-sales-records-gta-vi-launches-massive-fanfare-2026-11-19/",
-          "time": "2026-11-20 00:28:55",
+          "title": "Anthropic's blockbuster debut tests Wall Street's faith in AI boom",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         },
         {
-          "title": "Anthropic on course to break $2 trillion barrier as shares set to soar in debut",
-          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
-          "time": "2026-11-19 19:08:59",
+          "title": "California AG subpoenas Nvidia over concerns about former CEO, China ties",
+          "url": "https://www.reuters.com/legal/litigation/california-ag-subpoenas-nvidia-over-concerns-about-former-ceo-china-2026-11-19/",
+          "time": "2026-11-20 06:43:17",
           "source_name": "Reuters"
         }
       ]
@@ -96,19 +96,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.46,
+      "seconds": 4.25,
       "error": "",
       "samples": [
         {
-          "title": "Take-Two set to shatter sales records as 'GTA VI' launches to massive fanfare",
-          "url": "https://www.reuters.com/lifestyle/take-two-set-shatter-sales-records-gta-vi-launches-massive-fanfare-2026-11-19/",
-          "time": "2026-11-20 00:28:55",
+          "title": "Anthropic's blockbuster debut tests Wall Street's faith in AI boom",
+          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
+          "time": "2026-11-19 19:08:59",
           "source_name": "Reuters"
         },
         {
-          "title": "Anthropic on course to break $2 trillion barrier as shares set to soar in debut",
-          "url": "https://www.reuters.com/business/finance/anthropics-historic-debut-put-ais-promise-peril-wall-st-test-2026-11-19/",
-          "time": "2026-11-19 19:08:59",
+          "title": "Trump ousts cyber director after tech outages spark criticism",
+          "url": "https://www.reuters.com/world/us/white-house-national-cyber-director-cairncross-leaving-his-post-axios-reports-2026-11-19/",
+          "time": "2026-11-20 06:27:24",
           "source_name": "Reuters"
         }
       ]
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.89,
+      "seconds": 5.27,
       "error": "",
       "samples": [
         {
-          "title": "European Stocks Decline in Longest Losing Streak Since August",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-19/european-stocks-rebound-as-anthropic-ipo-revives-the-ai-trade",
-          "time": "2026-11-19 16:17:24",
+          "title": "Chip Selloff Turns Into Stampede in Asia as AI Fears Grow",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-20/asian-chip-stocks-slide-as-anthropic-ipo-fails-to-dispel-ai-woes",
+          "time": "2026-11-20 09:49:55",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Alibaba Sees Cloud Rebound After In-House Chips Offset US Curbs",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-19/alibaba-s-revenue-beats-estimates-during-china-s-ai-boom",
-          "time": "2026-11-19 18:13:14",
+          "title": "Nextdc Says It Will No Longer Develop Data Centers Near Homes",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-20/nextdc-says-it-will-no-longer-develop-data-centers-near-homes",
+          "time": "2026-11-20 11:23:43",
           "source_name": "Bloomberg"
         }
       ]
@@ -144,15 +144,15 @@
       "error": "",
       "samples": [
         {
-          "title": "At Nasdaq opening bell, Anthropic CEO recommits to pacing AI development",
-          "url": "https://techcrunch.com/2026/11/19/at-nasdaq-opening-bell-anthropic-ceo-recommits-to-pacing-ai-development/",
-          "time": "2026-11-20 00:19:41",
+          "title": "Apple may be developing its own AI agent that runs your Mac",
+          "url": "https://techcrunch.com/2026/11/19/apple-may-be-developing-its-own-ai-agent-that-runs-your-mac/",
+          "time": "2026-11-20 08:56:01",
           "source_name": "TechCrunch"
         },
         {
-          "title": "UK government forced to disclose secret Apple backdoor order",
-          "url": "https://techcrunch.com/2026/11/19/u-k-government-forced-to-disclose-secret-apple-backdoor-order/",
-          "time": "2026-11-19 23:32:20",
+          "title": "Anthropic’s 7 founders cashed out nearly $2B in record-breaking IPO",
+          "url": "https://techcrunch.com/2026/11/19/anthropics-7-founders-cashed-out-nearly-2b-in-record-breaking-ipo/",
+          "time": "2026-11-20 08:43:50",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.09,
+      "seconds": 2.37,
       "error": "",
       "samples": [
         {
-          "title": "Mouse fight club might explain why we like to watch violent things",
-          "url": "https://arstechnica.com/science/2026/11/watching-mouse-fight-club-teaches-the-critters-how-to-fight/",
-          "time": "2026-11-19 22:04:38",
+          "title": "Amazon fights the Delivery Protection Act with homepage banner, in-app pop-up",
+          "url": "https://arstechnica.com/tech-policy/2026/11/amazon-takes-its-fight-against-nyc-delivery-bill-to-shoppers-with-in-app-pop-up/",
+          "time": "2026-11-20 06:16:37",
           "source_name": "Ars Technica"
         },
         {
-          "title": "NASA's new Moon plans have a problem: Orion wasn't designed to fly this way",
-          "url": "https://arstechnica.com/space/2026/11/to-make-moon-landings-easier-nasa-is-making-life-harder-for-orion/",
-          "time": "2026-11-19 21:40:02",
+          "title": "MAHA PAC spent more on steak, luxury club than candidates, report shows",
+          "url": "https://arstechnica.com/health/2026/11/maha-pac-spent-more-on-steak-luxury-club-than-candidates-report-shows/",
+          "time": "2026-11-20 05:19:12",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.58,
+      "seconds": 3.72,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.57,
+      "seconds": 3.77,
       "error": "",
       "samples": [
         {
@@ -227,20 +227,20 @@
       "section": "外汇交易员",
       "ok": true,
       "raw_count": 10,
-      "valid_count": 8,
-      "seconds": 1.75,
+      "valid_count": 10,
+      "seconds": 3.85,
       "error": "",
       "samples": [
         {
-          "title": "Anthropic美国IPO首日有望高开20%至100美元。 $ANT",
-          "url": "https://x.com/fxtrader/status/2123431912429764878?s=20",
-          "time": "2026-11-19 23:03",
+          "title": "#行情 韩国KOSPI指数日内跌幅扩大至5%，触发SideCar机制，暂停程序化卖出报价的效力5分钟。 https://t.co/7L78ca427d",
+          "url": "https://x.com/fxtrader/status/2123612601016111507?s=20",
+          "time": "2026-11-20 11:01",
           "source_name": "外汇交易员"
         },
         {
-          "title": "持有Anthropic股票的封闭式基金在Anthropic上市前股价下跌，Fundrise Innovation Fund下跌8.6%，Destiny Tech100下跌4.8%。",
-          "url": "https://x.com/fxtrader/status/2123434329003245935?s=20",
-          "time": "2026-11-19 23:12",
+          "title": "#讨论 今年内，Anthropic会跌破发行价吗？ $ANT （2026年还剩28个交易日）",
+          "url": "https://x.com/fxtrader/status/2123610585174769970?s=20",
+          "time": "2026-11-20 10:53",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.92,
+      "seconds": 4.23,
       "error": "",
       "samples": [
         {
@@ -276,7 +276,7 @@
       "ok": true,
       "title": "Gazans return to battered camp after Israel says it concluded tank raid",
       "length": 4050,
-      "seconds": 3.27,
+      "seconds": 3.07,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -287,47 +287,47 @@
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-19/european-stocks-rebound-as-anthropic-ipo-revives-the-ai-trade",
+      "url": "https://www.bloomberg.com/news/articles/2026-11-20/asian-chip-stocks-slide-as-anthropic-ipo-fails-to-dispel-ai-woes",
       "ok": true,
-      "title": "European Stocks Drop, Set For Longest Losing Streak Since August",
-      "length": 2369,
-      "seconds": 25.12,
+      "title": "Chip Selloff Turns Into Stampede in Asia as AI Fears Grow",
+      "length": 3066,
+      "seconds": 30.33,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "ab0169acd5d51b5d00c58d795dfb1070900a4ad215dbdb3bdf996174f547d725",
-      "preview": "European stocks fell for a fourth straight day, weighed down by defensive sectors, as investors awaited the start of trading in Anthropic PBC’s shares after a b"
+      "content_sha256": "8702fe8f25b161f9a7683bde399861d5bd34ac83e547e3a247fd03239dfc350e",
+      "preview": "AI investors in Asia got a rude awakening as Anthropic PBC’s blockbuster IPO, expected to provide a fresh tailwind, instead turned into a sell-the-news event.\n\n"
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/19/at-nasdaq-opening-bell-anthropic-ceo-recommits-to-pacing-ai-development/",
+      "url": "https://techcrunch.com/2026/11/19/apple-may-be-developing-its-own-ai-agent-that-runs-your-mac/",
       "ok": true,
-      "title": "At Nasdaq opening bell, Anthropic CEO recommits to pacing AI development",
-      "length": 8195,
-      "seconds": 2.18,
+      "title": "Apple may be developing its own AI agent that runs your Mac",
+      "length": 2191,
+      "seconds": 2.07,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "cbe5cfa834a043edb469673bb0723ce8eebc82a9265d60cfa43c26057cb1863a",
-      "preview": "As Anthropic made its Wall Street debut on Thursday in the largest IPO in history, CEO Dario Amodei reaffirmed the company's commitment to developing AI respons"
+      "content_sha256": "e498c511f44bac62c046d12576731e6673676a365adcae49303831d6813f0f87",
+      "preview": "Apple appears to be working on its own AI agent to conduct computer work on behalf of users — including using apps, accessing websites, and coding, among other "
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/science/2026/11/watching-mouse-fight-club-teaches-the-critters-how-to-fight/",
+      "url": "https://arstechnica.com/tech-policy/2026/11/amazon-takes-its-fight-against-nyc-delivery-bill-to-shoppers-with-in-app-pop-up/",
       "ok": true,
-      "title": "Mouse fight club might explain why we like to watch violent things",
-      "length": 6087,
-      "seconds": 15.87,
+      "title": "Amazon fights the Delivery Protection Act with homepage banner, in-app pop-up",
+      "length": 3310,
+      "seconds": 16.02,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "9e459cf8b7244cf1881999bce800eb9c4bdc0f18a10c73352188edd2e5a7851b",
-      "preview": "There’s something about watching violent events that broadly appeals to us, whether it’s the latest John Wick movie, a video game, or a live UFC bout. Scientist"
+      "content_sha256": "8e921002d6b4db261d1cbeb2b529ac6686bb8f810c6a768943fbff07c69f4a56",
+      "preview": "In an unprecedented move, Amazon is using its app and website to try to convince shoppers to not support a New York City bill.\n\nWhen I log into Amazon today, I’"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 3.42,
+      "seconds": 15.84,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 3.17,
+      "seconds": 15.89,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 11.79,
+      "seconds": 25.76,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -381,7 +381,7 @@
       "ok": true,
       "title": "mingchikuo",
       "length": 8779,
-      "seconds": 6.53,
+      "seconds": 9.18,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.28,
+      "seconds": 8.86,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-19T16:47:56.934400+00:00"
+    "checked_at": "2026-11-20T04:24:01.284289+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-19T16:48:04.613884+00:00"
+    "checked_at": "2026-11-20T04:24:08.556992+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-19T16:50:36.835250+00:00",
+    "checked_at": "2026-11-20T04:27:43.011784+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

@@ -31,6 +31,7 @@ const entries = [
   ["system", "application", "版本与更新", "systemSettings", "local-updates", "系统 版本记录 升级 检查更新"],
 ];
 const targets = [
+  ["deepseek", "测试全部 API 服务", "testAllApisBtn", "测试全部服务 测试所有服务 测试所有API服务 API测试 API连接测试 批量测试 检查所有连接"],
   ["catchup", "新闻总结模型", "summaryModelSettings", "新闻总结模型 摘要 Pi Codex 推理强度"],
   ["report-models", "日报模型（早／午／晚）", "reportDailyModel", "日报模型 早报模型 午报模型 晚报模型"],
   ["report-models", "周报与月报模型", "reportPeriodicModel", "周报模型 月报模型 定期报告"],
