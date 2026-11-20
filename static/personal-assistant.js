@@ -1,5 +1,5 @@
 import { $, api, escapeHTML as e, errorText, icon, markdown, storage, persist, resizeAutoFields, bindAgentWindowSize } from "./ui.js";
-import { selectField } from "./form-controls.js?v=0.6.4";
+import { selectField } from "./form-controls.js?v=0.6.6";
 import { AnchoredPopover } from "./anchored-popover.js";
 
 const base = "/api/personal-assistant", active = job => job && ["queued", "running"].includes(job.status);

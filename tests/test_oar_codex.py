@@ -76,6 +76,11 @@ def test_archive_uses_completed_final_message_not_progress_or_stream_draft(runti
     runtime[2]['NR_RPC_MODE'] = mode
     result, _ = run(runtime)
     assert result['answer'] == 'OAR native transport answer'
+    calls = [json.loads(line) for line in Path(runtime[2]['NR_RPC_LOG']).read_text().splitlines()]
+    opened = next(call['params'] for call in calls if call['method'] == 'thread/start')
+    configured, host = opened['developerInstructions'].split('\n\n', 1)
+    assert configured == 'Fixture developer instructions.'
+    assert 'summary' in host
 
 
 def test_archive_rejects_commentary_without_a_final_answer(runtime):

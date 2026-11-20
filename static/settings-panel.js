@@ -1,17 +1,17 @@
-import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.5";
-import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.4";
+import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.6";
+import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.6";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
-import { settingsHelpHTML } from "./settings-help.js?v=0.6.5";
+import { settingsHelpHTML } from "./settings-help.js?v=0.6.6";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
-import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.4";
+import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.6";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
-import { visibilityText } from "./summary-panel.js?v=0.6.4";
+import { visibilityText } from "./summary-panel.js?v=0.6.6";
 import { classificationStatus } from "./classification-progress.js?v=0.6.4";
-import { ScheduleObserver } from "./schedule-observer.js?v=0.6.4";
+import { ScheduleObserver } from "./schedule-observer.js?v=0.6.6";
 import { defaultReportWindows, windowError } from "./report-windows.js";
 import { keyboard, shortcutActions, defaultShortcuts, normalizeShortcuts, displayKey, shortcutKeyFromEvent } from "./keyboard-shortcuts.js";
 

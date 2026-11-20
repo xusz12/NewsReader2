@@ -3,7 +3,7 @@ import { readerText } from "./reader-highlights.js?v=0.5.8";
 import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
-import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.4";
+import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.6";
 import { defaultReportWindows } from "./report-windows.js";
 import { Calendar, localDate, localDateTime } from "./date-picker.js?v=feature-pickers-1";
 

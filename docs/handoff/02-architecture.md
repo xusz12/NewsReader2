@@ -8,7 +8,7 @@
 
 ### Runtime 依赖与调用边界（2026-11-16）
 
-- 项目锁定 `@botiverse/oar@0.124.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
+- 项目锁定 `@botiverse/oar@0.125.0`、`@earendil-works/pi-coding-agent@1.5.2` 和 `@earendil-works/pi-ai@1.5.2`；OAR 与直接 SDK 调用共享同一套 Pi 依赖。升级后按[统一调用迁移清单](../runtime-migration.md)逐项收敛入口；依赖新增 runtime 不会自动加入 NR 的模型选项。
 - 第一批新闻 Chat／文章 Agent／对话归档摘要的 Pi、Codex 均固定经过 `oar_client.py` → `scripts/oar_bridge.mjs` → OAR，不保留这批功能的 CLI 回退。旧同步接口仍在，同样使用 OAR；当前新闻面板使用后台 Agent jobs。
 - Pi、Codex、外置 DSH 经 OAR 执行文章问答、个人助手、总结、主题和报告任务。Pi 使用私有配置，DSH 在私有目录恢复原生会话，两者按任务注册 NR 工具。Codex 使用本机 app-server 和原生搜索。
 - 文章问答及联网研究的 `nr_web` 只调用 DeepSeek Search 和 Fetch。必联网任务检查本次工具进程写入的成功记录。个人助手同时挂载 `nr_assistant` 查询新闻、讨论和记忆。模型推理与检索凭据分别读取。

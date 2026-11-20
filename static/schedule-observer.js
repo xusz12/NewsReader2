@@ -1,4 +1,4 @@
-import { timePickers } from "./form-controls.js?v=0.6.4";
+import { timePickers } from "./form-controls.js?v=0.6.6";
 import { api, escapeHTML as e, singlePane, formatBytes } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { statusText, progressText } from "./report-status.js?v=0.6.4";

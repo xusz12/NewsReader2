@@ -1,5 +1,5 @@
 import { $, api, escapeHTML as e, errorText } from "./ui.js";
-import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.4";
+import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.6";
 import { confirmAction } from "./confirm-dialog.js";
 
 const base = "/api/personal-assistant";

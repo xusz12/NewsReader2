@@ -34,6 +34,8 @@ for line in sys.stdin:
     result = {}
     if method == 'initialize':
         result = {'userAgent': 'codex-cli/0.167.2'}
+    elif method == 'config/read':
+        result = {'config': {'developer_instructions': 'Fixture developer instructions.'}}
     elif method in ('thread/start', 'thread/resume'):
         thread_id = params.get('threadId', thread_id)
         result = {'thread': {'id': thread_id}, 'model': params.get('model', 'fixture'),
