@@ -151,6 +151,10 @@ def test_persistent_identity_threads_memory_and_runtime_switch(service):
     result = wait_done(service, first)
     assert result["job"]["status"] == "done"
     assert [m["role"] for m in result["messages"]] == ["user", "assistant"]
+    with service.connect() as conn:
+        event, = conn.execute("SELECT kind,event_key,target FROM browser_push_events").fetchall()
+    assert event["kind"] == "personal_reply" and event["event_key"] == result["job"]["id"]
+    assert json.loads(event["target"]) == {"id":first, "job_id":result["job"]["id"], "message_id":result["messages"][-1]["id"]}
     assert (service.workspace / "notes/偏好.md").exists()
     service.save_profile(profile | {"name":"小秋", "runtime":"pi", "pi":{"provider":"test","model":"test-model"}})
     restarted = Service(service.root, service.db_path, service.settings, runner)

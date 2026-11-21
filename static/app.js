@@ -21,20 +21,21 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.7";
+import { SettingsPanel } from "./settings-panel.js?v=browser-push-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.6";
 import { TopicPanel } from "./topic-panel.js?v=0.6.7";
 import { ReportPanel } from "./report-panel.js?v=0.6.6";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.6.6";
-import { PersonalAssistant } from "./personal-assistant.js?v=0.6.6";
-import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
+import { PersonalAssistant } from "./personal-assistant.js?v=browser-push-1";
+import { AgentNotifications, replyIsVisible } from "./agent-notifications.js?v=browser-push-1";
+import { browserPush } from "./browser-push.js?v=1";
 import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
 import { TaskProgress } from "./task-progress.js?v=0.6.7";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
-import { UpstreamErrors } from "./upstream-errors.js?v=0.6.4";
+import { UpstreamErrors } from "./upstream-errors.js?v=browser-push-1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
 import { keyboard } from "./keyboard-shortcuts.js";
@@ -310,6 +311,38 @@ const notifications = new AgentNotifications({
     return true;
   },
 });
+
+function viewedPushReplies() {
+  const receipts = [];
+  if (personalAssistant.popover.open && personalAssistant.snapshot?.thread.current_library) {
+    for (const message of personalAssistant.snapshot.messages.slice(-12)) {
+      if (message.role === "assistant" && message.status === "done" && replyIsVisible($(`#personalAssistantMessages [data-message-id="${CSS.escape(String(message.id))}"]`)))
+        receipts.push({kind:"personal_reply", id:message.job_id});
+    }
+  }
+  if (agent.open && notifications.readerVisible()) {
+    for (const message of (agent.payload.messages || []).slice(-12)) {
+      if (message.role === "assistant" && message.status === "succeeded" && replyIsVisible($(`#agentChatStream [data-message-id="${CSS.escape(String(message.id))}"]`)))
+        receipts.push({kind:"article_reply", id:message.job_id});
+    }
+  }
+  return receipts.reverse();
+}
+
+async function openPushTarget({kind, id, day, messageId}) {
+  try {
+    if (kind === "daily_report") {
+      switchCollection("reports", {restoreReader:false});
+      await reports.openRecord(id, "daily");
+      if (reports.details?.id === id) return;
+    } else if (kind === "collection_error") {
+      if (await upstreamErrors.openBatch(id, day)) return;
+    } else if (kind === "personal_reply") {
+      if (await personalAssistant.openReply(id, messageId)) return;
+    } else if (await notifications.openNotice(id, true)) return;
+    toast("对应内容已不可用。请在 NR 中查看最新记录。");
+  } catch (error) { toast(errorText(error)); }
+}
 const readerHighlights = new ReaderHighlights({
   onQuote: (target, quote) => target === "note" ? researchNotes.open(quote) : agent.quote(quote.text),
   onUpdate: (id, result) => {
@@ -2149,7 +2182,11 @@ renderFeed();
 renderReader();
 // Give the visible page priority. Settings/model catalogs and research lists
 // are loaded by their own panels when opened.
-loadFeed().then(() => pollCollection());
+loadFeed().then(() => {
+  void pollCollection();
+  browserPush.start({open:openPushTarget, viewedReplies:viewedPushReplies,
+    canOpen:() => !(standaloneIdeas.dirty || researchNotes.dirty || topics.dirty || settings.hasUnsavedChanges())});
+});
 api("/api/version")
   .then((data) => {
     const version = data.version || data.current_version;

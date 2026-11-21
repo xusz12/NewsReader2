@@ -53,6 +53,9 @@ def test_result_notification_is_persistent_atomic_and_deduplicated(fixture, monk
         assert message['job_id'] == submitted['job_id']
         assert message['status'] == ('succeeded' if kind == 'reply' else 'failed')
         agent_notifications.record(conn, submitted['job_id'])
+        events = conn.execute('SELECT kind,event_key,library FROM browser_push_events').fetchall()
+        assert [tuple(event) for event in events] == (
+            [('article_reply', submitted['job_id'], first['db_scope'])] if kind == 'reply' else [])
     assert listed(module.app.test_client()) == first
     target = client.get(f"/api/agent/notifications/{row['id']}/target", query_string={'db_scope': first['db_scope']})
     assert target.status_code == 200

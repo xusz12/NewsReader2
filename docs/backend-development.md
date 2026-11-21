@@ -14,6 +14,7 @@ NR 使用一个 Flask 服务进程。启动入口是 `python3 app.py` 或现有�
 | 手动追踪与自动主题研究 | `tracked_topics.py` 和 `tracked_rules.py` 负责手动追踪及匹配规则，`topics.py` 接入根目录的 `topic_tracking.py` 后台服务 | `test_tracked_topics_api.py`、`test_topic_tracking.py` |
 | 正文、图片、翻译、重试 | `article_fetch.py` 对接抓取命令、错误分类与媒体缓存，`details.py` 负责任务领取、持久化和详情响应 | `test_opencli_details.py`、`test_detail_api.py`、`test_article_fetch.py`、`test_translation_routing.py` |
 | 新闻对话、归档、停止任务 | `news_chat.py` 处理对话和归档，`agent_sessions.py` 管理会话及任务状态，`agent_jobs.py` 执行与终止任务 | `test_news_chat_api.py`、`test_agent_lifecycle.py`、`test_agent_conversation.py` |
+| 浏览器通知、设备偏好、事件与投递 | `browser_push.py` 管理设备和投递，根目录 `push_events.py` 为完成回复保存事件，主库事务记录日报和采集批次 | `test_browser_push.py`、`test_agent_notifications.py`、`test_personal_assistant.py` |
 | 分类、采集、任务进度、积压总结、定期报告 | `tasks.py`、`summaries.py`、`reports.py` 提供接口。调度与生成在根目录同领域服务，实例由 `bootstrap.py` 装配 | `test_news_classification.py`、`test_news_collection.py`、`test_task_progress.py`、`test_news_summaries.py`、`test_periodic_reports.py` |
 | 应用设置、路径、更新、启动 | `preferences.py` 与 `configuration.py` 处理配置，`database.py` 打开主库和会话库，`updates.py` 对接现有启动器、更新器 | `test_preferences_api.py`、`test_data_compatibility.py`、`test_updater.py`、`test_launcher.py` |
 

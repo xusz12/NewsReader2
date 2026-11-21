@@ -70,7 +70,7 @@ export class PersonalAssistant {
     else $("#personalAssistantClose").focus({preventScroll:true});
     await this.load();
   }
-  async load() {
+  async load(messageId = 0) {
     const seq = ++this.sequence; this.loading = true; this.notice = "正在读取个人助手…"; this.renderStatus();
     try {
       const [{profile}, listing] = await Promise.all([api(base+"/profile"), api(base+"/threads")]);
@@ -78,7 +78,7 @@ export class PersonalAssistant {
       this.profile = profile; this.threads = listing.threads; this.hasMoreThreads = listing.has_more; this.activeJob = listing.active_job;
       if (!this.creatingNew && !this.threadId) this.threadId = listing.active_job?.thread_id || this.threads[0]?.id || "";
       if (this.threadId) {
-        try { const data = await api(base+"/threads/"+this.threadId); if (seq === this.sequence) this.snapshot = data; }
+        try { const data = await api(base+"/threads/"+this.threadId+(messageId ? "?message="+messageId : "")); if (seq === this.sequence) this.snapshot = data; }
         catch (error) { if (error.httpStatus !== 404) throw error; this.threadId=""; this.snapshot=null; }
         if (seq !== this.sequence) return;
       } else this.snapshot = null;
@@ -110,6 +110,21 @@ export class PersonalAssistant {
     this.threadId=id; this.creatingNew=false; persist(lastThreadKey,id); this.snapshot=null;
     this.input.value=this.drafts.get(id)||"";
     await this.load();
+  }
+  async openReply(threadId, messageId) {
+    this.threadId = threadId;
+    this.creatingNew = false;
+    this.snapshot = null;
+    this.popover.show();
+    await this.load(messageId);
+    if (this.threadId !== threadId || this.snapshot?.thread.current_library !== true) return false;
+    const reply = $(`#personalAssistantMessages [data-message-id="${CSS.escape(String(messageId))}"]`);
+    if (!reply) return false;
+    persist(lastThreadKey, threadId);
+    reply.tabIndex = -1;
+    reply.scrollIntoView({block:"center"});
+    reply.focus({preventScroll:true});
+    return true;
   }
   newDiscussion() {
     ++this.sequence; clearTimeout(this.timer); this.loading=false; this.threadId=""; this.creatingNew=true; this.snapshot=null;
@@ -143,6 +158,7 @@ export class PersonalAssistant {
       }
     }
     if(scroll||nearBottom) host.scrollTop=host.scrollHeight;
+    document.dispatchEvent(new Event("personal-assistant:rendered"));
   }
   renderStatus() {
     const job=this.snapshot?.job, busy=active(job), other=active(this.activeJob) && this.activeJob.thread_id !== this.threadId;

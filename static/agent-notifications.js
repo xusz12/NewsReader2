@@ -142,15 +142,20 @@ export class AgentNotifications {
     const list = $("#agentNotificationsList");
     if (this.listHTML !== html) { list.innerHTML = html; this.listHTML = html; }
   }
-  async openNotice(id) {
+  async openNotice(id, resolveScope = false) {
     const token = ++this.navigation;
     const version = this.contextVersion();
-    const scope = this.scope;
+    let scope = this.scope;
     this.opening = token;
     this.controller?.abort();
     this.controller = new AbortController();
     const current = () => token === this.navigation && scope === this.scope;
     try {
+      if (resolveScope && !scope) {
+        const info = await api("/api/agent/notifications", {signal:this.controller.signal});
+        if (token !== this.navigation) return false;
+        scope = this.scope = info.db_scope;
+      }
       const data = await api(`/api/agent/notifications/${encodeURIComponent(id)}/target?${new URLSearchParams({ db_scope: scope })}`, { signal: this.controller.signal });
       if (!current() || version !== this.contextVersion()) return;
       if (await this.onOpen(data, current)) {
@@ -158,6 +163,7 @@ export class AgentNotifications {
         this.failedReads.delete(id);
         this.close();
         this.error = "";
+        return true;
       }
     } catch (error) {
       if (current() && error.name !== "AbortError") {

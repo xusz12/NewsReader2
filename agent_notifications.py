@@ -5,6 +5,9 @@ import hashlib
 import re
 from pathlib import Path
 
+import push_events
+from report_reader import ID_PREFIX
+
 
 def library_scope(path: Path) -> str:
     return hashlib.sha256(str(path.resolve()).encode()).hexdigest()
@@ -30,6 +33,7 @@ def ensure_schema(conn) -> None:
         CREATE INDEX IF NOT EXISTS idx_agent_notifications_unread
             ON agent_notifications(db_scope, read_at, created_at);
     """)
+    push_events.initialize(conn)
 
 
 def record(conn, job_id: str) -> None:
@@ -54,6 +58,9 @@ def record(conn, job_id: str) -> None:
     """, (job_id, row["db_scope"], row["item_id"], row["session_id"], job_id, row["message_id"],
           str(context.get("title") or "新闻研究"), preview, "reply" if succeeded else "failed",
           "" if succeeded else row["error"], row["finished_at"] or row["updated_at"]))
+    if succeeded and not row["item_id"].startswith(ID_PREFIX):
+        push_events.record(conn, "article_reply", job_id,
+                           {"id": job_id, "session_id": row["session_id"], "message_id": row["message_id"]}, row["db_scope"])
 
 
 def unread(conn, scope: str) -> list[dict]:

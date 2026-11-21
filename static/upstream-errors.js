@@ -185,14 +185,28 @@ export class UpstreamErrors {
 
   get open() { return !this.panel.hidden; }
 
-  show(keyboard = false) {
+  show(keyboard = false, day) {
     document.dispatchEvent(new CustomEvent("topbar:popover-open", { detail: this.panel.id }));
     this.panel.hidden = false;
     this.backdrop.hidden = false;
     this.button.setAttribute("aria-expanded", "true");
-    this.position(); this.showToday();
+    this.position();
     void this.onClassificationRefresh?.();
     if (keyboard) $("#upstreamErrorDate").focus({ preventScroll: true });
+    if (day) return this.load(day);
+    this.showToday();
+  }
+
+  async openBatch(id, day) {
+    this.view = "attention";
+    this.expandedDetails.add(id);
+    await this.show(false, day);
+    const batch = $(`[data-upstream-batch="${CSS.escape(id)}"]`, this.dailyRecords);
+    if (!batch || this.loadedDay !== day) return false;
+    batch.tabIndex = -1;
+    batch.scrollIntoView({block:"nearest"});
+    batch.focus({preventScroll:true});
+    return true;
   }
 
   close(restoreFocus = false) {

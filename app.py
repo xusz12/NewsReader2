@@ -6,7 +6,7 @@ from flask import Flask, send_from_directory
 
 import personal_assistant
 from nr import (
-    agent_jobs, agent_sessions, article_fetch, bootstrap, database, details, highlights, ideas,
+    agent_jobs, agent_sessions, article_fetch, bootstrap, browser_push, database, details, highlights, ideas,
     market, news_chat, preferences, read_state, reading, reminders, reports, reviews,
     summaries, tasks, topics, tracked_topics, updates,
 )
@@ -26,6 +26,8 @@ def create_app(db=None):
         return send_from_directory(db.static_dir, "index.html")
 
     personal_assistant.register(app, lambda: db.path, load_app_settings)
+    runtime.push.assistant_path = app.extensions["personal_assistant"].state_db
+    browser_push.register(app, runtime.push)
     reading.register(app, db)
     read_state.register(app, db, details.enqueue_detail_job)
     highlights.register(app, db)

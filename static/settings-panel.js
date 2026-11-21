@@ -1,11 +1,12 @@
-import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=0.6.6";
+import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=browser-push-1";
 import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.6";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
-import { settingsHelpHTML } from "./settings-help.js?v=0.6.6";
+import { settingsHelpHTML } from "./settings-help.js?v=browser-push-1";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
 import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.6";
+import { browserPush } from "./browser-push.js?v=1";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
@@ -365,6 +366,7 @@ export class SettingsPanel {
         this.refreshPiCatalog();
       }
       if (this.page === "application") this.updater.restore();
+      if (this.open && section === "browser-push") void browserPush.load();
     }
     if (position) {
       this.jumpTarget = target || item.target;
@@ -699,6 +701,7 @@ export class SettingsPanel {
       <section class="settings-section-card" data-section="appearance" id="readingAppearance"><div class="section-card-title"><span>主题与字号</span></div>
       <div class="form-group-grid">${Object.entries(this.appearanceControls).map(([key, control]) =>
         select(key === "theme" ? "阅读主题" : "正文字号", "appearance." + key, d.appearance[key], Array.from(control.options, option => ({value:option.value, label:option.textContent})), null)).join("")}</div></section>
+      <section class="settings-section-card" data-section="browser-push" id="browserPushSettings" aria-label="浏览器通知"></section>
       <section class="settings-section-card" data-section="display" id="sourceVisibility"><div class="section-card-title"><span>新闻流显示</span></div><div id="settingsSources"></div></section>
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
       <section class="settings-section-card" data-section="storage" id="databaseSettings"><div class="section-card-title"><span>数据库位置</span></div>
@@ -719,6 +722,7 @@ export class SettingsPanel {
     this.renderShortcuts();
     this.renderSourceLists();
     this.updater.render();
+    browserPush.mount($("#browserPushSettings"));
     this.renderClassificationProgress();
     this.updateCollectionStatus(this.collectionStatus);
     this.collectionEnvironment.render();

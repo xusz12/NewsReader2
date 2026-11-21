@@ -24,6 +24,7 @@ const entries = [
   ["deepseek", "services", "API 密钥与连接", "translationSettings", "services-api", "API key 钥匙串 密钥 服务商 连接测试 获取模型 搜索 抓取 DeepSeek"],
   ["environment", "services", "采集环境检查", "collectionEnvironment", "collection-environment", "opencli Chrome Chromium Browser Bridge 扩展 检查 X 登录 twitter 安装 诊断"],
   ["appearance", "application", "主题与字号", "readingAppearance", "local-appearance", "外观主题 深色 浅色 跟随系统 墨水屏 夜间 暗色 阅读字号 正文字号 字体 大小"],
+  ["browser-push", "application", "浏览器通知", "browserPushSettings", "local-browser-push", "推送 系统通知 锁屏 订阅 设备 日报 采集 助手 文章问答"],
   ["display", "application", "新闻流显示", "sourceVisibility", "deletion-visibility", "阅读 来源 信源 隐藏 勾选 Reuters Bloomberg X 账号"],
   ["shortcuts", "application", "阅读快捷键", "shortcutSettings", "local-shortcuts", "键盘 底部快捷键栏 按键 恢复默认"],
   ["storage", "application", "数据库位置", "databaseSettings", "local-storage", "SQLite 存储路径 下次启动 文件"],

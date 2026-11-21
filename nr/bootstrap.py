@@ -11,7 +11,7 @@ import topic_tracking
 import trading_calendar
 from database_schema import apply_schema
 from nr import (
-    agent_jobs, agent_sessions, article_fetch, configuration, details, highlights,
+    agent_jobs, agent_sessions, article_fetch, browser_push, configuration, details, highlights,
     market, news_chat, preferences, reminders, summaries, tasks, updates,
 )
 from settings import resolve_db_path
@@ -39,6 +39,7 @@ class Workbench:
         self.db = db
         self.preferences = preferences.Preferences(db)
         self.updates = updates.Updates(db)
+        self.push = browser_push.Service(db)
         self.fetcher = article_fetch.ArticleFetcher(db)
         self.sessions = agent_sessions.AgentSessions(db)
         start_lock = Lock()
@@ -83,6 +84,7 @@ class Workbench:
             conn.commit()
         with closing(db.connect()) as conn:
             periodic_reports.initialize(conn)
+            self.push.initialize(conn)
         self.sessions.ensure_agent_db()
 
     def start(self):
@@ -91,3 +93,4 @@ class Workbench:
         self.details.start_detail_worker()
         self.agent.start_agent_worker()
         self.jobs.start(configuration.current_runtime_settings()["classification"])
+        self.push.start()

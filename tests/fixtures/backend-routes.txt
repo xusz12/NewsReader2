@@ -1,4 +1,5 @@
 DELETE /api/agent/sessions api_agent_sessions_clear_all
+DELETE /api/browser-push/device browser_push_device
 DELETE /api/market-tags/<tag_key> api_market_tags_delete
 DELETE /api/market-trends/note/<int:note_id> api_market_trend_note_delete
 DELETE /api/news/<item_id>/agent/session api_agent_session_clear
@@ -20,6 +21,7 @@ DELETE /api/tracked-topics/<int:topic_id> api_tracked_topics_delete
 GET / index
 GET /api/agent/notifications api_agent_notifications
 GET /api/agent/notifications/<notification_id>/target api_agent_notification_target
+GET /api/browser-push/config browser_push_config
 GET /api/collection api_collection_status
 GET /api/collection/environment api_collection_environment
 GET /api/error-stats api_error_stats
@@ -77,6 +79,7 @@ GET /api/tracked-topics/<int:topic_id>/items api_tracked_topic_items
 GET /api/update/check api_update_check
 GET /api/update/status api_update_status
 GET /api/version api_version
+GET /push-sw.js browser_push_worker
 PATCH /api/market-tags/<tag_key> api_market_tags_update
 PATCH /api/market-trends/note/<int:note_id> api_market_trend_note_update
 PATCH /api/news/<item_id>/agent/session/model api_agent_model_update
@@ -89,6 +92,8 @@ PATCH /api/topics/<topic_id>/definition api_event_topic_definition
 PATCH /api/tracked-topics/<int:topic_id> api_tracked_topics_update
 PATCH /api/tracked-topics/<int:topic_id>/items/<item_id> api_tracked_topic_item_update
 POST /api/agent/notifications/read api_agent_notifications_read
+POST /api/browser-push/device browser_push_device
+POST /api/browser-push/seen browser_push_seen
 POST /api/collection api_collection_request
 POST /api/collection/environment/check api_collection_environment_check
 POST /api/collection/retry-translation api_collection_retry
@@ -157,6 +162,7 @@ POST /api/tracked-topics api_tracked_topics_create
 POST /api/tracked-topics/<int:topic_id>/backfill api_tracked_topic_backfill
 POST /api/tracked-topics/<int:topic_id>/items api_tracked_topic_item_create
 POST /api/update/apply api_update_apply
+PUT /api/browser-push/device browser_push_device
 PUT /api/market-trend-note api_market_trend_note_create
 PUT /api/market-trends/note api_market_trend_note_create
 PUT /api/market-workbench/pin api_market_workbench_pin_save

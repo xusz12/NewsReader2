@@ -64,6 +64,37 @@ def can_bind(address):
         return False
 
 
+def private_serve_origin(config, port):
+    if not isinstance(config, dict):
+        return ""
+    candidates = []
+    for host_port, site in (config.get("Web") or {}).items():
+        host, _, tls_port = host_port.rpartition(":")
+        if (not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.ts\.net", host) or not tls_port.isascii()
+                or not tls_port.isdecimal() or not 1 <= int(tls_port) <= 65535):
+            continue
+        if (config.get("AllowFunnel") or {}).get(host_port) or not (config.get("TCP") or {}).get(tls_port, {}).get("HTTPS"):
+            continue
+        target = ((site.get("Handlers") or {}).get("/") or {}).get("Proxy")
+        if target in (f"http://127.0.0.1:{port}", f"http://127.0.0.1:{port}/"):
+            candidates.append((tls_port != "443", f"https://{host if tls_port == '443' else host_port}"))
+    return min(candidates)[1] if candidates else ""
+
+
+def discover_private_serve(port, *, cli=None, run=subprocess.run):
+    deadline = time.monotonic() + DISCOVERY_TIMEOUT
+    for candidate in cli_candidates("tailscale", "Tailscale.app/Contents/MacOS/Tailscale", cli):
+        try:
+            data = json_command([candidate, "serve", "status", "--json"], deadline=deadline, run=run,
+                                env={**os.environ, "TAILSCALE_BE_CLI": "1"})
+            origin = private_serve_origin(data, port)
+            if origin:
+                return origin
+        except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, TimeoutError):
+            continue
+    return ""
+
+
 def discover_tailscale(*, cli=None, run=subprocess.run, bind=can_bind):
     deadline = time.monotonic()+DISCOVERY_TIMEOUT
     for candidate in cli_candidates("tailscale", "Tailscale.app/Contents/MacOS/Tailscale", cli):

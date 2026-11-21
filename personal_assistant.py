@@ -20,6 +20,7 @@ import uuid
 
 from flask import Blueprint, jsonify, request
 
+from agent_notifications import library_scope
 import codex_client
 import model_catalogs
 import oar_client
@@ -27,6 +28,7 @@ import personal_assistant_runtime
 from personal_assistant_tools import Memory
 import pi_models
 import dsh_models
+import push_events
 from settings import feature_model_config, resolve_app_settings_path
 
 
@@ -110,6 +112,7 @@ class Service:
                         job_id TEXT NOT NULL REFERENCES jobs(id), role TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
                     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, id);
                 """)
+                push_events.initialize(connection)
                 initial = {"id": str(uuid.uuid4()), "name": "", "instructions": "作为我的个人新闻助手，结合 NR 新闻、我的想法与长期记忆和我讨论。理解判断的依据与变化，保留不确定性。",
                            **feature_model_config(self.settings(), "chat")}
                 connection.execute("INSERT OR IGNORE INTO profile(id,data) VALUES(1,?)", (json.dumps(initial, ensure_ascii=False),))
@@ -175,7 +178,7 @@ class Service:
             connection.execute("INSERT INTO threads VALUES(:id,:title,:library,:created_at,:updated_at)", thread)
         return thread | {"current_library": True}
 
-    def snapshot(self, thread_id, before=0):
+    def snapshot(self, thread_id, before=0, message_id=0):
         self.ensure()
         with self.connect() as connection:
             thread = connection.execute("SELECT * FROM threads WHERE id=?", (thread_id,)).fetchone()
@@ -184,8 +187,15 @@ class Service:
             bound = connection.execute("SELECT selection FROM thread_models WHERE thread_id=?", (thread_id,)).fetchone()
             rows = connection.execute("SELECT * FROM messages WHERE thread_id=? AND (?=0 OR id<?) ORDER BY id DESC LIMIT 101", (thread_id, before, before)).fetchall()
             job = connection.execute("SELECT * FROM jobs WHERE thread_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (thread_id,)).fetchone()
+            messages = [dict(row) for row in reversed(rows[:100])]
+            if message_id and not any(row["id"] == message_id for row in messages):
+                target = connection.execute("""SELECT * FROM messages WHERE thread_id=? AND id=?
+                    AND role='assistant' AND status='done'""", (thread_id, message_id)).fetchone()
+                if target:
+                    messages.append(dict(target))
+                    messages.sort(key=lambda row: row["id"])
         return {"thread": dict(thread) | ({"runtime": json.loads(bound["selection"])["runtime"]} if bound else {}) | {"current_library": thread["library"] == str(self.db_path().resolve())},
-                "messages": [dict(row) for row in reversed(rows[:100])], "has_more": len(rows) > 100,
+                "messages": messages, "has_more": len(rows) > 100,
                 "job": (dict(job) | {"error_text": ERRORS.get(job["error"], ERRORS["assistant_failed"]) if job["error"] else ""}) if job else None}
 
     def send(self, thread_id, text, request_id, retry_job=None):
@@ -341,6 +351,12 @@ class Service:
                     connection.execute("UPDATE jobs SET status=?,error=?,updated_at=? WHERE id=?", (status, error, now(), job_id))
                     connection.execute("UPDATE messages SET status=?,content=? WHERE job_id=? AND role='assistant'", (status, content, job_id))
                     connection.execute("UPDATE threads SET updated_at=? WHERE id=?", (now(), thread_id))
+                    if status == "done":
+                        reply = connection.execute("SELECT id FROM messages WHERE job_id=? AND role='assistant'", (job_id,)).fetchone()
+                        if reply:
+                            push_events.record(connection, "personal_reply", job_id,
+                                {"id": thread_id, "job_id": job_id, "message_id": reply[0]},
+                                library_scope(Path(snapshot["thread"]["library"])))
             finally:
                 lock.close()
 
@@ -400,7 +416,9 @@ def register(app, db_path, settings):
 
     @bp.get("/threads/<thread_id>")
     def thread(thread_id):
-        return jsonify(ok=True, **service.snapshot(thread_id, max(0, int(request.args.get("before", 0)))))
+        before = request.args.get("before", 0, type=int)
+        message_id = request.args.get("message", 0, type=int)
+        return jsonify(ok=True, **service.snapshot(thread_id, max(0, before), max(0, message_id)))
 
     @bp.post("/threads/<thread_id>/messages")
     def send(thread_id):

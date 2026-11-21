@@ -22,6 +22,16 @@ def test_policy_discovery_handles_custom_names_without_returning_secrets():
     assert network_access.tailscale_policies(PROFILE) == [("家庭网络", {"allow-peer-access": "true"})]
 
 
+def test_serve_origin_requires_private_https_on_the_exact_development_target():
+    target = "mac.example.ts.net:443"
+    config = {"TCP":{"443":{"HTTPS":True}},
+              "Web":{target:{"Handlers":{"/":{"Proxy":"http://127.0.0.1:18080"}}}}}
+    assert network_access.private_serve_origin(config, 18080) == "https://mac.example.ts.net"
+    assert not network_access.private_serve_origin(config, 8080)
+    assert not network_access.private_serve_origin(config | {"AllowFunnel":{target:True}}, 18080)
+    assert not network_access.private_serve_origin(config | {"TCP":{"443":{"HTTP":True}}}, 18080)
+
+
 @pytest.mark.parametrize("state,address,expected", [
     ("ready", "100.79.126.62", [{"address":"100.79.126.62","incoming_enabled":True}]),
     ("ready", "100.90.1.2", [{"address":"100.90.1.2","incoming_enabled":True}]),
