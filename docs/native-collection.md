@@ -43,10 +43,10 @@
 
 1. opencli 采用项目内 npm 精确版本和锁文件，自定义 adapter 源码记录来源提交、随 NewsReader 发布。插件（plugin）只负责组织和加载 adapter，不获得独立自动升级权限。项目入口显式加载锁定模块，不注册用户级 plugin、不扫描个人目录；浏览器扩展独立配置。
 2. 每次准备发布／推送 NewsReader 前，检查 opencli 上游稳定版本。发现新版先建立候选依赖；检查不等于升级。仅在全部验收通过后更新锁定版本。失败、未测或缺少浏览器账号环境时保留已验证旧版，不自动追随 latest。记录上游版本、检查日期、采用／暂缓原因。
-3. 候选版本必须运行所有自定义 adapter 的自动化测试及真实来源验证，覆盖固定12个采集入口、Reuters 自定义正文、TechCrunch／Ars 正文，以及使用的内置 Bloomberg 正文、X 列表／线程／长文命令。检查范围同时包含共享辅助代码，不能仅以 `--help`、进程退出码或返回 JSON 作为通过条件。
+3. 采集指纹一致时，候选版本可复用已有真实来源验证。采集或正文代码、运行环境要求、来源、样本、adapter 或 OpenCLI 锁定依赖变化时，运行所有自定义 adapter 的自动化测试及真实来源验证，覆盖固定 12 个采集入口、Reuters 自定义正文、TechCrunch／Ars 正文，以及使用的内置 Bloomberg 正文、X 列表／线程／长文命令。检查范围包含共享辅助代码，需要检查真实内容和来源身份。
 4. 验证数据契约：列表的标题、合法来源 URL、来源归属、条数／时间字段格式；X 帖子身份、原文、转引与媒体；正文需属于目标文章、有实质内容，排除登录页、验证页、付费墙提示和导航文本。允许来源确实未提供的时间按当前规则保持未知；不能把无可见评论误判为空线程。维护近期样本和代表性长文、列表式正文等边界样本。不得因上游更新直接降低验收阈值。
 5. 在无全局 opencli、无既有自定义 adapter 的干净环境验证安装与加载，并检查超时、限流、登录过期、缺依赖、去重和暂存入库回归。实际来源验证使用独立数据目录，不向真实新闻库写测试内容。无法执行的项目标为未验证，不能计入通过。
-6. 发布记录同时包含 NewsReader、opencli、adapter 来源提交、测试过的浏览器扩展版本与测试结果。Chrome 扩展属于独立更新组件，运行时仍需兼容性检查。NewsReader 升级器连同锁定依赖和 adapter 更新／回退，依赖准备失败时保留原可运行版本；不能只回退 Git 源码而留下新依赖。
+6. 发布记录包含实测时间、当时的 NewsReader 和 OpenCLI 版本、adapter 来源提交、测试过的浏览器扩展版本与测试结果。复用记录时保留这些实测信息。Chrome 扩展独立更新，运行时仍需兼容性检查。NewsReader 升级器一并更新或回退代码、锁定依赖和 adapter。依赖准备失败时保留原可运行版本。
 
 上游参考：[OpenCLI 安装与浏览器扩展](https://github.com/jackwener/OpenCLI#quick-start)、[adapter 与 plugin](https://github.com/jackwener/OpenCLI/blob/main/docs/guide/extending-opencli.md)、[Bypass Paywalls Clean](https://gitflic.ru/project/magnolia1234/bypass-paywalls-chrome-clean)。
 

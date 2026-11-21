@@ -10,27 +10,39 @@ import certifi
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verify_collection_runtime import ROOT, content_fingerprint
+from verify_collection_runtime import FINGERPRINT_VERSION, ROOT, SAMPLE_FILE, content_fingerprint
 
 RECORD = ROOT / "collection/opencli-release.json"
+RETEST = "请运行 npm run test:collection:live 重新验收。"
+
+
+def complete_rows(rows, field, expected):
+    return (isinstance(rows, list) and len(rows) == len(expected)
+            and all(isinstance(row, dict) and isinstance(row.get(field), str) and row.get("ok") is True for row in rows)
+            and {row[field] for row in rows} == expected)
 
 
 def validate_report(report):
+    if report.get("fingerprint_version") != FINGERPRINT_VERSION:
+        raise RuntimeError(f"采集实测记录缺少当前格式的指纹。{RETEST}")
+    if report.get("fingerprint") != content_fingerprint():
+        raise RuntimeError(f"采集或正文代码、来源、样本、运行环境要求或 OpenCLI 锁定依赖已变化。{RETEST}")
     manifest = json.loads((ROOT / "collection/opencli-manifest.json").read_text())
     sources = json.loads((ROOT / "collection/sources.json").read_text())
-    samples = json.loads((ROOT / "collection/validation-samples.json").read_text())
+    samples = json.loads((ROOT / SAMPLE_FILE).read_text())
     names = {"Reuters", "Bloomberg", "TechCrunch", "Ars Technica", *(row["name"] for row in samples)}
-    if (report.get("ok") is not True or report.get("fingerprint") != content_fingerprint()
-            or report.get("runtime", {}).get("version") != manifest["version"]
-            or report.get("runtime", {}).get("adapter_commit") != manifest["adapters"]["commit"]
-            or report.get("runtime", {}).get("adapter_version") != manifest["adapters"]["version"]
-            or {r["section"] for r in report.get("sources", [])} != {r["section"] for r in sources}
-            or {r["name"] for r in report.get("details", [])} != names
-            or not all(r.get("ok") is True for group in ("sources", "details") for r in report[group])
-            or report.get("isolation", {}).get("external_modules_blocked") is not True
-            or report.get("isolation", {}).get("global_cli_used") is not False
-            or report.get("isolation", {}).get("project_daemon_started") is not True):
-        raise RuntimeError("运行时或来源已变化，或实测未全部通过。请重新运行 verify_collection_runtime.py --restart-daemon。")
+    runtime = report.get("runtime")
+    isolation = report.get("isolation")
+    if (report.get("ok") is not True
+            or not isinstance(runtime, dict) or runtime.get("isolated") is not True
+            or runtime.get("version") != manifest["version"]
+            or runtime.get("adapter_commit") != manifest["adapters"]["commit"]
+            or runtime.get("adapter_version") != manifest["adapters"]["version"]
+            or not complete_rows(report.get("sources"), "section", {row["section"] for row in sources})
+            or not complete_rows(report.get("details"), "name", names)
+            or not isinstance(isolation, dict) or isolation.get("external_modules_blocked") is not True
+            or isolation.get("global_cli_used") is not False or isolation.get("project_daemon_started") is not True):
+        raise RuntimeError(f"采集实测未全部通过，或缺少完整的来源、正文与隔离记录。{RETEST}")
 
 
 def main():
@@ -51,12 +63,16 @@ def main():
                         [sys.executable, "-m", "pytest", "-q", "tests/test_opencli_runtime.py", "tests/test_collection_environment.py",
                          "tests/test_opencli_details.py", "tests/test_news_collection.py", "tests/test_dependency_update.py", "tests/test_updater.py", "tests/test_opencli_release.py"]):
             subprocess.run(command, cwd=ROOT, check=True)
+        validate_report(report)
         report["upstream"] = {"latest": latest, "checked_at": datetime.now(timezone.utc).isoformat(),
                               "retained_reason": args.retain_reason.strip()}
         report["offline_checks_passed"] = True
         RECORD.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    elif latest != report.get("upstream", {}).get("latest") or report.get("offline_checks_passed") is not True:
-        raise RuntimeError(f"上游版本或验证记录已变化（当前 {latest}）；重新评估并记录后再推送。")
+    else:
+        upstream = report.get("upstream", {})
+        if (latest != upstream.get("latest") or report.get("offline_checks_passed") is not True
+                or (latest != manifest["version"] and not upstream.get("retained_reason", "").strip())):
+            raise RuntimeError(f"上游版本或验证记录已变化（当前 {latest}），请重新评估并记录后再推送。")
     print(f"OpenCLI 发布检查通过：项目 {manifest['version']}，上游稳定版 {latest}，全部采集和正文测试记录匹配。")
     return 0
 

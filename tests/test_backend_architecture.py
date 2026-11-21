@@ -83,6 +83,7 @@ assert first.jobs.collection is not second.jobs.collection
 @pytest.mark.parametrize(("relative", "bound"), [
     ("nr/article_fetch.py", True), ("feed_sources.py", True), ("scripts/opencli.mjs", True),
     ("nr/reading.py", False), ("nr/highlights.py", False), ("app.py", False),
+    ("updater.py", False), ("dependency_update.py", False), ("llm_client.py", False), ("nr/database.py", False),
 ])
 def test_opencli_fingerprint_tracks_extraction_dependencies(monkeypatch, relative, bound):
     from scripts.verify_collection_runtime import content_fingerprint

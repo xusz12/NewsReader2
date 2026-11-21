@@ -3,7 +3,7 @@
 Requires the operator's running Chrome/Bridge and authorized site sessions.
 No translation, production database writes, or automatic adapter upgrades.
 """
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -18,6 +18,8 @@ import time
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
+FINGERPRINT_VERSION = 2
+SAMPLE_FILE = "collection/validation-samples.json"
 sys.path.insert(0, str(ROOT))
 
 from feed_sources import is_bloomberg_video_url
@@ -29,16 +31,77 @@ def article_sample(items):
                  if item.get("url") and not is_bloomberg_video_url(item["url"])), None)
 
 
-def content_fingerprint():
-    """Bind results to exactly the runtime/config/dependency files tested."""
-    names = ["package.json", "package-lock.json", ".npmrc", "scripts/opencli.mjs", "opencli_runtime.py",
-             "collection/opencli-manifest.json", "collection/sources.json", "collection_sources.py",
-             "collection_environment.py", "nr/article_fetch.py", "nr/database.py", "feed_sources.py",
-             "llm_client.py", "news_collection.py",
-             "dependency_update.py", "updater.py",
-             "scripts/opencli-isolation-guard.mjs", "scripts/verify_collection_runtime.py", "collection/validation-samples.json"]
-    names += [str(p.relative_to(ROOT)) for p in sorted((ROOT / "collection/adapters").rglob("*")) if p.is_file()]
-    return hashlib.sha256(b"".join(name.encode() + b"\0" + (ROOT / name).read_bytes() for name in names)).hexdigest()
+def locked_dependency_paths(packages, owner, dependency):
+    location = PurePosixPath(owner)
+    for directory in (location, *location.parents):
+        if directory.name == "node_modules":
+            continue
+        candidate = (directory / "node_modules" / dependency).as_posix()
+        if candidate in packages:
+            yield candidate
+            if not any(packages[candidate].get(key) for key in ("optional", "dev", "devOptional", "os", "cpu", "libc")):
+                return
+
+
+def opencli_dependency_lock(lock, package, version):
+    if lock.get("lockfileVersion") not in (2, 3) or not isinstance(lock.get("packages"), dict):
+        raise RuntimeError("OpenCLI 发布检查需要包含安装路径的 npm 锁文件。")
+    packages = lock["packages"]
+    entry_path = f"node_modules/{package}"
+    if (packages.get("", {}).get("dependencies", {}).get(package) != version
+            or packages.get(entry_path, {}).get("version") != version):
+        raise RuntimeError("OpenCLI 的声明版本、锁定版本和采集清单不一致。")
+
+    pending = [entry_path]
+    resolved = {}
+    while pending:
+        path = pending.pop()
+        if path in resolved:
+            continue
+        entry = packages[path]
+        if entry.get("link") or (entry.get("resolved", "").startswith("file:") and not entry.get("integrity")):
+            raise RuntimeError(f"OpenCLI 锁文件无法固定本地依赖 {path} 的内容。")
+        resolved[path] = entry
+        dependencies = set(entry.get("dependencies", {}))
+        optional = set(entry.get("optionalDependencies", {}))
+        peers = set(entry.get("peerDependencies", {}))
+        peer_meta = entry.get("peerDependenciesMeta", {})
+        required = (dependencies - optional) | {peer for peer in peers if not peer_meta.get(peer, {}).get("optional")}
+        for dependency in dependencies | optional | peers:
+            paths = list(locked_dependency_paths(packages, path, dependency))
+            if not paths and dependency in required:
+                raise RuntimeError(f"OpenCLI 锁文件缺少 {path} 的依赖 {dependency}。")
+            pending.extend(paths)
+    return resolved
+
+
+def content_fingerprint(root=ROOT, *, sample_bytes=None):
+    names = [".npmrc", "scripts/opencli.mjs", "opencli_runtime.py", "collection/opencli-manifest.json",
+             "collection/sources.json", "collection_sources.py", "collection_environment.py", "nr/article_fetch.py",
+             "feed_sources.py", "news_collection.py", "scripts/opencli-isolation-guard.mjs",
+             "scripts/verify_collection_runtime.py"]
+    names += [path.relative_to(root).as_posix() for path in (root / "collection/adapters").rglob("*") if path.is_file()]
+    inputs = {name: (root / name).read_bytes() for name in names}
+    inputs[SAMPLE_FILE] = (root / SAMPLE_FILE).read_bytes() if sample_bytes is None else sample_bytes
+    manifest = json.loads(inputs["collection/opencli-manifest.json"])
+    package = json.loads((root / "package.json").read_bytes())
+    lock = json.loads((root / "package-lock.json").read_bytes())
+    name, version = manifest["package"], manifest["version"]
+    if package.get("dependencies", {}).get(name) != version:
+        raise RuntimeError("OpenCLI 的声明版本、锁定版本和采集清单不一致。")
+
+    requirements = (root / "requirements.txt").read_bytes().decode("utf-8").splitlines()
+    python_runtime = [line for line in map(str.strip, requirements)
+                      if re.match(r"(?i)^(?:flask|certifi)(?:$|[\s\[<>=!~;@])", line) or line.startswith("-")]
+    payload = {
+        "version": FINGERPRINT_VERSION,
+        "files": {path: hashlib.sha256(data).hexdigest() for path, data in inputs.items()},
+        "node": {key: package.get(key) for key in ("type", "engines", "packageManager", "os", "cpu", "libc")},
+        "python_requirements": python_runtime,
+        "lockfile_version": lock.get("lockfileVersion"),
+        "opencli_lock": opencli_dependency_lock(lock, name, version),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def valid_time(value):
@@ -54,14 +117,16 @@ def valid_time(value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--samples", type=Path, default=ROOT / "collection/validation-samples.json")
+    parser.add_argument("--samples", type=Path, default=ROOT / SAMPLE_FILE)
     parser.add_argument("--restart-daemon", action="store_true", help="restart idle bridge using the project runtime")
     args = parser.parse_args()
     node = shutil.which(os.environ.get("NEWS_READER_NODE") or "node")
     if not node:
         parser.error("Node.js 24+ is required")
-    samples = json.loads(args.samples.read_text())
-    report = {"checked_at": datetime.now(timezone.utc).isoformat(), "fingerprint": content_fingerprint(),
+    sample_bytes = args.samples.read_bytes()
+    samples = json.loads(sample_bytes)
+    report = {"checked_at": datetime.now(timezone.utc).isoformat(), "fingerprint_version": FINGERPRINT_VERSION,
+              "fingerprint": content_fingerprint(sample_bytes=sample_bytes),
               "newsreader_version": json.loads((ROOT / "package.json").read_text())["version"],
               "sources": [], "details": [], "isolation": {"external_modules_blocked": True}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -84,12 +149,11 @@ def main():
         import news_collection
         from llm_client import LLMClientError
         from nr.article_fetch import ArticleFetcher
-        from nr.database import Database
 
         def no_summary(**_):
             raise LLMClientError("Live verification does not call model services")
 
-        fetcher = ArticleFetcher(Database(), cache_images=False, summarize_comments=no_summary)
+        fetcher = ArticleFetcher(db=None, cache_images=False, summarize_comments=no_summary)
         def cli(*command, timeout=30):
             p = collection_sources.run_command(["opencli", *command], timeout=timeout)
             data = json.loads(p.stdout)

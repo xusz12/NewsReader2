@@ -1,6 +1,11 @@
 {
   "checked_at": "2026-11-21T14:36:03.778136+00:00",
-  "fingerprint": "b9fa7bcd30d6987f3b77b0c099b3591b3cdb9842fb35b18554250faaf0e18619",
+  "fingerprint_version": 2,
+  "fingerprint": "1cd7fb34fabaabb9a1b93b550cb0cf9e7b92fb79b99530852fbc59ac19e10611",
+  "migrated_from": {
+    "commit": "686d12b437845f523a747fa3d613849fed6efe4d",
+    "fingerprint": "b9fa7bcd30d6987f3b77b0c099b3591b3cdb9842fb35b18554250faaf0e18619"
+  },
   "newsreader_version": "0.6.7",
   "sources": [
     {

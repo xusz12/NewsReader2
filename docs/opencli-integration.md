@@ -142,6 +142,14 @@ Git 不会随 clone 自动启用 hooks；安装器保留已有 hooks，已有自
 GitHub Actions 在 push / pull request 上另外执行干净安装、离线回归及同一发布检查；浏览器实测记录在本地生成。
 发布检查失败不能用修改测试阈值或仅运行 `--help` 代替完整验收。
 
+只更新 NewsReader 版本号、界面或 OpenCLI 未使用的依赖时，可以继续使用已通过的浏览器实测。`npm run check:release` 仍查询上游稳定版并校验记录，成功后即可沿用原记录。
+
+实测指纹包含采集与正文代码、运行环境要求、来源、adapter、隔离检查和实际使用的样本。npm 部分包含 OpenCLI 的精确版本，以及沿着安装路径可解析的锁定依赖、可选依赖和 peer 依赖。受支持平台上的可选依赖可能解析到上层安装位置，该位置也会纳入指纹。[Node.js 模块解析](https://nodejs.org/api/modules.html#loading-from-node_modules-folders) · [npm 锁文件格式](https://docs.npmjs.com/cli/v11/configuring-npm/package-lock-json/)
+
+更新器和依赖安装器由离线升级回归覆盖。正文实测关闭图片缓存并使用评论总结替身，模型偏好和模型调用由相关离线测试覆盖。
+
+采集输入变化后，重新运行全量实测和记录命令。`--samples` 运行自定义样本时，指纹取该文件的实际内容。发布记录使用与仓库默认样本一致的实测证据。
+
 升级顺序：修改候选 npm 精确版本与锁文件 → 固定 adapter 来源提交及文件哈希 →
 离线测试 → 干净目录 `npm ci --ignore-scripts` → 浏览器真实验收 → 生成发布记录 → 推送。
 入口使用 OpenCLI 的内部模块加载接口，因此版本变化也必须检验入口本身，不能只检验 adapter。
@@ -157,7 +165,9 @@ npm run check:release
 若上游已有新版本但本次保留当前版本，记录时增加
 `--retain-reason '候选版本的具体问题或未采用原因'`，仍要求当前组合全部测试通过。
 发布记录 `collection/opencli-release.json` 包含 NewsReader/OpenCLI 版本、adapter 提交、
-浏览器扩展实测版本、12 个采集入口和各正文样本结果、代码指纹及上游检查时间。
+浏览器扩展实测版本、12 个采集入口和各正文样本结果、代码指纹及上游检查时间。`checked_at` 和 `newsreader_version` 保留实际验收的时间和版本。
+
+仓库中的 v0.6.7 旧记录已比对发布提交、原始实测报告和默认样本后转换为指纹格式 2。`migrated_from` 保留旧指纹和发布提交。其它旧格式报告需重新实测后提交。
 
 升级器在停止服务前，把目标锁文件安装到临时目录并校验必需命令；
 失败时保持旧服务运行。通过后切换代码和依赖，再启动并检查健康状态；
@@ -167,8 +177,8 @@ npm run check:release
 
 ## 验收边界
 
-`verify_collection_runtime.py` 使用临时数据库、设置和媒体目录，不写真实新闻库，
-不调用翻译或评论总结模型。使用实际采集函数及实际正文解析函数；覆盖全部 12 个入口、
+`verify_collection_runtime.py` 为数据库、设置和媒体配置临时路径。实测直接调用采集与正文解析函数，
+正文验收只读取页面内容，覆盖全部 12 个入口、
 Reuters/Bloomberg/TechCrunch/Ars 正文、Reuters 列表式及内嵌视频样本、X 普通帖、Note Tweet 与独立 Article。
 它保留浏览器已有登录，屏蔽全局 opencli，并用 Node 加载钩子拒绝项目目录外的模块；
 `--restart-daemon` 同时验证桥接从项目代码启动。不会删除或重命名个人 adapter。
