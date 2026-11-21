@@ -86,6 +86,14 @@ def select_origin(value):
     return f"https://{url.netloc}"
 
 
+def loopback_host(value):
+    if not value:
+        return ""
+    if not re.fullmatch(r"[1-9][0-9]{0,4}", value) or not 1 <= int(value) <= 65535:
+        raise ValueError("NEWS_READER_PUSH_LOOPBACK_PORT 需要有效的开发端口。")
+    return f"127.0.0.1:{value}"
+
+
 def subscription_data(value):
     endpoint = value.get("endpoint") if isinstance(value, dict) else None
     if not isinstance(endpoint, str) or not 20 < len(endpoint) <= 2048 or not re.fullmatch(r"[!-~]+", endpoint) or "\\" in endpoint:
@@ -157,6 +165,7 @@ class Service:
         self.sender = sender
         self.origin = select_origin(os.environ.get("NEWS_READER_PUSH_ORIGIN", "").strip())
         self.host = urlsplit(self.origin).netloc
+        self.loopback = loopback_host(os.environ.get("NEWS_READER_PUSH_LOOPBACK_PORT", ""))
         self.library = library_scope(db.path)
         self.scope = digest(self.library + "\n" + self.origin)
         self.assistant_path = None
@@ -342,14 +351,21 @@ class Service:
 
 def register(app, service):
     def private_origin():
+        if not service.origin or request.headers.get("Tailscale-Funnel-Request"):
+            return ""
+        if (service.loopback and request.host == service.loopback and request.scheme == "http"
+                and request.remote_addr == "127.0.0.1"
+                and not any(name in request.headers for name in ("Forwarded", "Via", "X-Real-IP", "X-Forwarded-For",
+                    "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port"))):
+            return "http://" + service.loopback
         proxied = (request.remote_addr in ("127.0.0.1", "::1")
                    and request.headers.get("X-Forwarded-Proto") == "https"
                    and request.headers.get("X-Forwarded-Host") == service.host)
-        return (service.origin and request.host == service.host and (request.is_secure or proxied)
-                and not request.headers.get("Tailscale-Funnel-Request"))
+        return service.origin if request.host == service.host and (request.is_secure or proxied) else ""
 
     def private_body():
-        if (not private_origin() or request.headers.get("Origin") != service.origin
+        origin = private_origin()
+        if (not origin or request.headers.get("Origin") != origin
                 or request.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin"):
             abort(make_response(jsonify(ok=False, error="push_origin_required"), 403))
         request.max_content_length = 4096
@@ -366,7 +382,8 @@ def register(app, service):
 
     @app.get("/api/browser-push/config")
     def browser_push_config():
-        if not private_origin():
+        origin = private_origin()
+        if not origin or request.headers.get("Origin", origin) != origin:
             return jsonify(ok=True, available=False)
         return jsonify(ok=True, available=True, public_key=service.public_key()), 200, {"Cache-Control": "no-store"}
 

@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { collectionHeatmap, openSettings, openSettingsItem } from "./helpers.js";
 
 const httpsOrigin = "https://nr-notifications.test";
+const insecureOrigin = "http://nr-notifications.test";
 const types = ["daily_report", "collection_error", "personal_reply", "article_reply"];
 
 async function privatePage(page, baseURL, {mobile = false, standalone = true} = {}) {
@@ -23,13 +24,14 @@ async function privatePage(page, baseURL, {mobile = false, standalone = true} = 
       register: async () => registration, ready: Promise.resolve(registration), getRegistration: async () => registration,
     });
     Object.defineProperty(navigator, "serviceWorker", {value:serviceWorker});
-    Object.defineProperty(Notification, "permission", {configurable:true, get:() => localStorage.getItem(key) ? "granted" : "default"});
+    if ("Notification" in window)
+      Object.defineProperty(Notification, "permission", {configurable:true, get:() => localStorage.getItem(key) ? "granted" : "default"});
     if (mobile) {
       Object.defineProperty(navigator, "userAgent", {value:"iPhone"});
       Object.defineProperty(navigator, "standalone", {value:standalone});
     }
   }, {mobile, standalone});
-  await page.route(`${httpsOrigin}/**`, async route => {
+  await page.route(/^https?:\/\/nr-notifications\.test\//, async route => {
     const url = new URL(route.request().url());
     const response = await route.fetch({url: new URL(url.pathname + url.search, baseURL).href});
     return route.fulfill({response});
@@ -71,7 +73,7 @@ test("本浏览器订阅、即时类型开关与取消在重新加载后生效",
   expect(await page.evaluate(() => localStorage.getItem("synthetic-notification-subscription"))).toBeNull();
 });
 
-test("手机浏览器显示主屏幕前提，HTTP 保留设置入口", async ({page, baseURL}) => {
+test("手机浏览器显示主屏幕前提，普通 HTTP 不开放订阅", async ({page, baseURL}) => {
   await page.setViewportSize({width:390, height:844});
   await privatePage(page, baseURL, {mobile:true, standalone:false});
   await page.goto(httpsOrigin);
@@ -80,10 +82,30 @@ test("手机浏览器显示主屏幕前提，HTTP 保留设置入口", async ({p
   const card = page.locator("#browserPushSettings");
   await expect(card.getByRole("status")).toContainText("添加到主屏幕");
   await expect(card.getByRole("button", {name:"启用本浏览器通知"})).toHaveCount(0);
-  await page.goto("/");
+  await page.goto(insecureOrigin);
   await openSettings(page);
   await openSettingsItem(page, "browser-push");
   await expect(card.getByRole("status")).toContainText("私有 HTTPS 地址");
+  await expect(card.getByRole("button", {name:"启用本浏览器通知"})).toHaveCount(0);
+});
+
+test("开发回环地址使用 Chromium 原生后台脚本和 PushManager", async ({page, context, baseURL}) => {
+  await context.grantPermissions(["notifications"], {origin:baseURL});
+  await page.route("**/api/browser-push/config", route => route.fulfill({json:{ok:true, available:true, public_key:"B" + "A".repeat(86)}}));
+  await page.goto("/");
+  await openSettings(page);
+  await openSettingsItem(page, "browser-push");
+  const native = await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return {secure:window.isSecureContext, push:registration.pushManager instanceof PushManager,
+      script:registration.active.scriptURL, permission:Notification.permission};
+  });
+  expect(native).toMatchObject({secure:true, push:true, script:`${baseURL}/push-sw.js`});
+  if (native.permission === "denied") {
+    await expect(page.locator("#browserPushSettings").getByRole("status")).toContainText("通知权限已关闭");
+  } else {
+    await expect(page.getByRole("button", {name:"启用本浏览器通知"})).toBeEnabled();
+  }
 });
 
 test("采集通知展开指定日期的失败批次", async ({page}) => {

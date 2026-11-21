@@ -75,6 +75,7 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 | `NEWS_READER_MEDIA_CACHE_DIR` | 主库同级 `media-cache` | 保留与数据库媒体索引的配套关系 |
 | `NEWS_READER_AGENT_DB_PATH` | 主库同级 `agent_sessions.sqlite3` | 不同部署应使用独立路径 |
 | `NEWS_READER_PUSH_ORIGIN` | 私有 HTTPS 源地址，留空时浏览器通知关闭 | Tailscale Serve 接入与开发启动器配置见[浏览器通知](../browser-push.md) |
+| `NEWS_READER_PUSH_LOOPBACK_PORT` | 开发启动器传入 18080，用于本机浏览器订阅 | 与私有 HTTPS 入口共享密钥，限制为直连 `127.0.0.1` 及准确的 Host 和 Origin |
 | `NEWS_READER_TRADING_CALENDAR_PATH` | 留空时后台自动更新上交所年度日历，缓存位于主库同级 `trading-calendar-cache.json` | 仅手工维护日历时设置；指定后关闭自动更新，以该文件为准 |
 | `NEWS_READER_AGENT_RUNTIME_DIR` | 系统临时目录下按项目路径哈希隔离 | 临时会话状态，不作为长期业务备份 |
 | `NEWS_READER_UPDATER_DIR` | 系统临时目录下项目隔离路径 | 更新锁及 `news-reader-updater-state.json` 所在位置 |

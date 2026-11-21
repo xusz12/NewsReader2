@@ -15,11 +15,13 @@ import push_events
 ORIGIN = "https://nr.example.test"
 DEVICE = "/api/browser-push/device"
 HEADERS = {"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin"}
+LOOPBACK = "http://127.0.0.1:18080"
 
 
 @pytest.fixture
 def instance(tmp_path, monkeypatch):
     monkeypatch.setenv("NEWS_READER_PUSH_ORIGIN", ORIGIN)
+    monkeypatch.delenv("NEWS_READER_PUSH_LOOPBACK_PORT", raising=False)
     for variable, name in {
         "DB_PATH":"main.sqlite3", "AGENT_DB_PATH":"agent.sqlite3", "MEDIA_CACHE_DIR":"media",
         "PERSONAL_ASSISTANT_DIR":"assistant", "APP_SETTINGS_PATH":"settings.json", "AGENT_RUNTIME_DIR":"agent-run",
@@ -63,6 +65,66 @@ def test_private_origin_and_subscription_capability(instance):
     assert request_device(app, "POST", other).json["types"] == ["article_reply"]
     worker = client.get("/push-sw.js", base_url=ORIGIN)
     assert worker.status_code == 200 and worker.headers["Cache-Control"] == "no-cache"
+
+
+def test_loopback_reuses_private_key_and_keeps_existing_https_device(instance, monkeypatch):
+    original_app, original_service = instance
+    old = subscription("https-saved")
+    key = original_service.public_key()
+    assert request_device(original_app, "PUT", old, ["daily_report"]).status_code == 200
+    assert original_app.test_client().get("/api/browser-push/config", base_url=LOOPBACK).json["available"] is False
+
+    monkeypatch.setenv("NEWS_READER_PUSH_LOOPBACK_PORT", "18080")
+    app = create_app()
+    service = app.extensions["newsreader"].push
+    assert service.origin == ORIGIN and service.scope == original_service.scope
+    assert request_device(app, "POST", old).json == {"ok":True, "registered":True, "types":["daily_report"]}
+    with app.test_client() as client:
+        assert client.get("/api/browser-push/config", base_url=LOOPBACK).json["public_key"] == key
+        local = subscription("http-local")
+        headers = {"Origin": LOOPBACK, "Sec-Fetch-Site":"same-origin"}
+        payload = {"subscription":local, "types":["article_reply", "personal_reply"]}
+        assert set(client.put(DEVICE, base_url=LOOPBACK, headers=headers, json=payload).json["types"]) == set(payload["types"])
+        match = {"replies":[{"kind":"article_reply", "id":str(uuid.uuid4())}], "subscription":local}
+        assert client.post("/api/browser-push/seen", base_url=LOOPBACK, headers=headers, json=match).status_code == 200
+        restarted = create_app().test_client()
+        restored = restarted.post(DEVICE, base_url=LOOPBACK, headers=headers, json={"subscription":local}).json
+        assert restored["ok"] and restored["registered"] and set(restored["types"]) == set(payload["types"])
+        assert client.delete(DEVICE, base_url=LOOPBACK, headers=headers, json={"subscription":local}).status_code == 200
+        assert client.post(DEVICE, base_url=LOOPBACK, headers=headers, json={"subscription":local}).json["registered"] is False
+    assert request_device(app, "POST", old).json["types"] == ["daily_report"]
+    assert service.public_key() == key
+
+
+@pytest.mark.parametrize("url,peer,headers", [
+    ("http://localhost:18080", "127.0.0.1", {}),
+    ("http://127.0.0.2:18080", "127.0.0.1", {}),
+    ("http://127.0.0.1:18081", "127.0.0.1", {}),
+    ("http://100.64.1.2:18080", "100.64.1.3", {}),
+    (LOOPBACK, "100.64.1.3", {}),
+    (LOOPBACK, "::1", {}),
+    (LOOPBACK, "127.0.0.1", {"Forwarded":"by=127.0.0.1"}),
+    (LOOPBACK, "127.0.0.1", {"X-Forwarded-Proto":"http"}),
+    (LOOPBACK, "127.0.0.1", {"Tailscale-Funnel-Request":"?1"}),
+    (LOOPBACK, "127.0.0.1", {"Origin":ORIGIN}),
+])
+def test_only_direct_configured_loopback_origin_can_register(instance, monkeypatch, url, peer, headers):
+    monkeypatch.setenv("NEWS_READER_PUSH_LOOPBACK_PORT", "18080")
+    client = create_app().test_client()
+    request_headers = {"Origin":url, **headers}
+    env = {"REMOTE_ADDR":peer}
+    assert client.get("/api/browser-push/config", base_url=url, headers=request_headers,
+                      environ_overrides=env).json["available"] is False
+    assert client.put(DEVICE, base_url=url, headers=request_headers, environ_overrides=env,
+                      json={"subscription":subscription("must-fail"), "types":["daily_report"]}).status_code == 403
+
+
+def test_loopback_mutations_require_exact_origin_and_same_site_fetch(instance, monkeypatch):
+    monkeypatch.setenv("NEWS_READER_PUSH_LOOPBACK_PORT", "18080")
+    client = create_app().test_client()
+    body = {"subscription":subscription("must-fail"), "types":["daily_report"]}
+    assert client.put(DEVICE, base_url=LOOPBACK, json=body).status_code == 403
+    assert client.put(DEVICE, base_url=LOOPBACK, headers={"Origin":LOOPBACK,"Sec-Fetch-Site":"cross-site"}, json=body).status_code == 403
 
 
 @pytest.mark.parametrize("endpoint", [

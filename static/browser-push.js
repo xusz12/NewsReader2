@@ -9,7 +9,9 @@ const kinds = {
 const deviceURL = "/api/browser-push/device";
 
 function browserSupport() {
-  if (!window.isSecureContext || location.protocol !== "https:") return "请从 NR 的私有 HTTPS 地址打开浏览器通知。";
+  const loopback = location.protocol === "http:" && location.hostname === "127.0.0.1";
+  if (!window.isSecureContext || (location.protocol !== "https:" && !loopback))
+    return "请通过 NR 的私有 HTTPS 地址或 Mac 本机开发入口使用浏览器通知。";
   const appleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (appleMobile && !navigator.standalone && !matchMedia("(display-mode: standalone)").matches)
     return "请先将 NR 添加到主屏幕，再从图标打开并启用通知。";
@@ -156,7 +158,8 @@ class BrowserPush {
     for (const host of [$("#personalAssistantMessages"), $("#agentChatStream")])
       host?.addEventListener("scroll", () => this.scheduleSeen(), {passive:true});
     void navigator.serviceWorker.getRegistration("/").then(async registration => {
-      this.subscription ||= await registration?.pushManager.getSubscription();
+      const subscription = await registration?.pushManager.getSubscription();
+      if (subscription && this.subscription === undefined) this.subscription = subscription;
       this.scheduleSeen();
     }).catch(() => {});
   }
