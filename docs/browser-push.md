@@ -1,6 +1,6 @@
 # 浏览器通知
 
-用私有 HTTPS 地址，或在运行 NR 的 Mac 上用 `http://127.0.0.1:18080` 打开 News Reader。进入「设置 → 阅读偏好与维护 → 浏览器通知」，点击「启用本浏览器通知」并允许权限，再选择要接收的类型。开关即时保存，只作用于当前浏览器在该地址的订阅。可用「取消本浏览器订阅」关闭它。[浏览器安全上下文](https://www.w3.org/TR/secure-contexts/#is-origin-trustworthy)
+通过配置好的私有 HTTPS 地址打开 News Reader。在运行 NR 的 Mac 上，也可以使用已配置的本机回环入口。进入「设置 → 阅读偏好与维护 → 浏览器通知」，点击「启用本浏览器通知」并允许权限，再选择要接收的类型。开关即时保存，只作用于当前浏览器在该地址的订阅。可用「取消本浏览器订阅」关闭它。[浏览器安全上下文](https://www.w3.org/TR/secure-contexts/#is-origin-trustworthy)
 
 手机使用私有 HTTPS。iPhone 和 iPad 需使用 iOS 或 iPadOS 16.4 及以上，先添加到主屏幕，再从应用图标打开并启用。[WebKit 主屏幕 Web Push 说明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)
 
@@ -13,16 +13,39 @@
 
 合并和去重以已保存的业务结果为准。浏览器页面实际显示完整回复时，会按设备报告该回复已可见。服务器预留短时间接收这个确认，再决定是否向该浏览器投递。别的订阅设备仍可收到。锁屏提示只含事件类型和打开提示，正文与问答内容在应用内读取。[WebKit 可见通知要求](https://webkit.org/blog/12945/meet-web-push/)
 
-## 开发运行
+## 配置私有 HTTPS
 
-从候选工作树执行 `npm ci --ignore-scripts`。用开发启动器的 Python 安装该工作树 `requirements.txt` 中的依赖。部署工作树与默认项目根目录分开时，`output/dev/runtime/source-dir` 保存选定工作树的绝对路径。`启动开发测试.command` 继续用 `output/dev` 的开发数据和项目根目录设置。
+旧安装升级后首次启用通知时，在项目目录激活运行 NR 的 Python 环境，执行以下命令以安装 `pywebpush`。
 
-在 Mac 上初次双击和重复双击都打开同一实例的 `http://127.0.0.1:18080/`。Tailscale 在线时，启动器会读取指向该回环端口的私有 Serve HTTPS 根映射，并在终端显示手机和其他尾网设备使用的地址。开发实例同时监听当前可绑定的 Tailscale 地址及回环地址，复用一份应用与数据。先配置私有映射，再启动开发实例，即可启用两个入口的通知。[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
+```sh
+python -m pip install -r requirements.txt
+```
 
-直接启动时用 `NEWS_READER_PUSH_ORIGIN` 指定完整私有 HTTPS 源地址。开发启动器同时设置 `NEWS_READER_PUSH_LOOPBACK_PORT`。该入口要求直接来自 `127.0.0.1`，并精确匹配配置端口、Host 和订阅请求的 Origin。普通内网 HTTP 无法启用订阅。Serve 通过回环转发并保留 Host 与 HTTPS 转发头。订阅接口还校验推送服务地址和加密公钥。
+以默认端口 `8080` 为例，在 NR 所在的电脑上用 Tailscale Serve 将尾网 HTTPS 根地址转发到 `http://127.0.0.1:8080`。已有指向 NR 的私有根映射时可沿用。以 `tailscale serve status` 显示的 HTTPS 地址为准。[Tailscale Serve 命令](https://tailscale.com/docs/reference/tailscale-cli/serve)
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:8080
+tailscale serve status
+```
+
+把示例域名替换为自己的 HTTPS 地址，再用原 Python 环境启动 NR。以下示例使用 macOS 安装步骤创建的 `.venv` 和仓库自带的启动器。
+
+```sh
+NEWS_READER_PYTHON="$PWD/.venv/bin/python" \
+NEWS_READER_HOST=127.0.0.1 \
+NEWS_READER_PORT=8080 \
+NEWS_READER_PUSH_ORIGIN=https://your-device.your-tailnet.ts.net \
+./启动NewsReader.command
+```
+
+使用其他启动方式时，把 `NEWS_READER_PUSH_ORIGIN` 写入服务的启动环境并重启。地址应包含 HTTPS、主机名和所用的非默认端口。私有 HTTPS 代理通过回环地址转发请求，保留原始 `Host`，并传递 `X-Forwarded-Host` 和 `X-Forwarded-Proto: https`。
+
+## 配置 Mac 本机入口
+
+配置私有 HTTPS 后，可把同一实例的回环监听端口设为 `NEWS_READER_PUSH_LOOPBACK_PORT`。例如在上述启动命令中同时传入 `NEWS_READER_PUSH_LOOPBACK_PORT=8080`，启动后在 Mac 上用 `http://127.0.0.1:8080/` 启用一次本机订阅。回环入口要求直连 `127.0.0.1`，并精确匹配配置端口、Host 和订阅请求的 Origin。普通内网 HTTP 无法启用订阅。订阅接口还校验推送服务地址和加密公钥。
 
 ## 存储与投递
 
-推送密钥、各浏览器的订阅、设备回执和投递状态保存在开发新闻库中，按库路径及完整私有 HTTPS 源隔离。新增回环入口沿用同一套密钥和投递队列，保留已有 HTTPS 订阅及类型偏好。浏览器在两个地址上分别订阅。签名的联系地址使用 HTTPS 主机名。复制到另一库路径或更换 HTTPS 源时，在新入口重新订阅。成功事件随业务事务保存，应用重启后继续处理有效队列。订阅及类型开关生效之前的事件不会补推。投递至多保留一天，浏览器推送服务判定订阅已过期时移除它。
+推送密钥、各浏览器的订阅、设备回执和投递状态保存在 NR 新闻库中，按库路径及完整私有 HTTPS 源隔离。回环入口沿用同一套密钥和投递队列，保留已有 HTTPS 订阅及类型偏好。浏览器在两个地址上分别订阅。签名的联系地址使用 HTTPS 主机名。复制到另一库路径或更换 HTTPS 源时，在新入口重新订阅。成功事件随业务事务保存，应用重启后继续处理有效队列。订阅及类型开关生效之前的事件不会补推。投递至多保留一天，浏览器推送服务判定订阅已过期时移除它。
 
 关闭 NR 标签页后，应用后台和浏览器的推送服务仍可转交通知。点开内容时，设备需要能访问该浏览器订阅时使用的地址。服务端需要能访问 Chrome、Firefox、Safari 或 Edge 使用的对应 HTTPS 推送服务。

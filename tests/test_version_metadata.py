@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "v0.6.7"
+RELEASE_VERSION = "v0.6.8"
 ASSET_VERSION = RELEASE_VERSION.removeprefix("v")
 
 
@@ -17,11 +17,11 @@ def test_release_version_is_consistent_across_metadata_and_ui():
 
     assert manifest["version"] == RELEASE_VERSION
     assert f"<title>News Reader {RELEASE_VERSION}</title>" in index_source
-    assert f"/static/style.css?v={ASSET_VERSION}" in index_source
     assert f"<span class=\"brand-version\">{RELEASE_VERSION}</span>" in index_source
-    assert f"/static/app.js?v={ASSET_VERSION}" in index_source
+    for asset in ("app.js", "error_ui.js", "style.css", "tokens.css", "vendor/prosemirror.css"):
+        assert f"/static/{asset}?v={ASSET_VERSION}" in index_source
     assert f"当前稳定版本：`{RELEASE_VERSION}`" in readme_source
-    assert f"### 2026-11-21 — {RELEASE_VERSION} " in changelog_source
+    assert f"### 2026-11-22 — {RELEASE_VERSION} " in changelog_source
 
 
 def test_independent_package_and_update_metadata():
