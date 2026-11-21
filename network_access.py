@@ -81,12 +81,19 @@ def private_serve_origin(config, port):
     return min(candidates)[1] if candidates else ""
 
 
+def tailscale_running(status):
+    return status.get("BackendState") == "Running" and (status.get("Self") or {}).get("Online") is not False
+
+
 def discover_private_serve(port, *, cli=None, run=subprocess.run):
     deadline = time.monotonic() + DISCOVERY_TIMEOUT
     for candidate in cli_candidates("tailscale", "Tailscale.app/Contents/MacOS/Tailscale", cli):
         try:
-            data = json_command([candidate, "serve", "status", "--json"], deadline=deadline, run=run,
-                                env={**os.environ, "TAILSCALE_BE_CLI": "1"})
+            env = {**os.environ, "TAILSCALE_BE_CLI": "1"}
+            status = json_command([candidate, "status", "--json"], deadline=deadline, run=run, env=env)
+            if not tailscale_running(status):
+                continue
+            data = json_command([candidate, "serve", "status", "--json"], deadline=deadline, run=run, env=env)
             origin = private_serve_origin(data, port)
             if origin:
                 return origin
@@ -102,11 +109,9 @@ def discover_tailscale(*, cli=None, run=subprocess.run, bind=can_bind):
             data = json_command([candidate, "status", "--json"], deadline=deadline, run=run,
                                 env={**os.environ, "TAILSCALE_BE_CLI": "1"})
             # `ip -4` may still return a saved address after the client stops.
-            if data.get("BackendState") != "Running":
+            if not tailscale_running(data):
                 continue
             own = data.get("Self") or {}
-            if own.get("Online") is False:
-                continue
             addresses = own.get("TailscaleIPs", data.get("TailscaleIPs", []))
             if not isinstance(addresses, list):
                 continue

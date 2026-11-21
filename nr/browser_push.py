@@ -127,6 +127,7 @@ def generate_keys():
 
 
 def deliver(subscription, payload, private_key, origin, ttl):
+    from py_vapid import VapidException
     from pywebpush import WebPushException, webpush
     from requests import Session
 
@@ -136,12 +137,16 @@ def deliver(subscription, payload, private_key, origin, ttl):
 
     with PushSession() as session:
         session.trust_env = False
+        contact = f"https://{urlsplit(origin).hostname}"
         try:
             return webpush(subscription, json.dumps(payload, ensure_ascii=False), vapid_private_key=private_key,
-                vapid_claims={"sub": origin}, ttl=ttl, timeout=8, headers={"Topic": payload["tag"]},
+                vapid_claims={"sub": contact}, ttl=ttl, timeout=8, headers={"Topic": payload["tag"]},
                 requests_session=session).status_code
         except WebPushException as error:
             return error.response.status_code if error.response is not None else 400
+        except VapidException:
+            LOGGER.warning("Browser push signature unavailable")
+            return 503
         except OSError:
             return 503
 

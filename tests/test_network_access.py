@@ -32,6 +32,19 @@ def test_serve_origin_requires_private_https_on_the_exact_development_target():
     assert not network_access.private_serve_origin(config | {"TCP":{"443":{"HTTP":True}}}, 18080)
 
 
+def test_disconnected_tailscale_does_not_reopen_cached_serve_mapping(tmp_path):
+    cli = tmp_path / "tailscale"
+    cli.touch()
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command[1:])
+        return SimpleNamespace(returncode=0, stdout='{"BackendState":"Stopped"}')
+
+    assert not network_access.discover_private_serve(18080, cli=str(cli), run=run)
+    assert calls == [["status", "--json"]]
+
+
 @pytest.mark.parametrize("state,address,expected", [
     ("ready", "100.79.126.62", [{"address":"100.79.126.62","incoming_enabled":True}]),
     ("ready", "100.90.1.2", [{"address":"100.90.1.2","incoming_enabled":True}]),

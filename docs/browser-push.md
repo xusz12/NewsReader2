@@ -15,12 +15,12 @@
 
 从候选工作树执行 `npm ci --ignore-scripts`。用开发启动器的 Python 安装该工作树 `requirements.txt` 中的依赖。部署工作树与默认项目根目录分开时，`output/dev/runtime/source-dir` 保存选定工作树的绝对路径。`启动开发测试.command` 继续用 `output/dev` 的开发数据和项目根目录设置。
 
-启动器读取指向 `http://127.0.0.1:18080` 的私有 Serve HTTPS 根映射。开发实例同时监听当前可绑定的 Tailscale 地址及回环地址，复用一份应用与数据。复验同一实例后，重复双击打开对应 HTTPS 地址。未配置 Serve 时使用既有 HTTP 入口。先配置私有映射，然后启动应用，以便读取正确的通知源地址。[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
+Tailscale 在线时，启动器读取指向 `http://127.0.0.1:18080` 的私有 Serve HTTPS 根映射。开发实例同时监听当前可绑定的 Tailscale 地址及回环地址，复用一份应用与数据。复验同一实例后，重复双击打开对应 HTTPS 地址。Tailscale 断开或 Serve 未配置时，打开仍可达的开发 HTTP 入口。先配置私有映射，然后启动应用，以便读取正确的通知源地址。[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
 
 直接启动时用 `NEWS_READER_PUSH_ORIGIN` 指定完整私有 HTTPS 源地址。代理保留 Host 和 HTTPS 转发头，并从本机回环连接应用。NR 使用可信网络的访问控制。通知订阅接口校验源地址、请求格式、推送服务地址及加密公钥。
 
 ## 存储与投递
 
-推送密钥、各浏览器的订阅、设备回执和投递状态保存在开发新闻库中，按库路径及 HTTPS 源隔离。复制到另一库路径或更换 HTTPS 源时，在新入口重新订阅。成功事件随业务事务保存，应用重启后继续处理有效队列。订阅及类型开关生效之前的事件不会补推。投递至多保留一天，浏览器推送服务判定订阅已过期时移除它。
+推送密钥、各浏览器的订阅、设备回执和投递状态保存在开发新闻库中，按库路径及完整 HTTPS 源隔离。签名的联系地址使用 HTTPS 主机名。复制到另一库路径或更换 HTTPS 源时，在新入口重新订阅。成功事件随业务事务保存，应用重启后继续处理有效队列。订阅及类型开关生效之前的事件不会补推。投递至多保留一天，浏览器推送服务判定订阅已过期时移除它。
 
 关闭 NR 标签页后，应用后台和浏览器的推送服务仍可转交通知。点开内容时设备需要能访问私有 HTTPS 地址。服务端需要能访问 Chrome、Firefox、Safari 或 Edge 使用的对应 HTTPS 推送服务。

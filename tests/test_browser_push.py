@@ -1,3 +1,4 @@
+import base64
 from contextlib import closing
 import json
 import sqlite3
@@ -76,7 +77,8 @@ def test_rejects_unsupported_endpoint_before_persisting(instance, endpoint):
         assert not conn.execute("SELECT 1 FROM browser_push_devices").fetchone()
 
 
-def test_real_encryption_disables_redirects_and_uses_stable_topic(monkeypatch):
+@pytest.mark.parametrize("origin", [ORIGIN, f"{ORIGIN}:8443"])
+def test_real_encryption_disables_redirects_and_uses_stable_topic(monkeypatch, origin):
     from requests import Response, Session
 
     calls = []
@@ -92,12 +94,26 @@ def test_real_encryption_disables_redirects_and_uses_stable_topic(monkeypatch):
     _, private = browser_push.generate_keys()
     payload = {"tag":"a" * 32, "title":"Synthetic reply"}
     device = subscription("encryption")
-    assert browser_push.deliver(device, payload, private, ORIGIN, 50) == 302
+    assert browser_push.deliver(device, payload, private, origin, 50) == 302
     assert len(calls) == 1 and calls[0][0] == device["endpoint"]
     _, sent = calls[0]
     assert sent["allow_redirects"] is False
     assert sent["headers"]["Topic"] == payload["tag"] and sent["headers"]["content-encoding"] == "aes128gcm"
     assert b"Synthetic reply" not in sent["data"]
+    token = sent["headers"]["Authorization"].split("t=", 1)[1].split(",", 1)[0]
+    claims = token.split(".")[1]
+    assert json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))["sub"] == ORIGIN
+
+
+def test_vapid_signing_error_is_retryable_without_exposing_credentials(monkeypatch, caplog):
+    from py_vapid import VapidException
+
+    def cannot_sign(*args, **kwargs):
+        raise VapidException("sensitive-test-value")
+
+    monkeypatch.setattr("pywebpush.webpush", cannot_sign)
+    result = browser_push.deliver(subscription("retry"), {"tag":"a" * 32}, "test", ORIGIN, 30)
+    assert result == 503 and "sensitive-test-value" not in caplog.text
 
 
 def test_report_and_actionable_collection_are_atomic_and_once_per_period_or_run(instance):
