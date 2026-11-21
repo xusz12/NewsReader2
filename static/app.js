@@ -21,16 +21,16 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.6";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.7";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.6";
-import { TopicPanel } from "./topic-panel.js?v=0.6.4";
+import { TopicPanel } from "./topic-panel.js?v=0.6.7";
 import { ReportPanel } from "./report-panel.js?v=0.6.6";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.6.6";
 import { PersonalAssistant } from "./personal-assistant.js?v=0.6.6";
 import { AgentNotifications } from "./agent-notifications.js?v=0.5.5";
 import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
-import { TaskProgress } from "./task-progress.js?v=0.6.4";
+import { TaskProgress } from "./task-progress.js?v=0.6.7";
 import { ResearchNotes } from "./research-notes.js";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
 import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
@@ -136,10 +136,7 @@ const upstreamErrors = new UpstreamErrors({
     await api("/api/news/classification/retry", {method:"POST"});
     await classification.refresh();
   },
-  onClassificationSettings: async () => {
-    if (!settings.open) await settings.toggle();
-    settings.selectSection("classification");
-  },
+  onClassificationSettings: () => settings.show("classification"),
 });
 let requestController,
   detailTimer,
@@ -273,10 +270,7 @@ function updateResearchNotes(id, result) {
   renderFeed();
   refreshBadges();
 }
-const personalAssistant = new PersonalAssistant({selects, onSettings:async () => {
-  if (!settings.open) await settings.toggle();
-  settings.selectSection("personal-assistant");
-}});
+const personalAssistant = new PersonalAssistant({selects, onSettings: () => settings.show("personal-assistant")});
 const agent = new AgentPanel({
   selects,
   onArchive: (id, result) => {
@@ -335,10 +329,7 @@ const summaries = new SummaryPanel({
   cardAction, toggleState,
   stateVersion: () => stateWrites.version,
   reconcileItem: (item, version) => stateWrites.reconcile(item.id,item,version),
-  openSettings: async () => {
-    if (!settings.open) await settings.toggle();
-    settings.selectSection("catchup");
-  },
+  openSettings: () => settings.show("catchup"),
   onCompleted: () => {
     refreshBadges();
     if (!["notes", "summaries", "topics", "reports"].includes(state.collection)) {
@@ -411,10 +402,7 @@ const classification = new ClassificationProgress({
 });
 const tasks = new TaskProgress({
   classification,
-  onSettings: async () => {
-    if (!settings.open) await settings.toggle();
-    settings.selectSection("classification");
-  },
+  onSettings: () => settings.show("classification"),
   onTopic: async id => {
     switchCollection("topics", {restoreReader:false});
     await topics.openRecord(id);

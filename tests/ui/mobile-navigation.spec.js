@@ -33,6 +33,26 @@ test('bottom navigation stays limited to reading views while other workspaces us
   await expect(bottom.getByRole('button', { name: '收藏', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
+test('mobile settings opens the searchable directory even after remembering a subpage', async ({ page }) => {
+  const openDirectory = async () => {
+    await openSettings(page);
+    await expect(page.locator('#detailPanelSettings')).toBeHidden();
+    await expect(page.locator('#feedColSettings')).toHaveJSProperty('inert', false);
+    await expect(page.getByRole('searchbox', { name: '搜索全部设置' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeFocused();
+  };
+  await page.goto('/');
+  await openDirectory();
+  await openSettingsItem(page, 'models');
+  await expect(page.locator('#modelSettings')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await openDirectory();
+  await expect(page.locator('#settingsCategory-models')).toHaveAttribute('aria-current', 'true');
+  await page.reload();
+  await openDirectory();
+  await expect(page.locator('#settingsCategory-models')).toHaveAttribute('aria-current', 'true');
+});
+
 async function openReader(page) {
   await page.goto('/');
   await page.locator('#feedCardList .news-card-title').first().click();

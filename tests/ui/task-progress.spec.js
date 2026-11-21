@@ -116,7 +116,7 @@ test('分类关闭时主题和日报仍显示，阶段来自接口且完成后�
   await expect(page.locator('#classificationProgressArc')).toHaveCSS('stroke-dashoffset','60px');
   await expect(panel(page)).toContainText('已完成 2 / 5 批');
   await expect(panel(page)).toContainText('待匹配 8 条');
-  await expect(panel(page)).toContainText('待整理 3 条');
+  await expect(panel(page)).toContainText('待筛选 3 条');
   state.data.reports.items[0].progress={stage:'reviewing',total:5};
   await page.clock.runFor(2100);
   await expect(meter(page)).not.toHaveAttribute('aria-valuenow');

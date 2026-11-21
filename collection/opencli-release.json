@@ -1,26 +1,26 @@
 {
-  "checked_at": "2026-11-20T17:51:48.339170+00:00",
-  "fingerprint": "7b063a7400e0ad545bd50e28081a882b31cc2ecdbc90df3d1153d163d24c66fb",
-  "newsreader_version": "0.6.6",
+  "checked_at": "2026-11-21T14:36:03.778136+00:00",
+  "fingerprint": "b9fa7bcd30d6987f3b77b0c099b3591b3cdb9842fb35b18554250faaf0e18619",
+  "newsreader_version": "0.6.7",
   "sources": [
     {
       "section": "middle-east",
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 18.59,
+      "seconds": 17.68,
       "error": "",
       "samples": [
         {
-          "title": "Iraqi security forces deploy in Iran-backed militia stronghold",
-          "url": "https://www.reuters.com/world/middle-east/iraqi-security-forces-deploy-iran-backed-militia-stronghold-security-officials-2026-11-20/",
-          "time": "2026-11-20 15:31:42",
+          "title": "Israeli strike kills three in vehicle distributing aid in Gaza, witnesses say",
+          "url": "https://www.reuters.com/world/middle-east/israeli-strike-kills-three-vehicle-distributing-aid-gaza-witnesses-say-2026-11-21/",
+          "time": "2026-11-21 21:53:33",
           "source_name": "Reuters"
         },
         {
-          "title": "In Yemen's Aden, divided government forces prepare for a Houthi assault",
-          "url": "https://www.reuters.com/world/yemens-aden-divided-government-forces-prepare-houthi-assault-2026-11-20/",
-          "time": "2026-11-20 23:02:14",
+          "title": "Fire at power station in Iraq's Basra kills at least 4, injures 35",
+          "url": "https://www.reuters.com/business/energy/iraq-fire-basra-power-station-kills-least-four-injures-30-2026-11-21/",
+          "time": "2026-11-21 14:22:48",
           "source_name": "Reuters"
         }
       ]
@@ -30,19 +30,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 18.51,
+      "seconds": 10.35,
       "error": "",
       "samples": [
         {
-          "title": "After Trump's China trip, US House Republicans push AI strategy to counter Beijing",
-          "url": "https://www.reuters.com/legal/litigation/after-trumps-china-trip-us-house-republicans-push-ai-strategy-counter-beijing-2026-11-20/",
-          "time": "2026-11-21 01:41:33",
+          "title": "As Trump basks in summit pomp, China's Xi strengthens his hand",
+          "url": "https://www.reuters.com/world/china/trump-basks-summit-pomp-chinas-xi-strengthens-his-hand-2026-11-21/",
+          "time": "2026-11-21 16:40:10",
           "source_name": "Reuters"
         },
         {
-          "title": "Trump, Xi agreed that military AI decisions should involve humans, Bessent says",
-          "url": "https://www.reuters.com/world/china/trump-xi-agreed-that-military-ai-decisions-should-involve-humans-bessent-says-2026-11-20/",
-          "time": "2026-11-21 00:48:39",
+          "title": "Lutnick asked battery startup Pure Lithium to accept US takeover, documents and source say",
+          "url": "https://www.reuters.com/world/china/lutnick-asked-battery-startup-pure-lithium-accept-us-takeover-documents-source-2026-11-20/",
+          "time": "2026-11-21 07:02:48",
           "source_name": "Reuters"
         }
       ]
@@ -52,19 +52,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 5.23,
+      "seconds": 3.71,
       "error": "",
       "samples": [
         {
-          "title": "Student protests held across Europe with demands from school funding to climate",
-          "url": "https://www.reuters.com/world/student-protests-held-across-europe-with-demands-school-funding-climate-2026-11-20/",
-          "time": "2026-11-21 00:25:16",
+          "title": "As Trump basks in summit pomp, China's Xi strengthens his hand",
+          "url": "https://www.reuters.com/world/china/trump-basks-summit-pomp-chinas-xi-strengthens-his-hand-2026-11-21/",
+          "time": "2026-11-21 16:40:10",
           "source_name": "Reuters"
         },
         {
-          "title": "Myanmar calls UN court's Rohingya genocide ruling a 'great disappointment'",
-          "url": "https://www.reuters.com/world/asia-pacific/myanmar-calls-icj-ruling-genocide-unfair-2026-11-20/",
-          "time": "2026-11-20 16:45:47",
+          "title": "Israeli strike kills three in vehicle distributing aid in Gaza, witnesses say",
+          "url": "https://www.reuters.com/world/middle-east/israeli-strike-kills-three-vehicle-distributing-aid-gaza-witnesses-say-2026-11-21/",
+          "time": "2026-11-21 21:53:33",
           "source_name": "Reuters"
         }
       ]
@@ -74,19 +74,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.88,
+      "seconds": 4.67,
       "error": "",
       "samples": [
         {
-          "title": "Apollo, Goldman lead $44 billion SpaceX GPU debt financing",
-          "url": "https://www.reuters.com/business/media-telecom/apollo-goldman-lead-44-billion-spacex-gpu-debt-financing-2026-11-20/",
-          "time": "2026-11-21 01:45:52",
+          "title": "Wall St ends sharply lower on AI selloff, S&P 500, Dow in correction",
+          "url": "https://www.reuters.com/legal/transactional/wall-st-futures-slip-anthropic-debut-fails-reassure-ai-investors-2026-11-20/",
+          "time": "2026-11-20 18:37:04",
           "source_name": "Reuters"
         },
         {
-          "title": "Anthropic's post-debut stumble delivers reality check for AI trade",
-          "url": "https://www.reuters.com/business/anthropics-post-debut-stumble-delivers-reality-check-ai-trade-2026-11-20/",
-          "time": "2026-11-20 18:20:28",
+          "title": "Nvidia's accounting is a focus of US SEC investigation, sources say",
+          "url": "https://www.reuters.com/world/us-secs-nvidia-probe-is-examining-potential-accounting-issues-sources-say-2026-11-20/",
+          "time": "2026-11-21 03:13:43",
           "source_name": "Reuters"
         }
       ]
@@ -96,13 +96,13 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 4.04,
+      "seconds": 3.22,
       "error": "",
       "samples": [
         {
-          "title": "Apollo, Goldman lead $44 billion SpaceX GPU debt financing",
-          "url": "https://www.reuters.com/business/media-telecom/apollo-goldman-lead-44-billion-spacex-gpu-debt-financing-2026-11-20/",
-          "time": "2026-11-21 01:45:52",
+          "title": "Nvidia's accounting is a focus of US SEC investigation, sources say",
+          "url": "https://www.reuters.com/world/us-secs-nvidia-probe-is-examining-potential-accounting-issues-sources-say-2026-11-20/",
+          "time": "2026-11-21 03:13:43",
           "source_name": "Reuters"
         },
         {
@@ -118,19 +118,19 @@
       "ok": true,
       "raw_count": 15,
       "valid_count": 15,
-      "seconds": 2.83,
+      "seconds": 2.85,
       "error": "",
       "samples": [
         {
-          "title": "S&P 500 Heads for Correction as AI Enthusiasm Keeps Unwinding",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-20/us-stock-futures-dip-as-anthropic-premiere-disappoints-investors",
-          "time": "2026-11-20 21:26:57",
+          "title": "Apple TV 4K Review: New $299 Streaming Box is Excellent But Too Expensive",
+          "url": "https://www.bloomberg.com/news/features/2026-11-21/apple-tv-4k-review-new-299-streaming-box-is-excellent-but-too-expensive",
+          "time": "2026-11-21 21:00:15",
           "source_name": "Bloomberg"
         },
         {
-          "title": "Europe Retail Traders Bid Seven Times Anthropic’s IPO Allocation",
-          "url": "https://www.bloomberg.com/news/articles/2026-11-20/europe-retail-traders-bid-seven-times-anthropic-s-ipo-allocation",
-          "time": "2026-11-21 01:44:12",
+          "title": "China Plans to Strengthen AI Token Standards in Computing Push",
+          "url": "https://www.bloomberg.com/news/articles/2026-11-21/china-plans-to-strengthen-ai-token-standards-in-computing-push",
+          "time": "2026-11-21 18:11:29",
           "source_name": "Bloomberg"
         }
       ]
@@ -140,19 +140,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.56,
+      "seconds": 1.54,
       "error": "",
       "samples": [
         {
-          "title": "Chips can survive the space environment. Can their financing?",
-          "url": "https://techcrunch.com/2026/11/20/chips-can-survive-the-space-environment-can-their-financing/",
-          "time": "2026-11-21 01:40:01",
+          "title": "Startup sues Apple in India over tap-to-share contacts feature",
+          "url": "https://techcrunch.com/2026/11/20/startup-sues-apple-in-india-over-tap-to-share-contacts-feature/",
+          "time": "2026-11-21 12:00:00",
           "source_name": "TechCrunch"
         },
         {
-          "title": "Bending Spoons buys Mailchimp for $3.68B",
-          "url": "https://techcrunch.com/2026/11/20/bending-spoons-buys-mailchimp-for-3-68-billion/",
-          "time": "2026-11-21 00:16:06",
+          "title": "Experts warn: Nearly everyone in AI is susceptible to a honey-trap scheme right now",
+          "url": "https://techcrunch.com/2026/11/20/experts-warn-nearly-everyone-in-ai-is-susceptible-to-a-honey-trap-scheme-right-now/",
+          "time": "2026-11-21 04:58:29",
           "source_name": "TechCrunch"
         }
       ]
@@ -162,19 +162,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.36,
+      "seconds": 2.6,
       "error": "",
       "samples": [
         {
-          "title": "Valve says it might have to raise the price of supply-limited Steam Machines",
-          "url": "https://arstechnica.com/gaming/2026/11/valve-says-it-might-have-to-raise-the-price-of-supply-limited-steam-machines/",
-          "time": "2026-11-21 00:11:21",
+          "title": "“Race realism” isn’t realistic—and it isn’t good science",
+          "url": "https://arstechnica.com/science/2026/11/race-realism-isnt-realistic-and-it-isnt-good-science/",
+          "time": "2026-11-21 20:01:13",
           "source_name": "Ars Technica"
         },
         {
-          "title": "US will soon announce root cause behind FAA nationwide ground stop",
-          "url": "https://arstechnica.com/gadgets/2026/11/how-faa-can-modernize-us-national-airspace-system-without-emergency-ground-stops/",
-          "time": "2026-11-20 22:52:51",
+          "title": "Trump FCC declares California isn't allowed to enforce phone service rules",
+          "url": "https://arstechnica.com/tech-policy/2026/11/fcc-orders-california-to-stop-enforcing-phone-service-rules-against-att/",
+          "time": "2026-11-21 06:28:24",
           "source_name": "Ars Technica"
         }
       ]
@@ -184,7 +184,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.76,
+      "seconds": 1.6,
       "error": "",
       "samples": [
         {
@@ -206,7 +206,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 2.97,
+      "seconds": 1.74,
       "error": "",
       "samples": [
         {
@@ -228,19 +228,19 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 9,
-      "seconds": 1.59,
+      "seconds": 1.92,
       "error": "",
       "samples": [
         {
-          "title": "#行情 Anthropic盘前跌10%",
-          "url": "https://x.com/fxtrader/status/2123756299838271739?s=20",
-          "time": "2026-11-20 20:32",
+          "title": "纽约时报再发负面报道《威胁、辱骂、妥协：黄仁勋是如何将羞辱变成日常行为的》 https://t.co/Ep81DRwqWy https://t.co/yo1zw3Gr0q",
+          "url": "https://x.com/fxtrader/status/2123951631029194899?s=20",
+          "time": "2026-11-21 09:28",
           "source_name": "外汇交易员"
         },
         {
-          "title": "也门胡塞武装：沙特利雅得阿卜杜拉国王金融区是打击目标，敦促中心所有员工、工作人员及民众立即远离该设施。",
-          "url": "https://x.com/fxtrader/status/2123751374236373400?s=20",
-          "time": "2026-11-20 20:12",
+          "title": "特朗普11月20日白宫记者会主要内容 对华关系：强调个人关系良好，释放经贸合作信号 习近平亲自到机场迎接，这是他从未对其他领导人做过的事情，这体现了习近平对美国的尊重。自己与习近平、普京都保持着良好关系，美国因此更加安全。 特别赞扬了深圳的城市建设，称赞习近平治理中国14亿人口的成绩，认为美国有必要向中国学习。 中国现在是向美国支付最多资金的国家。未来中美经贸关系可以对两国都有利。 特朗普回顾了自己第一任期的对华关税政策，称曾将中国关税提高至145%，但他并不希望中国经济因此彻底崩溃，因为中国需要养活14亿人口。特朗普还提及因芬太尼问题对中国征收的20%关税，称中国仍在承担相应成本。称通过船舶、海运进入美国的芬太尼数量下降了97%，是中美经贸关系改善的重要体现。 芯片问题：领先中国10年，可以向中国出售旧芯片 被问及是否考虑放宽对华出口芯片管制时，表示正与中国讨论一项非常全面的协议。 追问是否会允许更多美国芯片出口中国。回答“我们只希望出售旧一代芯片。如果一片都不出口，我们也不介意，但只能是旧一代芯片。” 特朗普认为，美国在芯片制造领域领先中国大约10年。特别提及了英伟达Blackwell芯片，可能会过时，因此美国需要持续保持技术领先。自己向习近平介绍英伟达创始人黄仁勋，习近平称赞黄仁勋是一位非常优秀的人才。特朗普再次表达希望黄仁勋回归英伟达管理层的意愿。 AI竞争：不希望美国企业在海外建设数据中心 AI竞争实际上只有美国和中国两个主要玩家，因此，双方需要建立一定的监管边界。与习近平同意，在AI领域建立某种联合监管机制。 特朗普还表示，习近平非常喜欢“Super Intelligence（超级智能，SI）”这个词，比AI更准确。 特朗普强调，不希望美国企业在海外建设数据中心。逻辑是，如果美国企业把数据中心建设在海外，中国可能取得这些基础设施及相关资源的竞争优势。如果企业仍然在海外建设，将面临非常高的税收惩罚。希望将AI基础设施和算力投资留在国内。过去美国允许芯片等产业在海外建设，是美国开始失去技术竞争优势的原因之一。 美俄中三边峰会：核武器、联合声明及国际秩序 自己最初并没有意识到这次会面的历史意义，后来才意识到这是一次非常重要的外交事件。 特朗普认为中国正在快速扩充核武库，可能在未来10年内追赶美国。自己很难在美国拥有核优势的情况下主动同意削减核武库，因为这会影响美国的战略威慑能力。 谈到乌克兰问题时，特朗普将自己与习近平、普京之间的讨论形容为某种“2对1”局面。 印太与拉美：压缩中国的战略空间 Quad领导人峰会强调经济安全及供应链韧性、AI技术合作、海上安全及监视行动。 在介绍菲律宾的合作时，直接对菲律宾方面提出问题“如果中国攻击你们，中东国家会来救你们吗？”借此要求菲律宾减少从中东及其他国家采购能源，转而购买美国能源。 记者问，格陵兰、委内瑞拉、巴拿马与太平洋军演是否让此次与习近平的对话拥有更大筹码。特朗普表示美国则重新取得在委内瑞拉的主导地位。 （没有直接谈及台湾、香港或南海问题） https://t.co/AFRPhXErJz",
+          "url": "https://x.com/fxtrader/status/2123950295957098959?s=20",
+          "time": "2026-11-21 09:23",
           "source_name": "外汇交易员"
         }
       ]
@@ -250,7 +250,7 @@
       "ok": true,
       "raw_count": 10,
       "valid_count": 10,
-      "seconds": 1.73,
+      "seconds": 1.82,
       "error": "",
       "samples": [
         {
@@ -272,62 +272,62 @@
     {
       "name": "Reuters",
       "kind": "article",
-      "url": "https://www.reuters.com/world/middle-east/iraqi-security-forces-deploy-iran-backed-militia-stronghold-security-officials-2026-11-20/",
+      "url": "https://www.reuters.com/world/middle-east/israeli-strike-kills-three-vehicle-distributing-aid-gaza-witnesses-say-2026-11-21/",
       "ok": true,
-      "title": "Iraqi security forces deploy in Iran-backed militia stronghold",
-      "length": 5662,
-      "seconds": 2.86,
+      "title": "Israeli strike kills three in vehicle distributing aid in Gaza, witnesses say",
+      "length": 2483,
+      "seconds": 3.97,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "212e52d24d393afa5d59f7fdd6187992c26906b50dc7753efa5f7a2ee3292e1f",
-      "preview": "JURF AL-SAKHAR, Iraq, Nov 20 (Reuters) - Iraqi security forces deployed in Jurf al-Sakhar, a stronghold of the Kataib Hezbollah armed group, on Friday under a d"
+      "content_sha256": "20475233561046280a9f538c9f2b2d61853434ea433545e59f1a1e145623b89d",
+      "preview": "JERUSALEM, Nov 21 (Reuters) - An Israeli strike killed three Palestinians in a vehicle carrying papers and food for the World Central Kitchen charity in Gaza Ci"
     },
     {
       "name": "Bloomberg",
       "kind": "article",
-      "url": "https://www.bloomberg.com/news/articles/2026-11-20/us-stock-futures-dip-as-anthropic-premiere-disappoints-investors",
+      "url": "https://www.bloomberg.com/news/features/2026-11-21/apple-tv-4k-review-new-299-streaming-box-is-excellent-but-too-expensive",
       "ok": true,
-      "title": "S&amp;P 500 Heads for Correction as AI Enthusiasm Keeps Unwinding",
-      "length": 3728,
-      "seconds": 29.07,
+      "title": "The New Apple TV 4K Is a Great Streaming Box at a Bad Price: Review",
+      "length": 9362,
+      "seconds": 14.72,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "1494305bc6c5447c578dca563dcd624b5c521870e4116fa96f7cff63d267251e",
-      "preview": "A slide in the S&P 500 Index on Friday pushed it into a correction territory after a string of disappointing Big Tech earnings and scandal at Nvidia Corp. erode"
+      "content_sha256": "fd2af460c8c243f2c2b306f0ddb4730adfcf795a3f7fa61fb00dd60e8da8567a",
+      "preview": "The Apple TV 4K streaming box has always been a cut above lower-cost devices from Roku Inc., Alphabet Inc.’s Google, and Amazon.com Inc., all of which sprinkle "
     },
     {
       "name": "TechCrunch",
       "kind": "article",
-      "url": "https://techcrunch.com/2026/11/20/chips-can-survive-the-space-environment-can-their-financing/",
+      "url": "https://techcrunch.com/2026/11/20/startup-sues-apple-in-india-over-tap-to-share-contacts-feature/",
       "ok": true,
-      "title": "Chips can survive the space environment. Can their financing?",
-      "length": 3173,
-      "seconds": 1.81,
+      "title": "Startup sues Apple in India over tap-to-share contacts feature",
+      "length": 2768,
+      "seconds": 1.85,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "c54c4443292a5f1f529267a520597e65d5755320cf71e2d25f6c4b3d990ac942",
-      "preview": "The push to build data centers in space faces plenty of obstacles, from tricky engineering to a dearth of rockets that could take chips to orbit. But what about"
+      "content_sha256": "ac5d74a20388bdc20f1130e6762ac9808e1263fd253756f10770bb96e4fa6ab2",
+      "preview": "Apple is being sued in India by a U.S.-based startup that alleges the iPhone maker's NameDrop feature, which lets users share contact information by bringing de"
     },
     {
       "name": "Ars Technica",
       "kind": "article",
-      "url": "https://arstechnica.com/gaming/2026/11/valve-says-it-might-have-to-raise-the-price-of-supply-limited-steam-machines/",
+      "url": "https://arstechnica.com/science/2026/11/race-realism-isnt-realistic-and-it-isnt-good-science/",
       "ok": true,
-      "title": "Valve says it might have to raise the price of supply-limited Steam Machines",
-      "length": 2513,
-      "seconds": 15.84,
+      "title": "“Race realism” isn’t realistic—and it isn’t good science",
+      "length": 16770,
+      "seconds": 15.8,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "5c89fdf7696f2576a05815699f2c79204e645ade770c20dfd75fc1361d75c388",
-      "preview": "When the Steam Machine first started shipping in June, Valve said it was producing fewer units at a higher price than initially planned because it couldn’t secu"
+      "content_sha256": "66aeb128fcfbe822454e74adf4e79793192b93ff5241c27c98cfb653826f8046",
+      "preview": "At this year’s World Economic Forum meeting in Davos, US President Donald Trump stated that people from Somalia have low IQs. “I always say these are low-IQ peo"
     },
     {
       "name": "Reuters list-style article",
@@ -336,7 +336,7 @@
       "ok": true,
       "title": "OpenAI to limit weapons information for teens on ChatGPT in violence-prevention push",
       "length": 1647,
-      "seconds": 3.17,
+      "seconds": 4.34,
       "error": "",
       "article_length": 0,
       "required_text_checks": 7,
@@ -351,7 +351,7 @@
       "ok": true,
       "title": "Israel's parliament sworn in as Eisenkot tries to forge a government",
       "length": 4206,
-      "seconds": 15.83,
+      "seconds": 3.31,
       "error": "",
       "article_length": 0,
       "required_text_checks": 2,
@@ -366,7 +366,7 @@
       "ok": true,
       "title": "ilyasut",
       "length": 769,
-      "seconds": 8.83,
+      "seconds": 16.03,
       "error": "",
       "article_length": 0,
       "required_text_checks": 0,
@@ -380,13 +380,13 @@
       "url": "https://x.com/mingchikuo/status/2078159616832368941",
       "ok": true,
       "title": "mingchikuo",
-      "length": 8779,
-      "seconds": 6.82,
+      "length": 8724,
+      "seconds": 11.08,
       "error": "",
       "article_length": 1906,
       "required_text_checks": 0,
       "forbidden_text_checks": 0,
-      "content_sha256": "ba419c2a4bbf83c4a4f96a2a863db4138ce8856090290aafc8a5a940439aaeed",
+      "content_sha256": "5d70c664151cb70e0bf7058ea2c1b1ab216b7a789caf9aa3f08d3a95de04add7",
       "preview": "【主推文】\nA few quick thoughts on what TSMC said about CoPoS during its Q2 2026 earnings call (screenshot from the transcript). The devil is in the details:\n\n1. The"
     },
     {
@@ -396,7 +396,7 @@
       "ok": true,
       "title": "stripe",
       "length": 4755,
-      "seconds": 7.34,
+      "seconds": 14.42,
       "error": "",
       "article_length": 3851,
       "required_text_checks": 1,
@@ -453,7 +453,7 @@
         "message": "OpenCLI 浏览器扩展 1.0.27 已连接。"
       }
     ],
-    "checked_at": "2026-11-20T17:51:50.578247+00:00"
+    "checked_at": "2026-11-21T14:36:05.951023+00:00"
   },
   "x_login": {
     "checks": [
@@ -473,12 +473,12 @@
         "message": "已验证当前浏览器中的 X 登录会话；此检查不代表全部账号的采集测试已通过。"
       }
     ],
-    "checked_at": "2026-11-20T17:51:59.234821+00:00"
+    "checked_at": "2026-11-21T14:36:14.949929+00:00"
   },
   "ok": true,
   "upstream": {
     "latest": "2.0.3",
-    "checked_at": "2026-11-20T17:55:37.320759+00:00",
+    "checked_at": "2026-11-21T14:39:02.622348+00:00",
     "retained_reason": ""
   },
   "offline_checks_passed": true

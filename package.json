@@ -18,9 +18,9 @@
     "test:collection:live": "python3 scripts/verify_collection_runtime.py --output output/opencli-validation.json --restart-daemon"
   },
   "dependencies": {
-    "@botiverse/oar": "0.125.0",
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@botiverse/oar": "0.128.1",
+    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.6.0",
     "@jackwener/opencli": "2.0.3",
     "prosemirror-commands": "1.7.2",
     "prosemirror-history": "1.5.1",
@@ -38,5 +38,5 @@
     "esbuild": "0.28.2",
     "vitest": "4.1.0"
   },
-  "version": "0.6.6"
+  "version": "0.6.7"
 }

@@ -95,7 +95,13 @@ def test_dsh_desktop_discovery_and_cli_precedence(tmp_path):
     cli = tmp_path / "bin/dsh"
     desktop.parent.mkdir(parents=True)
     cli.parent.mkdir()
-    version = "#!/bin/sh\nprintf '0.2.2-rc.5\\n'\n"
+    version = """#!/bin/sh
+case "$1" in
+    --help) printf 'Usage: dsh [OPTIONS]\\n' ;;
+    --version) printf '0.2.2-rc.5\\n' ;;
+    *) exit 2 ;;
+esac
+"""
     desktop.write_text(version)
     desktop.chmod(0o755)
     env = {**os.environ, "HOME": str(tmp_path), "PATH": str(cli.parent)}

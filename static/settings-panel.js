@@ -164,6 +164,10 @@ export class SettingsPanel {
   }
   async toggle() {
     if (this.open) return this.close();
+    return this.show();
+  }
+  async show(section) {
+    if (this.open) return this.selectSection(section);
     this.lastFocus = document.activeElement;
     this.onOpen?.();
     this.open = true;
@@ -187,8 +191,10 @@ export class SettingsPanel {
     $("#leftNavSettingsBtn").setAttribute("aria-current", "page");
     this.onViewChange?.();
     if (this.saved && this.renderedSettings !== this.saved) this.render();
-    this.selectSection(this.section, {reveal:true, focus:false});
-    (singlePane.matches ? $("#settingsDetailTitle") : $("#settingsListTitle")).focus({preventScroll:true});
+    this.selectSection(section ?? this.section, {reveal: Boolean(section)});
+    if (!section || this.jumpTarget) {
+      $(section ? "#settingsDetailTitle" : "#settingsListTitle").focus({preventScroll:true});
+    }
     if (!this.saved) {
       this.renderLoadState();
       if (this.section !== "help") this.status("正在读取配置…");

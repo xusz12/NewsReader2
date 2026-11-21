@@ -22,9 +22,14 @@ def apply_schema(conn: sqlite3.Connection, schema_path: Path) -> None:
             if name not in columns:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     conn.execute("UPDATE event_topics SET horizontal_rule=? WHERE horizontal_rule=''", (topic_tracking.DEFAULT_HORIZONTAL_RULE,))
-    conn.execute("""UPDATE topic_jobs SET kind='milestone',status='pending',config_json='{}',lease_token=NULL,
+    conn.execute("UPDATE event_topics SET timeline_mode='events' WHERE timeline_mode='monthly'")
+    conn.execute("DROP INDEX IF EXISTS topic_month_key")
+    conn.execute("""UPDATE OR IGNORE topic_jobs SET kind='milestone',status='pending',input_json='{}',config_json='{}',lease_token=NULL,
         lease_until=0,error='',attempts=0,next_attempt_at=0 WHERE kind='update' AND status IN ('pending','running','failed')
-        AND topic_id IN (SELECT id FROM event_topics WHERE timeline_mode='events' AND archived_at IS NULL)""")
+        AND EXISTS (SELECT 1 FROM event_topics t WHERE t.id=topic_jobs.topic_id AND t.status='ready'
+            AND t.revision=topic_jobs.revision AND t.archived_at IS NULL)""")
+    conn.execute("""UPDATE topic_jobs SET status='cancelled',lease_token=NULL,lease_until=0,error=''
+        WHERE kind='update' AND status IN ('pending','running','failed')""")
     topic_tracking.seed_ingestions(conn)
     detail_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(detail_jobs)")}
     for name, kind in (("next_attempt_at", "TEXT"), ("worker_pid", "INTEGER"), ("auto_translate", "INTEGER NOT NULL DEFAULT 0")):

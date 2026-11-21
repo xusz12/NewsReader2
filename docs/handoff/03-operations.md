@@ -77,6 +77,7 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 | `NEWS_READER_TRADING_CALENDAR_PATH` | 留空时后台自动更新上交所年度日历，缓存位于主库同级 `trading-calendar-cache.json` | 仅手工维护日历时设置；指定后关闭自动更新，以该文件为准 |
 | `NEWS_READER_AGENT_RUNTIME_DIR` | 系统临时目录下按项目路径哈希隔离 | 临时会话状态，不作为长期业务备份 |
 | `NEWS_READER_UPDATER_DIR` | 系统临时目录下项目隔离路径 | 更新锁及 `news-reader-updater-state.json` 所在位置 |
+| `NEWS_READER_KEYCHAIN_ACCOUNT` | newsreader-workbench | 可为开发实例选择独立的 macOS 钥匙串账户，Tailscale 启动入口和工具子进程使用同一账户 |
 | `NEWS_READER_PYTHON` | macOS 启动脚本使用的 Python | 可指定依赖已安装的虚拟环境解释器 |
 | `NEWS_READER_NODE` | PATH 中的 node | OAR/Pi 需要 Node 24+ |
 | `NEWS_READER_CODEX` | PATH 中的 codex | 使用接手方安装及登录的 CLI |
@@ -88,7 +89,7 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 
 | `NEWS_READER_LLM_MODEL` | 空时由代码使用翻译默认模型 | 显式保存的模型设置需与服务可用目录核对 |
 
-`NEWS_READER_MANAGED`、`NEWS_READER_INSTANCE_ID`、`NEWS_READER_SUPERVISOR_SOCKET`、`NEWS_READER_SUPERVISOR_TOKEN` 由启动器生成，不应作为手工配置或对外分发。Keychain 账号为 `newsreader-workbench`，服务名使用 `DEEPSEEK_API_KEY` 等；非 macOS 环境不能依赖设置页的 Keychain 写入。
+`NEWS_READER_MANAGED`、`NEWS_READER_INSTANCE_ID`、`NEWS_READER_SUPERVISOR_SOCKET`、`NEWS_READER_SUPERVISOR_TOKEN` 由启动器生成，不应作为手工配置或对外分发。Keychain 默认账号为 `newsreader-workbench`，服务名使用 `DEEPSEEK_API_KEY` 等；非 macOS 环境不能依赖设置页的 Keychain 写入。
 
 应用设置模板来自代码默认值，包含 llm、agent、feed、database、news_summary、tracked 配置。模型默认留空，接手方应在设置页选择和测试。Pi/Codex 沿用各自本机配置与认证；应用不会替团队完成账号登录。
 
@@ -153,7 +154,7 @@ CI=1 npm run test:ui
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
 5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。新版升级器在停服前准备目标锁定依赖，健康检查失败同时恢复代码与依赖；首次从旧升级器迁入时需手动执行一次 `npm ci --ignore-scripts`。每次推送前运行 `npm run check:release`，维护者用 `npm run setup:hooks` 启用自动检查。
 
-每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.125.0 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
+每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.128.1 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
 
 OAR／Pi 升级至少运行 `npm run test:oar`，以及 `python3 -m pytest tests/test_oar_client.py tests/test_oar_pi_news.py tests/test_oar_codex.py tests/test_oar_codex_native.py tests/test_pi_models.py tests/test_codex_client.py tests/test_model_settings.py tests/test_model_catalog_errors.py tests/test_model_catalog_cache.py tests/test_report_model.py tests/test_news_summaries.py tests/test_topic_tracking.py tests/test_personal_assistant.py tests/test_agent_model_picker.py tests/test_chat_archive.py tests/test_agent_conversation.py -q`；`npm ls @botiverse/oar @earendil-works/pi-coding-agent @earendil-works/pi-ai` 应确认共享的 Pi 版本符合依赖范围。真实安装依赖用例使用本地模拟模型验证工具与跨进程续接；原生 Codex 用例缺少可执行文件时会跳过，发布验收须在安装 Codex 的环境实际通过。它们不代表真实搜索、服务商认证或新增 runtime 已验收。迁移范围与未解决能力以[迁移清单](../runtime-migration.md)为准。
 

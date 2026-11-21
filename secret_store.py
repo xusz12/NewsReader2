@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 
 
-KEYCHAIN_ACCOUNT = "newsreader-workbench"
+KEYCHAIN_ACCOUNT = os.environ.get("NEWS_READER_KEYCHAIN_ACCOUNT", "").strip() or "newsreader-workbench"
 
 
 class SecretStoreError(RuntimeError):

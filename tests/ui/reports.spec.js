@@ -216,8 +216,8 @@ test('手机抽屉入口、详情返回、设置往返与来源键盘操作',asy
   await page.locator('.report-sources summary').first().click();
   await expect(page.locator('.report-sources[open]')).toHaveCount(1);
   await openSettings(page);
+  await expect(page.locator('#detailPanelSettings')).toBeHidden();
   const resumed = page.waitForResponse(response=>response.url().includes('/api/reports?kind=daily'));
-  await page.locator('#settingsCategoryBackBtn').click();
   await page.locator('#closeSettingsBtn').click();
   await resumed;
   await expect(page.locator('#detailPanelReports')).toBeInViewport();

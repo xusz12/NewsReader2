@@ -97,7 +97,8 @@ for (const width of [920, 921, 1279, 1280]) {
       await expect(page.locator('#feedColFeed')).toHaveJSProperty('inert', true);
       await page.locator('#mobileReaderBackBtn').click();
       await openSettings(page);
-      await expect(page.locator('#collectionSchedule')).toBeVisible();
+      await expect(page.locator('#settingsSearchInput')).toBeVisible();
+      await expect(page.locator('#detailPanelSettings')).toBeHidden();
       await openSettingsItem(page, 'pipeline');
     } else {
       if (drawer) await page.locator('#openNavBtn').click();

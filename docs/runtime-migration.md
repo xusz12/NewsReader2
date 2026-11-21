@@ -6,9 +6,9 @@ OAR 负责管理底层 runtime。底层仍需要 Pi RPC 进程和 Codex app-serv
 
 ## 外置 DSH 与 DeepSeek 联网工具（2026-11-20）
 
-NewsReader 通过 OAR 0.125.0 调用本机 DSH。探测时优先使用 `OAR_DSH_BIN` 指定的可执行文件，其次使用 `PATH` 中可用的 `dsh`。macOS 还会在个人与系统「应用程序」目录查找官方 DeepSeek Harness 桌面版，并通过系统注册的应用标识 `com.deepseek.dsh` 查找移到其他位置的安装。OAR 直接调用应用包内的 `Contents/Resources/runtime/cli/bin/dsh`，设置页显示识别出的桌面版本和模型数量。另装 CLI 的方式是 `npm install -g @deepseek-ai/dsh`。[官方桌面版说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/README.md)
+NewsReader 通过 OAR 0.128.1 调用本机 DSH。探测时优先使用 `OAR_DSH_BIN` 指定的可执行文件，其次使用 `PATH` 中可用的 `dsh`。macOS 还会在个人与系统「应用程序」目录查找官方 DeepSeek Harness 桌面版，并通过系统注册的应用标识 `com.deepseek.dsh` 查找移到其他位置的安装。OAR 直接调用应用包内的 `Contents/Resources/runtime/cli/bin/dsh`，设置页显示识别出的桌面版本和模型数量。另装 CLI 的方式是 `npm install -g @deepseek-ai/dsh`。[官方桌面版说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/README.md)
 
-设置中选择 DSH 后才探测安装并读取目录，成功的目录缓存两分钟，可手动刷新。各功能分别保存服务商、模型和推理档位。先读取 DSH 的 ACP 与全局模型配置；仅有旧桌面或 Web 配置时，优先读取桌面配置中的模型路由。[OAR DSH 适配器](https://github.com/botiverse/oar/blob/v0.125.0/docs/runtimes/dsh.md)
+设置中选择 DSH 后才探测安装并读取目录，成功的目录缓存两分钟，可手动刷新。各功能分别保存服务商、模型和推理档位。先读取 DSH 的 ACP 与全局模型配置；仅有旧桌面或 Web 配置时，优先读取桌面配置中的模型路由。[OAR DSH 适配器](https://github.com/botiverse/oar/blob/v0.128.1/docs/runtimes/dsh.md)
 
 报告预检从 DSH 读取所选模型的上下文长度，优先采用该模型显式配置的输出上限。若服务商在 DSH 内置模型目录中，预检可按同一服务商和模型 ID 补全输出上限。只提供上下文长度时，报告最多预留 32,768 个输出 token，且不超过上下文的四分之一。缺少有效上下文长度时，预检会提示检查模型配置。
 
@@ -58,7 +58,7 @@ Pi 与 DSH 在这些会话中直接暴露 NR 注册的工具。个人助手也�
 耗时对照：迁移前使用 `codex exec --ephemeral`，同样读取完整对话、沿用原模型／推理强度，并在超长时再次生成。对同一段材料测量，旧 CLI 启动约 0.13 秒，总耗时 54.5 秒，输出 312 字；OAR 会话启动约 0.14 秒，使用 Schema 的整轮耗时 45.9 秒，输出 300 字。两次都使用相同模型及 `max` 推理强度，但输出约束不同且每条路径仅测一次，不能据此声称普遍性能差异；可确认本次主要等待发生在模型生成阶段。没有过去具体成功操作的耗时日志，无法还原当时更快的完整原因。
 
 - **Pi：** OAR 管理 RPC；原生 `--no-session` 不落盘原生会话，`--no-tools` 与通配排除禁用工具，不读项目上下文或技能。临时配置和 NR 目录在结束或超时后清理。
-- **Codex：** OAR 0.125.0 尚无公开的 ephemeral 会话选项。`scripts/oar_codex_ephemeral.mjs` 对锁定版本的 OAR 加载代码做一个受检查的内存补丁，只向原生 `thread/start` 补充 `ephemeral:true`，不修改 node_modules，不另写原生 RPC 客户端。版本或代码接缝改变时明确报错，不退回 CLI，也不改用持久会话。归档关闭 web search，维持只读沙箱，并要求只整理给定材料；OAR 的 Codex 接口尚不能统一禁用所有内置工具，因此不把提示词约束描述成完整的工具隔离。
+- **Codex：** OAR 0.128.1 的临时会话沿用 NewsReader 的适配。`scripts/oar_codex_ephemeral.mjs` 对锁定版本的 OAR 加载代码做一个受检查的内存补丁，只向原生 `thread/start` 补充 `ephemeral:true`，不修改 node_modules，不另写原生 RPC 客户端。版本或代码接缝改变时明确报错，不退回 CLI，也不改用持久会话。归档关闭 web search，维持只读沙箱，并要求只整理给定材料；OAR 的 Codex 接口尚不能统一禁用所有内置工具，因此不把提示词约束描述成完整的工具隔离。
 
 升级 OAR 时必须重新检查该补丁和原生归档用例；上游提供等价公开能力后删除补丁，改用公开选项。DSH 的后台任务可能越过主轮次，宿主跟踪任务 ID，在会话释放前停止仍在运行的任务。
 
@@ -68,7 +68,7 @@ Pi 与 DSH 在这些会话中直接暴露 NR 注册的工具。个人助手也�
 
 新闻总结和主题追踪共享 `news_summaries.run_oar()`，统一使用 OAR JSONL 协议，撤掉该入口的 Codex CLI 命令与原生事件解析；Pi 不再选择 CLI 兼容路线。任务绑定的模型、推理强度、配置快照、900 秒时限、取消、失败与保存事务保持原有约定。
 
-- 新闻总结、主题月度材料整理与时间线精简使用 `task=material_summary`；Pi 无工具、无会话落盘，Codex 关闭搜索、只读沙箱及独立临时会话。宿主发现任何工具调用都会终止该材料任务，不写入结果。Codex 尚无通用内置工具禁用接口，因此不把其提示词与事件拦截称为完全工具隔离。
+- 新闻总结与主题时间线精简使用 `task=material_summary`；Pi 无工具、无会话落盘，Codex 关闭搜索、只读沙箱及独立临时会话。宿主发现任何工具调用都会终止该材料任务，不写入结果。Codex 尚无通用内置工具禁用接口，因此不把其提示词与事件拦截称为完全工具隔离。
 - 主题定义、定义讨论与初始历史研究使用 `task=web_research`，Pi 保留原生搜索扩展、MCP、项目原有信任规则及发现工具，但禁用本地读写和命令工具；Codex 使用原生实时搜索。只统计完成且未报错的搜索调用，搜索开始、工具发现及失败结果不能作为已联网的证据。定义和初始化仍必须有检索证据。
 - 两种 Runtime 都使用新建临时会话，不读取或覆盖新闻聊天的映射；Pi 原生 `--no-session`、Codex 受版本检查的 ephemeral 适配保持无原生会话落盘。结束和取消清理整个自有进程树与私有配置。
 - 预览按实际 JSON 请求估算输入大小，一次性任务不重复传递相同全文作为续聊提示词。原新闻引用、标读事务、主题修订校验、精简预览／应用／恢复逻辑保持不变。
@@ -206,3 +206,11 @@ OAR 由 0.122.0 升至 0.124.0，继续共用 Pi 1.5.2。上游调整了会话�
 OAR 从 0.124.0 升至 0.125.0，继续与项目共享 Pi 1.5.2。上游更新了 Codex 和 Pi 追加宿主指令的处理，以及原生进程异常退出时的诊断。比对两个 npm 正式包后，Codex 会话启动模块 `runtimes/codex/open.js` 的 SHA-256 一致，本版继续对临时归档执行版本与源码校验。[上游变更](https://github.com/botiverse/oar/compare/v0.124.0...v0.125.0)
 
 61 项 OAR 桥接测试和 5 项原生 Codex 测试通过，两次临时归档各自创建独立会话，持久会话文件数为零。在隔离库中，本机 DSH 桌面版使用 OpenCode Go 的 `muse-spark-1.3-contributor` 和 `xhigh` 档位，以两条测试新闻生成晚报。预检读到的上下文长度为 1,048,576 个 token，输出上限为 131,072 个。
+
+## v0.6.7 发布复核
+
+OAR 由 0.125.0 升至 0.128.1，项目与 OAR 共用 Pi 1.6.0。0.126.0 增加 CLI 身份和就绪检查，0.127.0 将 Pi 列为可选依赖，并报告 Codex MCP 启动状态。NewsReader 继续直接声明 Pi 依赖。[0.126.0 发布说明](https://github.com/botiverse/oar/releases/tag/v0.126.0) · [0.127.0 发布说明](https://github.com/botiverse/oar/releases/tag/v0.127.0)
+
+0.128.0 将本轮用量报告移到结束事件之前，并区分缺少凭据与空模型目录。0.128.1 同步 Pi 1.6.0 及 undici 8.12.4，修复续接时恢复工具选择的问题。[0.128.0 发布说明](https://github.com/botiverse/oar/releases/tag/v0.128.0) · [0.128.1 发布说明](https://github.com/botiverse/oar/releases/tag/v0.128.1)
+
+两个 npm 安装包中 Codex 会话启动模块的 SHA-256 一致。归档继续使用版本与代码双重校验的内存补丁，向新会话传递原生临时选项。

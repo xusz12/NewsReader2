@@ -6,6 +6,7 @@ for (const width of [1440,390]) {
     await page.setViewportSize({width,height:844});
     await page.goto('/');
     await openSettings(page);
+    if (width <= 920) await openSettingsItem(page, 'pipeline');
     const visible = page.locator('#settingsContent > [data-workspace]:visible');
     await expect(visible).toHaveAttribute('data-workspace','collection');
     await expect(page.locator('#settingsCollectBtn')).toBeInViewport();
@@ -40,6 +41,10 @@ for (const width of [1440,390]) {
     await openSettingsItem(page,'models');
     await page.keyboard.press('Escape');
     await openSettings(page);
+    if (width <= 920) {
+      await expect(page.locator('#detailPanelSettings')).toBeHidden();
+      await openSettingsItem(page, 'models');
+    }
     await expect(page.locator('#modelSettings')).toBeInViewport();
   });
 }

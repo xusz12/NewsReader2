@@ -332,7 +332,7 @@ export class TopicPanel {
         '<form class="settings-sheet" id="topicDefinitionForm">'+definitionFields(this.drafts.get(t.id))+
         '<div class="button-row" id="topicDefinitionActions" hidden><button class="btn-secondary" type="button" data-topic-action="cancel-edit">取消</button><button class="btn-primary" type="submit">保存修改</button></div><p class="error-state topic-form-error" role="alert"></p></form>';
     } else if(this.page==="complete") {
-      html=formHeading("主题已创建",t.name)+'<dl class="form-group-grid topic-success"><div class="field-item"><dt class="field-label">历史脉络</dt><dd>'+this.data.nodes.length+' 个关键节点</dd></div><div class="field-item"><dt class="field-label">后续时间线</dt><dd>'+(t.timeline_mode==="monthly"?'月度总结':'重要进展')+'</dd></div><div class="field-item"><dt class="field-label">开始追踪</dt><dd>从现在起的新入库新闻</dd></div></dl><div class="button-row"><button class="btn-secondary" type="button" data-topic-action="new">再建一个</button><button class="btn-primary" type="button" data-topic-action="open">查看主题</button></div>';
+      html=formHeading("主题已创建",t.name)+'<dl class="form-group-grid topic-success"><div class="field-item"><dt class="field-label">历史脉络</dt><dd>'+this.data.nodes.length+' 个关键节点</dd></div><div class="field-item"><dt class="field-label">后续时间线</dt><dd>重要进展</dd></div><div class="field-item"><dt class="field-label">开始追踪</dt><dd>从现在起的新入库新闻</dd></div></dl><div class="button-row"><button class="btn-secondary" type="button" data-topic-action="new">再建一个</button><button class="btn-primary" type="button" data-topic-action="open">查看主题</button></div>';
     } else if(this.page==="create") {
       if(t.status==="draft") {
         const d=this.drafts.get(t.id), waiting=activeJob(job), conflict=d.rules_revision!==t.rules_revision;
@@ -569,7 +569,7 @@ export class TopicPanel {
     const selected = nodes.find(node => node.id === this.node) || nodes.at(-1);
     const canRefine = !topic.archived_at && !refinement?.preview && !topic.refine_cooldown && nodes.filter(node => node.kind !== "month").length > 1;
     const canRestore = !topic.archived_at && refinement?.restore && !refinement.preview;
-    const status = activeJob(job) && {update:"正在整理新进展…", milestone:"正在筛选横向重要进展…", refine:"正在合并阶段里程碑…"}[job.kind];
+    const status = activeJob(job) && {milestone:"正在筛选横向重要进展…", refine:"正在合并阶段里程碑…"}[job.kind];
     const cards = nodes.map(node => {
       const active = node === selected;
       const count = node.news_count;

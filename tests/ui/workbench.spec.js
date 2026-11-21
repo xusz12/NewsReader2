@@ -577,8 +577,8 @@ for (const [width, height] of viewports)
       await page.locator("#leftNavSettingsBtn").click();
     }
     if (width <= 920) {
-      await expect(page.locator("#feedColSettings")).toBeVisible();
-      await expect(page.locator("#collectionSchedule")).toBeVisible();
+      await expect(page.locator("#settingsSearchInput")).toBeVisible();
+      await expect(page.locator("#detailPanelSettings")).toBeHidden();
       await page.screenshot({
         animations: "disabled",
         path: `.ui-artifacts/settings-categories-${width}.png`,
@@ -878,7 +878,7 @@ test("mobile settings return to categories and keep the original reader", async 
   const title = await page.locator("#articleMainTitle").textContent();
   await openSettings(page);
   await expect(page.locator("#feedColSettings")).toBeVisible();
-  await expect(page.locator("#collectionSchedule")).toBeVisible();
+  await expect(page.locator("#detailPanelSettings")).toBeHidden();
   await openSettingsItem(page, 'storage');
   await expect(page.locator('[data-section="storage"]')).toBeVisible();
   await expect(page.locator("#feedColSettings")).toHaveJSProperty("inert", true);

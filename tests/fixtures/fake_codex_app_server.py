@@ -11,7 +11,7 @@ if '--version' in sys.argv:
     print('codex-cli 0.167.2')
     sys.exit()
 if '--help' in sys.argv:
-    print('app-server --listen stdio://')
+    print('Usage: codex app-server [OPTIONS] [COMMAND]')
     sys.exit()
 
 thread_id = '0199a213-81c0-7800-8aa1-bbab2a035a53'

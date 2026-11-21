@@ -4,7 +4,7 @@ import { jobErrorText } from "./topic-status.js?v=0.6.4";
 import { failureText, statusText, reportProgress } from "./report-status.js?v=0.6.4";
 
 const phases = {define:"明确主题范围",discuss:"回复主题定义",initialize:"整理历史脉络",
-  update:"整理新进展",milestone:"筛选重要进展",refine:"精简阶段进程"};
+  milestone:"筛选重要进展",refine:"精简阶段进程"};
 const retryTime = value => value ? new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date(value)) : "";
 const topicWorking = row => ["pending","running"].includes(row.job?.status) || row.matching.pending || row.matching.running || (row.matching.waiting_update && row.job?.status !== "failed");
 
@@ -22,12 +22,12 @@ function matchingBlock(routing) {
 
 function topicTask(row, routing, block) {
   const {job, matching} = row;
-  const counts = [["pending","待匹配"],["running","匹配中"],["waiting_update","待整理"],["failed","匹配失败"]]
+  const counts = [["pending","待匹配"],["running","匹配中"],["waiting_update","待筛选"],["failed","匹配失败"]]
     .filter(([key]) => matching[key]).map(([key, label]) => `${label} ${matching[key]} 条`).join(" · ");
   const [blocked, reason] = (needsMatching(row) && block) || [];
   const backup = needsMatching(row) && routing.using_backup && `使用备用服务 ${routing.matching_provider_label}`;
   const retry = job?.status === "pending" && job.next_attempt_at;
-  let stage = matching.running ? "正在匹配新闻" : matching.pending ? "等待匹配新闻" : "等待整理新进展";
+  let stage = matching.running ? "正在匹配新闻" : matching.pending ? "等待匹配新闻" : "等待筛选重要进展";
   if (job) {
     const phase=phases[job.kind] || "处理主题";
     if (job.status === "failed") stage = phase+"失败";

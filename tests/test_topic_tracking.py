@@ -53,27 +53,19 @@ def env(tmp_path, monkeypatch):
         if "1–12 个历史阶段里程碑" in prompt:
             return tt.js({"overview":"交易正在审查","sources":SOURCE,"nodes":[
                 {"date":"2026-01-01","title":"公布收购","body":"双方公布交易","sources":SOURCE}]})
-        batch=json.loads(prompt.split("\n本批新闻：")[1])
-        context=json.loads(prompt.split("\n主题：")[1].split("\n已有概况：")[0]) if "\n主题：" in prompt else {}
-        monthly='"timeline_mode":"monthly"' in prompt
-        return tt.js({"overview":"交易取得新进展","nodes":[{"id":"","date":"2026-10-01" if monthly else "2026-10-24",
-            "title":"十月进展" if monthly else "交易获批","body":"监管已批准本次交易",
-            "item_ids":[i["id"] for i in batch]}]})
+        raise AssertionError("unexpected topic research prompt")
     service=tt.Service(connect,lambda:config,runner=runner)
     monkeypatch.setattr(service,"start",lambda:None)
     return connect,service,calls
 
 
-def ready(service, request_id="create-one", mode="events"):
+def ready(service, request_id="create-one"):
     topic=service.create({"query":"甲收购乙","request_id":request_id})
     assert service.process_one()
     assert service.detail(topic["id"])["topic"]["status"]=="draft"
     service.initialize(topic["id"],DRAFT)
     assert service.process_one()
     assert service.detail(topic["id"])["topic"]["status"]=="ready"
-    if mode == "monthly":  # Existing monthly topics survive removal of the creation option.
-        with closing(service.connect()) as conn,conn:
-            conn.execute("UPDATE event_topics SET timeline_mode='monthly' WHERE id=?",(topic["id"],))
     return topic["id"]
 
 
@@ -260,10 +252,14 @@ def test_edit_captures_preexisting_ingestions_even_before_matching_queue_runs(en
 
 
 def test_new_topics_reject_monthly_mode(env):
-    _,service,_=env
+    connect,service,_=env
     ident=service.create({'query':'交易','request_id':'monthly-rejected'})['id'];service.process_one()
     with pytest.raises(ValueError,match='topic_invalid_input'):
         service.initialize(ident,{**DRAFT,'timeline_mode':'monthly'})
+    with pytest.raises(ValueError,match='topic_invalid_input'):
+        service.discuss(ident,discussion_body(service,ident,timeline_mode='monthly'))
+    with closing(connect()) as conn, pytest.raises(ValueError,match='topic_invalid_input'):
+        service.add_job(conn,service.detail(ident)['topic'],'update')
     assert service.detail(ident)['topic']['status']=='draft'
 
 
@@ -525,29 +521,6 @@ def test_full_reindex_does_not_reenroll_old_news(env,tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM topic_checks").fetchone()[0]==1
 
 
-def test_legacy_monthly_timeline_has_no_search_and_updates_month_in_place(env,monkeypatch):
-    mode="monthly"
-    connect,service,calls=env
-    ident=ready(service,mode=mode)
-    fake_jev(monkeypatch)
-    worker=nc.Service(connect,lambda:("key","model"),topic_queue=tt.MatchQueue())
-    for n in range(2):
-        with closing(connect()) as conn:article(conn,"new"+str(n))
-        worker.process_one("key","model")
-        with closing(connect()) as conn,conn:
-            conn.execute("UPDATE topic_checks SET updated_at=?",(time.time()-10,))
-        assert service.process_one()
-    data=service.detail(ident)
-    assert data["topic"]["overview"]=="交易取得新进展"
-    assert len(data["nodes"])==(2 if mode=="monthly" else 3)
-    if mode=="monthly":
-        node=next(n for n in data["nodes"] if n["kind"]=="month")
-        assert service.detail(ident,node_id=node["id"])["total"]==2
-    assert [web for _,web in calls]==[True,True,False,False]
-    with closing(connect()) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM topic_checks WHERE processed=0 AND matched=1").fetchone()[0]==0
-
-
 def test_invalid_history_never_activates_or_partially_saves(env):
     connect,service,_=env
     topic=service.create({"query":"事件","request_id":"one"})
@@ -609,47 +582,6 @@ def test_read_new_ingestion_is_not_starved_by_category_backlog(env,monkeypatch):
         assert conn.execute("SELECT status FROM item_classifications WHERE item_id='old-unread'").fetchone()[0]=='pending'
 
 
-def test_late_month_preserves_context_outside_recent_nodes(env,monkeypatch):
-    connect,service,calls=env
-    ident=ready(service,mode='monthly')
-    with closing(connect()) as conn:
-        conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES ('old-month',?,'month','2026-01-01','旧月总结','保留这段历史','now')",(ident,))
-        for n in range(85):
-            conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES (?,?,'history','2026-05-01','节点','历史','now')",(str(n),ident))
-        article(conn,'late',published='2026-01-23 12:00:00')
-    fake_jev(monkeypatch)
-    nc.Service(connect,lambda:('k','m'),topic_queue=tt.MatchQueue()).process_one('k','m')
-    with closing(connect()) as conn,conn:conn.execute('UPDATE topic_checks SET updated_at=0')
-    def update(config,prompt,cancel,diagnostics,*,web):
-        assert not web and '保留这段历史' in prompt and 'old-month' in prompt
-        return tt.js({'overview':'合并后','nodes':[{'id':'old-month','date':'2026-01-01','title':'一月总结',
-            'body':'保留这段历史并加入新报道','item_ids':['late']}]})
-    service.runner=update
-    service.process_one()
-    detail=service.detail(ident)
-    assert detail['job']['status']=='done'
-    assert next(n for n in detail['nodes'] if n['id']=='old-month')['body']=='保留这段历史并加入新报道'
-
-
-def test_changed_source_rejects_entire_synthesis(env,monkeypatch):
-    connect,service,_=env
-    ident=ready(service,mode="monthly")
-    with closing(connect()) as conn:article(conn,'changed')
-    fake_jev(monkeypatch)
-    nc.Service(connect,lambda:('k','m'),topic_queue=tt.MatchQueue()).process_one('k','m')
-    with closing(connect()) as conn,conn:conn.execute('UPDATE topic_checks SET updated_at=0')
-    def update(config,prompt,cancel,diagnostics,*,web):
-        with closing(connect()) as conn,conn:
-            conn.execute("UPDATE items SET summary='更正' WHERE id='changed'")
-            tt.enqueue_checks(conn)
-        return tt.js({'overview':'应拒绝','nodes':[]})
-    service.runner=update
-    service.process_one()
-    detail=service.detail(ident)
-    assert detail['job']['error']=='topic_source_changed'
-    assert detail['topic']['overview']=='交易正在审查'
-
-
 def test_deleted_topic_cannot_be_resurrected_by_inflight_result(env):
     connect,service,_=env
     topic=service.create({'query':'交易','request_id':'deleted'})
@@ -664,9 +596,9 @@ def test_deleted_topic_cannot_be_resurrected_by_inflight_result(env):
     assert service.listing()==[]
 
 
-def refinement_data(env, mode='events'):
+def refinement_data(env, *, with_month_node=False):
     connect,service,_=env
-    ident=ready(service,mode=mode)
+    ident=ready(service)
     first=service.detail(ident)['nodes'][0]['id']
     with closing(connect()) as conn,conn:
         conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,sources_json,updated_at) VALUES ('second',?,'event','2026-02-01','审查表态','正在推进审查',?,'now')",(ident,tt.js(SOURCE)))
@@ -678,8 +610,8 @@ def refinement_data(env, mode='events'):
         conn.execute("UPDATE topic_checks SET processed=1")
         conn.executemany('INSERT INTO topic_node_items(node_id,item_id) VALUES (?,?)',[(first,'report-one'),('second','report-two')])
         conn.execute("INSERT INTO item_state(item_id,read_at,updated_at) VALUES ('report-one','now','now')")
-        if mode=='monthly':
-            conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,updated_at) VALUES ('month',?,'month','2026-02-01','月度回顾','保留本月摘要','now')",(ident,))
+        if with_month_node:
+            conn.execute("INSERT INTO topic_nodes(id,topic_id,kind,date,title,body,sources_json,updated_at) VALUES ('month',?,'month','2026-10-01','月度回顾','保留本月摘要',?,'now')",(ident,tt.js(SOURCE)))
             conn.execute("INSERT INTO topic_node_items(node_id,item_id) VALUES ('month','report-two')")
     return ident,first
 
@@ -725,10 +657,10 @@ def test_refinement_cooldown_is_one_calendar_month_from_success(env,monkeypatch,
     assert service.detail(ident)['topic']['refine_cooldown'] is True
 
 
-@pytest.mark.parametrize('mode',['events','monthly'])
-def test_node_news_counts_match_related_reports_independent_of_filter_and_page(env,mode):
+@pytest.mark.parametrize('with_month_node',[False,True])
+def test_node_news_counts_match_related_reports_independent_of_filter_and_page(env,with_month_node):
     connect,service,_=env
-    ident,first=refinement_data(env,mode)
+    ident,first=refinement_data(env,with_month_node=with_month_node)
     before=service.detail(ident,limit=1)
     assert before['topic']['news_count']==2
     assert next(n for n in before['nodes'] if n['id']==first)['news_count']==1
@@ -765,7 +697,7 @@ def test_news_pagination_follows_topic_inclusion_time_and_breaks_ties_by_sequenc
 
 def test_topic_news_uses_live_reading_state_without_changing_membership(env):
     connect,service,_=env
-    ident,_=refinement_data(env,'events')
+    ident,_=refinement_data(env)
     before=service.detail(ident)
     with closing(connect()) as conn,conn:
         conn.execute("""UPDATE item_state SET read_at='read',read_later_at='queued',read_later_done_at=NULL
@@ -782,10 +714,10 @@ def test_topic_news_uses_live_reading_state_without_changing_membership(env):
     assert item['read_at']=='read'
 
 
-@pytest.mark.parametrize('mode',['events','monthly'])
-def test_refinement_preserves_sources_news_links_and_monthly_nodes(env,mode):
+@pytest.mark.parametrize('with_month_node',[False,True])
+def test_refinement_preserves_sources_news_links_and_monthly_nodes(env,with_month_node):
     connect,service,calls=env
-    ident,first=refinement_data(env,mode)
+    ident,first=refinement_data(env,with_month_node=with_month_node)
     before=service.detail(ident)
     def run(config,prompt,cancel,diagnostics,*,web):
         assert not web and '精简现有事件脉络' in prompt
@@ -915,12 +847,103 @@ def test_definition_revision_api_validation_and_conflict(env,api,monkeypatch):
     assert client.patch(url,json=edit_body(service,ident,definition='恢复后使用')).status_code==200
 
 
-def test_migration_preserves_legacy_membership_and_converts_only_pending_event_work(env):
+def legacy_update(conn, ident, status):
+    lease = "old-lease" if status == "running" else None
+    conn.execute("""INSERT INTO topic_jobs(id,topic_id,kind,status,revision,input_json,config_json,lease_token,
+        lease_until,error,attempts,next_attempt_at,created_at,updated_at)
+        SELECT ?,id,'update',?,revision,'{"items":["old"]}','{"runtime":"pi"}',?,
+            ?,?,3,2000,'old','old' FROM event_topics WHERE id=?""",
+        (ident+"-update", status, lease, time.time()+600 if lease else 0,
+         "topic_runtime_failed" if status == "failed" else "", ident))
+
+
+@pytest.mark.parametrize("status", ["pending", "running", "failed"])
+def test_monthly_upgrade_preserves_history_and_routes_unprocessed_news_to_decisions(env, monkeypatch, status):
+    connect, service, agent_calls = env
+    ident, _ = refinement_data(env, with_month_node=True)
+    queue = tt.MatchQueue()
+    with closing(connect()) as conn, conn:
+        conn.execute("UPDATE event_topics SET timeline_mode='monthly' WHERE id=?", (ident,))
+        article(conn, "awaiting-decision")
+        match = queue.claim(conn)
+        queue.finish(conn, match, {ident: {"choice": "属于", "model": "test"}})
+        legacy_update(conn, ident, status)
+        topic_before = dict(conn.execute("SELECT * FROM event_topics WHERE id=?", (ident,)).fetchone())
+        month_before = dict(conn.execute("SELECT * FROM topic_nodes WHERE id='month'").fetchone())
+        links_before = list(conn.execute("SELECT * FROM topic_node_items ORDER BY node_id,item_id"))
+    before = service.detail(ident, node_id="month")
+    with closing(connect()) as conn:
+        for _ in range(2):
+            apply_schema(conn, ROOT/"schema.sql")
+        assert dict(conn.execute("SELECT * FROM event_topics WHERE id=?", (ident,)).fetchone()) == {
+            **topic_before, "timeline_mode": "events"}
+        assert list(conn.execute("SELECT * FROM topic_node_items ORDER BY node_id,item_id")) == links_before
+        job = conn.execute("""SELECT kind,status,input_json,config_json,lease_token,lease_until,error,attempts,next_attempt_at
+            FROM topic_jobs WHERE id=?""", (ident+"-update",)).fetchone()
+        assert tuple(job) == ("milestone", "pending", "{}", "{}", None, 0, "", 0, 0)
+        assert dict(conn.execute("SELECT item_id,processed FROM topic_checks WHERE topic_id=?", (ident,))) == {
+            "report-one": 1, "report-two": 1, "awaiting-decision": 0}
+    after = service.detail(ident, node_id="month")
+    assert after["nodes"] == before["nodes"] and after["items"] == before["items"]
+    assert {i["id"] for i in after["items"]} == {"report-one", "report-two", "awaiting-decision"}
+
+    calls = fake_jev(monkeypatch)
+    worker = nc.Service(connect, lambda: ("key", "model"), topic_queue=queue)
+    service.settings = lambda: pytest.fail("important progress requested an Agent configuration")
+    assert not service.process_one()
+    assert worker.process_one("key", "model")
+    with closing(connect()) as conn:
+        article(conn, "later-report", title="交易已完成")
+    assert worker.process_one("key", "model")
+    with closing(connect()) as conn, conn:
+        conn.execute("UPDATE topic_checks SET updated_at=0 WHERE item_id='later-report'")
+    assert not service.process_one()
+    assert worker.process_one("key", "model")
+    decisions = [call for call in calls if "milestone" in call["questions"]]
+    assert len(decisions) == 2
+    for call in decisions:
+        assert "existing:month" not in call["questions"]["milestone"]["criteria"]
+    assert len(agent_calls) == 2
+    with closing(connect()) as conn:
+        assert [dict(row) for row in conn.execute("SELECT * FROM topic_nodes WHERE kind='month'")] == [month_before]
+        event_news = dict(conn.execute("""SELECT x.item_id,n.kind FROM topic_node_items x
+            JOIN topic_nodes n ON n.id=x.node_id WHERE x.item_id IN ('awaiting-decision','later-report')"""))
+        assert event_news == {"awaiting-decision": "event", "later-report": "event"}
+
+
+@pytest.mark.parametrize("case,old_status", [
+    ("archived", "running"), ("stale", "running"), ("other_active", "failed"), ("done", "done"),
+])
+def test_monthly_upgrade_respects_archives_revisions_and_existing_jobs(env, case, old_status):
+    connect, service, _ = env
+    ident = ready(service)
+    if case == "archived":
+        service.set_archived(ident, True)
+    with closing(connect()) as conn, conn:
+        conn.execute("UPDATE event_topics SET timeline_mode='monthly' WHERE id=?", (ident,))
+        legacy_update(conn, ident, old_status)
+        if case == "stale":
+            conn.execute("UPDATE topic_jobs SET revision=revision-1 WHERE kind='update'")
+        if case == "other_active":
+            service.add_job(conn, dict(conn.execute("SELECT * FROM event_topics WHERE id=?", (ident,)).fetchone()), "refine")
+        apply_schema(conn, ROOT/"schema.sql")
+        topic = conn.execute("SELECT timeline_mode,archived_at FROM event_topics WHERE id=?", (ident,)).fetchone()
+        assert topic["timeline_mode"] == "events" and bool(topic["archived_at"]) == (case == "archived")
+        job = conn.execute("SELECT status,lease_token FROM topic_jobs WHERE kind='update'").fetchone()
+        if case == "done":
+            assert job["status"] == "done"
+        else:
+            assert tuple(job) == ("cancelled", None)
+        active = [r[0] for r in conn.execute("SELECT kind FROM topic_jobs WHERE status IN ('pending','running')")]
+        assert active == (["refine"] if case == "other_active" else [])
+
+
+def test_older_schema_preserves_event_membership_and_migrates_pending_work(env):
     connect,service,_=env;ident=ready(service)
     with closing(connect()) as conn,conn:
         article(conn,'news');queue=tt.MatchQueue();work=queue.claim(conn)
         queue.finish(conn,work,{ident:{'choice':'属于','model':'test'}})
-        service.add_job(conn,service.detail(ident)['topic'],'update')
+        legacy_update(conn,ident,"pending")
     before=service.detail(ident)
     with closing(connect()) as conn,conn:
         for table,fields in [('event_topics',['horizontal_rule','rules_revision']),('topic_checks',['rules_json']),('topic_jobs',['attempts','next_attempt_at'])]:
@@ -998,26 +1021,6 @@ def test_archiving_one_topic_does_not_interrupt_other_memberships(env):
         queue.finish(conn,work,{ident:{'choice':'属于','model':'test'} for ident in ids})
     assert service.detail(ids[0])['total']==0
     assert service.detail(ids[1])['total']==1
-
-
-def test_archive_rejects_inflight_synthesis(env,monkeypatch):
-    connect,service,_=env
-    ident=ready(service,mode="monthly")
-    with closing(connect()) as conn:article(conn,'pending-synthesis')
-    fake_jev(monkeypatch)
-    nc.Service(connect,lambda:('k','m'),topic_queue=tt.MatchQueue()).process_one('k','m')
-    with closing(connect()) as conn,conn:conn.execute('UPDATE topic_checks SET updated_at=0')
-    before=service.detail(ident)
-    def update(config,prompt,cancel,diagnostics,*,web):
-        service.set_archived(ident,True)
-        assert cancel()
-        return tt.js({'overview':'不应覆盖','nodes':[]})
-    service.runner=update
-    assert service.process_one()
-    after=service.detail(ident)
-    assert after['job']['status']=='cancelled'
-    assert after['topic']['overview']==before['topic']['overview']
-    assert after['nodes']==before['nodes'] and after['items']==before['items']
 
 
 def test_archive_api_validation_idempotence_and_active_limit(env,api,monkeypatch):
