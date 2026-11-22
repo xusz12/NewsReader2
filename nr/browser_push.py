@@ -169,6 +169,14 @@ def deliver(subscription, payload, private_key, origin, ttl):
             return 503
 
 
+def retry_delay(status, attempts, endpoint):
+    if status == 410 and attempts == 0 and urlsplit(endpoint).hostname == "fcm.googleapis.com":
+        return 60
+    if status in (408, 429) or 500 <= status < 600:
+        return min(900, 30 * 2 ** min(attempts, 5))
+    return None
+
+
 class Service:
     def __init__(self, db, sender=deliver):
         self.db = db
@@ -351,11 +359,12 @@ class Service:
             conn.execute("BEGIN IMMEDIATE")
             if not conn.execute("SELECT 1 FROM browser_push_deliveries WHERE rowid=? AND lease=?", (row["rowid"], row["lease"])).fetchone():
                 return True
-            if status in (404, 410):
-                self.remove(conn, row["device_id"])
-            elif status in (408, 429) or 500 <= status < 600:
+            delay = retry_delay(status, row["attempts"], subscription["endpoint"])
+            if delay is not None:
                 conn.execute("UPDATE browser_push_deliveries SET next_attempt=?,lease='' WHERE rowid=?",
-                             (time.time() + min(900, 30 * 2 ** min(row["attempts"], 5)), row["rowid"]))
+                             (time.time() + delay, row["rowid"]))
+            elif status in (404, 410):
+                self.remove(conn, row["device_id"])
             else:
                 conn.execute("DELETE FROM browser_push_deliveries WHERE rowid=?", (row["rowid"],))
         return True

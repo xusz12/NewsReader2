@@ -351,7 +351,7 @@ def test_device_types_seen_and_restart(instance, monkeypatch):
 
 def test_toggles_and_expired_subscription_do_not_replay_events(instance):
     app, service = instance
-    device = subscription("expires")
+    device = subscription("expires", host="updates.push.services.mozilla.com")
     service.public_key()
     request_device(app, "PUT", device, ["daily_report"])
     with closing(service.db.connect()) as conn, conn:
@@ -368,3 +368,26 @@ def test_toggles_and_expired_subscription_do_not_replay_events(instance):
     service.step()
     assert len(sent) == 1 and sent[0][1]["target"] == {"id":"next"}
     assert request_device(app, "POST", device).json["registered"] is False
+
+
+@pytest.mark.parametrize("confirmation", [201, 410])
+def test_fcm_gone_on_first_delivery_is_confirmed_after_restart(instance, confirmation):
+    app, service = instance
+    device = subscription("new-fcm")
+    service.public_key()
+    request_device(app, "PUT", device, ["daily_report"])
+    with closing(service.db.connect()) as conn, conn:
+        push_events.record(conn, "daily_report", "period", {"id":"first"}, "")
+    since = time.time()
+    service.sender = lambda *args: 410
+    assert service.step()
+    assert request_device(app, "POST", device).json["registered"]
+    restarted = browser_push.Service(service.db, sender=lambda *args: confirmation)
+    assert not restarted.step()
+    with closing(service.db.connect()) as conn, conn:
+        due, attempts = conn.execute("SELECT next_attempt,attempts FROM browser_push_deliveries").fetchone()
+        assert since + 60 <= due <= time.time() + 60 and attempts == 1
+        conn.execute("UPDATE browser_push_deliveries SET next_attempt=0")
+    assert restarted.step()
+    assert request_device(app, "POST", device).json["registered"] is (confirmation == 201)
+    assert not restarted.step()
