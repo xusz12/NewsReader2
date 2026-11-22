@@ -49,17 +49,19 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 | --- | --- |
 | `python3 app.py` | 直接启动 Flask、初始化数据库和工作线程；适合首次演练，不支持受控升级 |
 | `python3 updater.py --serve` | 通过 supervisor 管理实例、重启、健康检查和升级；默认本机监听 |
-| `./启动NewsReader.command` | macOS 入口，优先使用项目 `.venv`，检查依赖后停止并替换同项目旧受管实例，健康检查通过后打开浏览器；未指定 host 时分别检测独立 Tailscale 与 Surge，依次选择可绑定的客户端地址、可入站的 Surge 节点、本机 127.0.0.1 |
+| `./启动NewsReader.command` | macOS Finder 启动入口，优先使用项目 `.venv`，检查依赖后替换同项目旧受管实例。默认打开 `http://127.0.0.1:8080/`，并在启动终端列出本机和其他设备可用的地址 |
 | `python3 launcher.py --replace-existing` | 同样执行旧受管实例替换；直接从终端使用当前 Python，监听地址按环境配置 |
 | `python3 tests/ui/server.py` | 临时测试库和模型替身；端口 8765，仅用于演示及测试 |
 
 日常受控启动前，加载接手方环境文件，再执行 `python3 updater.py --serve` 或 `.command`。新开终端不会继承上一终端的导出变量；Finder 双击也不会自动加载 shell 环境文件。**本项目不自动读取 `.env`**，示例文件必须显式 `source`，或由服务管理器注入环境。
 
-需要固定本机访问时显式设置 `NEWS_READER_HOST=127.0.0.1`。Tailscale 仅改变网络可达性，不提供应用内用户权限。停止测试服务时在启动终端按 Ctrl+C；不要用按进程名批量结束 Python 的方式停服务。
+显式设置 `NEWS_READER_HOST` 时，监听和自动打开沿用该设置。只监听 IPv4 回环可设 `NEWS_READER_HOST=127.0.0.1`，回环上的 Tailscale Serve 和 Surge 入站仍可访问。停止测试服务时可在启动终端按 Ctrl+C。
 
-`network_access.py` 在每次启动时并行检测两种实现，每路 CLI 探测总超时4秒。独立客户端使用 `status --json` 的本机地址，要求运行状态有效、未明确离线，并在随机端口验证本机可绑定；停止后的保留 IP 不作为候选，8080 被旧实例占用也不会误判接口失效。CLI 从 PATH、`/Applications`、用户 Applications 和常见 Homebrew 目录发现，调用 Tailscale 应用内 CLI 时设置 `TAILSCALE_BE_CLI=1`，不弹出 GUI 或登录流程。
+`network_access.py` 在每次启动时并行检测独立 Tailscale 客户端与 Surge，各路 CLI 探测最多 4 秒。未设置监听主机时，同一实例监听 `127.0.0.1` 和独立客户端当前可绑定的 IPv4 地址；独立客户端地址无法监听时，本机入口仍可用。CLI 从 PATH、`/Applications`、用户 Applications 和常见 Homebrew 目录发现。调用 Tailscale 应用内 CLI 时设置 `TAILSCALE_BE_CLI=1`。
 
-Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本机网卡上，不能直接设成 `NEWS_READER_HOST`。启动器通过 `surge-cli` 的有效配置和 `proxy-runtime-status` 动态读取就绪节点；只有可接收入站访问的节点参与自动选择。若独立客户端不可用而 Surge 可用，服务监听 `127.0.0.1`，手机访问提示中的 Surge 节点地址与端口。Surge 未启用 `allow-peer-access` 时仍继续检查独立客户端，不能因此提前选中本机地址。两者均不可用、未安装或探测失败时回退到本机，显式 host 始终优先。探测不修改网络配置、不输出配置正文或凭据。
+Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点。已就绪并允许入站访问时，其他设备可用终端提示中的 Surge 地址和端口，经 Surge 访问本机回环服务。
+
+启动终端优先显示当前实例可用的尾网私有 HTTPS，并将它标为「推荐」。终端只列出转发到本实例回环端口的私有 HTTPS 根地址。正式版默认用 `8080`，开发版可用其他端口，比如 `18080`。查看转发目标可在 Mac 上运行 `tailscale serve status`。如果只有尾网 HTTP 网址，其他设备可通过它阅读。若要收浏览器通知，请先为当前实例配置私有 HTTPS。[浏览器通知](../browser-push.md)
 
 重复双击 `.command` 会请求旧启动器关闭它拥有的服务，等待服务锁释放后，由新终端接管新实例；连续启动请求按顺序处理。旧实例不健康也可替换，旧实例正在更新时先等待更新及回退流程结束。交接等待上限90秒，超时不启动第二个服务并报告失败，不强杀更新；已收到关闭请求的旧启动器仍会在更新完成后退出。旧版启动器通过同用户、同项目的私有锁文件和进程命令核验后接收 SIGTERM。
 
@@ -74,8 +76,8 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点，通常不在本
 | `NEWS_READER_APP_SETTINGS_PATH` | 项目根目录 `app_settings.json` | 建议放到专用数据目录 |
 | `NEWS_READER_MEDIA_CACHE_DIR` | 主库同级 `media-cache` | 保留与数据库媒体索引的配套关系 |
 | `NEWS_READER_AGENT_DB_PATH` | 主库同级 `agent_sessions.sqlite3` | 不同部署应使用独立路径 |
-| `NEWS_READER_PUSH_ORIGIN` | 私有 HTTPS 源地址，留空时浏览器通知关闭 | Tailscale Serve 接入与开发启动器配置见[浏览器通知](../browser-push.md) |
-| `NEWS_READER_PUSH_LOOPBACK_PORT` | 留空时关闭本机订阅入口。启用时填写本机回环监听端口 | 与私有 HTTPS 入口共享密钥，限制为直连 `127.0.0.1` 及准确的 Host 和 Origin |
+| `NEWS_READER_PUSH_ORIGIN` | 私有 HTTPS 源地址。Finder 启动器可从匹配的 Serve 映射自动填写 | 显式赋值优先，显式空字符串关闭通知。[浏览器通知](../browser-push.md) |
+| `NEWS_READER_PUSH_LOOPBACK_PORT` | 本机订阅入口的回环端口。Finder 启动器可与发现的私有 HTTPS 一起自动填写 | 显式赋值优先，显式空字符串关闭本机入口。限制为直连 `127.0.0.1` 及准确的 Host 和 Origin |
 | `NEWS_READER_TRADING_CALENDAR_PATH` | 留空时后台自动更新上交所年度日历，缓存位于主库同级 `trading-calendar-cache.json` | 仅手工维护日历时设置；指定后关闭自动更新，以该文件为准 |
 | `NEWS_READER_AGENT_RUNTIME_DIR` | 系统临时目录下按项目路径哈希隔离 | 临时会话状态，不作为长期业务备份 |
 | `NEWS_READER_UPDATER_DIR` | 系统临时目录下项目隔离路径 | 更新锁及 `news-reader-updater-state.json` 所在位置 |

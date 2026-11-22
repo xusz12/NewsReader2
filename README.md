@@ -30,7 +30,7 @@ npm run check:collection
 ./启动NewsReader.command
 ```
 
-启动器会自动打开浏览器，默认端口为 `8080`。以后可直接在 Finder 中双击 `启动NewsReader.command`。其他启动方式和监听地址见[安装运行与维护](docs/handoff/03-operations.md#启动方式的区别)。
+以后可直接在 Finder 中双击 `启动NewsReader.command`，默认会打开 `http://127.0.0.1:8080/`。手机或其他电脑连上 Tailscale 后，使用启动终端「其他设备」下的推荐私有 HTTPS 网址。只有 HTTP 入口时仍可阅读，浏览器通知需要为该实例配置私有 HTTPS。[安装运行与维护](docs/handoff/03-operations.md#启动方式的区别) · [浏览器通知](docs/browser-push.md)
 
 首次采集时，在服务所在电脑上连接 Chrome 的 OpenCLI 扩展，到「设置 → API 与运行环境 → 采集环境检查」确认连接。在「采集与处理」选择正文翻译服务，然后回到「采集排期」点击「立即采集」。浏览器来源需要 Chrome 保持运行，公开 RSS 可独立采集。[OpenCLI 安装与升级](docs/opencli-integration.md) · [分类与翻译设置](docs/reading-and-research.md#新闻分类与翻译)
 

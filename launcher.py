@@ -4,6 +4,8 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import hmac
+from http.client import HTTPException
+from importlib.util import find_spec
 import json
 import os
 from pathlib import Path
@@ -17,6 +19,7 @@ import threading
 import time
 import uuid
 
+from network_access import discover_connections, discover_private_serve_origins
 from updater import local_health_url, open_local_url as urlopen, _write_state as write_update_state
 
 ROOT = Path(__file__).resolve().parent
@@ -98,6 +101,7 @@ class Supervisor:
         health_timeout: float = 30.0,
         replace_existing: bool = False,
         replacement_timeout: float = 90.0,
+        detect_network: bool = False,
     ):
         self.root = Path(root).resolve()
         source_env = dict(os.environ if env is None else env)
@@ -114,6 +118,8 @@ class Supervisor:
         self.health_timeout = health_timeout
         self.replace_existing = replace_existing
         self.replacement_timeout = replacement_timeout
+        self.detect_network = detect_network
+        self.default_host = host is None and not source_env.get("NEWS_READER_HOST")
         self.runtime_dir = Path(tempfile.gettempdir()) / f"news-reader-{os.getuid()}-{hashlib.sha256(str(self.root).encode()).hexdigest()[:16]}"
         self.socket_path = str(self.runtime_dir / "control.sock")
         self.lock_path = self.runtime_dir / "supervisor.lock"
@@ -122,6 +128,7 @@ class Supervisor:
         self.base_env["NEWS_READER_HOST"] = self.host
         self.base_env["NEWS_READER_PORT"] = str(self.port)
         self.base_env["NEWS_READER_MANAGED"] = "1"
+        self.base_env.pop("NEWS_READER_TAILSCALE_BIND", None)
         self.base_env["NEWS_READER_UPDATER_DIR"] = source_env.get("NEWS_READER_UPDATER_DIR", str(self.runtime_dir))
         self.base_env["NEWS_READER_SUPERVISOR_SOCKET"] = self.socket_path
         self.base_env["NEWS_READER_SUPERVISOR_TOKEN"] = self.token
@@ -202,7 +209,8 @@ class Supervisor:
         if not value.isdecimal() or int(value) in {0, 1, os.getpid()}:
             return None
         pid = int(value)
-        snapshot = self._project_process(pid, ("launcher.py", "launcher.py --replace-existing", "updater.py --serve"))
+        snapshot = self._project_process(pid, ("launcher.py", "launcher.py --replace-existing",
+                                               "launcher.py --replace-existing --detect-network", "updater.py --serve"))
         return (pid, snapshot) if snapshot else None
 
     def _project_process(self, pid: int, scripts: tuple[str, ...]) -> str | None:
@@ -366,10 +374,7 @@ class Supervisor:
             if process.poll() is not None:
                 return False
             try:
-                with urlopen(self.health_url, timeout=0.5) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-                if (payload.get("ok") is not True or payload.get("commit") != commit
-                        or payload.get("instance_id") != instance_id):
+                if not self._service_matches(self.health_url, commit, instance_id):
                     time.sleep(0.1)
                     continue
                 for path in ("/", "/static/app.js", "/static/style.css"):
@@ -377,9 +382,56 @@ class Supervisor:
                         if response.status != 200:
                             raise OSError("static health check failed")
                 return process.poll() is None
-            except (OSError, ValueError, json.JSONDecodeError):
+            except (OSError, ValueError, HTTPException):
                 time.sleep(0.1)
         return False
+
+    @staticmethod
+    def _service_matches(url: str, commit: str, instance_id: str) -> bool:
+        try:
+            with urlopen(url, timeout=0.5) as response:
+                payload = json.loads(response.read(8192))
+            return (isinstance(payload, dict) and payload.get("ok") is True
+                    and payload.get("commit") == commit and payload.get("instance_id") == instance_id)
+        except (OSError, ValueError, HTTPException):
+            return False
+
+    def _configure_browser_push(self, origins, push_installed):
+        if origins and push_installed and self.host in {"127.0.0.1", "0.0.0.0", "localhost"}:
+            origin = self.base_env.setdefault("NEWS_READER_PUSH_ORIGIN", origins[0]).strip().removesuffix("/")
+            if origin in origins:
+                self.base_env.setdefault("NEWS_READER_PUSH_LOOPBACK_PORT", str(self.port))
+
+    def _report_network_access(self, client_address, surge_nodes, origins, push_installed, commit, instance_id):
+        local_url = local_health_url("127.0.0.1", self.port)
+        loopback_ready = self.health_url == local_url or self._service_matches(local_url, commit, instance_id)
+        print(f"本机（自动打开）：{self.browser_url}/", flush=True)
+
+        origins = origins if loopback_ready else []
+        push_origin = self.base_env.get("NEWS_READER_PUSH_ORIGIN", "").strip().removesuffix("/")
+        for index, origin in enumerate(sorted(origins, key=lambda value: value != push_origin)):
+            recommendation = "推荐，" if index == 0 else ""
+            usage = "阅读及浏览器通知" if push_installed and push_origin == origin else "阅读，浏览器通知需配置"
+            print(f"其他设备（{recommendation}连接 Tailscale，私有 HTTPS，{usage}）：{origin}/", flush=True)
+
+        client_ready = client_address and self._service_matches(
+            local_health_url(client_address, self.port), commit, instance_id)
+        if client_ready:
+            print(f"其他设备（连接 Tailscale，HTTP 阅读）：http://{client_address}:{self.port}/", flush=True)
+        surge_addresses = [node["address"] for node in surge_nodes if node["incoming_enabled"]] if loopback_ready else []
+        for address in surge_addresses:
+            if not client_ready or address != client_address:
+                print(f"其他设备（连接 Surge 的 Tailscale 尾网，HTTP 阅读）：http://{address}:{self.port}/", flush=True)
+
+        if not origins:
+            if not client_ready and not surge_addresses:
+                print("未发现本实例可用的尾网阅读入口。", flush=True)
+            print(f"未发现本实例可用的私有 HTTPS（回环端口 {self.port}）。"
+                  "在 Mac 终端运行 tailscale serve status 查看转发目标。", flush=True)
+        if not push_installed and origins:
+            print("浏览器通知需要 pywebpush，请在启动器使用的 Python 环境安装 requirements.txt。", flush=True)
+        elif push_origin not in origins:
+            print("其他设备要收浏览器通知，请按 docs/browser-push.md 配置本实例的私有 HTTPS 和通知。", flush=True)
 
     @staticmethod
     def _stop_owned_process(process: subprocess.Popen, timeout: float = 5.0) -> None:
@@ -619,9 +671,19 @@ class Supervisor:
                 self._replace_existing()
             if self.replace_existing:
                 self._stop_leftover_service()
+            if self.detect_network:
+                client_address, surge_nodes = discover_connections()
+                if client_address and self.default_host:
+                    self.base_env["NEWS_READER_TAILSCALE_BIND"] = client_address
+                origins = discover_private_serve_origins(self.port)
+                push_installed = find_spec("pywebpush") is not None
+                self._configure_browser_push(origins, push_installed)
             expected_commit = _git_head(self.root)
             print(f"正在启动 NewsReader：{self.browser_url}", flush=True)
-            self._spawn_service(expected_commit)
+            _, instance_id = self._spawn_service(expected_commit)
+            if self.detect_network:
+                self._report_network_access(client_address, surge_nodes, origins, push_installed,
+                                            expected_commit, instance_id)
             try:
                 self.opener(self.browser_url)
             except (OSError, subprocess.CalledProcessError) as exc:
@@ -675,10 +737,9 @@ class Supervisor:
         return self.exit_code
 
 
-def main(*, replace_existing: bool = False) -> int:
+def main(*, replace_existing: bool = False, detect_network: bool = False) -> int:
     try:
-        host, port, _, _ = resolve_config()
-        return Supervisor(host=host, port=port, replace_existing=replace_existing).run()
+        return Supervisor(replace_existing=replace_existing, detect_network=detect_network).run()
     except (OSError, ValueError) as exc:
         print(f"启动 NewsReader 失败：{exc}", file=sys.stderr)
         return 1
@@ -688,4 +749,5 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--replace-existing", action="store_true", help="stop the previous project instance before starting")
-    raise SystemExit(main(replace_existing=parser.parse_args().replace_existing))
+    parser.add_argument("--detect-network", action="store_true", help="detect Tailscale and Surge access")
+    raise SystemExit(main(**vars(parser.parse_args())))

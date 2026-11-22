@@ -32,6 +32,25 @@ def test_serve_origin_requires_private_https_on_the_exact_development_target():
     assert not network_access.private_serve_origin(config | {"TCP":{"443":{"HTTP":True}}}, 18080)
 
 
+def test_serve_separates_formal_and_development_ports_and_rejects_funnel():
+    host = "mac.example.ts.net"
+    development = f"{host}:443"
+    formal = f"{host}:8443"
+    config = {
+        "TCP": {"443": {"HTTPS": True}},
+        "Web": {development: {"Handlers": {"/": {"Proxy": "http://127.0.0.1:18080"}}}},
+        "Foreground": {"session": {
+            "TCP": {"8443": {"HTTPS": True}},
+            "Web": {formal: {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8080/"}}}},
+        }},
+    }
+    assert network_access.private_serve_origins(config, 8080, host) == [f"https://{formal}"]
+    assert network_access.private_serve_origins(config, 18080, host) == [f"https://{host}"]
+    assert not network_access.private_serve_origins(config, 8080, "old.example.ts.net")
+    assert not network_access.private_serve_origins(config | {"AllowFunnel": {formal: True}}, 8080)
+    assert not network_access.private_serve_origins(config | {"Foreground": "unrecognized"}, 8080)
+
+
 def test_disconnected_tailscale_does_not_reopen_cached_serve_mapping(tmp_path):
     cli = tmp_path / "tailscale"
     cli.touch()
@@ -84,31 +103,6 @@ def test_surge_hint_uses_loopback_and_reports_missing_inbound_access(monkeypatch
     assert "100.79.126.62" in output.err
     assert "http://127.0.0.1:8081" in output.err
     assert "allow-peer-access" in output.err
-
-
-@pytest.mark.parametrize("explicit_host", [None, "127.0.0.2"])
-@pytest.mark.parametrize("detected_host", ["127.0.0.1", "100.79.126.62"])
-def test_startup_script_uses_detected_network_and_preserves_explicit_host(tmp_path, explicit_host, detected_host):
-    import os
-    from pathlib import Path
-    import shutil
-    import sys
-    project = tmp_path/"project"
-    project.mkdir()
-    shutil.copy2(Path(__file__).resolve().parents[1]/"启动NewsReader.command", project/"启动NewsReader.command")
-    (project/"network_access.py").write_text(f"print({detected_host!r})\n")
-    (project/"launcher.py").write_text("import os\nprint('selected='+os.environ['NEWS_READER_HOST'])\n")
-    tailscale = tmp_path/"tailscale"
-    marker = tmp_path/"tailscale-called"
-    tailscale.write_text(f"#!/bin/sh\ntouch '{marker}'\nprintf '100.88.185.111\\n'\n")
-    tailscale.chmod(0o755)
-    env = {**os.environ, "NEWS_READER_PYTHON":sys.executable, "NEWS_READER_NO_ALERT":"1", "PATH":str(tmp_path)+os.pathsep+os.environ["PATH"]}
-    env.pop("NEWS_READER_HOST", None)
-    if explicit_host: env["NEWS_READER_HOST"] = explicit_host
-    result = subprocess.run(["zsh",str(project/"启动NewsReader.command")], env=env, capture_output=True, text=True, timeout=10)
-    assert result.returncode == 0, result.stderr
-    assert "selected="+(explicit_host or detected_host) in result.stdout
-    assert not marker.exists()
 
 
 @pytest.mark.parametrize("client,surge,provider,host", [

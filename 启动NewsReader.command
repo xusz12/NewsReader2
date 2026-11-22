@@ -100,19 +100,7 @@ if [[ -n "$OAR_NODE" ]] && command -v "$OAR_NODE" >/dev/null 2>&1; then
   fi
 fi
 
-# Detect both implementations on each launch; explicit host settings always win.
-if [[ -z "${NEWS_READER_HOST:-}" ]]; then
-  network_host="$("$PYTHON_BIN" "$SCRIPT_DIR/network_access.py" "${NEWS_READER_PORT:-8080}")"
-  network_status=$?
-  if (( network_status == 0 )) && [[ -n "$network_host" ]]; then
-    export NEWS_READER_HOST="$network_host"
-  else
-    export NEWS_READER_HOST="127.0.0.1"
-    print -u2 -- "网络地址检测不可用，使用本机地址 http://127.0.0.1:${NEWS_READER_PORT:-8080} 启动。"
-  fi
-fi
-
-"$PYTHON_BIN" "$SCRIPT_DIR/launcher.py" --replace-existing
+"$PYTHON_BIN" "$SCRIPT_DIR/launcher.py" --replace-existing --detect-network
 exit_code=$?
 if (( exit_code != 0 )); then
   show_startup_error "NewsReader 启动失败（退出码 $exit_code）。请查看此终端中的错误信息。"

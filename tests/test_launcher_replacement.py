@@ -1,3 +1,4 @@
+from http.client import BadStatusLine, IncompleteRead
 import json
 import os
 from pathlib import Path
@@ -54,13 +55,13 @@ HTTPServer((os.environ['NEWS_READER_HOST'], int(os.environ['NEWS_READER_PORT']))
         port = listener.getsockname()[1]
     running = []
 
-    def start(*, replace=True, env=None, timeout=8, host="127.0.0.1"):
+    def start(*, replace=True, env=None, timeout=8, host=None, detect_network=False):
         opened, result = [], []
         supervisor = launcher.Supervisor(
             root=tmp_path, host=host, port=port,
             env={"NEWS_READER_UPDATER_DIR": str(tmp_path / "update"), **(env or {})},
             opener=opened.append, health_timeout=3,
-            replace_existing=replace, replacement_timeout=timeout,
+            replace_existing=replace, replacement_timeout=timeout, detect_network=detect_network,
         )
         thread = threading.Thread(target=lambda: result.append(supervisor.run()), daemon=True)
         running.append((supervisor, thread))
@@ -99,6 +100,84 @@ def test_replacement_stops_the_old_service_and_owns_a_fresh_instance(project, un
     assert new.child_instance_id != old_instance
     assert json.loads(new.lock_path.read_text())["token"] == new.token
     assert launcher._json_request(new.socket_path, {"action": "status"})["healthy"]
+
+
+def test_finder_replacement_opens_loopback_and_refreshes_the_private_url(project, monkeypatch, capsys):
+    _, port, start = project
+    origins = []
+    peer_address = "100.64.0.10"
+    monkeypatch.setattr(launcher, "discover_connections", lambda: (
+        None, [{"address": peer_address, "incoming_enabled": True}],
+    ))
+    monkeypatch.setattr(launcher, "discover_private_serve_origins", lambda selected_port: origins if selected_port == port else [])
+    monkeypatch.setattr(launcher, "find_spec", lambda _: object())
+
+    old, _, old_opened, _ = start(detect_network=True)
+    wait_for(lambda: bool(old_opened))
+    assert old_opened == [f"http://127.0.0.1:{port}"]
+    assert "NEWS_READER_PUSH_ORIGIN" not in old.base_env
+    output = capsys.readouterr().out
+    assert f"http://{peer_address}:{port}/" in output
+    assert "tailscale serve status" in output
+
+    origin = "https://mac.example.ts.net:8443"
+    origins = [origin]
+    new, _, new_opened, _ = start(detect_network=True)
+    wait_for(lambda: bool(new_opened))
+    assert new_opened == old_opened
+    assert new.child_instance_id != old.child_instance_id
+    assert new.base_env["NEWS_READER_PUSH_ORIGIN"] == origin
+    assert new.base_env["NEWS_READER_PUSH_LOOPBACK_PORT"] == str(port)
+    output = capsys.readouterr().out
+    assert f"其他设备（推荐，连接 Tailscale，私有 HTTPS，阅读及浏览器通知）：{origin}/" in output
+    assert output.index(origin) < output.index(f"http://{peer_address}:{port}/")
+
+
+def test_finder_keeps_explicit_host_and_push_settings(project, monkeypatch, capsys):
+    _, port, start = project
+    origin = "https://mac.example.ts.net:8443"
+    monkeypatch.setattr(launcher, "discover_connections", lambda: ("100.64.0.10", []))
+    monkeypatch.setattr(launcher, "discover_private_serve_origins", lambda _: [origin])
+    monkeypatch.setattr(launcher, "find_spec", lambda _: object())
+
+    supervisor, _, opened, _ = start(
+        detect_network=True, host="0.0.0.0",
+        env={"NEWS_READER_PUSH_ORIGIN": "https://custom.example", "NEWS_READER_PUSH_LOOPBACK_PORT": ""},
+    )
+    wait_for(lambda: bool(opened))
+    assert opened == [f"http://127.0.0.1:{port}"]
+    assert supervisor.base_env["NEWS_READER_HOST"] == "0.0.0.0"
+    assert "NEWS_READER_TAILSCALE_BIND" not in supervisor.base_env
+    assert supervisor.base_env["NEWS_READER_PUSH_ORIGIN"] == "https://custom.example"
+    assert supervisor.base_env["NEWS_READER_PUSH_LOOPBACK_PORT"] == ""
+    output = capsys.readouterr().out
+    assert f"浏览器通知需配置）：{origin}/" in output
+    assert "https://custom.example" not in output
+
+
+@pytest.mark.parametrize("error", [BadStatusLine("not HTTP"), IncompleteRead(b"partial")])
+def test_finder_opens_loopback_even_if_another_service_occupies_the_tailnet_port(
+    project, monkeypatch, capsys, error,
+):
+    _, port, start = project
+    address = "100.64.0.10"
+    peer_url = f"http://{address}:{port}"
+    open_local = launcher.urlopen
+
+    def open_url(url, *, timeout):
+        if url == peer_url + "/api/version":
+            raise error
+        return open_local(url, timeout=timeout)
+
+    monkeypatch.setattr(launcher, "urlopen", open_url)
+    monkeypatch.setattr(launcher, "discover_connections", lambda: (address, []))
+    monkeypatch.setattr(launcher, "discover_private_serve_origins", lambda _: [])
+
+    supervisor, _, opened, _ = start(detect_network=True)
+    wait_for(lambda: bool(opened))
+    assert opened == [f"http://127.0.0.1:{port}"]
+    assert supervisor.base_env["NEWS_READER_TAILSCALE_BIND"] == address
+    assert peer_url not in capsys.readouterr().out
 
 
 def test_replacement_waits_for_an_active_update(project):

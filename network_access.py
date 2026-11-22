@@ -64,28 +64,45 @@ def can_bind(address):
         return False
 
 
-def private_serve_origin(config, port):
+def private_serve_origins(config, port, hostname=""):
     if not isinstance(config, dict):
-        return ""
-    candidates = []
-    for host_port, site in (config.get("Web") or {}).items():
-        host, _, tls_port = host_port.rpartition(":")
-        if (not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.ts\.net", host) or not tls_port.isascii()
-                or not tls_port.isdecimal() or not 1 <= int(tls_port) <= 65535):
-            continue
-        if (config.get("AllowFunnel") or {}).get(host_port) or not (config.get("TCP") or {}).get(tls_port, {}).get("HTTPS"):
-            continue
-        target = ((site.get("Handlers") or {}).get("/") or {}).get("Proxy")
-        if target in (f"http://127.0.0.1:{port}", f"http://127.0.0.1:{port}/"):
-            candidates.append((tls_port != "443", f"https://{host if tls_port == '443' else host_port}"))
-    return min(candidates)[1] if candidates else ""
+        return []
+    candidates = set()
+    target = f"http://127.0.0.1:{port}"
+    try:
+        sections = (config, *(config.get("Foreground") or {}).values())
+        public = {
+            endpoint for section in sections for endpoint, enabled in (section.get("AllowFunnel") or {}).items()
+            if enabled
+        }
+        handled_ports = set()
+        for section in sections:
+            tcp = section.get("TCP") or {}
+            for endpoint, site in (section.get("Web") or {}).items():
+                host, _, tls_port = endpoint.rpartition(":")
+                if (not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.ts\.net", host)
+                        or (hostname and host != hostname) or not re.fullmatch(r"[1-9][0-9]{0,4}", tls_port)
+                        or int(tls_port) > 65535 or tls_port in handled_ports or endpoint in public
+                        or tcp.get(tls_port, {}).get("HTTPS") is not True):
+                    continue
+                handlers = site.get("Handlers") or {}
+                if (handlers.get("/") or {}).get("Proxy") in (target, target + "/"):
+                    candidates.add((tls_port != "443", f"https://{host if tls_port == '443' else endpoint}"))
+            handled_ports.update(tcp)
+    except (AttributeError, TypeError):
+        return []
+    return [origin for _, origin in sorted(candidates)]
+
+
+def private_serve_origin(config, port):
+    return next(iter(private_serve_origins(config, port)), "")
 
 
 def tailscale_running(status):
     return status.get("BackendState") == "Running" and (status.get("Self") or {}).get("Online") is not False
 
 
-def discover_private_serve(port, *, cli=None, run=subprocess.run):
+def discover_private_serve_origins(port, *, cli=None, run=subprocess.run):
     deadline = time.monotonic() + DISCOVERY_TIMEOUT
     for candidate in cli_candidates("tailscale", "Tailscale.app/Contents/MacOS/Tailscale", cli):
         try:
@@ -94,12 +111,17 @@ def discover_private_serve(port, *, cli=None, run=subprocess.run):
             if not tailscale_running(status):
                 continue
             data = json_command([candidate, "serve", "status", "--json"], deadline=deadline, run=run, env=env)
-            origin = private_serve_origin(data, port)
-            if origin:
-                return origin
+            hostname = ((status.get("Self") or {}).get("DNSName") or "").rstrip(".").lower()
+            origins = private_serve_origins(data, port, hostname)
+            if origins:
+                return origins
         except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, TimeoutError):
             continue
-    return ""
+    return []
+
+
+def discover_private_serve(port, *, cli=None, run=subprocess.run):
+    return next(iter(discover_private_serve_origins(port, cli=cli, run=run)), "")
 
 
 def discover_tailscale(*, cli=None, run=subprocess.run, bind=can_bind):
@@ -181,13 +203,17 @@ def discover_surge(*, cli=None, run=subprocess.run):
     return found
 
 
-def discover_access():
+def discover_connections():
     # Inspect both independently: an installed/stopped client or a Surge node
     # without inbound access must never hide another usable connection.
     with ThreadPoolExecutor(max_workers=2) as pool:
         client_probe = pool.submit(discover_tailscale)
         surge_probe = pool.submit(discover_surge)
-        client_address, surge_nodes = client_probe.result(), surge_probe.result()
+        return client_probe.result(), surge_probe.result()
+
+
+def discover_access():
+    client_address, surge_nodes = discover_connections()
     if client_address:
         return {"provider": "tailscale", "host": client_address, "addresses": [client_address]}
     reachable = [node["address"] for node in surge_nodes if node["incoming_enabled"]]
