@@ -371,17 +371,23 @@ def test_toggles_and_expired_subscription_do_not_replay_events(instance):
 
 
 @pytest.mark.parametrize("confirmation", [201, 410])
-def test_fcm_gone_on_first_delivery_is_confirmed_after_restart(instance, confirmation):
+def test_fcm_new_subscription_buffers_events_and_confirms_expiry_after_restart(instance, confirmation):
     app, service = instance
     device = subscription("new-fcm")
     service.public_key()
     request_device(app, "PUT", device, ["daily_report"])
     with closing(service.db.connect()) as conn, conn:
         push_events.record(conn, "daily_report", "period", {"id":"first"}, "")
-    since = time.time()
     service.sender = lambda *args: 410
     assert service.step()
     assert request_device(app, "POST", device).json["registered"]
+    with closing(service.db.connect()) as conn, conn:
+        enabled = json.loads(conn.execute("SELECT choices FROM browser_push_devices").fetchone()[0])["daily_report"]
+        due, attempts = conn.execute("SELECT next_attempt,attempts FROM browser_push_deliveries").fetchone()
+        assert due == enabled + 60 and attempts == 0
+        conn.execute("UPDATE browser_push_deliveries SET next_attempt=0")
+    since = time.time()
+    assert service.step()
     restarted = browser_push.Service(service.db, sender=lambda *args: confirmation)
     assert not restarted.step()
     with closing(service.db.connect()) as conn, conn:

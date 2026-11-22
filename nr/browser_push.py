@@ -28,7 +28,9 @@ MESSAGES = {
 DELIVERY_TTL = 86400
 REPLY_TYPES = {"personal_reply", "article_reply"}
 REPLY_DELAY = 8
-ENDPOINT_HOSTS = {"fcm.googleapis.com", "updates.push.services.mozilla.com", "push.services.mozilla.com"}
+FCM_HOST = "fcm.googleapis.com"
+FCM_REGISTRATION_DELAY = 60
+ENDPOINT_HOSTS = {FCM_HOST, "updates.push.services.mozilla.com", "push.services.mozilla.com"}
 ENDPOINT_SUFFIXES = (".push.apple.com", ".notify.windows.com")
 LOGGER = logging.getLogger(__name__)
 
@@ -170,8 +172,8 @@ def deliver(subscription, payload, private_key, origin, ttl):
 
 
 def retry_delay(status, attempts, endpoint):
-    if status == 410 and attempts == 0 and urlsplit(endpoint).hostname == "fcm.googleapis.com":
-        return 60
+    if status == 410 and attempts == 0 and urlsplit(endpoint).hostname == FCM_HOST:
+        return FCM_REGISTRATION_DELAY
     if status in (408, 429) or 500 <= status < 600:
         return min(900, 30 * 2 ** min(attempts, 5))
     return None
@@ -304,8 +306,15 @@ class Service:
                 return False
             with conn:
                 conn.execute("BEGIN IMMEDIATE")
-                devices = [(row["id"], json.loads(row["choices"])) for row in conn.execute(
-                    "SELECT id,choices FROM browser_push_devices WHERE scope=?", (self.scope,))]
+                devices = []
+                for row in conn.execute(
+                    "SELECT id,endpoint,choices FROM browser_push_devices WHERE scope=? AND choices<>'{}'", (self.scope,),
+                ):
+                    choices = json.loads(row["choices"])
+                    ready_at = 0
+                    if urlsplit(row["endpoint"]).hostname == FCM_HOST:
+                        ready_at = min(choices.values()) + FCM_REGISTRATION_DELAY
+                    devices.append((row["id"], choices, ready_at))
                 for source, rows in batches.items():
                     latest = conn.execute("SELECT seq FROM browser_push_cursors WHERE scope=? AND source=?", (self.scope, source)).fetchone()
                     for seq, kind, key, target, created_at in rows:
@@ -314,8 +323,8 @@ class Service:
                         tag = digest(kind + ":" + key)[:32]
                         next_attempt = max(clock, created_at + REPLY_DELAY) if kind in REPLY_TYPES else clock
                         conn.executemany("INSERT OR IGNORE INTO browser_push_deliveries VALUES(?,?,?,?,?,?,?,0,'')", (
-                            (self.scope, device_id, tag, kind, target, created_at, next_attempt)
-                            for device_id, choices in devices if kind in choices and choices[kind] <= created_at))
+                            (self.scope, device_id, tag, kind, target, created_at, max(next_attempt, ready_at))
+                            for device_id, choices, ready_at in devices if kind in choices and choices[kind] <= created_at))
                     conn.execute("""INSERT INTO browser_push_cursors VALUES(?,?,?)
                         ON CONFLICT(scope,source) DO UPDATE SET seq=MAX(seq,excluded.seq)""", (self.scope, source, rows[-1][0]))
             return True
