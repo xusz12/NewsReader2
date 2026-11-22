@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=browser-push-2";
+import { SettingsPanel } from "./settings-panel.js?v=access-address-1";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.6";
 import { TopicPanel } from "./topic-panel.js?v=0.6.8";
 import { ReportPanel } from "./report-panel.js?v=0.6.6";

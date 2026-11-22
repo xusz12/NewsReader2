@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from threading import Thread
+from uuid import uuid4
 
 from flask import Flask, send_from_directory
 from werkzeug.serving import make_server
@@ -88,6 +89,9 @@ def main() -> None:
         port = int(port_raw)
     except ValueError:
         port = 8080
+    app.config["NEWS_READER_PORT"] = port
+    if not os.getenv("NEWS_READER_INSTANCE_ID"):
+        os.environ["NEWS_READER_INSTANCE_ID"] = uuid4().hex
     tailnet_host = tailnet_ipv4(os.getenv("NEWS_READER_TAILSCALE_BIND"))
     if tailnet_host and host == "127.0.0.1" and os.getenv("NEWS_READER_MANAGED") == "1":
         serve_on_tailnet(host, port, tailnet_host)

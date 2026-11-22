@@ -68,6 +68,7 @@ GET /api/reviews api_reviews_list
 GET /api/reviews/<int:chain_id> api_review_detail
 GET /api/search api_search
 GET /api/settings api_settings
+GET /api/settings/access-address api_settings_access_address
 GET /api/settings/sources/<path:source_key> api_settings_source
 GET /api/settings/x-accounts/<x_handle> api_settings_source
 GET /api/sources api_sources

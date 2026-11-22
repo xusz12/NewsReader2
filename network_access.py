@@ -4,6 +4,7 @@ Only local, read-only CLI calls are used. Profile contents stay in memory;
 credentials and unrelated proxy settings are never logged or retained.
 """
 from concurrent.futures import ThreadPoolExecutor
+from http.client import HTTPException
 import ipaddress
 import json
 import os
@@ -203,13 +204,48 @@ def discover_surge(*, cli=None, run=subprocess.run):
     return found
 
 
-def discover_connections():
+def discover_address_candidates(port=None):
     # Inspect both independently: an installed/stopped client or a Surge node
     # without inbound access must never hide another usable connection.
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         client_probe = pool.submit(discover_tailscale)
         surge_probe = pool.submit(discover_surge)
-        return client_probe.result(), surge_probe.result()
+        serve_probe = pool.submit(discover_private_serve_origins, port) if port is not None else None
+        return client_probe.result(), surge_probe.result(), serve_probe.result() if serve_probe else []
+
+
+def discover_connections():
+    client_address, surge_nodes, _ = discover_address_candidates()
+    return client_address, surge_nodes
+
+
+def service_matches(url, commit, instance_id, *, open_url):
+    if not instance_id:
+        return False
+    try:
+        with open_url(url, timeout=0.5) as response:
+            if response.geturl() != url:
+                return False
+            payload = json.loads(response.read(8192))
+        return (isinstance(payload, dict) and payload.get("ok") is True
+                and payload.get("commit") == commit and payload.get("instance_id") == instance_id)
+    except (OSError, ValueError, HTTPException):
+        return False
+
+
+def verified_remote_addresses(port, client_address, surge_nodes, origins, *, matches, preferred_origin=""):
+    addresses = []
+    loopback_ready = (origins or surge_nodes) and matches("127.0.0.1")
+    if loopback_ready:
+        addresses.extend(("serve", origin + "/") for origin in sorted(origins, key=lambda value: value != preferred_origin))
+    if client_address and matches(client_address):
+        addresses.append(("tailscale", f"http://{client_address}:{port}/"))
+    if loopback_ready:
+        for node in surge_nodes:
+            address = ("surge", f"http://{node['address']}:{port}/")
+            if node["incoming_enabled"] and not any(url == address[1] for _, url in addresses):
+                addresses.append(address)
+    return addresses
 
 
 def discover_access():

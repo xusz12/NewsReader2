@@ -17,6 +17,7 @@ NR 使用一个 Flask 服务进程。启动入口是 `python3 app.py` 或现有�
 | 浏览器通知、设备偏好、事件与投递 | `browser_push.py` 管理设备和投递，根目录 `push_events.py` 为完成回复保存事件，主库事务记录日报和采集批次 | `test_browser_push.py`、`test_agent_notifications.py`、`test_personal_assistant.py` |
 | 分类、采集、任务进度、积压总结、定期报告 | `tasks.py`、`summaries.py`、`reports.py` 提供接口。调度与生成在根目录同领域服务，实例由 `bootstrap.py` 装配 | `test_news_classification.py`、`test_news_collection.py`、`test_task_progress.py`、`test_news_summaries.py`、`test_periodic_reports.py` |
 | 应用设置、路径、更新、启动 | `preferences.py` 与 `configuration.py` 处理配置，`database.py` 打开主库和会话库，`updates.py` 对接现有启动器、更新器 | `test_preferences_api.py`、`test_data_compatibility.py`、`test_updater.py`、`test_launcher.py` |
+| 其他设备访问地址 | `updates.py` 的设置接口复用 `network_access.py` 的网络发现和实例核验，与启动终端共用地址排序 | `test_network_access.py`、`test_preferences_api.py`、`test_launcher_replacement.py` |
 
 个人助手有自己的持久化与运行周期，入口在根目录 `personal_assistant.py`，对应 `test_personal_assistant.py`。修改共享阅读行为时同时检查新闻和报告。修改任务停止行为时同时检查 HTTP 状态、SQLite 记录和执行线程。
 

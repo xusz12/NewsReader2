@@ -1,4 +1,5 @@
 from http.client import BadStatusLine, IncompleteRead
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -351,3 +352,25 @@ def test_local_health_checks_bypass_proxy_settings(project, monkeypatch):
     wait_for(lambda: bool(opened))
     assert launcher._json_request(supervisor.socket_path, {"action": "status"})["healthy"]
     assert updater._wait_healthy(supervisor.health_url, COMMIT, supervisor.child, timeout=1)
+
+
+def test_local_health_check_rejects_redirect_without_following_it():
+    paths = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            paths.append(self.path)
+            self.send_response(302 if self.path == "/api/version" else 200)
+            self.send_header("Location", "/another-service")
+            self.end_headers()
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = updater.local_health_url("127.0.0.1", server.server_port)
+            assert not launcher.Supervisor._service_matches(url, COMMIT, "instance")
+        finally:
+            server.shutdown()
+            thread.join()
+    assert paths == ["/api/version"]

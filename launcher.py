@@ -19,7 +19,7 @@ import threading
 import time
 import uuid
 
-from network_access import discover_connections, discover_private_serve_origins
+from network_access import discover_connections, discover_private_serve_origins, service_matches, verified_remote_addresses
 from updater import local_health_url, open_local_url as urlopen, _write_state as write_update_state
 
 ROOT = Path(__file__).resolve().parent
@@ -388,13 +388,7 @@ class Supervisor:
 
     @staticmethod
     def _service_matches(url: str, commit: str, instance_id: str) -> bool:
-        try:
-            with urlopen(url, timeout=0.5) as response:
-                payload = json.loads(response.read(8192))
-            return (isinstance(payload, dict) and payload.get("ok") is True
-                    and payload.get("commit") == commit and payload.get("instance_id") == instance_id)
-        except (OSError, ValueError, HTTPException):
-            return False
+        return service_matches(url, commit, instance_id, open_url=urlopen)
 
     def _configure_browser_push(self, origins, push_installed):
         if origins and push_installed and self.host in {"127.0.0.1", "0.0.0.0", "localhost"}:
@@ -403,34 +397,31 @@ class Supervisor:
                 self.base_env.setdefault("NEWS_READER_PUSH_LOOPBACK_PORT", str(self.port))
 
     def _report_network_access(self, client_address, surge_nodes, origins, push_installed, commit, instance_id):
-        local_url = local_health_url("127.0.0.1", self.port)
-        loopback_ready = self.health_url == local_url or self._service_matches(local_url, commit, instance_id)
         print(f"本机（自动打开）：{self.browser_url}/", flush=True)
-
-        origins = origins if loopback_ready else []
         push_origin = self.base_env.get("NEWS_READER_PUSH_ORIGIN", "").strip().removesuffix("/")
-        for index, origin in enumerate(sorted(origins, key=lambda value: value != push_origin)):
-            recommendation = "推荐，" if index == 0 else ""
-            usage = "阅读及浏览器通知" if push_installed and push_origin == origin else "阅读，浏览器通知需配置"
-            print(f"其他设备（{recommendation}连接 Tailscale，私有 HTTPS，{usage}）：{origin}/", flush=True)
+        addresses = verified_remote_addresses(
+            self.port, client_address, surge_nodes, origins, preferred_origin=push_origin,
+            matches=lambda host: self._service_matches(local_health_url(host, self.port), commit, instance_id),
+        )
+        serve_urls = [url for kind, url in addresses if kind == "serve"]
+        for index, (kind, url) in enumerate(addresses):
+            if kind == "serve":
+                recommendation = "推荐，" if index == 0 else ""
+                usage = "阅读及浏览器通知" if push_installed and push_origin + "/" == url else "阅读，浏览器通知需配置"
+                label = f"{recommendation}连接 Tailscale，私有 HTTPS，{usage}"
+            else:
+                provider = "Tailscale" if kind == "tailscale" else "Surge 的 Tailscale 尾网"
+                label = f"连接 {provider}，HTTP 阅读"
+            print(f"其他设备（{label}）：{url}", flush=True)
 
-        client_ready = client_address and self._service_matches(
-            local_health_url(client_address, self.port), commit, instance_id)
-        if client_ready:
-            print(f"其他设备（连接 Tailscale，HTTP 阅读）：http://{client_address}:{self.port}/", flush=True)
-        surge_addresses = [node["address"] for node in surge_nodes if node["incoming_enabled"]] if loopback_ready else []
-        for address in surge_addresses:
-            if not client_ready or address != client_address:
-                print(f"其他设备（连接 Surge 的 Tailscale 尾网，HTTP 阅读）：http://{address}:{self.port}/", flush=True)
-
-        if not origins:
-            if not client_ready and not surge_addresses:
+        if not serve_urls:
+            if not addresses:
                 print("未发现本实例可用的尾网阅读入口。", flush=True)
             print(f"未发现本实例可用的私有 HTTPS（回环端口 {self.port}）。"
                   "在 Mac 终端运行 tailscale serve status 查看转发目标。", flush=True)
-        if not push_installed and origins:
+        if not push_installed and serve_urls:
             print("浏览器通知需要 pywebpush，请在启动器使用的 Python 环境安装 requirements.txt。", flush=True)
-        elif push_origin not in origins:
+        elif push_origin + "/" not in serve_urls:
             print("其他设备要收浏览器通知，请按 docs/browser-push.md 配置本实例的私有 HTTPS 和通知。", flush=True)
 
     @staticmethod

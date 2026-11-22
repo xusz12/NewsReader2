@@ -11,14 +11,74 @@ import textwrap
 import types
 import urllib
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Barrier
 
 import pi_models
+import pytest
+from network_access import private_serve_origins
 from api_fixtures import _isolate_app_settings
 from legacy_news_seed import confirm_all_read
 from nr import configuration, preferences
 from settings import default_app_settings
+
+
+@pytest.mark.parametrize(("port", "expected_origin"), [
+    (18080, "https://mac.example.ts.net/"),
+    (8080, "https://mac.example.ts.net:8443/"),
+])
+def test_access_address_matches_current_listener_and_rechecks_network(monkeypatch, port, expected_origin):
+    from app import create_app
+    from nr import updates
+
+    commit = "a" * 40
+    instance = "local-instance"
+    peer = "100.64.1.2"
+    surge = "100.64.1.3"
+    host = "mac.example.ts.net"
+    config = {
+        "TCP": {"443": {"HTTPS": True}, "8443": {"HTTPS": True}},
+        "Web": {
+            f"{host}:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:18080"}}},
+            f"{host}:8443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8080"}}},
+        },
+    }
+    nodes = [{"address": surge, "incoming_enabled": True}]
+    responses = {"127.0.0.1": instance, peer: instance}
+
+    def candidates(selected_port):
+        assert selected_port == port
+        return peer, nodes, private_serve_origins(config, port)
+
+    @contextmanager
+    def open_local(url, *, timeout):
+        parsed = urllib.parse.urlsplit(url)
+        assert parsed.port == port and parsed.path == "/api/version" and timeout == .5
+        payload = json.dumps({"ok": True, "commit": commit, "instance_id": responses.get(parsed.hostname)}).encode()
+        yield types.SimpleNamespace(geturl=lambda: url, read=lambda _: payload)
+
+    monkeypatch.setenv("NEWS_READER_INSTANCE_ID", instance)
+    monkeypatch.setenv("NEWS_READER_PORT", "9999")
+    monkeypatch.setattr(updates.Updates, "_current_commit", lambda _: commit)
+    monkeypatch.setattr(updates, "discover_address_candidates", candidates)
+    monkeypatch.setattr(updates, "open_local_url", open_local)
+    application = create_app()
+    application.config["NEWS_READER_PORT"] = port
+    client = application.test_client()
+
+    def address():
+        response = client.get("/api/settings/access-address", headers={"Host": "other.example:8000"})
+        assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+        return response.get_json()["address"]
+
+    assert address() == {"kind": "serve", "url": expected_origin}
+    config["AllowFunnel"] = {endpoint: True for endpoint in config["Web"]}
+    assert address() == {"kind": "tailscale", "url": f"http://{peer}:{port}/"}
+    responses[peer] = "other-instance-at-same-commit"
+    assert address() == {"kind": "surge", "url": f"http://{surge}:{port}/"}
+    responses["127.0.0.1"] = "other-instance-at-same-commit"
+    assert address() is None
 
 
 def test_feed_source_subkey_visibility_settings_only_filter_feed(tmp_path: Path, monkeypatch):

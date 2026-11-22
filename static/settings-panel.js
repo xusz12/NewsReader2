@@ -1,12 +1,13 @@
-import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=browser-push-1";
+import { SettingsDirectory, settingsPages, settingsItems } from "./settings-directory.js?v=access-address-1";
 import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.6";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
-import { settingsHelpHTML } from "./settings-help.js?v=browser-push-2";
+import { settingsHelpHTML } from "./settings-help.js?v=access-address-1";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
 import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.6";
 import { browserPush } from "./browser-push.js?v=2";
+import { AccessAddress } from "./access-address.js";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
@@ -101,6 +102,7 @@ export class SettingsPanel {
       },
     });
     this.catalogs = new Map();
+    this.accessAddress = new AccessAddress();
     this.modelStates = new Map();
     const refreshPi = () => { if (!document.hidden) this.refreshPiCatalog(); };
     window.addEventListener("focus", refreshPi);
@@ -206,6 +208,7 @@ export class SettingsPanel {
     if (!this.open) return;
     this.open = false;
     this.schedules.stop();
+    this.accessAddress.sync(false);
     this.selects.close(false);
     $("#feedView").classList.remove(
       "settings-active",
@@ -374,6 +377,12 @@ export class SettingsPanel {
     }
     this.finishJump();
     this.schedules.sync();
+    this.syncAccessAddress(position);
+  }
+  syncAccessAddress(revisit = false) {
+    const visible = this.open && this.page === "application" &&
+      (!singlePane.matches || $("#feedView").classList.contains("settings-detail-active"));
+    this.accessAddress.sync(visible, revisit && this.section === "access-address");
   }
   finishJump() {
     const anchor = this.jumpTarget && document.getElementById(this.jumpTarget);
@@ -414,6 +423,7 @@ export class SettingsPanel {
     this.selects.close(false);
     $("#feedView").classList.remove("settings-detail-active");
     this.schedules.sync();
+    this.syncAccessAddress();
     this.onViewChange?.();
     if (focus) {
       const selected = $("#settingsSearchInput").value.trim() ? $("#settingsSearchInput") : $(`[data-settings-tab="${this.section}"]`);
@@ -701,6 +711,12 @@ export class SettingsPanel {
       <section class="settings-section-card" data-section="appearance" id="readingAppearance"><div class="section-card-title"><span>主题与字号</span></div>
       <div class="form-group-grid">${Object.entries(this.appearanceControls).map(([key, control]) =>
         select(key === "theme" ? "阅读主题" : "正文字号", "appearance." + key, d.appearance[key], Array.from(control.options, option => ({value:option.value, label:option.textContent})), null)).join("")}</div></section>
+      <section class="settings-section-card" data-section="access-address" id="accessAddressSettings" aria-labelledby="accessAddressTitle" tabindex="-1">
+      <div class="section-card-title"><span id="accessAddressTitle">访问地址</span><button class="reader-action-btn reader-action-btn--meta" data-access-refresh type="button">重新检测</button></div>
+      <div class="field-item" data-access-result hidden><span class="field-label">其他设备访问地址</span>
+      <code class="storage-path" data-access-url></code>
+      <div class="button-row"><button class="reader-action-btn reader-action-btn--meta" data-access-copy type="button">复制</button></div></div>
+      <p class="muted status-text" data-access-feedback role="status">尚未检测。</p></section>
       <section class="settings-section-card" data-section="browser-push" id="browserPushSettings" aria-label="浏览器通知"></section>
       <section class="settings-section-card" data-section="display" id="sourceVisibility"><div class="section-card-title"><span>新闻流显示</span></div><div id="settingsSources"></div></section>
       <section class="settings-section-card" data-section="shortcuts" id="shortcutSettings"></section>
@@ -722,6 +738,7 @@ export class SettingsPanel {
     this.renderShortcuts();
     this.renderSourceLists();
     this.updater.render();
+    this.accessAddress.mount($("#accessAddressSettings"));
     browserPush.mount($("#browserPushSettings"));
     this.renderClassificationProgress();
     this.updateCollectionStatus(this.collectionStatus);

@@ -64,9 +64,16 @@ def local_health_url(host: str, port: int) -> str:
     return f"http://{unwrapped}:{int(port)}/api/version"
 
 
+class _LocalHealthRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def open_local_url(url: str, *, timeout: float):
     """Health probes address our own listener, never a system/environment proxy."""
-    return urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=timeout)
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _LocalHealthRedirectHandler(),
+    ).open(url, timeout=timeout)
 
 
 def request_supervisor(action: str, **payload: object) -> dict:

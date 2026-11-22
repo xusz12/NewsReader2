@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 import certifi
 from flask import jsonify, request
 
+from network_access import discover_address_candidates, service_matches, verified_remote_addresses
 from nr import preferences
 from updater import (
     REPOSITORY_URL as UPDATE_REPOSITORY_URL,
@@ -22,6 +23,7 @@ from updater import (
     git_state as update_git_state,
     github_tags_url,
     local_health_url,
+    open_local_url,
     request_supervisor,
 )
 
@@ -225,6 +227,26 @@ def register(app, db, updates):
         if instance_id:
             payload["instance_id"] = instance_id
         return jsonify(payload)
+
+    @app.get("/api/settings/access-address")
+    def api_settings_access_address():
+        instance_id = os.getenv("NEWS_READER_INSTANCE_ID")
+        try:
+            port = int(app.config.get("NEWS_READER_PORT", os.getenv("NEWS_READER_PORT", "8080")))
+        except (TypeError, ValueError):
+            port = 0
+        address = None
+        if instance_id and 1 <= port <= 65535:
+            commit = updates._current_commit()
+            preferred = os.getenv("NEWS_READER_PUSH_ORIGIN", "").strip().removesuffix("/")
+            addresses = verified_remote_addresses(
+                port, *discover_address_candidates(port), preferred_origin=preferred,
+                matches=lambda host: service_matches(local_health_url(host, port), commit, instance_id, open_url=open_local_url),
+            )
+            if addresses:
+                kind, url = addresses[0]
+                address = {"kind": kind, "url": url}
+        return jsonify(ok=True, address=address), 200, {"Cache-Control": "no-store"}
 
     @app.get("/api/update/check")
     def api_update_check():
