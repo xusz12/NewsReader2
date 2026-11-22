@@ -38,5 +38,5 @@
     "esbuild": "0.28.2",
     "vitest": "4.1.0"
   },
-  "version": "0.6.8"
+  "version": "0.6.9"
 }
