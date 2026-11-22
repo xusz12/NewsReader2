@@ -2,7 +2,7 @@
 
 本地新闻阅读与研究工作台，汇集媒体报道和你关注的 X 账号发布的帖子。桌面和手机都能阅读，进度、收藏和想法保存在运行服务的电脑上。
 
-当前稳定版本：`v0.6.10`。[版本记录](CHANGELOG.md)
+当前稳定版本：`v0.6.11`。[版本记录](CHANGELOG.md)
 
 ## 界面与功能
 
@@ -39,7 +39,7 @@ npm run check:collection
 - 在「设置 → 阅读偏好与维护 → 数据库位置」选择已有的 SQLite 新闻库，保存本页并重启即可沿用阅读状态、收藏、想法和已缓存正文。[数据库选择顺序](docs/data-compatibility.md#继续使用原数据库)
 - 应用设置保存在 `app_settings.json`，API 密钥可在系统钥匙串中保存。个人助手的讨论和记忆另存于 `personal-assistant/`，备份时一并保存。[数据备份](docs/handoff/04-data-migration.md#制作一致性备份) · [助手备份](docs/personal-assistant.md#备份与验证)
 - 用启动器运行时，可到「设置 → 阅读偏好与维护 → 版本与更新」检查更新。自动更新需要干净的 Git 分支。[升级与回退](docs/handoff/03-operations.md#发布与回退)
-- 旧安装升级后首次启用浏览器通知时，在运行 NR 的 Python 环境执行 `python -m pip install -r requirements.txt` 安装推送依赖，然后重新启动 NR。[浏览器通知配置](docs/browser-push.md#配置私有-https)
+- 从 v0.6.10 在应用内升级后，即可在私有 HTTPS 或 Mac 本机地址启用浏览器通知。更新器会安装所需的推送依赖。[浏览器通知配置](docs/browser-push.md#配置私有-https)
 
 ## 开发与维护
 

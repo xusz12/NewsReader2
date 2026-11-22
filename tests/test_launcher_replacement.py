@@ -111,7 +111,7 @@ def test_finder_replacement_opens_loopback_and_refreshes_the_private_url(project
         None, [{"address": peer_address, "incoming_enabled": True}],
     ))
     monkeypatch.setattr(launcher, "discover_private_serve_origins", lambda selected_port: origins if selected_port == port else [])
-    monkeypatch.setattr(launcher, "find_spec", lambda _: object())
+    monkeypatch.setattr(launcher.push_transport, "available", lambda: True)
 
     old, _, old_opened, _ = start(detect_network=True)
     wait_for(lambda: bool(old_opened))
@@ -139,7 +139,7 @@ def test_finder_keeps_explicit_host_and_push_settings(project, monkeypatch, caps
     origin = "https://mac.example.ts.net:8443"
     monkeypatch.setattr(launcher, "discover_connections", lambda: ("100.64.0.10", []))
     monkeypatch.setattr(launcher, "discover_private_serve_origins", lambda _: [origin])
-    monkeypatch.setattr(launcher, "find_spec", lambda _: object())
+    monkeypatch.setattr(launcher.push_transport, "available", lambda: True)
 
     supervisor, _, opened, _ = start(
         detect_network=True, host="0.0.0.0",

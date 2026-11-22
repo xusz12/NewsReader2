@@ -6,7 +6,7 @@ import { settingsHelpHTML } from "./settings-help.js?v=0.6.10";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
 import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.6";
-import { browserPush } from "./browser-push.js?v=0.6.10";
+import { browserPush } from "./browser-push.js?v=0.6.11";
 import { AccessAddress } from "./access-address.js?v=0.6.10";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";
 

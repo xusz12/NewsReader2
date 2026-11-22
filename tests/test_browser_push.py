@@ -176,6 +176,54 @@ def test_missing_push_dependency_explains_unavailable_local_config(instance, mon
     assert request_device(app, "PUT", subscription("disabled"), ["daily_report"]).status_code == 403
 
 
+def test_upgrade_without_python_push_preserves_keys_and_sends_encrypted_notifications(instance, monkeypatch):
+    import http_ece
+    import httpx
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    app, service = instance
+    old_key = service.public_key()
+    public, private = browser_push.generate_keys()
+    device = subscription("upgraded")
+    device["keys"]["p256dh"] = public
+    assert request_device(app, "PUT", device, ["daily_report"]).json["registered"]
+    with closing(service.db.connect()) as conn:
+        signing_key = conn.execute("SELECT private_key FROM browser_push_keys WHERE scope=?", (service.scope,)).fetchone()[0]
+
+    monkeypatch.setattr(browser_push.push_transport, "has_pywebpush", lambda: False)
+    upgraded = create_app()
+    config = upgraded.test_client().get("/api/browser-push/config", base_url=ORIGIN).json
+    assert config["available"] and config["public_key"] == old_key
+    assert request_device(upgraded, "POST", device).json["types"] == ["daily_report"]
+    assert request_device(upgraded, "PUT", subscription("new-node-key"), ["article_reply"]).json["registered"]
+    invalid = dict(device, keys=dict(device["keys"], p256dh=browser_push.b64(b"\x04" + bytes(64))))
+    assert request_device(upgraded, "PUT", invalid, []).status_code == 400
+
+    payload = {"tag": "a" * 32, "body": "测试消息"}
+    def receive(url, *, headers, content, **options):
+        assert url == device["endpoint"] and options == {"trust_env": False, "follow_redirects": False, "timeout": 8}
+        assert headers["TTL"] == "50" and headers["Topic"] == payload["tag"] and headers["Content-Encoding"] == "aes128gcm"
+        token, key = headers["Authorization"].removeprefix("vapid t=").split(", k=")
+        assert key == old_key
+        claims = token.split(".")[1]
+        assert json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))["sub"] == ORIGIN
+        receiver = ec.derive_private_key(int.from_bytes(base64.urlsafe_b64decode(private + "="), "big"), ec.SECP256R1())
+        assert json.loads(http_ece.decrypt(content, private_key=receiver, auth_secret=bytes(16), version="aes128gcm")) == payload
+        return httpx.Response(410)
+
+    monkeypatch.setattr(httpx, "post", receive)
+    assert browser_push.deliver(device, payload, signing_key, ORIGIN + ":8443", 50) == 410
+    assert browser_push.deliver(device, payload, "invalid-key", ORIGIN, 50) == 503
+
+
+def test_missing_both_push_runtimes_leaves_reading_available(instance, monkeypatch):
+    monkeypatch.setattr(browser_push.push_transport, "has_pywebpush", lambda: False)
+    monkeypatch.setenv("NEWS_READER_NODE", "/missing/newsreader-node")
+    client = create_app().test_client()
+    assert client.get("/").status_code == 200
+    assert client.get("/api/browser-push/config", base_url=ORIGIN).json["reason"] == "missing_dependency"
+
+
 @pytest.mark.parametrize("endpoint", [
     "http://fcm.googleapis.com/fcm/send/test", "https://127.0.0.1:18080/test",
     "https://fcm.googleapis.com.other.test/fcm/send/not-google", "https://fcm.googleapis.com:444/fcm/send/test",

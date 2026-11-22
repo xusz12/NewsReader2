@@ -21,7 +21,7 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.10";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.11";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.6";
 import { TopicPanel } from "./topic-panel.js?v=0.6.8";
 import { ReportPanel } from "./report-panel.js?v=0.6.6";
@@ -29,7 +29,7 @@ import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.6.6";
 import { PersonalAssistant } from "./personal-assistant.js?v=browser-push-1";
 import { AgentNotifications, replyIsVisible } from "./agent-notifications.js?v=browser-push-1";
-import { browserPush } from "./browser-push.js?v=0.6.10";
+import { browserPush } from "./browser-push.js?v=0.6.11";
 import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
 import { TaskProgress } from "./task-progress.js?v=0.6.8";
 import { ResearchNotes } from "./research-notes.js";

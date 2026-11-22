@@ -5,7 +5,6 @@ import fcntl
 import hashlib
 import hmac
 from http.client import HTTPException
-from importlib.util import find_spec
 import json
 import os
 from pathlib import Path
@@ -20,6 +19,7 @@ import time
 import uuid
 
 from network_access import discover_connections, discover_private_serve_origins, service_matches, verified_remote_addresses
+from nr import push_transport
 from updater import local_health_url, open_local_url as urlopen, _write_state as write_update_state
 
 ROOT = Path(__file__).resolve().parent
@@ -415,7 +415,7 @@ class Supervisor:
             print(f"未发现本实例可用的私有 HTTPS（回环端口 {self.port}）。"
                   "请连接 Mac 上的 Tailscale，在尾网启用 HTTPS 证书后重新启动 NR。运行 tailscale serve status 可查看转发目标。", flush=True)
         if not push_installed:
-            print("浏览器通知需要 pywebpush，请在启动器使用的 Python 环境安装 requirements.txt。", flush=True)
+            print("浏览器通知依赖未就绪。请在项目目录执行 npm ci --ignore-scripts 后重启 NR。", flush=True)
         elif push_origin + "/" not in serve_urls:
             print("其他设备要收浏览器通知，请按 docs/browser-push.md 配置本实例的私有 HTTPS 和通知。", flush=True)
 
@@ -666,7 +666,7 @@ class Supervisor:
             _, instance_id = self._spawn_service(expected_commit)
             if self.detect_network:
                 origins = discover_private_serve_origins(self.port)
-                push_installed = find_spec("pywebpush") is not None
+                push_installed = push_transport.available()
                 self._report_network_access(client_address, surge_nodes, origins, push_installed,
                                             expected_commit, instance_id)
             try:

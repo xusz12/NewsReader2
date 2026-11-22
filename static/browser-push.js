@@ -55,7 +55,7 @@ class BrowserPush {
     const status = this.error || unavailable || (denied ? "通知权限已关闭，请在浏览器或系统设置中恢复。" :
       this.busy ? "正在更新通知设置…" : this.loading ? "正在读取本浏览器的通知设置…" :
       this.registered ? "本浏览器已订阅。" :
-      this.config?.reason === "missing_dependency" ? "运行 NR 的 Python 环境缺少 pywebpush。请安装 requirements.txt 中的依赖后重新启动 NR。" :
+      this.config?.reason === "missing_dependency" ? "运行 NR 的电脑缺少通知依赖。请在项目目录执行 npm ci --ignore-scripts，然后重启 NR。" :
       this.config?.available === false ? "此地址未启用通知。请用当前实例的私有 HTTPS 或 Mac 本机地址打开，并检查启动时的通知配置。" : "本浏览器尚未订阅。");
     this.host.innerHTML = `<div class="section-card-title"><span>浏览器通知</span></div>
       <p class="muted" role="status">${e(status)}</p>

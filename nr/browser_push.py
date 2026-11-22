@@ -1,7 +1,7 @@
 import base64
 from contextlib import closing
+from functools import cached_property
 import hashlib
-from importlib.util import find_spec
 import json
 import logging
 import os
@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from flask import abort, jsonify, make_response, request, send_from_directory
 
 from agent_notifications import library_scope
+from nr import push_transport
 import push_events
 
 
@@ -117,16 +118,22 @@ def subscription_data(value):
         if len(raw) != size:
             raise ValueError("invalid_subscription")
         decoded[name] = raw
-    from cryptography.hazmat.primitives.asymmetric import ec
-
     if decoded["p256dh"][0] != 4:
         raise ValueError("invalid_subscription")
-    ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), decoded["p256dh"])
+    if push_transport.has_pywebpush():
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), decoded["p256dh"])
+    elif not push_transport.node_request("validate", key=b64(decoded["p256dh"])):
+        raise ValueError("invalid_subscription")
     clean = {"endpoint": endpoint, "keys": {name: b64(raw) for name, raw in decoded.items()}}
     return digest(json.dumps(clean, sort_keys=True)), clean
 
 
 def generate_keys():
+    if not push_transport.has_pywebpush():
+        keys = push_transport.node_request("keys")
+        return keys["publicKey"], keys["privateKey"]
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import ec
 
@@ -136,6 +143,9 @@ def generate_keys():
 
 
 def deliver(subscription, payload, private_key, origin, ttl):
+    contact = f"https://{urlsplit(origin).hostname}" if origin else "mailto:postmaster@localhost"
+    if not push_transport.has_pywebpush():
+        return push_transport.deliver_with_node(subscription, payload, private_key, contact, ttl)
     from py_vapid import VapidException
     from pywebpush import WebPushException, webpush
     from requests import Session
@@ -146,7 +156,6 @@ def deliver(subscription, payload, private_key, origin, ttl):
 
     with PushSession() as session:
         session.trust_env = False
-        contact = f"https://{urlsplit(origin).hostname}" if origin else "mailto:postmaster@localhost"
         try:
             return webpush(subscription, json.dumps(payload, ensure_ascii=False), vapid_private_key=private_key,
                 vapid_claims={"sub": contact}, ttl=ttl, timeout=8, headers={"Topic": payload["tag"]},
@@ -165,11 +174,14 @@ class Service:
         self.db = db
         self.sender = sender
         self.library = library_scope(db.path)
-        self.installed = find_spec("pywebpush") is not None
         self.configure()
         self.assistant_path = None
         self.start_lock = Lock()
         self.worker = None
+
+    @cached_property
+    def installed(self):
+        return push_transport.available()
 
     def configure(self, detected_origin="", local_port=""):
         configured = os.environ.get("NEWS_READER_PUSH_ORIGIN")

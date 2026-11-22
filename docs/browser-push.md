@@ -15,11 +15,7 @@
 
 ## 配置私有 HTTPS
 
-旧安装升级后首次启用通知时，在项目目录激活运行 NR 的 Python 环境，执行以下命令以安装 `pywebpush`。
-
-```sh
-python -m pip install -r requirements.txt
-```
+从 v0.6.10 在「版本与更新」升级时，更新器会随项目安装 `web-push`。原 Python 环境缺少 `pywebpush` 时，NR 自动使用这份依赖，并沿用已有通知密钥和订阅。手动拉取代码的安装可在项目目录执行 `npm ci --ignore-scripts` 后重启。仅使用 Python 的安装可在运行 NR 的解释器中执行 `python -m pip install -r requirements.txt` 后重启。
 
 在运行 NR 的 Mac 上登录独立 Tailscale 客户端，连接手机使用的同一尾网。管理员需在尾网的 DNS 设置中开启 MagicDNS 和 HTTPS Certificates。首次签发证书会将设备的完整域名写入公共证书透明度日志。设备的访问范围仍由尾网控制。[Tailscale HTTPS 证书设置](https://tailscale.com/docs/how-to/set-up-https-certificates)
 

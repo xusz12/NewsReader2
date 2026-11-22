@@ -160,7 +160,7 @@ CI=1 npm run test:ui
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
 5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。新版升级器在停服前准备目标锁定依赖，健康检查失败同时恢复代码与依赖；首次从旧升级器迁入时需手动执行一次 `npm ci --ignore-scripts`。每次推送前运行 `npm run check:release`，维护者用 `npm run setup:hooks` 启用自动检查。
 
-v0.6.7 的界面更新器准备 npm 依赖。旧安装升级后首次启用浏览器通知时，在 NR 使用的 Python 环境运行 `python -m pip install -r requirements.txt` 后重新启动。其他设备通过尾网私有 HTTPS 订阅。[浏览器通知配置](../browser-push.md#配置私有-https)
+v0.6.7 起的界面更新器在停服前准备 npm 依赖。从 v0.6.10 升级到 v0.6.11 时也会准备 `web-push`。服务优先使用可导入的 Python 推送库，旧环境缺少它时自动使用项目安装的 Node 推送库。两者共用同一套密钥格式、订阅和待投递队列。其他设备通过尾网私有 HTTPS 订阅。[浏览器通知配置](../browser-push.md#配置私有-https)
 
 仅更新 NewsReader 版本号、界面或无关依赖时，OpenCLI 发布检查可直接复用已通过且指纹一致的实测记录。采集输入变化时，按[采集验收步骤](../opencli-integration.md#更新策略)更新记录。每次推送仍核对 OpenCLI 上游版本和验证完整性。
 
