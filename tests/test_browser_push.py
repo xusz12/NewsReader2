@@ -127,6 +127,55 @@ def test_loopback_mutations_require_exact_origin_and_same_site_fetch(instance, m
     assert client.put(DEVICE, base_url=LOOPBACK, headers={"Origin":LOOPBACK,"Sec-Fetch-Site":"cross-site"}, json=body).status_code == 403
 
 
+def test_local_subscription_survives_adding_private_https(instance, monkeypatch):
+    original, _ = instance
+    previous = subscription("local-from-the-earlier-https-scope")
+    assert request_device(original, "PUT", previous, ["daily_report"]).json["registered"]
+    monkeypatch.delenv("NEWS_READER_PUSH_ORIGIN")
+    app = create_app()
+    runtime = app.extensions["newsreader"]
+    runtime.push.configure(local_port="18080")
+    runtime.initialize()
+    local = app.test_client()
+    config = "/api/browser-push/config"
+    key = local.get(config, base_url=LOOPBACK).json["public_key"]
+    device = subscription("local-before-serve")
+    body = {"subscription":device, "types":["article_reply"]}
+    headers = {"Origin":LOOPBACK}
+    assert local.put(DEVICE, base_url=LOOPBACK, headers=headers, json=body).json["registered"]
+    assert not local.get(config, base_url="http://100.64.1.2:18080").json["available"]
+    assert not local.get(config, base_url=LOOPBACK, headers={"X-Forwarded-For":"100.64.1.2"}).json["available"]
+
+    with_https = create_app()
+    runtime = with_https.extensions["newsreader"]
+    runtime.push.configure(ORIGIN, "18080")
+    runtime.initialize()
+    client = with_https.test_client()
+    assert client.get(config, base_url=ORIGIN).json["public_key"] != key
+    assert client.get(config, base_url=LOOPBACK).json["public_key"] == key
+    assert client.post(DEVICE, base_url=LOOPBACK, headers=headers, json=body).json["types"] == ["article_reply"]
+    legacy_body = {"subscription":previous, "types":["personal_reply"]}
+    assert client.post(DEVICE, base_url=LOOPBACK, headers=headers, json=legacy_body).json["types"] == ["daily_report"]
+    assert client.put(DEVICE, base_url=LOOPBACK, headers=headers, json=legacy_body).json["types"] == ["personal_reply"]
+    assert request_device(with_https, "POST", previous).json["types"] == ["personal_reply"]
+    assert not request_device(with_https, "POST", device).json["registered"]
+
+    monkeypatch.setenv("NEWS_READER_PUSH_ORIGIN", "")
+    runtime.push.configure(ORIGIN, "18080")
+    assert not client.get(config, base_url=LOOPBACK).json["available"]
+
+
+def test_missing_push_dependency_explains_unavailable_local_config(instance, monkeypatch):
+    app, service = instance
+    service.configure(local_port="18080")
+    monkeypatch.setattr(service, "installed", False)
+    client = app.test_client()
+    result = client.get("/api/browser-push/config", base_url=LOOPBACK)
+    assert result.json == {"ok":True, "available":False, "reason":"missing_dependency"}
+    assert result.headers["Cache-Control"] == "no-store"
+    assert request_device(app, "PUT", subscription("disabled"), ["daily_report"]).status_code == 403
+
+
 @pytest.mark.parametrize("endpoint", [
     "http://fcm.googleapis.com/fcm/send/test", "https://127.0.0.1:18080/test",
     "https://fcm.googleapis.com.other.test/fcm/send/not-google", "https://fcm.googleapis.com:444/fcm/send/test",
@@ -139,7 +188,7 @@ def test_rejects_unsupported_endpoint_before_persisting(instance, endpoint):
         assert not conn.execute("SELECT 1 FROM browser_push_devices").fetchone()
 
 
-@pytest.mark.parametrize("origin", [ORIGIN, f"{ORIGIN}:8443"])
+@pytest.mark.parametrize("origin", ["", ORIGIN, f"{ORIGIN}:8443"])
 def test_real_encryption_disables_redirects_and_uses_stable_topic(monkeypatch, origin):
     from requests import Response, Session
 
@@ -164,7 +213,7 @@ def test_real_encryption_disables_redirects_and_uses_stable_topic(monkeypatch, o
     assert b"Synthetic reply" not in sent["data"]
     token = sent["headers"]["Authorization"].split("t=", 1)[1].split(",", 1)[0]
     claims = token.split(".")[1]
-    assert json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))["sub"] == ORIGIN
+    assert json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))["sub"] == (ORIGIN if origin else "mailto:postmaster@localhost")
 
 
 def test_vapid_signing_error_is_retryable_without_exposing_credentials(monkeypatch, caplog):

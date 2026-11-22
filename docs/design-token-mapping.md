@@ -75,7 +75,7 @@
 
 浏览器通知复用 `.settings-section-card`、`.section-card-title`、`.field-options` 与 `.settings-toggle.settings-switch`。启用和取消订阅沿用主／次按钮，权限与保存结果沿用 `.muted` 状态文本。按设备保存的通知偏好独立于工作页草稿。
 
-访问地址复用 `.settings-section-card`、`.section-card-title` 和可换行的 `.storage-path`。重新检测和复制沿用 `.reader-action-btn.reader-action-btn--meta` 的手机紧凑文字样式，状态复用 `.muted.status-text[role="status"]`。复制沿用共享剪贴板逻辑，包括普通 HTTP 页面可用的回退。
+访问地址复用 `.settings-section-card`、`.section-card-title` 和可换行的 `.storage-path`。字段标签区分「其他设备访问地址（私有 HTTPS）」和「其他设备阅读地址（HTTP）」。重新检测和复制沿用 `.reader-action-btn.reader-action-btn--meta` 的手机紧凑文字样式，状态复用 `.muted.status-text[role="status"]`。复制沿用共享剪贴板逻辑，包括普通 HTTP 页面可用的回退。
 
 `static/settings-directory.js` 维护目录、帮助定位及字段搜索。页内导航移动到同一份表单。页头显示实际工作页名称，保存只发送本页变动字段；主题、字号与阅读快捷键由当前浏览器保存，个人助手资料使用独立工作区接口。
 

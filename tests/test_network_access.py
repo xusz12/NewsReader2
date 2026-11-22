@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import socket
 import subprocess
@@ -62,6 +63,80 @@ def test_disconnected_tailscale_does_not_reopen_cached_serve_mapping(tmp_path):
 
     assert not network_access.discover_private_serve(18080, cli=str(cli), run=run)
     assert calls == [["status", "--json"]]
+
+
+@pytest.mark.parametrize("certs,config,existing,port", [
+    ([], {}, [], None),
+    (["mac.example.ts.net"], {}, [], "443"),
+    (["mac.example.ts.net"], {"TCP":{"443":{"HTTPS":True}},
+        "Foreground":{"session":{"AllowFunnel":{"mac.example.ts.net:8443":True}}}}, [], "9443"),
+    (["mac.example.ts.net"], {"TCP":{p:{"HTTPS":True} for p in ("443", "8443", "9443")}}, [], None),
+    (["mac.example.ts.net"], {"TCP":{"8443":{"HTTPS":True}}, "Web":{"mac.example.ts.net:8443":{
+        "Handlers":{"/":{"Proxy":"http://localhost:8080/"}}}}}, ["https://mac.example.ts.net:8443"], None),
+])
+def test_serve_plan_preserves_existing_services(tmp_path, certs, config, existing, port):
+    cli = tmp_path / "tailscale"
+    cli.touch()
+    status = {"BackendState":"Running", "Self":{"DNSName":"mac.example.ts.net."}, "CertDomains":certs}
+
+    def run(command, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(status if command[1] == "status" else config))
+
+    origins, plan = network_access.inspect_private_serve(8080, prepare=True, cli=str(cli), run=run)
+    assert origins == existing
+    if port:
+        assert plan == (str(cli), port, "https://mac.example.ts.net" + ("" if port == "443" else ":" + port))
+    else:
+        assert plan is None
+
+
+@pytest.mark.parametrize("verified", [False, True])
+def test_temporary_serve_requires_readback_and_closes_with_the_app(monkeypatch, verified):
+    origin = "https://mac.example.ts.net:8443"
+    monkeypatch.setattr(network_access, "inspect_private_serve", lambda *_, **kw: ([], ("tailscale", "8443", origin)))
+    commands = []
+    stopped = []
+    process = SimpleNamespace(poll=lambda: None, terminate=lambda: stopped.append(True), wait=lambda timeout: 0)
+    def start(args, **kwargs):
+        commands.append(args)
+        return process
+    monkeypatch.setattr(network_access.subprocess, "Popen", start)
+    monkeypatch.setattr(network_access, "discover_private_serve_origins", lambda *_, **kw: [origin] if verified else [])
+    monkeypatch.setattr(network_access, "DISCOVERY_TIMEOUT", 1 if verified else 0)
+    with network_access.private_serve_session(8080) as actual:
+        assert actual == (origin if verified else "")
+        assert bool(stopped) is not verified
+    assert commands == [["tailscale", "serve", "--https=8443", "http://127.0.0.1:8080"]]
+    assert stopped == [True]
+
+
+def test_managed_https_uses_bound_loopback_even_without_a_tailnet_ip(monkeypatch):
+    import app
+
+    monkeypatch.setenv("NEWS_READER_MANAGED", "1")
+    monkeypatch.setenv("NEWS_READER_AUTO_SERVE", "1")
+    monkeypatch.setenv("NEWS_READER_HOST", "127.0.0.1")
+    monkeypatch.setenv("NEWS_READER_PORT", "18080")
+    monkeypatch.setenv("NEWS_READER_INSTANCE_ID", "fixture")
+    monkeypatch.delenv("NEWS_READER_TAILSCALE_BIND", raising=False)
+    monkeypatch.delenv("NEWS_READER_PUSH_ORIGIN", raising=False)
+    steps = []
+    @contextmanager
+    def listener(host, port, application, *, threaded):
+        steps.append(("listen", host, port))
+        yield SimpleNamespace(serve_forever=lambda: steps.append("serve"))
+    @contextmanager
+    def private_https(port):
+        steps.append(("https", port))
+        yield "https://mac.example.ts.net"
+    monkeypatch.setattr(app, "make_server", listener)
+    monkeypatch.setattr(app, "private_serve_session", private_https)
+    monkeypatch.setattr(app.runtime.push, "configure", lambda *args: steps.append(args))
+    monkeypatch.setattr(app.runtime, "start", lambda: steps.append("ready"))
+    monkeypatch.setitem(app.app.config, "NEWS_READER_PORT", 18080)
+    app.main()
+    assert steps == [("listen", "127.0.0.1", 18080), ("https", 18080),
+                     ("https://mac.example.ts.net", "18080"), "ready", "serve"]
 
 
 @pytest.mark.parametrize("state,address,expected", [

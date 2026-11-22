@@ -24,8 +24,13 @@ async function privatePage(page, baseURL, {mobile = false, standalone = true} = 
       register: async () => registration, ready: Promise.resolve(registration), getRegistration: async () => registration,
     });
     Object.defineProperty(navigator, "serviceWorker", {value:serviceWorker});
-    if ("Notification" in window)
+    if ("Notification" in window) {
       Object.defineProperty(Notification, "permission", {configurable:true, get:() => localStorage.getItem(key) ? "granted" : "default"});
+      Notification.requestPermission = async () => {
+        window.permissionFromClick = navigator.userActivation.isActive;
+        return window.dismissPermission ? "default" : "granted";
+      };
+    }
     if (mobile) {
       Object.defineProperty(navigator, "userAgent", {value:"iPhone"});
       Object.defineProperty(navigator, "standalone", {value:standalone});
@@ -52,11 +57,18 @@ test("本浏览器订阅、即时类型开关与取消在重新加载后生效",
   });
   await page.goto(httpsOrigin);
   await openSettings(page);
-  await openSettingsItem(page, "browser-push");
+  await openSettingsItem(page, "appearance");
   const card = page.locator("#browserPushSettings");
+  await card.scrollIntoViewIfNeeded();
   await expect(card.getByRole("status")).toHaveText("本浏览器尚未订阅。");
   expect(methods).toEqual([]);
+  await page.evaluate(() => { window.dismissPermission = true; });
   await card.getByRole("button", {name:"启用本浏览器通知"}).click();
+  await expect(card.getByRole("status")).toContainText("尚未允许通知");
+  expect(methods).toEqual([]);
+  await page.evaluate(() => { window.dismissPermission = false; });
+  await card.getByRole("button", {name:"启用本浏览器通知"}).click();
+  expect(await page.evaluate(() => window.permissionFromClick)).toBe(true);
   await expect(card.getByRole("status")).toHaveText("本浏览器已订阅。");
   expect(await page.evaluate(() => window.subscriptionOptions)).toEqual({visible:true, keyLength:65});
   expect(choices).toEqual(types);

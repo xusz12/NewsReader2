@@ -129,6 +129,7 @@ class Supervisor:
         self.base_env["NEWS_READER_PORT"] = str(self.port)
         self.base_env["NEWS_READER_MANAGED"] = "1"
         self.base_env.pop("NEWS_READER_TAILSCALE_BIND", None)
+        self.base_env["NEWS_READER_AUTO_SERVE"] = "1" if detect_network and self.default_host else "0"
         self.base_env["NEWS_READER_UPDATER_DIR"] = source_env.get("NEWS_READER_UPDATER_DIR", str(self.runtime_dir))
         self.base_env["NEWS_READER_SUPERVISOR_SOCKET"] = self.socket_path
         self.base_env["NEWS_READER_SUPERVISOR_TOKEN"] = self.token
@@ -390,15 +391,9 @@ class Supervisor:
     def _service_matches(url: str, commit: str, instance_id: str) -> bool:
         return service_matches(url, commit, instance_id, open_url=urlopen)
 
-    def _configure_browser_push(self, origins, push_installed):
-        if origins and push_installed and self.host in {"127.0.0.1", "0.0.0.0", "localhost"}:
-            origin = self.base_env.setdefault("NEWS_READER_PUSH_ORIGIN", origins[0]).strip().removesuffix("/")
-            if origin in origins:
-                self.base_env.setdefault("NEWS_READER_PUSH_LOOPBACK_PORT", str(self.port))
-
     def _report_network_access(self, client_address, surge_nodes, origins, push_installed, commit, instance_id):
         print(f"本机（自动打开）：{self.browser_url}/", flush=True)
-        push_origin = self.base_env.get("NEWS_READER_PUSH_ORIGIN", "").strip().removesuffix("/")
+        push_origin = self.base_env.get("NEWS_READER_PUSH_ORIGIN", next(iter(origins), "")).strip().removesuffix("/")
         addresses = verified_remote_addresses(
             self.port, client_address, surge_nodes, origins, preferred_origin=push_origin,
             matches=lambda host: self._service_matches(local_health_url(host, self.port), commit, instance_id),
@@ -418,8 +413,8 @@ class Supervisor:
             if not addresses:
                 print("未发现本实例可用的尾网阅读入口。", flush=True)
             print(f"未发现本实例可用的私有 HTTPS（回环端口 {self.port}）。"
-                  "在 Mac 终端运行 tailscale serve status 查看转发目标。", flush=True)
-        if not push_installed and serve_urls:
+                  "请连接 Mac 上的 Tailscale，在尾网启用 HTTPS 证书后重新启动 NR。运行 tailscale serve status 可查看转发目标。", flush=True)
+        if not push_installed:
             print("浏览器通知需要 pywebpush，请在启动器使用的 Python 环境安装 requirements.txt。", flush=True)
         elif push_origin + "/" not in serve_urls:
             print("其他设备要收浏览器通知，请按 docs/browser-push.md 配置本实例的私有 HTTPS 和通知。", flush=True)
@@ -666,13 +661,12 @@ class Supervisor:
                 client_address, surge_nodes = discover_connections()
                 if client_address and self.default_host:
                     self.base_env["NEWS_READER_TAILSCALE_BIND"] = client_address
-                origins = discover_private_serve_origins(self.port)
-                push_installed = find_spec("pywebpush") is not None
-                self._configure_browser_push(origins, push_installed)
             expected_commit = _git_head(self.root)
             print(f"正在启动 NewsReader：{self.browser_url}", flush=True)
             _, instance_id = self._spawn_service(expected_commit)
             if self.detect_network:
+                origins = discover_private_serve_origins(self.port)
+                push_installed = find_spec("pywebpush") is not None
                 self._report_network_access(client_address, surge_nodes, origins, push_installed,
                                             expected_commit, instance_id)
             try:

@@ -61,7 +61,7 @@ curl --fail 'http://127.0.0.1:8080/api/news?collection=feed&read_filter=all&per=
 
 Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点。已就绪并允许入站访问时，其他设备可用终端提示中的 Surge 地址和端口，经 Surge 访问本机回环服务。
 
-启动终端优先显示当前实例可用的尾网私有 HTTPS，并将它标为「推荐」。终端只列出转发到本实例回环端口的私有 HTTPS 根地址。正式版默认用 `8080`，开发版可用其他端口，比如 `18080`。查看转发目标可在 Mac 上运行 `tailscale serve status`。如果只有尾网 HTTP 网址，其他设备可通过它阅读。若要收浏览器通知，请先为当前实例配置私有 HTTPS。[浏览器通知](../browser-push.md)
+启动终端优先显示转发到本实例回环端口的尾网私有 HTTPS。默认 Finder 启动和 `scripts/start-tailscale.sh` 会复用现有根地址。独立客户端在线、尾网已允许此设备签发 HTTPS 证书且需要新入口时，服务绑定回环端口后在空闲的 `443`、`8443` 或 `9443` 上建立临时 Serve 会话，退出时释放。显式指定监听主机或通知源时沿用管理员的转发配置。可在 Mac 上运行 `tailscale serve status` 查看目标。只有尾网 HTTP 时可用它阅读，Mac 本机回环入口仍可订阅通知。[浏览器通知](../browser-push.md)
 
 也可以在「设置 → 阅读偏好与维护 → 访问地址」复制当前实例的推荐网址。卡片可见时会重新探测，也可手动点「重新检测」。其他设备连上同一 Tailscale 后即可使用检测到的入口。
 
@@ -79,7 +79,7 @@ Surge 内置 Tailscale 的 `100.x` 地址属于用户态节点。已就绪并允
 | `NEWS_READER_MEDIA_CACHE_DIR` | 主库同级 `media-cache` | 保留与数据库媒体索引的配套关系 |
 | `NEWS_READER_AGENT_DB_PATH` | 主库同级 `agent_sessions.sqlite3` | 不同部署应使用独立路径 |
 | `NEWS_READER_PUSH_ORIGIN` | 私有 HTTPS 源地址。Finder 启动器可从匹配的 Serve 映射自动填写 | 显式赋值优先，显式空字符串关闭通知。[浏览器通知](../browser-push.md) |
-| `NEWS_READER_PUSH_LOOPBACK_PORT` | 本机订阅入口的回环端口。Finder 启动器可与发现的私有 HTTPS 一起自动填写 | 显式赋值优先，显式空字符串关闭本机入口。限制为直连 `127.0.0.1` 及准确的 Host 和 Origin |
+| `NEWS_READER_PUSH_LOOPBACK_PORT` | 本机订阅入口的回环端口。默认取本实例的回环监听端口 | 显式赋值优先，显式空字符串关闭本机入口。限制为直连 `127.0.0.1` 及准确的 Host 和 Origin |
 | `NEWS_READER_TRADING_CALENDAR_PATH` | 留空时后台自动更新上交所年度日历，缓存位于主库同级 `trading-calendar-cache.json` | 仅手工维护日历时设置；指定后关闭自动更新，以该文件为准 |
 | `NEWS_READER_AGENT_RUNTIME_DIR` | 系统临时目录下按项目路径哈希隔离 | 临时会话状态，不作为长期业务备份 |
 | `NEWS_READER_UPDATER_DIR` | 系统临时目录下项目隔离路径 | 更新锁及 `news-reader-updater-state.json` 所在位置 |
@@ -160,7 +160,7 @@ CI=1 npm run test:ui
 4. 审查后提交并推送版本及稳定 tag。更新器接受 `vN.N.N` 或 `vN.N.N.N`；本地改版本号不产生远端更新。发布与账号转移由新负责人执行。
 5. 已安装实例在干净分支、受控启动条件下通过界面确认升级。升级器快进代码并健康检查，失败尝试恢复旧提交。新版升级器在停服前准备目标锁定依赖，健康检查失败同时恢复代码与依赖；首次从旧升级器迁入时需手动执行一次 `npm ci --ignore-scripts`。每次推送前运行 `npm run check:release`，维护者用 `npm run setup:hooks` 启用自动检查。
 
-v0.6.7 的界面更新器准备 npm 依赖。旧安装升级后首次启用浏览器通知时，在 NR 使用的 Python 环境运行 `python -m pip install -r requirements.txt`，并配置自己的私有 HTTPS 入口。[浏览器通知配置](../browser-push.md#配置私有-https)
+v0.6.7 的界面更新器准备 npm 依赖。旧安装升级后首次启用浏览器通知时，在 NR 使用的 Python 环境运行 `python -m pip install -r requirements.txt` 后重新启动。其他设备通过尾网私有 HTTPS 订阅。[浏览器通知配置](../browser-push.md#配置私有-https)
 
 仅更新 NewsReader 版本号、界面或无关依赖时，OpenCLI 发布检查可直接复用已通过且指纹一致的实测记录。采集输入变化时，按[采集验收步骤](../opencli-integration.md#更新策略)更新记录。每次推送仍核对 OpenCLI 上游版本和验证完整性。
 

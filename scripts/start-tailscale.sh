@@ -4,8 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+PYTHON_BIN="${NEWS_READER_PYTHON:-python3}"
+if [[ -z "${NEWS_READER_PYTHON:-}" && -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
+fi
+
 if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
-  KEYCHAIN_ACCOUNT="$(python3 -B -c 'from secret_store import KEYCHAIN_ACCOUNT; print(KEYCHAIN_ACCOUNT)')"
+  KEYCHAIN_ACCOUNT="$("${PYTHON_BIN}" -B -c 'from secret_store import KEYCHAIN_ACCOUNT; print(KEYCHAIN_ACCOUNT)')"
   if command -v security >/dev/null 2>&1; then
     KEYCHAIN_KEY="$(security find-generic-password -a "${KEYCHAIN_ACCOUNT}" -s DEEPSEEK_API_KEY -w 2>/dev/null || true)"
     if [[ -n "${KEYCHAIN_KEY}" ]]; then
@@ -21,20 +26,4 @@ if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
   exit 1
 fi
 
-if ! command -v tailscale >/dev/null 2>&1; then
-  echo "错误：未找到 tailscale 命令，请先安装并登录 Tailscale。" >&2
-  exit 1
-fi
-
-TAILSCALE_IP="$(tailscale ip -4 | head -n 1 | tr -d '[:space:]')"
-if [[ -z "${TAILSCALE_IP}" ]]; then
-  echo "错误：未获取到 Tailscale IPv4，请确认 Tailscale 已连接。" >&2
-  exit 1
-fi
-
-PORT="${NEWS_READER_PORT:-8080}"
-
-echo "使用 Tailscale IP 启动：${TAILSCALE_IP}:${PORT}"
-echo "手机访问：http://${TAILSCALE_IP}:${PORT}"
-
-NEWS_READER_HOST="${TAILSCALE_IP}" NEWS_READER_PORT="${PORT}" python3 app.py
+exec "${PYTHON_BIN}" "${ROOT_DIR}/launcher.py" --replace-existing --detect-network

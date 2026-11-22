@@ -20,6 +20,7 @@ export class AccessAddress {
     this.inView = false;
     this.host = host;
     this.result = $("[data-access-result]", host);
+    this.label = $("[data-access-label]", host);
     this.url = $("[data-access-url]", host);
     this.feedback = $("[data-access-feedback]", host);
     this.refreshButton = $("[data-access-refresh]", host);
@@ -81,15 +82,16 @@ export class AccessAddress {
       if (this.pending !== request) return;
       this.expiry = setTimeout(() => this.refresh(), addressLifetime);
       if (!address?.url) {
-        this.status("当前只检测到本机入口。连接 Tailscale 后可重新检测。");
+        this.status("当前只检测到本机入口。请在运行 NR 的 Mac 上登录 Tailscale，在尾网启用 HTTPS 证书后重新启动 NR。");
         return;
       }
       this.address = address;
       this.validUntil = Date.now() + addressLifetime;
+      this.label.textContent = address.kind === "serve" ? "其他设备访问地址（私有 HTTPS）" : "其他设备阅读地址（HTTP）";
       this.url.textContent = address.url;
       this.result.hidden = false;
       this.status(address.kind === "serve" ? "其他设备连接同一 Tailscale 后可打开。"
-        : "其他设备连接同一 Tailscale 后可用此 HTTP 地址阅读。");
+        : "此地址可用于阅读。手机通知需要私有 HTTPS。请在 Mac 上连接独立 Tailscale 客户端，在尾网启用 HTTPS 证书后重新启动 NR。");
     } catch {
       if (this.pending === request) this.status("检测失败，请重新检测。", "failed");
     } finally {

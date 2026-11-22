@@ -1,9 +1,5 @@
-"""Choose a current Tailscale client or Surge endpoint, falling back to loopback.
-
-Only local, read-only CLI calls are used. Profile contents stay in memory;
-credentials and unrelated proxy settings are never logged or retained.
-"""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
 from http.client import HTTPException
 import ipaddress
 import json
@@ -69,7 +65,7 @@ def private_serve_origins(config, port, hostname=""):
     if not isinstance(config, dict):
         return []
     candidates = set()
-    target = f"http://127.0.0.1:{port}"
+    targets = {f"http://{host}:{port}{suffix}" for host in ("127.0.0.1", "localhost") for suffix in ("", "/")}
     try:
         sections = (config, *(config.get("Foreground") or {}).values())
         public = {
@@ -87,7 +83,7 @@ def private_serve_origins(config, port, hostname=""):
                         or tcp.get(tls_port, {}).get("HTTPS") is not True):
                     continue
                 handlers = site.get("Handlers") or {}
-                if (handlers.get("/") or {}).get("Proxy") in (target, target + "/"):
+                if (handlers.get("/") or {}).get("Proxy") in targets:
                     candidates.add((tls_port != "443", f"https://{host if tls_port == '443' else endpoint}"))
             handled_ports.update(tcp)
     except (AttributeError, TypeError):
@@ -103,7 +99,16 @@ def tailscale_running(status):
     return status.get("BackendState") == "Running" and (status.get("Self") or {}).get("Online") is not False
 
 
-def discover_private_serve_origins(port, *, cli=None, run=subprocess.run):
+def available_serve_port(config, app_port):
+    occupied = {str(app_port)}
+    for section in (config, *(config.get("Foreground") or {}).values()):
+        occupied.update(section.get("TCP") or {})
+        for key in ("Web", "AllowFunnel"):
+            occupied.update(endpoint.rpartition(":")[2] for endpoint in section.get(key) or {})
+    return next((port for port in ("443", "8443", "9443") if port not in occupied), None)
+
+
+def inspect_private_serve(port, *, prepare=False, cli=None, run=subprocess.run):
     deadline = time.monotonic() + DISCOVERY_TIMEOUT
     for candidate in cli_candidates("tailscale", "Tailscale.app/Contents/MacOS/Tailscale", cli):
         try:
@@ -113,12 +118,60 @@ def discover_private_serve_origins(port, *, cli=None, run=subprocess.run):
                 continue
             data = json_command([candidate, "serve", "status", "--json"], deadline=deadline, run=run, env=env)
             hostname = ((status.get("Self") or {}).get("DNSName") or "").rstrip(".").lower()
+            if not isinstance(data, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*\.ts\.net", hostname):
+                continue
             origins = private_serve_origins(data, port, hostname)
             if origins:
-                return origins
+                return origins, None
+            if prepare and hostname in (status.get("CertDomains") or []):
+                tls_port = available_serve_port(data, port)
+                if tls_port:
+                    origin = f"https://{hostname}" + ("" if tls_port == "443" else f":{tls_port}")
+                    return [], (candidate, tls_port, origin)
         except (OSError, subprocess.SubprocessError, ValueError, TypeError, AttributeError, TimeoutError):
             continue
-    return []
+    return [], None
+
+
+def discover_private_serve_origins(port, *, cli=None, run=subprocess.run):
+    return inspect_private_serve(port, cli=cli, run=run)[0]
+
+
+def stop_serve(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+@contextmanager
+def private_serve_session(port):
+    origins, plan = inspect_private_serve(port, prepare=True)
+    with ExitStack() as cleanup:
+        if plan:
+            cli, tls_port, origin = plan
+            try:
+                process = subprocess.Popen(
+                    [cli, "serve", f"--https={tls_port}", f"http://127.0.0.1:{port}"],
+                    env={**os.environ, "TAILSCALE_BE_CLI": "1"}, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                cleanup.callback(stop_serve, process)
+                deadline = time.monotonic() + DISCOVERY_TIMEOUT
+                while process.poll() is None and time.monotonic() < deadline:
+                    if origin in discover_private_serve_origins(port, cli=cli):
+                        origins = [origin]
+                        break
+                    time.sleep(0.1)
+            except OSError:
+                pass
+            if not origins:
+                cleanup.close()
+                print("Tailscale Serve 未建立私有 HTTPS。可用 tailscale serve status 查看现有转发。", file=sys.stderr)
+        yield origins[0] if origins else ""
 
 
 def discover_private_serve(port, *, cli=None, run=subprocess.run):

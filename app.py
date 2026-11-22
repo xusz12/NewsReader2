@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import os
 import sys
 from threading import Thread
@@ -8,7 +9,7 @@ from uuid import uuid4
 from flask import Flask, send_from_directory
 from werkzeug.serving import make_server
 
-from network_access import tailnet_ipv4
+from network_access import discover_private_serve, private_serve_session, tailnet_ipv4
 import personal_assistant
 from nr import (
     agent_jobs, agent_sessions, article_fetch, bootstrap, browser_push, database, details, highlights, ideas,
@@ -63,26 +64,24 @@ def ensure_db():
     runtime.initialize()
 
 
-def serve_on_tailnet(host, port, tailnet_host):
-    with make_server(host, port, app, threaded=True) as local:
+def serve_on_tailnet(local, port, tailnet_host):
+    try:
+        peer = make_server(tailnet_host, port, app, threaded=True)
+    except (OSError, SystemExit):
+        print(f"Tailscale 地址 {tailnet_host}:{port} 无法监听，继续提供本机访问。", file=sys.stderr)
+        local.serve_forever()
+        return
+    with peer:
+        thread = Thread(target=peer.serve_forever, daemon=True)
+        thread.start()
         try:
-            peer = make_server(tailnet_host, port, app, threaded=True)
-        except (OSError, SystemExit):
-            print(f"Tailscale 地址 {tailnet_host}:{port} 无法监听，继续提供本机访问。", file=sys.stderr)
             local.serve_forever()
-            return
-        with peer:
-            thread = Thread(target=peer.serve_forever, daemon=True)
-            thread.start()
-            try:
-                local.serve_forever()
-            finally:
-                peer.shutdown()
-                thread.join()
+        finally:
+            peer.shutdown()
+            thread.join()
 
 
 def main() -> None:
-    runtime.start()
     host = (os.getenv("NEWS_READER_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port_raw = (os.getenv("NEWS_READER_PORT") or "8080").strip()
     try:
@@ -92,10 +91,23 @@ def main() -> None:
     app.config["NEWS_READER_PORT"] = port
     if not os.getenv("NEWS_READER_INSTANCE_ID"):
         os.environ["NEWS_READER_INSTANCE_ID"] = uuid4().hex
+    detect_origin = "NEWS_READER_PUSH_ORIGIN" not in os.environ
     tailnet_host = tailnet_ipv4(os.getenv("NEWS_READER_TAILSCALE_BIND"))
-    if tailnet_host and host == "127.0.0.1" and os.getenv("NEWS_READER_MANAGED") == "1":
-        serve_on_tailnet(host, port, tailnet_host)
+    if (host == "127.0.0.1" and os.getenv("NEWS_READER_MANAGED") == "1"
+            and (tailnet_host or os.getenv("NEWS_READER_AUTO_SERVE") == "1")):
+        https = private_serve_session(port) if detect_origin else nullcontext("")
+        with make_server(host, port, app, threaded=True) as local, https as origin:
+            runtime.push.configure(origin, str(port))
+            runtime.start()
+            if tailnet_host:
+                serve_on_tailnet(local, port, tailnet_host)
+            else:
+                local.serve_forever()
     else:
+        accepts_loopback = host in {"127.0.0.1", "localhost", "0.0.0.0"}
+        origin = discover_private_serve(port) if accepts_loopback and detect_origin else ""
+        runtime.push.configure(origin, str(port) if accepts_loopback else "")
+        runtime.start()
         app.run(host=host, port=port, debug=False)
 
 

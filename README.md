@@ -30,7 +30,7 @@ npm run check:collection
 ./启动NewsReader.command
 ```
 
-以后可直接在 Finder 中双击 `启动NewsReader.command`，默认会打开 `http://127.0.0.1:8080/`。在「设置 → 阅读偏好与维护 → 访问地址」可检测并复制当前实例的网址，启动终端的「其他设备」也会显示可用入口。手机或其他电脑连上同一 Tailscale 后，优先用私有 HTTPS 打开。只有 HTTP 入口时仍可阅读，浏览器通知需要为该实例配置私有 HTTPS。[安装运行与维护](docs/handoff/03-operations.md#启动方式的区别) · [浏览器通知](docs/browser-push.md)
+以后可直接在 Finder 中双击 `启动NewsReader.command`，默认会打开 `http://127.0.0.1:8080/`，可在此订阅本机通知。手机和 Mac 连接同一 Tailscale 尾网并启用尾网 HTTPS 证书后，默认启动器会复用或建立私有 HTTPS 入口。在「设置 → 阅读偏好与维护 → 访问地址」复制完整网址，在手机上打开并订阅通知。[安装运行与维护](docs/handoff/03-operations.md#启动方式的区别) · [浏览器通知](docs/browser-push.md)
 
 首次采集时，在服务所在电脑上连接 Chrome 的 OpenCLI 扩展，到「设置 → API 与运行环境 → 采集环境检查」确认连接。在「采集与处理」选择正文翻译服务，然后回到「采集排期」点击「立即采集」。浏览器来源需要 Chrome 保持运行，公开 RSS 可独立采集。[OpenCLI 安装与升级](docs/opencli-integration.md) · [分类与翻译设置](docs/reading-and-research.md#新闻分类与翻译)
 
@@ -39,7 +39,7 @@ npm run check:collection
 - 在「设置 → 阅读偏好与维护 → 数据库位置」选择已有的 SQLite 新闻库，保存本页并重启即可沿用阅读状态、收藏、想法和已缓存正文。[数据库选择顺序](docs/data-compatibility.md#继续使用原数据库)
 - 应用设置保存在 `app_settings.json`，API 密钥可在系统钥匙串中保存。个人助手的讨论和记忆另存于 `personal-assistant/`，备份时一并保存。[数据备份](docs/handoff/04-data-migration.md#制作一致性备份) · [助手备份](docs/personal-assistant.md#备份与验证)
 - 用启动器运行时，可到「设置 → 阅读偏好与维护 → 版本与更新」检查更新。自动更新需要干净的 Git 分支。[升级与回退](docs/handoff/03-operations.md#发布与回退)
-- 旧安装升级后首次启用浏览器通知时，在运行 NR 的 Python 环境执行 `python -m pip install -r requirements.txt`，安装推送依赖，再配置自己的私有 HTTPS 入口并重启。[浏览器通知配置](docs/browser-push.md#配置私有-https)
+- 旧安装升级后首次启用浏览器通知时，在运行 NR 的 Python 环境执行 `python -m pip install -r requirements.txt` 安装推送依赖，然后重新启动 NR。[浏览器通知配置](docs/browser-push.md#配置私有-https)
 
 ## 开发与维护
 

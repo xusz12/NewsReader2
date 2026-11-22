@@ -1,6 +1,7 @@
 import base64
 from contextlib import closing
 import hashlib
+from importlib.util import find_spec
 import json
 import logging
 import os
@@ -145,7 +146,7 @@ def deliver(subscription, payload, private_key, origin, ttl):
 
     with PushSession() as session:
         session.trust_env = False
-        contact = f"https://{urlsplit(origin).hostname}"
+        contact = f"https://{urlsplit(origin).hostname}" if origin else "mailto:postmaster@localhost"
         try:
             return webpush(subscription, json.dumps(payload, ensure_ascii=False), vapid_private_key=private_key,
                 vapid_claims={"sub": contact}, ttl=ttl, timeout=8, headers={"Topic": payload["tag"]},
@@ -163,18 +164,35 @@ class Service:
     def __init__(self, db, sender=deliver):
         self.db = db
         self.sender = sender
-        self.origin = select_origin(os.environ.get("NEWS_READER_PUSH_ORIGIN", "").strip())
-        self.host = urlsplit(self.origin).netloc
-        self.loopback = loopback_host(os.environ.get("NEWS_READER_PUSH_LOOPBACK_PORT", ""))
         self.library = library_scope(db.path)
-        self.scope = digest(self.library + "\n" + self.origin)
+        self.installed = find_spec("pywebpush") is not None
+        self.configure()
         self.assistant_path = None
         self.start_lock = Lock()
         self.worker = None
 
+    def configure(self, detected_origin="", local_port=""):
+        configured = os.environ.get("NEWS_READER_PUSH_ORIGIN")
+        origin = select_origin((detected_origin if configured is None else configured).strip())
+        port = os.environ.get("NEWS_READER_PUSH_LOOPBACK_PORT", local_port)
+        self.set_origins(origin, loopback_host(port) if configured is None or origin else "")
+
+    def set_origins(self, origin, loopback):
+        self.local_service = None
+        self.origin = origin
+        self.host = urlsplit(origin).netloc
+        self.loopback = loopback
+        self.scope = digest(self.library + "\n" + (origin or f"http://{loopback}"))
+
     def initialize(self, conn):
         push_events.initialize(conn)
         conn.executescript(SCHEMA)
+        if self.origin and self.loopback:
+            local_scope = digest(self.library + "\nhttp://" + self.loopback)
+            if conn.execute("SELECT 1 FROM browser_push_devices WHERE scope=? LIMIT 1", (local_scope,)).fetchone():
+                self.local_service = Service(self.db, self.sender)
+                self.local_service.set_origins("", self.loopback)
+                self.local_service.assistant_path = self.assistant_path
 
     def public_key(self):
         with closing(self.db.connect()) as conn, conn:
@@ -331,7 +349,7 @@ class Service:
         return True
 
     def start(self):
-        if not self.origin:
+        if not self.installed or not (self.origin or self.loopback):
             return
         with self.start_lock:
             if self.worker and self.worker.is_alive():
@@ -342,7 +360,10 @@ class Service:
     def run(self):
         while True:
             try:
-                if self.step():
+                worked = self.step()
+                if self.local_service and self.local_service.step():
+                    worked = True
+                if worked:
                     continue
             except (OSError, sqlite3.Error, ValueError, ImportError) as error:
                 LOGGER.warning("Browser push unavailable (%s)", type(error).__name__)
@@ -351,7 +372,7 @@ class Service:
 
 def register(app, service):
     def private_origin():
-        if not service.origin or request.headers.get("Tailscale-Funnel-Request"):
+        if request.headers.get("Tailscale-Funnel-Request"):
             return ""
         if (service.loopback and request.host == service.loopback and request.scheme == "http"
                 and request.remote_addr == "127.0.0.1"
@@ -363,16 +384,29 @@ def register(app, service):
                    and request.headers.get("X-Forwarded-Host") == service.host)
         return service.origin if request.host == service.host and (request.is_secure or proxied) else ""
 
+    def subscription_service(origin, body=None):
+        local = service.local_service
+        if not local or not origin.startswith("http://"):
+            return service
+        if body is not None:
+            device_id, _ = subscription_data(body.get("subscription"))
+            with closing(service.db.connect()) as conn:
+                existing = conn.execute("SELECT scope FROM browser_push_devices WHERE id=? AND scope IN (?,?) "
+                    "ORDER BY scope=? DESC LIMIT 1", (device_id, local.scope, service.scope, local.scope)).fetchone()
+            if existing and existing[0] == service.scope:
+                return service
+        return local
+
     def private_body():
         origin = private_origin()
-        if (not origin or request.headers.get("Origin") != origin
+        if (not service.installed or not origin or request.headers.get("Origin") != origin
                 or request.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin"):
             abort(make_response(jsonify(ok=False, error="push_origin_required"), 403))
         request.max_content_length = 4096
         value = request.get_json(silent=True)
         if not isinstance(value, dict):
             abort(make_response(jsonify(ok=False, error="invalid_subscription"), 400))
-        return value
+        return subscription_service(origin, value), value
 
     @app.get("/push-sw.js")
     def browser_push_worker():
@@ -384,13 +418,16 @@ def register(app, service):
     def browser_push_config():
         origin = private_origin()
         if not origin or request.headers.get("Origin", origin) != origin:
-            return jsonify(ok=True, available=False)
-        return jsonify(ok=True, available=True, public_key=service.public_key()), 200, {"Cache-Control": "no-store"}
+            return jsonify(ok=True, available=False), 200, {"Cache-Control": "no-store"}
+        if not service.installed:
+            return jsonify(ok=True, available=False, reason="missing_dependency"), 200, {"Cache-Control": "no-store"}
+        return jsonify(ok=True, available=True, public_key=subscription_service(origin).public_key()), 200, {"Cache-Control": "no-store"}
 
     @app.route("/api/browser-push/device", methods=["POST", "PUT", "DELETE"])
     def browser_push_device():
         try:
-            response = service.device(request.method, private_body())
+            owner, body = private_body()
+            response = owner.device(request.method, body)
         except ValueError:
             return jsonify(ok=False, error="invalid_subscription"), 400
         except sqlite3.IntegrityError:
@@ -400,7 +437,8 @@ def register(app, service):
     @app.post("/api/browser-push/seen")
     def browser_push_seen():
         try:
-            service.seen(private_body())
+            owner, body = private_body()
+            owner.seen(body)
         except ValueError:
             return jsonify(ok=False, error="invalid_push_replies"), 400
         return jsonify(ok=True), 200, {"Cache-Control": "no-store"}

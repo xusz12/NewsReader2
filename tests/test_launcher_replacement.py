@@ -117,6 +117,7 @@ def test_finder_replacement_opens_loopback_and_refreshes_the_private_url(project
     wait_for(lambda: bool(old_opened))
     assert old_opened == [f"http://127.0.0.1:{port}"]
     assert "NEWS_READER_PUSH_ORIGIN" not in old.base_env
+    assert old.base_env["NEWS_READER_AUTO_SERVE"] == "1"
     output = capsys.readouterr().out
     assert f"http://{peer_address}:{port}/" in output
     assert "tailscale serve status" in output
@@ -127,8 +128,7 @@ def test_finder_replacement_opens_loopback_and_refreshes_the_private_url(project
     wait_for(lambda: bool(new_opened))
     assert new_opened == old_opened
     assert new.child_instance_id != old.child_instance_id
-    assert new.base_env["NEWS_READER_PUSH_ORIGIN"] == origin
-    assert new.base_env["NEWS_READER_PUSH_LOOPBACK_PORT"] == str(port)
+    assert "NEWS_READER_PUSH_ORIGIN" not in new.base_env
     output = capsys.readouterr().out
     assert f"其他设备（推荐，连接 Tailscale，私有 HTTPS，阅读及浏览器通知）：{origin}/" in output
     assert output.index(origin) < output.index(f"http://{peer_address}:{port}/")
@@ -149,6 +149,7 @@ def test_finder_keeps_explicit_host_and_push_settings(project, monkeypatch, caps
     assert opened == [f"http://127.0.0.1:{port}"]
     assert supervisor.base_env["NEWS_READER_HOST"] == "0.0.0.0"
     assert "NEWS_READER_TAILSCALE_BIND" not in supervisor.base_env
+    assert supervisor.base_env["NEWS_READER_AUTO_SERVE"] == "0"
     assert supervisor.base_env["NEWS_READER_PUSH_ORIGIN"] == "https://custom.example"
     assert supervisor.base_env["NEWS_READER_PUSH_LOOPBACK_PORT"] == ""
     output = capsys.readouterr().out

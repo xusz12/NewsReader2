@@ -368,8 +368,10 @@ export class SettingsPanel {
         if (previousPage !== this.page || section === "catchup" || !this.catchupScopeSequence) this.loadCatchupScope();
         this.refreshPiCatalog();
       }
-      if (this.page === "application") this.updater.restore();
-      if (this.open && section === "browser-push") void browserPush.load();
+      if (this.page === "application") {
+        this.updater.restore();
+        if (this.open) void browserPush.load();
+      }
     }
     if (position) {
       this.jumpTarget = target || item.target;
@@ -713,7 +715,7 @@ export class SettingsPanel {
         select(key === "theme" ? "阅读主题" : "正文字号", "appearance." + key, d.appearance[key], Array.from(control.options, option => ({value:option.value, label:option.textContent})), null)).join("")}</div></section>
       <section class="settings-section-card" data-section="access-address" id="accessAddressSettings" aria-labelledby="accessAddressTitle" tabindex="-1">
       <div class="section-card-title"><span id="accessAddressTitle">访问地址</span><button class="reader-action-btn reader-action-btn--meta" data-access-refresh type="button">重新检测</button></div>
-      <div class="field-item" data-access-result hidden><span class="field-label">其他设备访问地址</span>
+      <div class="field-item" data-access-result hidden><span class="field-label" data-access-label>其他设备访问地址</span>
       <code class="storage-path" data-access-url></code>
       <div class="button-row"><button class="reader-action-btn reader-action-btn--meta" data-access-copy type="button">复制</button></div></div>
       <p class="muted status-text" data-access-feedback role="status">尚未检测。</p></section>

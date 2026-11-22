@@ -11,7 +11,7 @@ const deviceURL = "/api/browser-push/device";
 function browserSupport() {
   const loopback = location.protocol === "http:" && location.hostname === "127.0.0.1";
   if (!window.isSecureContext || (location.protocol !== "https:" && !loopback))
-    return "请通过 NR 的私有 HTTPS 地址或 Mac 本机开发入口使用浏览器通知。";
+    return "请通过设置中的私有 HTTPS 地址使用浏览器通知。在运行 NR 的 Mac 上也可使用 127.0.0.1 本机地址。";
   const appleMobile = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (appleMobile && !navigator.standalone && !matchMedia("(display-mode: standalone)").matches)
     return "请先将 NR 添加到主屏幕，再从图标打开并启用通知。";
@@ -54,7 +54,9 @@ class BrowserPush {
     const denied = !unavailable && Notification.permission === "denied";
     const status = this.error || unavailable || (denied ? "通知权限已关闭，请在浏览器或系统设置中恢复。" :
       this.busy ? "正在更新通知设置…" : this.loading ? "正在读取本浏览器的通知设置…" :
-      this.registered ? "本浏览器已订阅。" : this.config?.available === false ? "此地址未启用浏览器通知。" : "本浏览器尚未订阅。");
+      this.registered ? "本浏览器已订阅。" :
+      this.config?.reason === "missing_dependency" ? "运行 NR 的 Python 环境缺少 pywebpush。请安装 requirements.txt 中的依赖后重新启动 NR。" :
+      this.config?.available === false ? "此地址未启用通知。请用当前实例的私有 HTTPS 或 Mac 本机地址打开，并检查启动时的通知配置。" : "本浏览器尚未订阅。");
     this.host.innerHTML = `<div class="section-card-title"><span>浏览器通知</span></div>
       <p class="muted" role="status">${e(status)}</p>
       ${this.registered ? `<fieldset class="field-options" aria-label="本浏览器接收的通知" ${this.busy ? "disabled" : ""}>
@@ -62,7 +64,7 @@ class BrowserPush {
       </fieldset>` : ""}
       <div class="button-row">${this.registration && (this.registered || !denied) ?
         `<button class="${this.registered ? "btn-secondary" : "btn-primary"}" type="button" data-push-toggle ${this.busy || this.loading ? "disabled" : ""}>${this.registered ? "取消本浏览器订阅" : "启用本浏览器通知"}</button>` : ""}
-      ${this.error && !unavailable ? '<button type="button" class="btn-secondary" data-push-refresh>重新读取</button>' : ""}</div>`;
+      ${(this.error || this.config?.available === false) && !unavailable ? '<button type="button" class="btn-secondary" data-push-refresh>重新读取</button>' : ""}</div>`;
   }
   async load() {
     if (this.loading || this.busy || browserSupport()) return;
@@ -100,6 +102,13 @@ class BrowserPush {
         this.subscription = null;
         this.types = Object.keys(kinds);
       } else {
+        if (Notification.permission === "default") {
+          const permission = await Notification.requestPermission();
+          if (permission !== "granted") {
+            if (permission === "default") this.error = "尚未允许通知，可再次点击启用。";
+            return;
+          }
+        }
         const key = this.config.public_key.replace(/-/g, "+").replace(/_/g, "/");
         const appKey = Uint8Array.from(atob(key + "=".repeat((4 - key.length % 4) % 4)), value => value.charCodeAt(0));
         if (this.subscription && this.stale) {

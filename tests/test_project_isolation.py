@@ -62,7 +62,8 @@ if [ "$NR_TEST_KEYCHAIN_MISSING" = '1' ]; then exit 44; fi
 printf '%s\\n' fixture-keychain
 """,
         "tailscale": "printf '%s\\n' 100.64.1.2\n",
-        "python3": f"""if [ "$1" = app.py ]; then
+        "python3": f"""if [ "${{1##*/}}" = launcher.py ]; then
+    [ "$2" = --replace-existing ] && [ "$3" = --detect-network ] || exit 2
     printf '%s\\n' "$DEEPSEEK_API_KEY" > "$NR_TEST_LAUNCH_LOG"
 else
     exec {shlex.quote(sys.executable)} "$@"
@@ -74,6 +75,7 @@ fi
         path.write_text("#!/bin/sh\n" + source)
         path.chmod(0o700)
     env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+           "NEWS_READER_PYTHON": str(tmp_path / "python3"),
            "NR_TEST_KEYCHAIN_LOG": str(keychain_log), "NR_TEST_LAUNCH_LOG": str(launch_log),
            "NR_TEST_KEYCHAIN_MISSING": str(int(missing))}
     for key, value in (("NEWS_READER_KEYCHAIN_ACCOUNT", account), ("DEEPSEEK_API_KEY", provided)):
