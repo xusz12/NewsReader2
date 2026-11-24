@@ -164,7 +164,7 @@ v0.6.7 起的界面更新器在停服前准备 npm 依赖。从 v0.6.10 升级�
 
 仅更新 NewsReader 版本号、界面或无关依赖时，OpenCLI 发布检查可直接复用已通过且指纹一致的实测记录。采集输入变化时，按[采集验收步骤](../opencli-integration.md#更新策略)更新记录。每次推送仍核对 OpenCLI 上游版本和验证完整性。
 
-每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.129.0 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
+每次推送发布前还须检查 OAR：用 `npm view @botiverse/oar version` 对照项目锁定版本，阅读目标版本到当前版本之间的上游发布说明；有新正式版时先升级 OAR 及其要求的 Pi 依赖，更新锁文件，再完成验证。若有阻断升级的兼容问题，记录具体版本、失败用例和暂缓原因，不在发布时盲目追随 `latest`。当前 `check:release` 自动门禁仅覆盖 OpenCLI，不能代替这项 OAR 检查。OAR 0.130.1 的 Codex 临时会话使用受版本与代码检查的内存补丁 `scripts/oar_codex_ephemeral.mjs`；升级时必须验证原生归档不落盘，确认上游提供等价能力后撤掉补丁，不能只改版本检查。
 
 OAR／Pi 升级至少运行 `npm run test:oar`，以及 `python3 -m pytest tests/test_oar_client.py tests/test_oar_pi_news.py tests/test_oar_codex.py tests/test_oar_codex_native.py tests/test_pi_models.py tests/test_codex_client.py tests/test_model_settings.py tests/test_model_catalog_errors.py tests/test_model_catalog_cache.py tests/test_report_model.py tests/test_news_summaries.py tests/test_topic_tracking.py tests/test_personal_assistant.py tests/test_agent_model_picker.py tests/test_chat_archive.py tests/test_agent_conversation.py -q`；`npm ls @botiverse/oar @earendil-works/pi-coding-agent @earendil-works/pi-ai` 应确认共享的 Pi 版本符合依赖范围。真实安装依赖用例使用本地模拟模型验证工具与跨进程续接；原生 Codex 用例缺少可执行文件时会跳过，发布验收须在安装 Codex 的环境实际通过。它们不代表真实搜索、服务商认证或新增 runtime 已验收。迁移范围与未解决能力以[迁移清单](../runtime-migration.md)为准。
 

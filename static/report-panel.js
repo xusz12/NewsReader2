@@ -1,6 +1,6 @@
-import { bindSourceGroups, readerSources, updateSourceState } from "./reader-sources.js?v=0.5.18";
+import { bindSourceGroups, readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.5.18";
 import { readerText } from "./reader-highlights.js?v=0.5.8";
-import { $, api, escapeHTML as e, safeURL, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
+import { $, api, escapeHTML as e, downloadMarkdown, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";
 import { selectField, runtimeOptions } from "./form-controls.js?v=0.6.6";
@@ -35,6 +35,12 @@ const dateText = (value, full = false) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "时间无效" : new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", ...(full ? {year:"numeric"} : {}), month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
 };
+function escapeMarkdownText(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replace(/([\\`*_\[\]~|])/g, "\\$1")
+    .replace(/^( *)([#=+-])/gm, "$1\\$2")
+    .replace(/^( *\d+)([.)])(?=\s)/gm, "$1\\$2");
+}
 export class ReportPanel {
   constructor({isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem}) {
     Object.assign(this, {isVisible, enterReader, exitReader, selects, onRead, onViewChange, openArticle, closeArticle, cardAction, toggleState, markRead, stateVersion, reconcileItem});
@@ -46,13 +52,14 @@ export class ReportPanel {
     this.creation = null; this.expandedGroups = new Map(); this.groupSizes = new Map();
     this.content = $("#reportContent");
     $("#markReportReadBtn").onclick = () => this.markSourcesRead();
-    $("#copyReportBtn").onclick = event => {
-      const button = event.currentTarget, focused = document.activeElement === button;
-      return busy(button, () => this.copyReport()).finally(() => {
-        if (focused && document.activeElement === document.body && button.isConnected && !button.hidden && this.isVisible())
-          button.focus({preventScroll:true});
-      });
+    this.share = new AnchoredPopover({panel:$("#reportSharePopover"), trigger:$("#shareReportBtn")});
+    this.share.trigger.onclick = () => {
+      if (this.share.open) return this.share.close(true);
+      this.share.show();
+      $("input:checked", this.share.panel).focus({preventScroll:true});
     };
+    $("#copyReportBtn").onclick = event => busy(event.currentTarget, () => this.shareReport("copy"));
+    $("#downloadReportBtn").onclick = event => busy(event.currentTarget, () => this.shareReport("download"));
     this.creationHost = $("#reportCreationPopover");
     this.popover = new AnchoredPopover({panel:this.creationHost, trigger:$("#createReportBtn"),
       owns:target => this.creationHost.contains(this.selects.button) && this.selects.menu.contains(target),
@@ -123,7 +130,7 @@ export class ReportPanel {
       else clearTimeout(this.timer);
     });
   }
-  deactivate() { this.popover.close(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
+  deactivate() { this.share.close(); this.popover.close(); clearTimeout(this.timer); this.listSequence++; this.detailSequence++; }
   async openRecord(id, kind) {
     this.deactivate();
     this.reading = false; this.closeArticle(); this.onViewChange();
@@ -287,7 +294,8 @@ export class ReportPanel {
     const report = this.details;
     $("#reportToolbarTitle").textContent = report ? report.kind_label + originText(report) : kindLabels[this.kind];
     $("#retryReportBtn").hidden = report?.status !== "failed";
-    $("#copyReportBtn").hidden = report?.status !== "done";
+    this.share.trigger.hidden = report?.status !== "done";
+    if (this.share.trigger.hidden) this.share.close();
     this.renderReadAction();
     $("#deleteReportBtn").hidden = !report;
     $("#deleteReportBtn").disabled = report?.status === "running";
@@ -386,19 +394,47 @@ export class ReportPanel {
     this.content.querySelector(`[data-source-item="${CSS.escape(this.lastArticle)}"]`)?.focus({preventScroll:true});
     return true;
   }
-  async copyReport() {
+  async shareReport(action) {
     const report = this.details;
-    if (report?.status !== "done") return;
+    if (!this.share.open || report?.status !== "done") return;
+    const full = $("input:checked", this.share.panel).value === "full";
+    const text = this.reportText(report, {full, markdown: action === "download"});
+    this.share.close(true);
+    if (action === "download") {
+      const title = (report.title || report.kind_label).replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").slice(0, 60);
+      downloadMarkdown(text + "\n", `${title}-${full ? "完整报告" : "纯新闻报告"}.md`);
+    } else {
+      toast(await copyText(text) ? "已复制报告全文" : "复制失败，请重试或手动选择正文复制");
+    }
+  }
+  reportText(report, {full, markdown}) {
     const {sections, briefs = [], sources = []} = report.content;
-    const text = [report.title, report.kind_label + originText(report),
-      `${dateText(report.period_start, true)} — ${dateText(report.period_end, true)} · 北京时间`,
-      this.modelMetadata(report, true).join(" · "),
-      ...sections.map((section, index) => `${String(index+1).padStart(2,"0")} ${section.title}\n\n${section.paragraphs.map(p=>p.text).join("\n\n")}`),
-      briefs.length ? `简讯\n\n${briefs.map(brief=>"• "+brief.text).join("\n\n")}` : "",
-      sources.length ? `来源\n\n${sources.map((source,index)=>`${index+1}. ${source.title}\n${source.source_name} · ${dateText(source.published_at, true)}${source.url && safeURL(source.url) ? "\n"+safeURL(source.url) : ""}`).join("\n\n")}` : "",
-      !sections.length && !briefs.length ? "本期暂无符合条件的新闻。" : "", "本期完"
-    ].filter(Boolean).join("\n\n");
-    toast(await copyText(text) ? "已复制报告全文" : "复制失败，请重试或手动选择正文复制");
+    const text = markdown ? escapeMarkdownText : value => value;
+    const heading = (value, level) => (markdown ? "#".repeat(level) + " " : "") + text(value);
+    const blocks = [heading(report.title, 1)];
+    if (full) blocks.push(report.kind_label + originText(report));
+    blocks.push(`${dateText(report.period_start, true)} — ${dateText(report.period_end, true)} · 北京时间`);
+    if (full) blocks.push(text(this.modelMetadata(report, true).join(" · ")));
+    for (const [index, section] of sections.entries()) {
+      blocks.push(heading(`${String(index + 1).padStart(2, "0")} ${section.title}`, 2));
+      for (const paragraph of section.paragraphs) blocks.push(text(paragraph.text));
+    }
+    if (briefs.length) {
+      blocks.push(heading("简讯", 2), briefs.map(brief => (markdown ? "- " : "• ") + text(brief.text)).join(markdown ? "\n" : "\n\n"));
+    }
+    if (!sections.length && !briefs.length) blocks.push("本期暂无符合条件的新闻。");
+    if (full && sources.length) {
+      blocks.push(heading("来源", 2));
+      for (const [index, source] of sources.entries()) {
+        const url = sourceURL(source.url);
+        const lines = [`${index + 1}. ${text(source.title)}`,
+          [text(source.source_name || ""), dateText(source.published_at, true)].filter(Boolean).join(" · ")];
+        if (url) lines.push(markdown ? `<${url}>` : url);
+        blocks.push(lines.join(markdown ? "  \n   " : "\n"));
+      }
+    }
+    blocks.push("本期完");
+    return blocks.filter(Boolean).join("\n\n");
   }
   modelMetadata(report, full = false) {
     const seconds = Number.isFinite(report.generation_seconds) ? Math.round(report.generation_seconds) : null;

@@ -21,10 +21,10 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.11";
-import { SummaryPanel } from "./summary-panel.js?v=0.6.6";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.12";
+import { SummaryPanel } from "./summary-panel.js?v=0.6.12";
 import { TopicPanel } from "./topic-panel.js?v=0.6.8";
-import { ReportPanel } from "./report-panel.js?v=0.6.6";
+import { ReportPanel } from "./report-panel.js?v=0.6.12";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
 import { AgentPanel } from "./agent-panel.js?v=0.6.6";
 import { PersonalAssistant } from "./personal-assistant.js?v=browser-push-1";
@@ -1823,6 +1823,7 @@ function syncMobileLayers() {
   for (const list of $$("#feedColFeed, #feedColIdeas, #feedColSummaries, #feedColTopics, #feedColReports")) list.inert = open;
   for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummaries, #detailPanelTopics, #detailPanelReports"))
     panel.inert = singlePane.matches && (!open || !panel.classList.contains("active"));
+  if ($("#detailPanelReports").inert) reports.share.close();
   const settingsDetail = settings.open && $("#feedView").classList.contains("settings-detail-active");
   $("#feedColSettings").inert = singlePane.matches && settingsDetail;
   $("#detailPanelSettings").inert = singlePane.matches && !settingsDetail;
@@ -2048,7 +2049,7 @@ $("#shortcutsModal").onclick = (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.isComposing) return;
-  if (personalAssistant.popover.open || reports.popover.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
+  if (personalAssistant.popover.open || reports.popover.open || reports.share.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));

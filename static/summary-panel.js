@@ -1,5 +1,5 @@
 import { readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.5.18";
-import { $, api, escapeHTML as e, errorText, toast, markdown, singlePane, formatBytes as bytes } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, toast, downloadMarkdown, markdown, singlePane, formatBytes as bytes } from "./ui.js";
 
 const running = job => !!job && ["pending", "generating", "checking"].includes(job.status);
 const runtimeLabel = data => `${{pi:"Pi Agent",dsh:"DSH Agent",codex:"Codex Agent"}[data?.runtime] || ""} · ${data?.model || "沿用本机默认"}`;
@@ -347,7 +347,6 @@ export class SummaryPanel {
     if (!this.detail) return;
     const s = this.detail;
     const text = `# ${s.title}\n\n${s.created_at} · ${s.item_count} 篇\n\n${s.body}\n\n## 本次范围\n\n${s.validation?.scope ? scopeText(s.validation.scope) : ""}\n\n## 引用来源\n\n${s.sources.map(i => `- [${i.ref}] ${i.date || "报道日期不明"} · ${i.source_name || i.source} · ${i.title}${sourceURL(i.url) ? `\n  ${sourceURL(i.url)}` : ""}`).join("\n")}\n`;
-    const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-    const link = document.createElement("a"); link.href = url; link.download = `新闻总结-${s.id}.md`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadMarkdown(text, `新闻总结-${s.id}.md`);
   }
 }

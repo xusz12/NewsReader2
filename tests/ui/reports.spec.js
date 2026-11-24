@@ -1,3 +1,4 @@
+import {readFile} from 'node:fs/promises';
 import {test,expect} from '@playwright/test';
 import {chooseTheme,choosePicker,openNavigation,openSettings} from './helpers.js';
 
@@ -8,7 +9,7 @@ async function openReports(page) {
 }
 test.beforeEach(async({request}) => {await request.post('/__test/reports');});
 
-for(const width of [390,1440]) test('移除旧导读，复制完整正文与折叠来源，显示实际执行时间 '+width,async({page,request})=>{
+for(const width of [390,1440]) test('分享两种格式的全文与 Markdown，显示实际执行时间 '+width,async({page,request})=>{
   await page.setViewportSize({width,height:900});
   await request.post('/__test/reports',{data:{briefs:true,started_at:'2026-11-01T13:57:25Z',generation_seconds:125}});
   const report=(await (await request.get('/api/reports/report-evening')).json()).report;
@@ -22,7 +23,19 @@ for(const width of [390,1440]) test('移除旧导读，复制完整正文与折�
   await expect(page.locator('.report-overview')).toHaveCount(0);
   await expect(page.locator('#reportContent')).not.toContainText('产线取得技术进展，规模交付仍待验证。');
   await expect(page.locator('.report-sources[open]')).toHaveCount(0);
-  await page.getByRole('button',{name:'复制全文',exact:true}).click();
+  const share=page.getByRole('button',{name:'分享',exact:true});
+  const panel=page.getByRole('dialog',{name:'分享报告'});
+  const downloadReport=async format=>{
+    const downloading=page.waitForEvent('download');
+    await panel.getByRole('button',{name:'下载 Markdown'}).click();
+    const download=await downloading;
+    expect(download.suggestedFilename()).toBe(`合成晚报-${format}.md`);
+    return readFile(await download.path(),'utf8');
+  };
+  await expect(page.locator('#copyReportBtn')).toBeHidden();
+  await share.click();
+  await expect(panel.getByRole('radio',{name:'完整报告（附来源）'})).toBeChecked();
+  await panel.getByRole('button',{name:'复制全文'}).click();
   await expect(page.locator('#toast')).toContainText('已复制报告全文');
   const copied=await page.evaluate(()=>window.copiedReport);
   expect(copied).toContain('合成晚报');expect(copied).toContain('北京时间');
@@ -36,6 +49,34 @@ for(const width of [390,1440]) test('移除旧导读，复制完整正文与折�
   expect(copied.match(/https:\/\/example.com\/source/g)).toHaveLength(1);
   expect(copied).not.toContain('产线取得技术进展，规模交付仍待验证。');
   expect(copied).not.toContain('复制全文');expect(copied).toContain('本期完');
+  await share.click();
+  const full=await downloadReport('完整报告');
+  await share.click();
+  await panel.getByRole('radio',{name:'纯新闻报告'}).check();
+  await panel.getByRole('button',{name:'复制全文'}).click();
+  const news=await page.evaluate(()=>window.copiedReport);
+  await share.click();
+  await expect(panel.getByRole('radio',{name:'纯新闻报告'})).toBeChecked();
+  const newsFile=await downloadReport('纯新闻报告');
+  for(const file of [full,newsFile]) {
+    expect(file).toContain('# 合成晚报');
+    expect(file).toContain('## 01 '+report.content.sections[0].title);
+    expect(file).toContain('## 简讯\n\n- '+report.content.briefs[0].text);
+    expect(file).toContain('&lt;script&gt;');
+    expect(file.trimEnd()).toMatch(/本期完$/);
+  }
+  expect(full).toContain('## 来源');
+  expect(full).toContain('<https://example.com/source>');
+  expect(full).toContain('示例媒体');
+  expect(full).toContain('Pi · test-model');
+  for(const result of [news,newsFile]) {
+    expect(result).toContain('北京时间');
+    expect(result).toContain(report.content.sections[1].paragraphs[0].text);
+    expect(result).toContain(report.content.briefs[0].text);
+    for(const excluded of ['来源','示例媒体','https://example.com/source','生成用时','test-model','取材','收录'])
+      expect(result).not.toContain(excluded);
+  }
+  await expect(share).toBeFocused();
   expect(await page.evaluate(()=>window.reportInjected)).toBeUndefined();
   await expect(page.locator('.report-sources[open]')).toHaveCount(0);
   expect(await page.locator('#detailPanelReports .detail-toolbar').evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
@@ -48,17 +89,19 @@ test('复制受限时回退，失败不显示成功，未完成报告不提供�
   });
   await page.goto('/');await openReports(page);
   await expect(page.locator('[data-report-id="report-evening"] .card-time')).toHaveText('未记录执行时间');
+  await page.locator('#shareReportBtn').click();
   await page.locator('#copyReportBtn').click();
   await expect(page.locator('#toast')).toContainText('已复制报告全文');
   expect(await page.evaluate(()=>window.copyFallback)).toBe('copy');
   await page.evaluate(()=>window.allowCopy=false);
+  await page.locator('#shareReportBtn').click();
   await page.locator('#copyReportBtn').click();
   await expect(page.locator('#toast')).toContainText('复制失败');
-  await expect(page.locator('#copyReportBtn')).toBeEnabled();
-  await expect(page.locator('#copyReportBtn')).toBeFocused();
+  await expect(page.locator('#shareReportBtn')).toBeEnabled();
+  await expect(page.locator('#shareReportBtn')).toBeFocused();
   await request.post('/__test/reports',{data:{failed:true,pending:true}});
   await page.reload();await openReports(page);
-  await expect(page.locator('#copyReportBtn')).toBeHidden();
+  await expect(page.locator('#shareReportBtn')).toBeHidden();
   await expect(page.locator('[data-report-id="report-evening"] .card-time')).toHaveText('等待执行');
 });
 

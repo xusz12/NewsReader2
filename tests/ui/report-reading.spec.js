@@ -205,10 +205,23 @@ for(const width of [390,1440]) for(const theme of ['light','dark','system-light'
     await page.evaluate(scale=>document.documentElement.style.setProperty('--reading-scale',String(scale)),scale);
     expect(await metadata.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
   }
-  const readButton=page.locator('#markReportReadBtn'), copyButton=page.locator('#copyReportBtn');
+  const readButton=page.locator('#markReportReadBtn'), shareButton=page.locator('#shareReportBtn');
   await expect(readButton).toBeEnabled();
   const buttonSize=await readButton.boundingBox();
-  expect(buttonSize.height).toBe((await copyButton.boundingBox()).height);
+  expect(buttonSize.height).toBe((await shareButton.boundingBox()).height);
+  await shareButton.click();
+  const sharePanel=page.getByRole('dialog',{name:'分享报告'});
+  await expect(sharePanel.getByRole('radio',{name:'完整报告（附来源）'})).toBeFocused();
+  const downloadButton=sharePanel.getByRole('button',{name:'下载 Markdown'});
+  await expect(downloadButton).toBeInViewport();
+  await downloadButton.focus();
+  await page.keyboard.press(',');
+  await expect(downloadButton).toBeFocused();
+  await page.screenshot({path:`.ui-artifacts/report-share-${width}-${theme}.png`});
+  expect(await sharePanel.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(sharePanel).toBeHidden();
+  await expect(shareButton).toBeFocused();
   await readButton.focus(); await expect(readButton).toBeFocused();
   await page.locator('.report-sources summary').first().click();
   await page.getByRole('combobox',{name:'阅读字号',exact:true}).click(); await page.getByRole('option',{name:/特大/}).click();

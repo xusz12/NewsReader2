@@ -11,7 +11,7 @@ import { AccessAddress } from "./access-address.js?v=0.6.10";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";
 
 import { UpdatePanel } from "./update-panel.js?v=0.3.0";
-import { visibilityText } from "./summary-panel.js?v=0.6.6";
+import { visibilityText } from "./summary-panel.js?v=0.6.12";
 import { classificationStatus } from "./classification-progress.js?v=0.6.4";
 import { ScheduleObserver } from "./schedule-observer.js?v=0.6.6";
 import { defaultReportWindows, windowError } from "./report-windows.js";
