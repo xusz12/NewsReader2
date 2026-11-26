@@ -70,6 +70,13 @@ class Memory:
                 continue
         return result
 
+    def prompt_snapshot(self) -> tuple[str, list[str], str]:
+        with self.locked():
+            index = self.read("MEMORY.md")
+            notes = {entry["path"]: entry["revision"] for entry in self.list() if entry["path"] != "MEMORY.md"}
+        revision = hashlib.sha256(json.dumps([index["revision"], notes], sort_keys=True).encode()).hexdigest()
+        return index["content"], list(notes), revision
+
     def _write(self, path, content):
         # Atomic replacement and private permissions, also when the model updates
         # memory while another browser is viewing it.

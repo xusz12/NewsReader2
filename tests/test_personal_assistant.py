@@ -170,6 +170,54 @@ def test_persistent_identity_threads_memory_and_runtime_switch(service):
     assert len(restarted.list_threads()["threads"]) == 2
 
 
+def test_resumed_discussions_refresh_only_changed_memory(service):
+    note = "notes/关注方向.md"
+    service.memory.write(note, "最初的专题内容", "")
+    received = []
+
+    def runner(**args):
+        received.append(args["resume_prompt"])
+        if received[-1].endswith("修正关注方向"):
+            current = service.memory.read(note)
+            service.memory.write(note, "修改后的专题内容", current["revision"])
+        return "完成"
+
+    def ask(thread, text="继续"):
+        send(service, text, thread=thread)
+        assert wait_done(service, thread)["job"]["status"] == "done"
+        return received[-1]
+
+    service.runner = runner
+    first = service.new_thread()["id"]
+    second = service.new_thread()["id"]
+    for thread in (first, second):
+        prompt = ask(thread)
+        assert "<memory>" in prompt and note in prompt
+        assert "最初的专题内容" not in prompt
+
+    unchanged = ask(first, "修正关注方向")
+    assert "<memory>" not in unchanged and note not in unchanged
+    assert "本轮用户消息（ID " in unchanged and unchanged.endswith("修正关注方向")
+    for thread in (first, second):
+        refreshed = ask(thread)
+        assert "<memory>" in refreshed and note in refreshed
+        assert "修改后的专题内容" not in refreshed
+
+    service = Service(service.root, service.db_path, service.settings, runner)
+    current = service.memory.read(note)
+    service.memory.write(note, current["content"], current["revision"])
+    assert "<memory>" not in ask(first)
+
+    index = service.memory.read("MEMORY.md")
+    service.memory.write("MEMORY.md", "今后先看证据", index["revision"])
+    assert "今后先看证据" in ask(first)
+    assert "今后先看证据" not in ask(first)
+    service.memory.delete(note, current["revision"])
+    refreshed = ask(first)
+    assert "<memory>今后先看证据</memory>" in refreshed and note not in refreshed
+    assert "<memory>" not in ask(first)
+
+
 def test_busy_cancel_idempotency_and_config_guard(service):
     started = threading.Event()
     def runner(**args):
@@ -207,6 +255,7 @@ def test_failed_turn_is_not_replayed_as_authoritative(service):
     assert not list((service.root / "runtime" / thread).glob("*/broken.json"))
     def succeed(**args):
         assert "partial private claim" not in args["prompt"]
+        assert "<memory>" in args["resume_prompt"]
         return "完成"
     service.runner = succeed
     send(service, "重试", thread=thread)
@@ -308,9 +357,18 @@ def test_codex_adapter_registers_tools_and_resumes_in_own_workspace(service, tmp
     assert wait_done(service, thread)['job']['status'] == 'done'
     send(service, '再说说', thread=thread)
     assert wait_done(service, thread)['job']['status'] == 'done'
+    with service.connect() as connection:
+        connection.execute('DROP TABLE thread_memory_versions')
+    service = Service(service.root, service.db_path, service.settings, runtime.run)
+    send(service, '升级后继续', thread=thread)
+    assert wait_done(service, thread)['job']['status'] == 'done'
+    state = service.root / 'runtime' / thread / str(service.profile()['epoch'])
+    (state / 'codex-session.json').unlink()
+    send(service, '重建后继续', thread=thread)
+    assert wait_done(service, thread)['job']['status'] == 'done'
     records = [json.loads(line) for line in log.read_text().splitlines()]
     opens = [r for r in records if r['method'] in ('thread/start', 'thread/resume')]
-    assert [r['method'] for r in opens] == ['thread/start', 'thread/resume']
+    assert [r['method'] for r in opens] == ['thread/start', 'thread/resume', 'thread/resume', 'thread/start']
     for record in opens:
         assert record['params']['cwd'] == str(service.workspace)
         assert 'sandbox_mode="read-only"' in record['args']
@@ -320,8 +378,11 @@ def test_codex_adapter_registers_tools_and_resumes_in_own_workspace(service, tmp
         assert '--job-id' in tools['args']
         assert tools['enabled'] is True
     turns = [r['params']['input'][0]['text'] for r in records if r['method'] == 'turn/start']
+    assert ['<memory>' in turn for turn in turns] == [True, False, True, True]
     assert '同一讨论最近消息' not in turns[1]
     assert '再说说' in turns[1]
+    assert '同一讨论最近消息' not in turns[2] and '升级后继续' in turns[2]
+    assert '同一讨论最近消息' in turns[3] and '重建后继续' in turns[3]
 
 
 def test_blueprint_validation_and_independent_configuration(service, monkeypatch):
