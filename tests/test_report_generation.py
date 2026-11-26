@@ -100,11 +100,11 @@ def test_overlap_normalizes_without_inference_or_losing_retained_facts(budget):
     value = edition(["N00001"])
     value["omitted"] = ["N00001-N00003"]
     cache = Checkpoints()
-    cache.saved["title-first-v1:v2:direct:raw"] = value
+    cache.saved[f"{gen.WORKFLOW_VERSION}:v2:direct:raw"] = value
     result = gen.generate({"kind": "evening", "sources": [source(i) for i in range(1, 4)]}, budget,
                           lambda *_: pytest.fail("Overlap requires no inference"), cache)
     assert result["sources"][0]["ref"] == "N00001"
-    assert cache.saved["title-first-v1:v2:direct:checked"]["omitted"] == ["N00002", "N00003"]
+    assert cache.saved[f"{gen.WORKFLOW_VERSION}:v2:direct:checked"]["omitted"] == ["N00002", "N00003"]
     event = {"text": "完整事实", "refs": ["N03373"]}
     assert gen.validate_events({"events": [event], "omitted": ["N03373", "N03374"]}, {"N03373", "N03374"}) == {"events": [event], "omitted": ["N03374"]}
 
@@ -126,7 +126,7 @@ def test_explicit_omission_with_reason_is_not_mistaken_for_missing_coverage():
 
 def test_coverage_repair_reads_only_missing_material_and_can_retain_it(budget):
     cache = Checkpoints()
-    cache.saved["title-first-v1:v2:direct:raw"] = edition(["N00001"])
+    cache.saved[f"{gen.WORKFLOW_VERSION}:v2:direct:raw"] = edition(["N00001"])
     sources = [source(1, "已有充分资料" * 10000), source(2, "遗漏的重要反证")]
     seen = []
     def call(config, prompt):
@@ -222,7 +222,7 @@ def test_invalid_json_repairs_only_saved_response_and_can_resume(budget):
     snapshot = {"kind": "evening", "sources": [source(1, "完整原始新闻")]}
     with pytest.raises(RuntimeError, match="report_model_timeout"):
         gen.generate(snapshot, budget, model, cache)
-    assert cache.saved["title-first-v1:v2:direct:answer"] == raw
+    assert cache.saved[f"{gen.WORKFLOW_VERSION}:v2:direct:answer"] == raw
     result = gen.generate(snapshot, budget, model, cache)
     assert result["briefs"][0]["text"] == "待保留事实" and len(calls) == 3
     gen.generate(snapshot, budget, model, cache)
@@ -263,6 +263,8 @@ def test_selection_never_sees_details_and_writing_only_sees_selected_news(budget
     def model(config, prompt):
         material = json.loads(prompt.rsplit("\n新闻资料：", 1)[1])
         prompts.append(prompt)
+        assert gen.PERIOD_FOCUS[kind] in prompt
+        assert gen.EDITOR_RULES in prompt and gen.EDITION_RULES in prompt
         if len(prompts) == 1:
             assert all(set(s) == {"title", "source_name", "published_at", "refs"} for s in material)
             assert all(s["summary"] not in prompt and s["body"] not in prompt for s in sources if s["body"])
@@ -301,7 +303,7 @@ def test_body_changes_do_not_change_title_deduplication_or_selection_prompt(budg
 def test_writing_cannot_drop_title_only_news_and_repairs_only_missing_citation(budget):
     sources = [source(1, "仅标题的重要进展"), source(2, "有正文的进展", body="完整正文")]
     cache, calls = Checkpoints(), []
-    cache.saved["title-first-v1:v2:direct:raw"] = edition(["N00001", "N00002"])
+    cache.saved[f"{gen.WORKFLOW_VERSION}:v2:direct:raw"] = edition(["N00001", "N00002"])
     def model(config, prompt):
         calls.append(prompt)
         if len(calls) == 1:
@@ -319,6 +321,7 @@ def test_writing_cannot_drop_title_only_news_and_repairs_only_missing_citation(b
 def test_writing_retry_reuses_title_choices_and_ignores_legacy_selection(budget):
     cache, calls = Checkpoints(), []
     cache.saved["v2:direct:checked"] = {"report": gen.validate_report(edition(["N00002"]), [source(2)], "evening"), "omitted": ["N00001"]}
+    cache.saved["title-first-v1:v2:direct:checked"] = cache.saved["v2:direct:checked"]
     snapshot = {"kind": "evening", "sources": [source(1, "标题决定入选", body="入选细节"), source(2, "未入选", body="诱人的完整正文")]}
     def model(config, prompt):
         calls.append(prompt)

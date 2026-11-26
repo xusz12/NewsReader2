@@ -162,7 +162,7 @@ def monthly_sources():
 
 def test_direct_monthly_repairs_missing_important_and_only_enriches_title_selected_sources():
     sources, phases, cache = monthly_sources(), [], Checkpoints()
-    cache.saved['title-first-v1:v2:direct:checked'] = {'report': {'sections': [], 'briefs': [], 'sources': []}, 'omitted': []}
+    cache.saved[f'{gen.WORKFLOW_VERSION}:v2:direct:checked'] = {'report': {'sections': [], 'briefs': [], 'sources': []}, 'omitted': []}
     def model(config, prompt):
         assert '无关背景秘密正文' not in prompt and '未选秘密正文' not in prompt
         assert gen.encoded(monthly.RULES) in prompt

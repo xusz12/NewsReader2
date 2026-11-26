@@ -52,6 +52,8 @@ def test_oar_workspace_selects_with_titles_then_writes_only_selected_details(run
     config = {"runtime": runtime, "model": "fixture", "codex": {}, "limits": {"input_tokens": 100000}}
     def model(selected, prompt):
         w = selected["_workspace"]
+        assert gen.EDITOR_RULES in prompt and gen.EDITION_RULES in prompt
+        assert w.status()["context"]["period_focus"] == gen.PERIOD_FOCUS["monthly"]
         assert "不该被读到" not in prompt and "被选正文" not in prompt
         material = w.invoke("report_sources", {})["items"]
         assert all(set(s) == {"ref", "title", "published_at", "source_name"} for s in material)
@@ -67,3 +69,43 @@ def test_oar_workspace_selects_with_titles_then_writes_only_selected_details(run
         return "已完成"
     result = rw.generate_workspace(snapshot, config, model, Checkpoints(), lambda *a, **kw: None)
     assert {s["ref"] for s in result["sources"]} == {"N00001", "N00002"}
+
+
+@pytest.mark.parametrize("with_section", [False, True])
+def test_title_report_packs_briefs_in_order_by_selected_material_and_resumes(monkeypatch, with_section):
+    monkeypatch.setattr(rw.report_model, "estimate_tokens", len)
+    sources = [source(1, "本月决定"), source(2, "新规生效", monthly_role="important"),
+               source(3, "法院作出裁决"), source(4, "公司公布财报", body="财务数据" * 3000),
+               source(5, "项目获批"), source(6, "试产推迟"), source(7, "上月公布草案", monthly_role="background"),
+               source(8, "未入选新闻", body="未选正文")]
+    snapshot = {"kind": "monthly", "sources": sources}
+    config = {"runtime": "dsh", "limits": {"input_tokens": 8000}}
+    sections = [{"title": "本月决定", "paragraphs": [{"text": "本月决定", "refs": ["N00001"]}]}] if with_section else []
+    briefs = [{"text": "上月公布的草案本月生效", "refs": ["N00002", "N00007"]}]
+    briefs.extend({"text": s["title"], "refs": [s["ref"]]} for s in sources[2:6])
+    title_report = gen.validate_report({"sections": sections, "briefs": briefs}, sources, "monthly")
+    journal = Journal()
+    w = rw.Workspace(snapshot, config, state_store=journal, title_report=title_report)
+    plan = w.status()["plan"]
+    parts = plan["parts"]
+    first_brief = len(sections)
+    events = {event["id"]: event for event in w.events()}
+    assert [p["title"] for p in parts] == [s["title"] for s in sections] + ["简讯"] * 3
+    assert [[events[i]["text"] for i in p["event_ids"]] for p in parts[first_brief:]] == [
+        [b["text"] for b in briefs[:2]], [briefs[2]["text"]], [b["text"] for b in briefs[3:]]]
+    assert "未选正文" not in w.invoke("report_source", {"ref": "N00008"})["json_text"]
+    if with_section:
+        assert "saved" in w.invoke("report_draft", {"part_id": parts[0]["id"], "revision": plan["revision"], "sections": sections})
+    first = {"part_id": parts[first_brief]["id"], "revision": plan["revision"]}
+    assert "error" in w.invoke("report_draft", {**first, "briefs": briefs[:1]})
+    assert "saved" in w.invoke("report_draft", {**first, "sections": [], "briefs": briefs[:2]})
+
+    resumed = rw.Workspace(snapshot, config, state_store=journal, title_report=title_report)
+    assert resumed.status()["plan"] == plan
+    for part, remaining in zip(parts[first_brief+1:], [briefs[2:3], briefs[3:]], strict=True):
+        assert "saved" in resumed.invoke("report_draft", {"part_id": part["id"], "revision": plan["revision"], "briefs": remaining})
+    for action in final_actions(resumed)["actions"]:
+        assert "error" not in resumed.invoke(action["tool"], action["arguments"])
+    result = resumed.state["final"]
+    assert result["briefs"] == briefs and result["sections"] == title_report["sections"]
+    assert result["sources"] == title_report["sources"]

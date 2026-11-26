@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import periodic_reports as pr
+from report_generation import WORKFLOW_VERSION
 from database_schema import apply_schema
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -319,7 +320,7 @@ def test_invalid_final_citations_and_emphasis_not_saved(db):
         row=conn.execute("SELECT * FROM periodic_reports").fetchone()
         assert row["result_json"] is None and row["error"] == "report_invalid_result"
         steps = {step[0] for step in conn.execute("SELECT step_key FROM periodic_report_steps")}
-        assert {"title-first-v1:v2:direct:answer", "title-first-v1:v2:direct:raw"} <= steps
+        assert {f"{WORKFLOW_VERSION}:v2:direct:answer", f"{WORKFLOW_VERSION}:v2:direct:raw"} <= steps
         assert not any(key.endswith(":checked") for key in steps)
 
 
