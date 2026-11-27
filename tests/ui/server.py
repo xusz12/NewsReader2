@@ -56,16 +56,16 @@ def fixture_personal(**kwargs):
                 raise RuntimeError("assistant_stopped")
             time.sleep(.02)
     if mode == "web_search":
-        for tool in ("web_search", "web_fetch"):
-            kwargs["emit"]({"type":"oar_tool", "tool":"mcp__nr_web__" + tool})
-            while personal_mode["value"] == tool:
+        for phase, tool in (("web_search", "mcp__nr_web__web_search"), ("web_fetch", "mcp__nr_web__web_fetch"), ("tool", "nr_query")):
+            kwargs["emit"]({"type":"oar_tool", "tool":tool})
+            while personal_mode["value"] == phase:
                 if kwargs["stopped"]():
                     raise RuntimeError("assistant_stopped")
                 time.sleep(.02)
     until = time.monotonic() + (30 if mode in ("wait", "wait_empty") else .2)
     if mode != "wait_empty":
         kwargs["emit"]({"type":"text_delta", "delta":"正在查阅 NR…"})
-    while time.monotonic() < until:
+    while time.monotonic() < until or personal_mode["value"] == "writing":
         if kwargs["stopped"]():
             raise RuntimeError("assistant_stopped")
         time.sleep(.02)
@@ -305,6 +305,9 @@ def complete_agent():
                 session = module.runtime.sessions._agent_create_session(conn, item, detail)
             job = module.runtime.sessions._agent_insert_job(conn, session, question='隔离测试问题')
         stamp = database.now_ts()
+        if body.get('progress'):
+            conn.execute("UPDATE agent_jobs SET status='running',progress=?,updated_at=? WHERE id=?", (body['progress'], stamp, job['id']))
+            return {'ok': True, 'job_id': job['id']}
         status = body.get('status', 'succeeded')
         answer = body.get('answer', '通知样例：这是一轮已经完成的研究回复。')
         error = 'oar_auth_required' if status == 'failed' else ''

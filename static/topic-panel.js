@@ -1,4 +1,4 @@
-import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
+import { $, api, escapeHTML as e, errorText, markdown, toast, singlePane, mobileViewport, clipDateGroupHeaders, ListSearch, icon, resizeAutoFields } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { jobErrorText } from "./topic-status.js?v=0.6.4";
 
@@ -68,7 +68,7 @@ export class TopicPanel {
     });
     this.content.addEventListener("keydown", event => {
       if (event.target.id !== "topicChatInput" || event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
-      if (event.shiftKey || (singlePane.matches && !event.ctrlKey && !event.metaKey)) return;
+      if (event.shiftKey || (mobileViewport.matches && !event.ctrlKey && !event.metaKey)) return;
       event.preventDefault(); this.sendMessage();
     });
     this.content.addEventListener("toggle", event => {
@@ -256,7 +256,7 @@ export class TopicPanel {
   }
   canMarkViewed(data = this.data) {
     return data && data.topic.id === this.selected && this.isVisible() && !document.hidden && !this.reading && this.page === "topic" &&
-      !this.showDefinition && !this.filter && data.topic.status === "ready" && this.content.getClientRects().length &&
+      !this.showDefinition && !this.filter && data.topic.status === "ready" && !this.content.closest("[inert]") && this.content.getClientRects().length &&
       (!singlePane.matches || $("#feedView").classList.contains("mobile-reader-active"));
   }
   cancelViewed() {
@@ -346,7 +346,7 @@ export class TopicPanel {
           '</fieldset></form></details>'+
           (conflict?'<div class="button-row error-state" role="alert">定义已更新，当前编辑内容已保留。<button class="btn-secondary" type="button" data-topic-action="reload-draft">载入最新定义</button></div>':'')+
           '<form id="topicChatForm" class="agent-input-row"><textarea id="topicChatInput" class="agent-input" rows="2" maxlength="4000" aria-label="讨论主题定义" aria-describedby="topicChatHint" placeholder="询问细节，或说说你希望如何调整…" enterkeyhint="enter">'+e(this.chatDrafts.get(t.id)||'')+'</textarea><button class="agent-send-btn" type="submit">发送</button></form>'+
-          '<span id="topicChatHint" class="sr-only">'+(singlePane.matches?'点发送或按 Ctrl / Command + Enter 发送，Enter 换行。':'Enter 发送，Shift + Enter 换行。')+'</span><p class="error-state topic-chat-error" role="alert">'+e(this.chatErrors.get(t.id)||'')+'</p>'+
+          '<span id="topicChatHint" class="sr-only">'+(mobileViewport.matches?'点发送或按 Ctrl / Command + Enter 发送，Enter 换行。':'Enter 发送，Shift + Enter 换行。')+'</span><p class="error-state topic-chat-error" role="alert">'+e(this.chatErrors.get(t.id)||'')+'</p>'+
           '<div class="button-row"><button class="btn-secondary" type="button" data-topic-action="cancel">返回主题</button><button class="btn-primary" type="submit" form="topicCreateForm">确认并整理历史</button></div><p class="error-state topic-form-error" role="alert"></p>';
       } else {
         html=formHeading(t.status==="defining"?'正在明确追踪范围':'正在梳理重要进展',t.name)+'<p class="muted" role="status">'+

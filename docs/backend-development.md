@@ -19,7 +19,9 @@ NR 使用一个 Flask 服务进程。启动入口是 `python3 app.py` 或现有�
 | 应用设置、路径、更新、启动 | `preferences.py` 与 `configuration.py` 处理配置，`database.py` 打开主库和会话库，`updates.py` 对接现有启动器、更新器 | `test_preferences_api.py`、`test_data_compatibility.py`、`test_updater.py`、`test_launcher.py` |
 | 其他设备访问地址 | `updates.py` 的设置接口复用 `network_access.py` 的网络发现和实例核验，与启动终端共用地址排序 | `test_network_access.py`、`test_preferences_api.py`、`test_launcher_replacement.py` |
 
-个人助手由 `personal_assistant.py` 管理独立锁与 SQLite 事务。`assistant_main_thread` 选定唯一主线，`message_quotes` 按用户消息 ID 保存引文快照。`thread_models` 保存最近一轮的执行选择，供原轮重试使用。首次有效发送在同一写事务内建立主线、任务与消息。主库按永久条目 ID 读取。`personal_assistant_tools.py` 检索正文、引文和标题，核验记忆所引用户消息。三种 runtime 的压缩能力及用量检查位于 `scripts/oar_assistant_context.mjs`，停止、超时与缓存重建由 `personal_assistant_runtime.py` 管理。回归入口为 `test_personal_assistant.py`、`test_oar_assistant.py`、`test_personal_assistant_runtime.py` 和 `test_agent_conversation.py`。迁移、备份与回退见[个人助手说明](personal-assistant.md)。修改共享阅读行为时同时检查新闻和报告。修改任务停止行为时同时检查 HTTP 状态、SQLite 记录和执行线程。
+个人助手由 `personal_assistant.py` 管理独立锁与 SQLite 事务。`assistant_main_thread` 选定唯一主线，`message_quotes` 按用户消息 ID 保存引文快照。`thread_models` 保存最近一轮的执行选择，供原轮重试使用。首次有效发送在同一写事务内建立主线、任务与消息。`assistant_reply_notice` 在回复成功提交时记录待看的任务 ID，`/api/personal-assistant/reply-notice` 查询提醒或按精确任务 ID 确认已读。主库按永久条目 ID 读取。`personal_assistant_tools.py` 检索正文、引文和标题，核验记忆所引用户消息。三种 runtime 的压缩能力及用量检查位于 `scripts/oar_assistant_context.mjs`，停止、超时与缓存重建由 `personal_assistant_runtime.py` 管理。回归入口为 `test_personal_assistant.py`、`test_oar_assistant.py`、`test_personal_assistant_runtime.py` 和 `test_agent_conversation.py`。迁移、备份与回退见[个人助手说明](personal-assistant.md)。修改共享阅读行为时同时检查新闻和报告。修改任务停止行为时同时检查 HTTP 状态、SQLite 记录和执行线程。
+
+文章问答的 worker 仅在阶段变化时更新 `agent_jobs.progress`。取得有效终态且进程正常退出后，才在同一事务中写入任务答案、消息正文和通知。现有任务 SSE 及单任务 GET 的 `?updates=1` 返回同一组轻量字段，仅成功终态附带 `answer_text`。新闻与报告共用这套机制。
 
 ## 新增与拆分约定
 

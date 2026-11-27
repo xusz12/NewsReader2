@@ -96,7 +96,7 @@ test('recording rejects conflicts and invalid input without overwriting bindings
 
 test('two independent slots persist and activate both keys, including an empty first slot', async ({ page }) => {
   await start(page);
-  await expect(page.locator('.shortcut-setting-row')).toHaveCount(9);
+  await expect(page.locator('.shortcut-setting-row')).toHaveCount(10);
   for (const row of await page.locator('.shortcut-setting-row').all()) await expect(row.locator('input')).toHaveCount(2);
   await record(page, 'favorite', 'g');
   await record(page, 'favorite', 'h', 1);
@@ -130,6 +130,35 @@ test('two independent slots persist and activate both keys, including an empty f
   await expect(favorite).toHaveAttribute('aria-pressed', 'false');
   await page.keyboard.press('h');
   await expect(favorite).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('已占用的 Ctrl+Q 自定义绑定优先，新助手快捷键可以单独录入', async ({page}) => {
+  await page.addInitScript(key => localStorage.setItem(key, JSON.stringify({show_bar:false,bindings:{favorite:["Ctrl+q"]}})), storageKey);
+  await start(page);
+  await expect(page.locator('#shortcut-favorite-0')).toHaveValue('Ctrl+q');
+  await expect(page.locator('#shortcut-personalAssistant-0')).toHaveValue('');
+  await record(page, 'personalAssistant', 'Control+g');
+  await save(page);
+  await expect(page.locator('#personalAssistantBtn')).toHaveAttribute('aria-keyshortcuts','Control+g');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+g');
+  await expect(page.locator('#personalAssistantInput')).toBeFocused();
+  await page.keyboard.press('Control+g');
+  await expect(page.locator('#personalAssistantPanel')).toBeHidden();
+  await page.locator('#feedSearchInput').press('Shift+Q');
+  await expect(page.locator('#feedSearchInput')).toHaveValue('Q');
+});
+
+test('旧默认键迁移到 Control+Q，重新自定义后再次加载仍保留', async ({page}) => {
+  await page.goto('/');
+  await page.evaluate(key => localStorage.setItem(key, JSON.stringify({bindings:{personalAssistant:['Shift+q'],favorite:['g']}})), storageKey);
+  await start(page);
+  await expect(page.locator('#shortcut-personalAssistant-0')).toHaveValue('Ctrl+q');
+  await expect(page.locator('#shortcut-favorite-0')).toHaveValue('g');
+  await record(page, 'personalAssistant', 'Shift+q');
+  await save(page);
+  await page.reload();
+  await expect(page.locator('#personalAssistantBtn')).toHaveAttribute('aria-keyshortcuts','Shift+q');
 });
 
 test('older preferences keep their first two bindings and the normalizer rejects more', async ({ page }) => {
@@ -252,7 +281,7 @@ for (const width of [320, 390, 921, 1440]) {
       expect(Math.max(...heights)).toBeLessThanOrEqual(40);
       await page.screenshot({ path: `.ui-artifacts/settings-compact-${width}-${theme}.png` });
       await section(page);
-      await expect(page.locator('#shortcutSettings input[readonly]')).toHaveCount(18);
+      await expect(page.locator('#shortcutSettings input[readonly]')).toHaveCount(20);
       const toggle = page.getByRole('switch', { name: '显示底部快捷键栏' });
       expect(await toggle.evaluate(node => getComputedStyle(node).appearance)).toBe('none');
       await page.screenshot({ path: `.ui-artifacts/shortcuts-top-${width}-${theme}.png` });

@@ -27,6 +27,7 @@ CHAT_ARCHIVE_EMPTY_MARKER = "[[NO_ARCHIVE_CONTENT]]"
 CHAT_ARCHIVE_MESSAGE_MAX_LEN = 20000
 AGENT_MAX_QUOTE_LENGTH = 4000
 AGENT_MAX_MESSAGES = 200
+AGENT_MESSAGE_CONTENT = "CASE WHEN role='assistant' AND status NOT IN ('complete','succeeded') THEN '' ELSE content END"
 
 
 def truncate_chat_context_text(value: str, limit: int) -> str:
@@ -631,7 +632,7 @@ def register(app, chat, db, store):
                         return jsonify({"ok": False, "error": "job_in_progress"}), 409
                     # Read the stored transcript, not the browser's potentially stale or
                     # shortened copy. Fetch one extra row to detect the display limit.
-                    rows = ac.execute("""SELECT role, content, quote_text FROM agent_messages
+                    rows = ac.execute(f"""SELECT role, {AGENT_MESSAGE_CONTENT} AS content, quote_text FROM agent_messages
                         WHERE session_id=? ORDER BY created_at ASC, id ASC LIMIT ?""",
                             (active_session_id, AGENT_MAX_MESSAGES + 1)).fetchall()
                     if len(rows) > AGENT_MAX_MESSAGES:

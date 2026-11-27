@@ -330,7 +330,7 @@ test("sidebar source filters have no toggles", async ({ page }) => {
   await page.locator('[data-source="reuters"]').click();
   await expect(page.locator('#feedCardList .news-card').first()).toContainText("Reuters");
 });
-test("Agent session, streamed result, stop/retry and archive", async ({
+test("文章问答在停止后清空草稿回复，重试完成后可归档", async ({
   page,
 }) => {
   const session = {
@@ -373,7 +373,7 @@ test("Agent session, streamed result, stop/retry and archive", async ({
       body: `data: ${JSON.stringify({ ok: true, job: { ...job, answer_text: "已验证的测试回答" } })}\n\n`,
     }),
   );
-  await page.route("**/api/news/*/agent/jobs/job-ui", (route) =>
+  await page.route("**/api/news/*/agent/jobs/job-ui?updates=1", (route) =>
     route.fulfill({
       json: { ok: true, job: { ...job, answer_text: "已验证的测试回答" } },
     }),
@@ -402,32 +402,30 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   expect(sendCount).toBe(1);
   await expect(prompt).toHaveValue("下一条问题的草稿");
   releaseSend();
-  await expect(page.locator("#agentChatStream")).toContainText(
-    "已验证的测试回答",
-  );
+  await expect(page.locator("#agentChatStream .assistant .agent-bubble")).toHaveText("正在整理资料…");
   await expect(page.getByRole("button", { name: "停止研究" })).toBeVisible();
   await expect(prompt).toBeEditable();
   await expect(prompt).toHaveValue("下一条问题的草稿");
   await prompt.fill("生成期间继续修改问题");
   await prompt.press("Enter");
   expect(sendCount).toBe(1);
-  await page.route("**/api/news/*/agent/session", (route) =>
-    route.fulfill({
-      json: {
-        ok: true,
-        ...payload,
-        jobs: [{ ...job, status: "stopped", answer_text: "已验证的测试回答" }],
-        messages: [
-          payload.messages[0],
-          { ...payload.messages[1], content: "已验证的测试回答" },
-        ],
-      },
-    }),
-  );
   await page.getByRole("button", { name: "停止研究" }).click();
   await expect(page.locator('[data-retry-job="job-ui"]')).toBeVisible();
+  await expect(page.locator("#agentChatStream .assistant .agent-bubble")).toHaveText("本轮没有生成回复");
+  await expect(page.locator("#archiveAgentBtn")).toBeDisabled();
   await expect(prompt).toBeEditable();
   await expect(prompt).toHaveValue("生成期间继续修改问题");
+  const retry = {id:"retry-ui", session_id:session.id, status:"running", progress:"writing"};
+  const finished = {...retry, status:"succeeded", answer_text:"已验证的测试回答"};
+  await page.route("**/agent/jobs/job-ui/retry", route => route.fulfill({json:{
+    ok:true, ...payload, jobs:[{...job, status:"stopped"}, retry],
+    messages:[...payload.messages, ...payload.messages.map(message => ({...message, job_id:retry.id}))],
+  }}));
+  await page.route("**/agent/jobs/retry-ui/stream", route => route.fulfill({
+    contentType:"text/event-stream", body:`data: ${JSON.stringify({ok:true, job:finished})}\n\n`,
+  }));
+  await page.locator('[data-retry-job="job-ui"]').click();
+  await expect(page.locator("#agentChatStream .assistant .agent-bubble").last()).toHaveText(finished.answer_text);
   let archived;
   await page.route("**/api/news/*/chat/archive", (route) => {
     archived = route.request().postDataJSON();
@@ -443,6 +441,7 @@ test("Agent session, streamed result, stop/retry and archive", async ({
   await page.locator("#archiveAgentBtn").click();
   await expect(page.locator("#toast")).toContainText("结论已追加");
   expect(archived.agent_session_id).toBe("session-ui");
+  expect(archived.messages.filter(m => m.role === "assistant").map(m => m.content)).toEqual([finished.answer_text]);
   await expect(page.locator(".saved-note").last()).toContainText("归档结论");
 });
 

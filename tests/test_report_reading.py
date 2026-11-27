@@ -2,6 +2,7 @@
 
 import periodic_reports
 import json
+import sqlite3
 import pytest
 from api_fixtures import _setup_agent_api_fixture
 
@@ -19,6 +20,33 @@ def fixture(tmp_path, monkeypatch):
                 VALUES (?,?, 'evening', '日报', '2026-10-29T00:00:00+08:00','2026-10-30T00:00:00+08:00','2026-10-30T00:00:00+08:00','done',?,'2026-10-30','2026-10-30')""",
                 (ident, ident, json.dumps(content, ensure_ascii=False)))
     return app, client, item
+
+
+def test_report_agent_updates_only_read_report_identity(fixture, monkeypatch):
+    app, client, _ = fixture
+    jobs = "/api/news/report:one/agent/jobs"
+    submitted = client.post(jobs, json={"question":"核对报告"}).json
+    job_path = jobs + "/" + submitted["job_id"]
+    connect = app.runtime.db.connect
+
+    def metadata_connection():
+        conn = connect()
+        def authorize(action, table, column, db, trigger):
+            if action == sqlite3.SQLITE_READ and table == "periodic_reports" and column == "result_json":
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+        conn.set_authorizer(authorize)
+        return conn
+
+    monkeypatch.setattr(app.runtime.db, "connect", metadata_connection)
+    job = client.get(job_path + "?updates=1").json["job"]
+    assert job["status"] == "queued" and "answer_text" not in job
+    with client.get(job_path + "/stream", buffered=False) as stream:
+        assert json.loads(next(iter(stream.response)).decode().removeprefix("data: "))["job"] == job
+    assert client.get(job_path.replace("report:one", "report:two") + "?updates=1").status_code == 404
+    with connect() as conn:
+        conn.execute("UPDATE periodic_reports SET status='pending' WHERE id='one'")
+    assert client.get(job_path + "?updates=1").status_code == 404
 
 
 def test_highlights_quotes_notes_and_agent_are_report_scoped(fixture):

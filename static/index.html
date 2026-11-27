@@ -24,8 +24,10 @@
       media="(prefers-color-scheme: dark)"
       name="theme-color"
     />
-    <title>News Reader v0.6.15</title>
+    <title>News Reader v0.6.16</title>
     <script>
+      document.documentElement.classList.toggle("single-pane", matchMedia("(max-width: 920px)").matches);
+      document.documentElement.classList.toggle("drawer-navigation", matchMedia("(max-width: 1279px)").matches);
       try {
         const m =
           new URLSearchParams(location.search).get("theme") ||
@@ -45,10 +47,10 @@
         document.documentElement.dataset.fontSize = ["small", "standard", "large", "extra-large"].includes(size) ? size : "standard";
       } catch {}
     </script>
-    <link href="/static/vendor/prosemirror.css?v=0.6.15" rel="stylesheet" />
-    <link href="/static/tokens.css?v=0.6.15" rel="stylesheet" />
+    <link href="/static/vendor/prosemirror.css?v=0.6.16" rel="stylesheet" />
+    <link href="/static/tokens.css?v=0.6.16" rel="stylesheet" />
     <link
-      href="/static/style.css?v=0.6.15"
+      href="/static/style.css?v=0.6.16"
       rel="stylesheet"
     />
   </head>
@@ -92,7 +94,7 @@
                 <use href="/static/brand/header-symbols.svg#wordmark"></use>
               </svg>
             </span>
-            <span class="brand-version">v0.6.15</span>
+            <span class="brand-version">v0.6.16</span>
           </div>
         </div>
         <div class="topbar-center">
@@ -103,7 +105,6 @@
           </button>
         </div>
         <div class="topbar-right">
-          <button class="topbar-tool-btn" id="personalAssistantBtn" type="button" aria-label="个人助手" title="个人助手"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/><path d="M8 8h8M8 12h5"/></svg></button>
           <div class="classification-progress" id="classificationProgress" hidden>
             <button class="topbar-tool-btn classification-progress-indicator" id="classificationProgressIndicator" type="button" aria-label="任务进度" aria-describedby="taskProgressSummary" aria-controls="classificationProgressPanel" aria-expanded="false">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -167,6 +168,10 @@
             <option value="dark">专业深色 (低眩光)</option>
             <option value="eink">墨水屏 (E-Ink)</option>
           </select>
+          <button class="topbar-tool-btn agent-notifications-btn" id="personalAssistantBtn" type="button" aria-label="个人助手" aria-controls="personalAssistantPanel" aria-expanded="false" title="个人助手">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-5 4V5a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2z"/><path d="M8 8h8M8 12h5"/></svg>
+            <span class="agent-notifications-dot" id="personalAssistantDot" aria-hidden="true"></span>
+          </button>
         </div>
       </header>
       <div class="workspace-view">
@@ -787,6 +792,7 @@
           </section>
         </main>
       </div>
+      <aside class="personal-assistant-drawer agent-conversation" id="personalAssistantPanel" aria-labelledby="personalAssistantName" hidden></aside>
       <!-- 移动端底栏固定为新闻流、稍后再看、收藏；新增功能入口放入导航抽屉。 -->
       <nav
         aria-label="移动端核心主视图导航"
@@ -951,9 +957,9 @@
         </button>
       </div>
     </div>
-    <script src="/static/error_ui.js?v=0.6.15"></script>
+    <script src="/static/error_ui.js?v=0.6.16"></script>
     <script
-      src="/static/app.js?v=0.6.15"
+      src="/static/app.js?v=0.6.16"
       type="module"
     ></script>
     <section class="anchored-popover" id="reportSharePopover" role="dialog" aria-label="分享报告" hidden>
@@ -970,6 +976,5 @@
       </div>
     </section>
     <section class="anchored-popover" id="reportCreationPopover" role="dialog" aria-labelledby="reportCreationTitle" hidden></section>
-    <section class="anchored-popover agent-conversation" id="personalAssistantPanel" role="dialog" aria-label="个人助手" aria-labelledby="personalAssistantName" hidden></section>
   </body>
 </html>

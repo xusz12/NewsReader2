@@ -4,6 +4,7 @@ import importlib
 import json
 import sqlite3
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
@@ -87,9 +88,10 @@ def test_oar_empty_terminal_does_not_promote_streamed_text(tmp_path: Path, monke
     job = app_module.runtime.sessions.load_agent_payload(item["id"])["jobs"][-1]
     assert job["status"] == "failed"
     assert job["error"] == "empty_answer"
-    assert job["answer_text"] == "完成"
+    assert job["answer_text"] == ""
     payload = app_module.runtime.sessions.load_agent_payload(item["id"])
     assert payload["messages"][-1]["status"] == "failed"
+    assert payload["messages"][-1]["content"] == ""
     with app_module.runtime.db.agent_connect() as conn:
         assert conn.execute("SELECT executor_session_id FROM agent_sessions").fetchone()[0] == ""
     runtime = app_module.runtime.sessions.agent_session_runtime_dir(agent_sessions._full_pi_executor_session_id(payload["session"]["id"]))
@@ -388,19 +390,99 @@ def test_oar_timeout_and_stop_cleanup(tmp_path, monkeypatch):
     assert not list(app_module.runtime.db.agent_dir.glob('*/config-*'))
 
 
-def test_oar_stop_wins_completion_race(tmp_path, monkeypatch):
+@pytest.mark.parametrize("outcome", ["succeeded", "failed", "stopped"])
+def test_only_commit_validated_article_answer_at_worker_exit(tmp_path, monkeypatch, outcome):
     app_module, client, item, _db_path, agent_db_path = _setup_agent_api_fixture(tmp_path, monkeypatch)
     _install_fake_oar(tmp_path, monkeypatch)
-    original = app_module.runtime.agent._update_agent_job_output
-    def cancel_after_output(job_id, session_id, output, **kwargs):
-        original(job_id, session_id, output, **kwargs)
-        with sqlite3.connect(agent_db_path) as conn:
-            conn.execute('UPDATE agent_jobs SET cancel_requested=1 WHERE id=?', (job_id,))
-    monkeypatch.setattr(app_module.runtime.agent, '_update_agent_job_output', cancel_after_output)
-    client.post(f"/api/news/{item['id']}/agent/jobs", json={'question':'race'})
-    assert app_module.runtime.agent.process_pending_agent_once()
-    job = app_module.runtime.sessions.load_agent_payload(item['id'])['jobs'][-1]
-    assert job['status'] == 'stopped'
+    fake = tmp_path / "fake-node"
+    fake.write_text(fake.read_text().replace('print(json.dumps({"type": "text_delta", "delta": "完成"}), flush=True)', '''
+for tool in ("web_search", "web_search", "web_fetch"):
+    print(json.dumps({"type":"oar_tool","tool":tool}), flush=True)
+for _ in range(128):
+    print(json.dumps({"type":"text_delta","delta":"尚未完成"}), flush=True)'''))
+    monkeypatch.setenv("OAR_FAKE_MODE", "exit_failure" if outcome == "failed" else "success")
+    arrived, release = threading.Event(), threading.Event()
+    cleanup = agent_jobs.cleanup_oar_config
+
+    def hold_before_commit(*args):
+        cleanup(*args)
+        arrived.set()
+        assert release.wait(8)
+
+    monkeypatch.setattr(agent_jobs, "cleanup_oar_config", hold_before_commit)
+    monkeypatch.setattr(agent_jobs, "AGENT_STREAM_POLL_SECONDS", .01)
+    worker = app_module.runtime.agent
+    progress = []
+    update_progress = worker._update_agent_progress
+
+    def record_progress(job_id, phase):
+        progress.append(phase)
+        update_progress(job_id, phase)
+
+    monkeypatch.setattr(worker, "_update_agent_progress", record_progress)
+    path = f"/api/news/{item['id']}/agent/jobs"
+    submitted = client.post(path, json={"question":"核实来源", "quote_text":"本轮引文"})
+    assert submitted.status_code == 202
+    job_id = submitted.json["job_id"]
+    path += "/" + job_id
+    with sqlite3.connect(agent_db_path) as conn:
+        conn.executescript("""
+            CREATE TABLE writes (target TEXT, body TEXT);
+            CREATE TRIGGER job_body AFTER UPDATE OF answer_text ON agent_jobs
+                BEGIN INSERT INTO writes VALUES ('job', NEW.answer_text); END;
+            CREATE TRIGGER message_body AFTER UPDATE OF content ON agent_messages
+                BEGIN INSERT INTO writes VALUES ('message', NEW.content); END;
+        """)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(worker.process_pending_agent_once)
+        try:
+            assert arrived.wait(5)
+            assert progress == ["searching", "fetching", "writing"]
+            with sqlite3.connect(agent_db_path) as conn:
+                assert conn.execute("SELECT answer_text FROM agent_jobs WHERE id=?", (job_id,)).fetchone() == ("",)
+                assert conn.execute("SELECT content FROM agent_messages WHERE role='assistant' AND job_id=?", (job_id,)).fetchone() == ("",)
+                assert conn.execute("SELECT * FROM writes").fetchall() == []
+            event = client.get(path + "/stream", buffered=False)
+            assert event.mimetype == "text/event-stream"
+            frames = iter(event.response)
+            active = json.loads(next(frames).decode().removeprefix("data: "))["job"]
+            assert active == {"id":job_id, "session_id":submitted.json["session"]["id"], "status":"running", "progress":"writing",
+                              "cancel_requested":False, "error":""}
+            assert client.get(path + "?updates=1").json == {"ok":True, "job":active}
+            assert client.get(path).json["job"]["answer_text"] == ""
+            if outcome == "stopped":
+                assert client.post(path + "/stop").json["job"]["status"] == "stopping"
+        finally:
+            release.set()
+        assert future.result(timeout=4)
+        final, = [json.loads(frame.decode().removeprefix("data: "))["job"] for frame in frames]
+        event.close()
+    expected = "完成" if outcome == "succeeded" else ""
+    assert final == client.get(path + "?updates=1").json["job"]
+    assert final["status"] == outcome
+    assert final.get("answer_text", "") == expected
+    assert ("answer_text" in final) == (outcome == "succeeded")
+    with sqlite3.connect(agent_db_path) as conn:
+        assert conn.execute("SELECT target,body FROM writes ORDER BY target").fetchall() == [("job", expected), ("message", expected)]
+    snapshot = app_module.runtime.sessions.load_agent_payload(item["id"])
+    assert snapshot["messages"][-1]["content"] == snapshot["jobs"][-1]["answer_text"] == expected
+
+
+def test_active_turn_remains_in_a_full_session_window(tmp_path, monkeypatch):
+    module, client, item, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    _install_fake_oar(tmp_path, monkeypatch)
+    monkeypatch.setattr(agent_sessions, "AGENT_MAX_JOBS", 1)
+    monkeypatch.setattr(news_chat, "AGENT_MAX_MESSAGES", 3)
+    path = f"/api/news/{item['id']}/agent"
+    first = client.post(path + "/jobs", json={"question":"第一轮"}).json
+    assert module.runtime.agent.process_pending_agent_once()
+    second = client.post(path + "/jobs", json={"question":"第二轮"}).json
+    for snapshot in (second, client.get(path + "/session").json, module.runtime.sessions.load_agent_payload(item["id"])):
+        assert [job["id"] for job in snapshot["jobs"]] == [first["job_id"], second["job_id"]]
+        assert [m["job_id"] for m in snapshot["messages"]] == [first["job_id"]] * 2 + [second["job_id"]] * 2
+        assert snapshot["messages"][-1]["status"] == "queued" and snapshot["messages"][-1]["content"] == ""
+    assert module.runtime.agent.process_pending_agent_once()
+    assert client.get(path + "/jobs/" + second["job_id"] + "?updates=1").json["job"]["answer_text"] == "完成"
 
 
 def test_oar_sync_legacy_id_is_imported_not_discarded(tmp_path, monkeypatch):

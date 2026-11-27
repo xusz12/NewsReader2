@@ -6,12 +6,14 @@ export const shortcutActions = [
   { id: "important", label: "标记重要", keys: ["a", "ArrowLeft"] },
   { id: "read_later", label: "稍后再看", keys: ["d", "ArrowRight"] },
   { id: "favorite", label: "收藏", keys: ["f"] },
-  { id: "agent", label: "展开／收起 Agent", keys: ["q"] },
+  { id: "agent", label: "展开／收起文章问答", keys: ["q"] },
+  { id: "personalAssistant", label: "展开／收起个人助手", keys: ["Ctrl+q"] },
   { id: "search", label: "搜索", keys: ["/"] },
   { id: "settings", label: "打开／关闭设置", keys: [","] },
   { id: "help", label: "快捷键速查", keys: ["?"] },
 ];
 const storageKey = "newsreader_workbench_shortcuts";
+const storageVersion = 2;
 const names = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", Space: "空格", Plus: "+" };
 const aliases = { "↑": "ArrowUp", "↓": "ArrowDown", "←": "ArrowLeft", "→": "ArrowRight", "空格": "Space", " ": "Space", "+": "Plus" };
 const namedKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Plus", "Home", "End", "PageUp", "PageDown", "Backspace", "Delete", ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`)];
@@ -85,10 +87,19 @@ export class KeyboardShortcuts {
       if (removedReadBinding) delete saved.bindings.read;
       // Older versions allowed four alternatives; retain the first two per action.
       for (const keys of Object.values(saved?.bindings || {})) if (Array.isArray(keys)) keys.splice(2);
+      const bindings = saved?.bindings;
+      const migrate = bindings && !saved.version;
+      if (migrate) {
+        const occupied = Object.entries(bindings).some(([action, keys]) => action !== "personalAssistant" &&
+          keys.some(key => key && canonicalKey(key) === "Ctrl+q"));
+        const previous = bindings.personalAssistant;
+        if (!previous && occupied) bindings.personalAssistant = [];
+        if (!occupied && previous?.length === 1 && previous[0] && canonicalKey(previous[0]) === "Shift+q") delete bindings.personalAssistant;
+      }
       const normalized = normalizeShortcuts(saved);
-      if (removedReadBinding) {
+      if (removedReadBinding || migrate) {
         // A retired binding stays inactive even if browser storage is read-only.
-        try { localStorage.setItem(storageKey, JSON.stringify(normalized)); } catch {}
+        try { localStorage.setItem(storageKey, JSON.stringify({version:storageVersion, ...normalized})); } catch {}
       }
       return normalized;
     }
@@ -97,16 +108,17 @@ export class KeyboardShortcuts {
   snapshot() { return structuredClone(this.value); }
   save(value) {
     const normalized = normalizeShortcuts(value);
-    try { localStorage.setItem(storageKey, JSON.stringify(normalized)); }
+    try { localStorage.setItem(storageKey, JSON.stringify({version:storageVersion, ...normalized})); }
     catch { throw new Error("浏览器无法保存快捷键偏好，请检查浏览器存储设置"); }
     this.value = normalized;
     this.render();
     document.dispatchEvent(new Event("shortcuts:changed"));
     return this.snapshot();
   }
-  action(event) {
+  action(event, allowModifiedInput = false) {
     if (event.defaultPrevented || event.isComposing || event.key === "Process" || event.getModifierState?.("AltGraph")) return null;
-    if (event.target?.closest('input,textarea,select,[role="combobox"],[contenteditable]:not([contenteditable="false"])')) return null;
+    if (event.target?.closest('input,textarea,select,[role="combobox"],[contenteditable]:not([contenteditable="false"])') &&
+        !(allowModifiedInput && (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey))) return null;
     let key;
     try { key = shortcutKeyFromEvent(event); } catch { return null; }
     return shortcutActions.find(action => this.value.bindings[action.id].includes(key))?.id || null;

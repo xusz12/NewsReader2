@@ -41,16 +41,18 @@ def agent_expiry_for(timestamp: str) -> str:
     return (base + timedelta(hours=agent_session_ttl_hours())).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _agent_session_message_rows(conn: sqlite3.Connection, session_id: str) -> list[dict]:
+def _agent_session_message_rows(conn: sqlite3.Connection, session_id: str, *, job_id: str | None = None) -> list[dict]:
+    condition = "session_id=?" if job_id is None else "session_id=? AND job_id=?"
+    params = (session_id,) if job_id is None else (session_id, job_id)
     rows = conn.execute(
-        """
-        SELECT id, job_id, role, content, quote_text, quote_source, status, created_at, updated_at
+        f"""
+        SELECT id, job_id, role, {news_chat.AGENT_MESSAGE_CONTENT} AS content, quote_text, quote_source, status, created_at, updated_at
         FROM agent_messages
-        WHERE session_id=?
+        WHERE {condition}
         ORDER BY created_at ASC, id ASC
         LIMIT ?
         """,
-        (session_id, news_chat.AGENT_MAX_MESSAGES),
+        (*params, news_chat.AGENT_MAX_MESSAGES),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -59,7 +61,8 @@ def _agent_job_rows(conn: sqlite3.Connection, session_id: str) -> list[dict]:
     rows = conn.execute(
         """
         SELECT id, session_id, item_id, provider, model, question, quote_text, quote_source,
-               status, progress, answer_text, error, cancel_requested, created_at, started_at, finished_at, updated_at
+               status, progress, CASE WHEN status='succeeded' THEN answer_text ELSE '' END AS answer_text,
+               error, cancel_requested, created_at, started_at, finished_at, updated_at
         FROM agent_jobs
         WHERE session_id=?
         ORDER BY created_at ASC
@@ -118,6 +121,10 @@ def _serialize_agent_job(row: sqlite3.Row | dict | None) -> dict | None:
         return None
     payload = dict(row)
     payload.pop("model_binding", None)
+    if payload.get("answer_text") is None:
+        payload.pop("answer_text", None)
+    elif payload["status"] != "succeeded":
+        payload["answer_text"] = ""
     payload["cancel_requested"] = bool(payload.get("cancel_requested"))
     return payload
 
@@ -385,7 +392,7 @@ class AgentSessions:
                 conn.execute(
                     """
                 UPDATE agent_jobs
-                SET status='interrupted', error='service_restarted', finished_at=?, updated_at=?
+                SET status='interrupted', answer_text='', error='service_restarted', finished_at=?, updated_at=?
                 WHERE status IN ('queued', 'pending', 'running', 'streaming', 'stopping')
                 """,
                     (stamp, stamp),
@@ -393,8 +400,8 @@ class AgentSessions:
                 conn.execute(
                     """
                 UPDATE agent_messages
-                SET status='interrupted', updated_at=?
-                WHERE role='assistant' AND status IN ('streaming', 'running')
+                SET status='interrupted', content='', updated_at=?
+                WHERE role='assistant' AND status IN ('queued','pending','running','streaming','stopping')
                   AND job_id IN (SELECT id FROM agent_jobs WHERE status='interrupted')
                 """,
                     (stamp,),
@@ -471,11 +478,7 @@ class AgentSessions:
             session = self._agent_active_session(conn, item_id)
             if not session:
                 return {"session": None, "messages": [], "jobs": []}
-            return {
-                "session": self._serialize_agent_session(session),
-                "messages": _agent_session_message_rows(conn, session["id"]),
-                "jobs": _agent_job_rows(conn, session["id"]),
-            }
+            return self._agent_payload_for_session(conn, session)
         finally:
             conn.close()
 
@@ -511,9 +514,22 @@ class AgentSessions:
             conn.close()
 
     def _agent_payload_for_session(self, conn: sqlite3.Connection, session: sqlite3.Row | dict) -> dict:
+        if not conn.in_transaction:
+            conn.execute("BEGIN")
         session_id = session["id"]
         job_rows = _agent_job_rows(conn, session_id)
         messages = _agent_session_message_rows(conn, session_id)
+        if len(job_rows) == AGENT_MAX_JOBS:
+            latest = conn.execute("SELECT * FROM agent_jobs WHERE session_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                                  (session_id,)).fetchone()
+            if latest["id"] != job_rows[-1]["id"]:
+                job_rows.append(dict(latest))
+        if job_rows and len(messages) == news_chat.AGENT_MAX_MESSAGES:
+            last_job = job_rows[-1]["id"]
+            if messages[-1]["job_id"] != last_job or messages[-1]["role"] != "assistant":
+                known = {message["id"] for message in messages}
+                messages.extend(message for message in _agent_session_message_rows(conn, session_id, job_id=last_job)
+                                if message["id"] not in known)
         return {
             "session": self._serialize_agent_session(session),
             "messages": messages,
@@ -641,7 +657,7 @@ class AgentSessions:
             """
         INSERT INTO agent_messages
           (session_id, job_id, role, content, quote_text, quote_source, status, created_at, updated_at)
-        VALUES (?, ?, 'assistant', '', '', '', 'streaming', ?, ?)
+        VALUES (?, ?, 'assistant', '', '', '', 'queued', ?, ?)
         """,
             (session["id"], job_id, stamp, stamp),
         )
@@ -655,17 +671,29 @@ class AgentSessions:
         )
         return conn.execute("SELECT * FROM agent_jobs WHERE id=?", (job_id,)).fetchone()
 
-    def _agent_job_for_item(self, conn: sqlite3.Connection, item_id: str, job_id: str) -> sqlite3.Row | None:
-        item, _ = self._load_visible_agent_article(item_id)
-        if not item or not item.get("url"):
+    def _visible_agent_url(self, item_id: str) -> str | None:
+        with closing(self.db.connect()) as conn:
+            if item_id.startswith(report_reader.ID_PREFIX):
+                row = conn.execute("SELECT id FROM periodic_reports WHERE id=? AND status='done'",
+                                   (item_id[len(report_reader.ID_PREFIX):],)).fetchone()
+                return report_reader.URL_PREFIX + row["id"] if row else None
+            row = conn.execute(f"SELECT url FROM items WHERE id=? AND {visible_news_sql()}", (item_id,)).fetchone()
+            return row["url"] if row else None
+
+    def _agent_job_for_item(self, conn: sqlite3.Connection, item_id: str, job_id: str, *, url=None, update=False) -> sqlite3.Row | None:
+        if url is None:
+            url = self._visible_agent_url(item_id)
+        if not url:
             return None
         scope = self.agent_library_scope()
-        return conn.execute("""
-        SELECT aj.* FROM agent_jobs aj JOIN agent_sessions s ON s.id=aj.session_id
+        fields = """aj.id, aj.session_id, aj.status, aj.progress, aj.cancel_requested, aj.error,
+            CASE WHEN aj.status='succeeded' THEN aj.answer_text END AS answer_text""" if update else "aj.*"
+        return conn.execute(f"""
+        SELECT {fields} FROM agent_jobs aj JOIN agent_sessions s ON s.id=aj.session_id
         WHERE aj.id=? AND aj.item_id=? AND s.item_id=?
           AND (aj.db_scope='' OR aj.db_scope=?)
           AND (s.db_scope=? OR (s.db_scope='' AND s.url=?))
-    """, (job_id, item_id, item_id, scope, scope, item["url"])).fetchone()
+    """, (job_id, item_id, item_id, scope, scope, url)).fetchone()
 
     def _agent_current_context_hash(self, item_id: str) -> str:
         item, detail = self._load_visible_agent_article(item_id)
@@ -783,7 +811,10 @@ def register(app, store, worker):
             payload = store._agent_payload_for_session(conn, session)
             # A pinned old turn must remain reachable even beyond the normal history window.
             if not any(row["id"] == message["id"] for row in payload["messages"]):
-                payload["messages"].append(dict(message))
+                saved = dict(message)
+                if job["status"] != "succeeded":
+                    saved["content"] = ""
+                payload["messages"].append(saved)
             if not any(row["id"] == job["id"] for row in payload["jobs"]):
                 payload["jobs"].append(_serialize_agent_job(job))
             payload["context_available"] = True
@@ -1006,15 +1037,19 @@ def register(app, store, worker):
 
     @app.get("/api/news/<item_id>/agent/jobs/<job_id>")
     def api_agent_job_get(item_id: str, job_id: str):
-        item, _detail = store._load_visible_agent_article(item_id)
-        if not item:
+        url = store._visible_agent_url(item_id)
+        if url is None:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         conn = store.connect()
         try:
-            store.cleanup_agent_sessions(conn)
-            job = store._agent_job_for_item(conn, item_id, job_id)
+            update = request.args.get("updates") == "1"
+            if not update:
+                store.cleanup_agent_sessions(conn)
+            job = store._agent_job_for_item(conn, item_id, job_id, url=url, update=update)
             if not job:
                 return jsonify({"ok": False, "error": "job_not_found"}), 404
+            if update:
+                return jsonify(ok=True, job=_serialize_agent_job(job))
             session = conn.execute("SELECT * FROM agent_sessions WHERE id=?", (job["session_id"],)).fetchone()
             return jsonify({"ok": True, "job": _serialize_agent_job(job), "session": store._serialize_agent_session(session)})
         finally:

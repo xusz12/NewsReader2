@@ -92,8 +92,9 @@ a {
 
 /* ─── app shell layout ─────────────────────────────────────────────── */
 .app-root {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: var(--header-height) minmax(0, 1fr) auto;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
@@ -102,6 +103,7 @@ a {
 
 /* 顶部导航状态栏 */
 .topbar {
+  grid-area: 1 / 1 / 2 / -1;
   --topbar-side-width: 456px;
   height: var(--header-height);
   min-height: var(--header-height);
@@ -362,7 +364,7 @@ a {
 
 /* ─── 核心视图容器架构 ─────────────────────────────────────────────── */
 .workspace-view {
-  flex: 1;
+  grid-area: 2 / 1;
   display: flex;
   overflow: hidden;
   position: relative;
@@ -2528,6 +2530,7 @@ input.field-input:is([type="date"], [type="datetime-local"], [type="month"], [ty
 
 /* ─── 底部快捷键全局提示条 ─────────────────────────────────────────── */
 .keyboard-bar {
+  grid-area: 3 / 1;
   height: 28px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
@@ -2675,7 +2678,6 @@ kbd {
 
   /* 移动端工作台视口高度扣减底部导航栏 */
   .workspace-view {
-    flex: none;
     height: calc(
       100dvh - var(--header-height) - var(--mobile-nav-height) -
         env(safe-area-inset-bottom, 0px)
@@ -2683,7 +2685,8 @@ kbd {
     position: relative;
     overflow: hidden;
   }
-
+}
+:where(.single-pane) {
   /* ════ 视图 1：新闻流三栏工作台移动端分层流转 ════ */
   #feedView {
     position: relative;
@@ -2706,7 +2709,8 @@ kbd {
   .feed-column.active {
     display: flex;
   }
-
+}
+@media (max-width: 920px) {
   .feed-header {
     padding: 10px 12px;
     gap: 8px;
@@ -2774,7 +2778,8 @@ kbd {
     line-height: 1.45;
     -webkit-line-clamp: 2;
   }
-
+}
+:where(.single-pane) {
   /* 详情覆盖在列表上方，右滑时露出保留滚动位置的底层列表。 */
   .detail-panel {
     display: none;
@@ -2807,14 +2812,6 @@ kbd {
     transition: transform 0.2s ease;
   }
 
-  /* 阅读器移动端顶部专属工具栏 */
-  .detail-toolbar {
-    height: 48px;
-    padding: 0 10px;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
   .mobile-back-btn {
     display: none;
     align-items: center;
@@ -2841,11 +2838,20 @@ kbd {
     color: var(--accent);
   }
 
-  .app-root:has(#feedView.mobile-reader-active:not(.settings-active)) #mobileReaderBackBtn {
+  .app-root:not(.assistant-fullscreen):has(#feedView.mobile-reader-active:not(.settings-active)) #mobileReaderBackBtn {
     display: inline-flex;
     justify-content: center;
     width: 40px;
     padding: 0;
+  }
+}
+@media (max-width: 920px) {
+  /* 阅读器移动端顶部专属工具栏 */
+  .detail-toolbar {
+    height: 48px;
+    padding: 0 10px;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .detail-toolbar-left {
@@ -4061,7 +4067,7 @@ button:disabled {
     padding: 18px;
   }
 }
-@media (max-width: 920px) {
+:where(.single-pane) {
   .settings-mobile-back {
     display: inline-flex;
     flex-shrink: 0;
@@ -4071,6 +4077,8 @@ button:disabled {
     width: 18px;
     height: 18px;
   }
+}
+@media (max-width: 920px) {
   .settings-list-header {
     padding: var(--space-2) 14px;
   }
@@ -4246,7 +4254,7 @@ button:disabled {
 .agent-input-row { align-items: flex-end; flex-shrink: 0; padding: var(--space-3); gap: var(--space-2); }
 .agent-input { min-width: 0; resize: none; box-sizing: border-box; line-height: 1.5; font-family: var(--font-body); }
 .agent-input-measure { position: fixed; top: 0; left: 0; height: 0 !important; min-height: 0 !important; max-height: none !important; visibility: hidden; pointer-events: none; overflow: hidden; }
-@media (max-width: 1279px) {
+:where(.drawer-navigation) {
   .mobile-menu-btn {
     display: inline-flex;
     align-items: center;
@@ -4356,14 +4364,13 @@ button:disabled {
   }
 
 
-  .topbar-center { display: none; }
+  .keyboard-bar { display: none; }
 }
 
 @media (min-width: 921px) and (max-width: 1279px) {
   .detail-scroll-area { padding-inline: var(--space-4); }
   .detail-toolbar { padding-inline: var(--space-2); }
   .agent-dock { right: var(--space-4); max-width: calc(100% - 32px); }
-  .keyboard-bar { display: none; }
 }
 @media (max-width: 920px) {
   .filter-chip { height: 36px; }
@@ -4427,10 +4434,67 @@ button:disabled {
 }
 /* Shared anchored form surface; its contents use the existing form controls. */
 .anchored-popover { position: fixed; z-index: 300; width: 360px; display: flex; flex-direction: column; gap: var(--space-4); overflow: auto; overscroll-behavior: contain; padding: var(--space-4); background: var(--surface-raised); color: var(--fg); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
-/* Conversation variant of the shared anchored overlay. Message, composer and
-   header styling comes from the existing Agent components in every theme. */
-.anchored-popover.agent-conversation { width: var(--agent-dock-width); height: var(--agent-dock-height); padding: 0; gap: 0; overflow: hidden; }
-.anchored-popover.agent-conversation.maximized { width: var(--reading-width); height: 100dvh; }
+.personal-assistant-drawer {
+  grid-area: 2 / 2 / 4 / 3;
+  display: flex;
+  flex-direction: column;
+  width: var(--agent-dock-width);
+  min-height: 0;
+  overflow: hidden;
+  border-inline-start: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+}
+.personal-assistant-drawer .agent-chat-stream { min-height: 0; overscroll-behavior: contain; }
+.agent-body.agent-message-area { position: relative; padding: 0; }
+.agent-btn.agent-jump-latest {
+  position: absolute;
+  inset-inline-end: var(--space-3);
+  inset-block-end: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-subtle);
+}
+.agent-jump-latest:is(:hover, :focus-visible) { border-color: var(--border-strong); color: var(--fg); }
+.agent-jump-latest::after { content: ""; position: absolute; inset: calc(-1 * var(--space-2)); border-radius: inherit; }
+.topbar-tool-btn[aria-controls="personalAssistantPanel"][aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+@keyframes assistant-drawer-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-theme="eink"]) .personal-assistant-drawer { animation: assistant-drawer-enter var(--motion-normal) var(--ease-standard); }
+}
+@media (max-width: 920px) {
+  .app-root.assistant-fullscreen {
+    --assistant-top: 0px;
+    --assistant-left: 0px;
+    --assistant-width: 100%;
+    --assistant-height: 100dvh;
+  }
+  .app-root.assistant-fullscreen .topbar {
+    position: fixed;
+    top: var(--assistant-top);
+    inset-inline-start: var(--assistant-left);
+    width: var(--assistant-width);
+  }
+  .personal-assistant-drawer {
+    position: fixed;
+    z-index: 105;
+    inset-inline-start: var(--assistant-left);
+    top: calc(var(--assistant-top) + var(--header-height));
+    width: var(--assistant-width);
+    height: max(0px, calc(var(--assistant-height) - var(--header-height)));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-inline-start: 0;
+  }
+  .app-root.assistant-fullscreen :is(#openNavBtn, #mobileReaderBackBtn) { display: none; }
+}
 .agent-conversation .agent-header { cursor: default; }
 .agent-conversation .agent-context { flex-shrink: 0; }
 .agent-conversation .agent-title-line strong { overflow: hidden; text-overflow: ellipsis; }

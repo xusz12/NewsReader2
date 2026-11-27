@@ -1,6 +1,21 @@
 // Keep these boundaries aligned with the responsive rules in style.css.
-export const singlePane = matchMedia("(max-width: 920px)");
-export const drawerNavigation = matchMedia("(max-width: 1279px)");
+export const mobileViewport = matchMedia("(max-width: 920px)");
+function workspaceBreakpoint(limit, className) {
+  const workspace = document.querySelector(".workspace-view");
+  const breakpoint = new EventTarget();
+  function sync() {
+    const matches = workspace.clientWidth <= limit;
+    if (matches === breakpoint.matches) return;
+    breakpoint.matches = matches;
+    document.documentElement.classList.toggle(className, matches);
+    breakpoint.dispatchEvent(new Event("change"));
+  }
+  sync();
+  new ResizeObserver(sync).observe(workspace);
+  return breakpoint;
+}
+export const singlePane = workspaceBreakpoint(920, "single-pane");
+export const drawerNavigation = workspaceBreakpoint(1279, "drawer-navigation");
 // Shared presentation helpers. News, notes and model output are untrusted text.
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [
@@ -47,15 +62,15 @@ export class ListSearch {
     this.toggle = $(".feed-search-toggle", column);
     this.toggle.onclick = () => this.setOpen(!this.mobileOpen, !this.mobileOpen);
     this.input.addEventListener("keydown", event => {
-      if (singlePane.matches && event.key === "Escape" && !event.isComposing) {
+      if (mobileViewport.matches && event.key === "Escape" && !event.isComposing) {
         event.preventDefault(); event.stopPropagation(); this.setOpen(false);
       }
     });
-    singlePane.addEventListener("change", () => this.sync());
+    mobileViewport.addEventListener("change", () => this.sync());
     this.sync();
   }
   sync() {
-    const visible = !singlePane.matches || this.mobileOpen;
+    const visible = !mobileViewport.matches || this.mobileOpen;
     if (!visible && this.row.contains(document.activeElement)) this.toggle.focus({ preventScroll: true });
     this.row.inert = !visible;
     this.row.setAttribute("aria-hidden", String(!visible));
@@ -65,7 +80,7 @@ export class ListSearch {
     this.toggle.setAttribute("aria-label", label); this.toggle.title = label;
   }
   setOpen(open, focus = false) {
-    if (!open && singlePane.matches) this.onCollapse?.();
+    if (!open && mobileViewport.matches) this.onCollapse?.();
     this.mobileOpen = open;
     this.sync();
     if (open && focus) this.input.focus({ preventScroll: true });
@@ -174,6 +189,7 @@ const paths = {
   checkAll: '<path d="m2 12 4 4L16 6m-6 10 4 4L24 10"/>',
   sources: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   send: '<path d="M12 20V4m-7 7 7-7 7 7"/>',
+  arrowDown: '<path d="M12 4v16m-7-7 7 7 7-7"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>',
   trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',
   read: '<polyline points="20 6 9 17 4 12"/>',

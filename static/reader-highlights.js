@@ -1,4 +1,4 @@
-import { $, $$, api, busy, escapeHTML as e, singlePane } from "./ui.js";
+import { $, $$, api, busy, escapeHTML as e, mobileViewport } from "./ui.js";
 
 // Source offsets stay in the original Markdown. This avoids ambiguous text searches
 // when a paragraph repeats, a link hides its URL, or inline formatting splits a quote.
@@ -249,7 +249,7 @@ export class ReaderHighlights {
     }
   }
   position(rect) {
-    const docked = singlePane.matches || matchMedia("(pointer: coarse)").matches;
+    const docked = mobileViewport.matches || matchMedia("(pointer: coarse)").matches;
     this.popover.classList.toggle("selection-toolbar", docked);
     this.popover.style.position = "fixed";
     const viewport = window.visualViewport;

@@ -74,7 +74,7 @@ for(const width of [390,1440]) test('日报保留高亮与引用 Agent、独立�
   await expect(page.locator('#personalAssistantMessages .thought-quote').last()).toContainText(text);
   const main = (await (await request.get('/api/personal-assistant/threads/main')).json());
   expect(main.messages.at(-2).quote).toMatchObject({item_id:saved.item.id, title:saved.item.title, url:saved.item.url, quote_source:'original', quote_text:text});
-  await page.locator('#personalAssistantClose').click();
+  await page.locator('#personalAssistantBtn').click();
   await selectReportText(page); await page.locator('#quoteAgentBtn').click();
   await expect(page.locator('#agentQuote')).toContainText(text);
   await expect(page.locator('#archiveAgentBtn')).toBeHidden();

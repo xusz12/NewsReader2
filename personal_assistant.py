@@ -15,7 +15,6 @@ from pathlib import Path
 import shutil
 import sqlite3
 import threading
-import time
 import uuid
 
 from flask import Blueprint, jsonify, request
@@ -33,6 +32,7 @@ from settings import feature_model_config, resolve_app_settings_path
 
 
 ACTIVE = ("queued", "running")
+MESSAGE_PAGE_SIZE = 30
 ERRORS = {**oar_client.ERROR_MESSAGES, **codex_client.ERROR_MESSAGES,
           "assistant_busy": "个人助手正在回复，请完成或停止后再操作。",
           "assistant_stopped": "已停止，已保存的消息和记忆仍然保留。",
@@ -91,6 +91,8 @@ def normalize_quote(quote):
 
 def message_record(row):
     message = dict(row)
+    if message["role"] == "assistant" and message["status"] != "done":
+        message["content"] = ""
     quote = {key: message.pop(key) for key in QUOTE_FIELDS}
     if quote["item_id"] is not None:
         message["quote"] = quote
@@ -141,11 +143,14 @@ class Service:
                     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), status TEXT NOT NULL,
                         stop_requested INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
                     CREATE UNIQUE INDEX IF NOT EXISTS one_active_turn ON jobs((1)) WHERE status IN ('queued','running');
+                    CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread_id);
                     CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL REFERENCES threads(id),
                         job_id TEXT NOT NULL REFERENCES jobs(id), role TEXT NOT NULL, content TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
                     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, id);
                     CREATE TABLE IF NOT EXISTS assistant_main_thread (id INTEGER PRIMARY KEY CHECK(id=1),
                         thread_id TEXT NOT NULL UNIQUE REFERENCES threads(id));
+                    CREATE TABLE IF NOT EXISTS assistant_reply_notice (id INTEGER PRIMARY KEY CHECK(id=1),
+                        job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE);
                     CREATE TABLE IF NOT EXISTS message_quotes (message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
                         item_id TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL, quote_text TEXT NOT NULL,
                         quote_source TEXT NOT NULL, quote_paragraph INTEGER);
@@ -173,7 +178,7 @@ class Service:
                 if lock:
                     with lock:
                         abandoned = connection.execute("SELECT DISTINCT thread_id FROM jobs WHERE status IN ('queued','running')").fetchall()
-                        connection.execute("UPDATE messages SET status='failed' WHERE status IN ('queued','running')")
+                        connection.execute("UPDATE messages SET status='failed',content='' WHERE role='assistant' AND status IN ('queued','running')")
                         connection.execute("UPDATE jobs SET status='failed',error='assistant_restarted',updated_at=? WHERE status IN ('queued','running')", (now(),))
                         for row in abandoned:
                             shutil.rmtree(self.root / "runtime" / row["thread_id"], ignore_errors=True)
@@ -221,28 +226,62 @@ class Service:
         row = connection.execute("SELECT thread_id FROM assistant_main_thread WHERE id=1").fetchone()
         return row[0] if row else None
 
-    def snapshot(self, thread_id, before=0, message_id=0):
+    def unread_job_id(self, connection):
+        row = connection.execute("SELECT job_id FROM assistant_reply_notice WHERE id=1").fetchone()
+        return row[0] if row else None
+
+    def reply_notice(self, seen_job=None):
+        if not self.state_db.is_file():
+            return None
+        self.ensure()
+        with self.connect() as connection:
+            if seen_job is not None:
+                connection.execute("DELETE FROM assistant_reply_notice WHERE job_id=?", (seen_job,))
+            return self.unread_job_id(connection)
+
+    def snapshot(self, thread_id, before=0, message_id=0, *, status_only=False, after=None):
         self.ensure()
         with self.connect() as connection:
             connection.execute("BEGIN")
             main_id = self.main_id(connection)
             if thread_id == "main":
                 if not main_id:
-                    return {"thread": None, "messages": [], "has_more": False, "job": None}
+                    state = {"thread": None, "job": None, "unread_job_id": None}
+                    return state if status_only else state | {"messages": [], "has_more": False, "has_newer": False}
                 thread_id = main_id
             thread = connection.execute("SELECT * FROM threads WHERE id=?", (thread_id,)).fetchone()
             if not thread:
                 raise LookupError("讨论不存在")
             bound = connection.execute("SELECT selection FROM thread_models WHERE thread_id=?", (thread_id,)).fetchone()
+            job = connection.execute("SELECT * FROM jobs WHERE thread_id=? ORDER BY rowid DESC LIMIT 1", (thread_id,)).fetchone()
+            state = {"thread": dict(thread) | {"is_main": thread_id == main_id},
+                     "job": (dict(job) | {"error_text": ERRORS.get(job["error"], ERRORS["assistant_failed"]) if job["error"] else ""}) if job else None,
+                     "unread_job_id": self.unread_job_id(connection)}
+            if bound:
+                state["thread"]["runtime"] = json.loads(bound["selection"])["runtime"]
+            if status_only:
+                return state
             if message_id and connection.execute("SELECT 1 FROM messages WHERE thread_id=? AND id=? AND role='assistant' AND status='done'",
                                                   (thread_id, message_id)).fetchone():
                 before = message_id + 1
-            rows = connection.execute(MESSAGE_SELECT + " WHERE m.thread_id=? AND (?=0 OR m.id<?) ORDER BY m.id DESC LIMIT 101",
-                                      (thread_id, before, before)).fetchall()
-            job = connection.execute("SELECT * FROM jobs WHERE thread_id=? ORDER BY rowid DESC LIMIT 1", (thread_id,)).fetchone()
-        return {"thread": dict(thread) | ({"runtime": json.loads(bound["selection"])["runtime"]} if bound else {}) | {"is_main": thread_id == main_id},
-                "messages": [message_record(row) for row in reversed(rows[:100])], "has_more": len(rows) > 100,
-                "job": (dict(job) | {"error_text": ERRORS.get(job["error"], ERRORS["assistant_failed"]) if job["error"] else ""}) if job else None}
+            condition, params = " WHERE m.thread_id=?", [thread_id]
+            if before:
+                condition += " AND m.id<?"
+                params.append(before)
+            elif after is not None:
+                condition += " AND m.id>=?"
+                params.append(after)
+            rows = connection.execute(MESSAGE_SELECT + condition + " ORDER BY m.id DESC LIMIT ?",
+                                      (*params, MESSAGE_PAGE_SIZE + 1)).fetchall()
+            has_more = len(rows) > MESSAGE_PAGE_SIZE
+            if after is not None and not before:
+                state["reset"] = has_more
+                if not has_more and rows:
+                    has_more = bool(connection.execute("SELECT 1 FROM messages WHERE thread_id=? AND id<? LIMIT 1",
+                                                       (thread_id, rows[-1]["id"])).fetchone())
+            has_newer = bool(before and connection.execute("SELECT 1 FROM messages WHERE thread_id=? AND id>=? LIMIT 1", (thread_id, before)).fetchone())
+        return state | {"messages": [message_record(row) for row in reversed(rows[:MESSAGE_PAGE_SIZE])],
+                        "has_more": has_more, "has_newer": has_newer}
 
     def send(self, thread_id, text, request_id, retry_job=None, quote=None):
         if retry_job is None and (not isinstance(text, str) or not text.strip() or len(text) > 20000):
@@ -386,7 +425,7 @@ class Service:
 
     def execute(self, job_id, thread_id, message_id, profile, lock):
         state_dir = self.root / "runtime" / thread_id / str(profile["epoch"])
-        content, last_flush = "", 0
+        content, progress = "", ""
         try:
             with self.connect() as connection:
                 connection.execute("UPDATE jobs SET status='running',updated_at=? WHERE id=?", (now(), job_id))
@@ -398,24 +437,23 @@ class Service:
                 return not row or bool(row[0])
 
             def emit(event):
-                nonlocal content, last_flush
+                nonlocal content, progress
                 if event.get("type") == "oar_progress":
-                    with self.connect() as connection:
-                        connection.execute("UPDATE jobs SET progress=? WHERE id=? AND status='running' AND stop_requested=0", (event["phase"], job_id))
-                if event.get("type") == "oar_tool":
+                    phase = event["phase"]
+                elif event.get("type") == "oar_tool":
                     tool = event.get("tool", "")
-                    progress = {"mcp__nr_web__web_search":"searching", "webSearch":"searching", "mcp__nr_web__web_fetch":"fetching"}.get(tool, "tool")
-                    with self.connect() as connection:
-                        connection.execute("UPDATE jobs SET progress=? WHERE id=? AND status='running' AND stop_requested=0", (progress, job_id))
-                if event.get("type") == "text_delta":
+                    phase = {"mcp__nr_web__web_search":"searching", "webSearch":"searching", "mcp__nr_web__web_fetch":"fetching"}.get(tool, "tool")
+                elif event.get("type") == "text_delta":
                     content = event["delta"] if event.get("replace") else content + event["delta"]
                     if len(content) > 500000:
                         raise RuntimeError("assistant_failed")
-                    if time.monotonic() - last_flush > .2:
-                        with self.connect() as connection:
-                            connection.execute("UPDATE jobs SET progress='writing' WHERE id=? AND status='running' AND stop_requested=0", (job_id,))
-                            connection.execute("UPDATE messages SET content=? WHERE job_id=? AND role='assistant' AND EXISTS(SELECT 1 FROM jobs WHERE jobs.id=messages.job_id AND jobs.status='running' AND jobs.stop_requested=0)", (content, job_id))
-                        last_flush = time.monotonic()
+                    phase = "writing"
+                else:
+                    return
+                if phase != progress:
+                    with self.connect() as connection:
+                        connection.execute("UPDATE jobs SET progress=? WHERE id=? AND status='running' AND stop_requested=0", (phase, job_id))
+                    progress = phase
 
             prompt, resume_prompt, memory_revision = self.prompts(profile, thread_id, message_id)
             answer = self.runner(profile=profile, prompt=prompt, resume_prompt=resume_prompt, state_dir=state_dir,
@@ -441,9 +479,11 @@ class Service:
                         status, error = "stopped", "assistant_stopped"
                         shutil.rmtree(state_dir, ignore_errors=True)
                     connection.execute("UPDATE jobs SET status=?,error=?,updated_at=? WHERE id=?", (status, error, now(), job_id))
-                    connection.execute("UPDATE messages SET status=?,content=? WHERE job_id=? AND role='assistant'", (status, content, job_id))
+                    connection.execute("UPDATE messages SET status=?,content=? WHERE job_id=? AND role='assistant'", (status, content if status == "done" else "", job_id))
                     connection.execute("UPDATE threads SET updated_at=? WHERE id=?", (now(), thread_id))
                     if status == "done":
+                        connection.execute("""INSERT INTO assistant_reply_notice(id,job_id) VALUES(1,?)
+                            ON CONFLICT(id) DO UPDATE SET job_id=excluded.job_id""", (job_id,))
                         connection.execute("""INSERT INTO thread_memory_versions(thread_id,revision) VALUES(?,?)
                             ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision""", (thread_id, memory_revision))
                         reply = connection.execute("SELECT id FROM messages WHERE job_id=? AND role='assistant'", (job_id,)).fetchone()
@@ -492,6 +532,15 @@ def register(app, db_path, settings):
         value = service.save_profile(payload()) if request.method == "PUT" else service.profile()
         return jsonify(ok=True, profile=value)
 
+    @bp.route("/reply-notice", methods=["GET", "POST"])
+    def reply_notice():
+        seen_job = None
+        if request.method == "POST":
+            seen_job = payload().get("seen_job_id")
+            if not isinstance(seen_job, str) or not seen_job:
+                raise ValueError("缺少已查看回复的任务标识")
+        return jsonify(ok=True, unread_job_id=service.reply_notice(seen_job))
+
     @bp.post("/model-options")
     def model_options():
         body = payload()
@@ -510,7 +559,9 @@ def register(app, db_path, settings):
     def thread(thread_id):
         before = request.args.get("before", 0, type=int)
         message_id = request.args.get("message", 0, type=int)
-        return jsonify(ok=True, **service.snapshot(thread_id, max(0, before), max(0, message_id)))
+        after = request.args.get("after", type=int)
+        return jsonify(ok=True, **service.snapshot(thread_id, max(0, before), max(0, message_id),
+                       status_only=request.args.get("status_only") == "1", after=max(0, after) if after is not None else None))
 
     @bp.post("/threads/<thread_id>/messages")
     def send(thread_id):

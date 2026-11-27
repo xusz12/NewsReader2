@@ -112,7 +112,71 @@ test('leaving an article keeps the Agent input draft during notification navigat
   await expect(page.locator('#agentPromptInput')).toHaveValue('尚未发送的下一轮问题');
 });
 
-test('streaming completes in the background; old scroll position and opening the list do not acknowledge', async ({ page, request }) => {
+for (const transport of ['SSE', '轮询']) test(`文章问答通过${transport}更新阶段，气泡只在完成时更新一次`, async ({page, request}) => {
+  if (transport === '轮询') await page.route('**/agent/jobs/*/stream', route => route.abort());
+  await start(page, transport === 'SSE' ? 1440 : 390);
+  await chooseTheme(page, 'eink');
+  const initial = await complete(request, {item_id:'ui-064', answer:'上一轮已经完成'});
+  await openNotice(page, initial.job_id);
+  const job = await sendQuestion(page, 'ui-064', '核对证据以后再回复');
+  const stream = page.locator('#agentChatStream'), status = page.locator('#agentStatus');
+  const bubble = stream.locator(`[data-job-id="${job.id}"].assistant .agent-bubble`);
+  const gets = [];
+  page.on('request', req => {
+    const url = new URL(req.url());
+    if (req.method() === 'GET' && url.pathname.includes('/agent/')) gets.push(url.pathname + url.search);
+  });
+  await expect(bubble).toHaveText('正在整理资料…');
+  await stream.evaluate(el => {
+    window.articleBubbleUpdates = [];
+    new MutationObserver(() => window.articleBubbleUpdates.push(el.querySelector('.agent-msg:last-child .agent-bubble').innerText))
+      .observe(el, {childList:true, subtree:true, characterData:true});
+  });
+  for (const [progress, label] of [['searching','正在检索来源…'], ['fetching','正在读取来源…'], ['writing','正在生成回答…']]) {
+    await complete(request, {item_id:'ui-064', job_id:job.id, progress});
+    await expect(status).toHaveText(label);
+    await expect(bubble).toHaveText('正在整理资料…');
+  }
+  expect(await page.evaluate(() => window.articleBubbleUpdates)).toEqual([]);
+  const answer = '已核对原文和来源。\n\n这是完整的结论。';
+  await complete(request, {item_id:'ui-064', job_id:job.id, answer});
+  await expect(bubble.locator('p')).toHaveText(['已核对原文和来源。','这是完整的结论。']);
+  await expect(status).toHaveText('本轮已完成');
+  expect(await page.evaluate(() => window.articleBubbleUpdates)).toEqual([await bubble.innerText()]);
+  expect(gets.some(url => url.includes('/agent/session'))).toBe(false);
+  expect(gets.some(url => url.endsWith(job.id + '?updates=1'))).toBe(transport === '轮询');
+});
+
+for (const beforeSend of [false, true]) test(`迟到的文章快照保留已完成的回复（${beforeSend ? '发问前' : '生成中'}）`, async ({page, request}) => {
+  await start(page);
+  const initial = await complete(request, {item_id:'ui-064', answer:'已有回复'});
+  await openNotice(page, initial.job_id);
+  const detail = '/api/news/ui-064/detail';
+  const startingSnapshot = beforeSend && await (await request.get(detail)).json();
+  const job = await sendQuestion(page, 'ui-064', '核对新一轮资料');
+  const stale = startingSnapshot || await (await request.get(detail)).json();
+  expect(stale.agent.jobs.find(row => row.id === job.id)?.status).toBe(beforeSend ? undefined : 'queued');
+  stale.agent.context_updated = true;
+  const answer = '核对完毕，这是本轮的完整回复。';
+  await complete(request, {item_id:'ui-064', job_id:job.id, answer});
+  const reply = page.locator(`#agentChatStream [data-role="assistant"][data-job-id="${job.id}"]`);
+  await expect(reply).toHaveText(answer);
+  await reply.evaluate(el => {
+    window.replacedAgentAnswers = [];
+    new MutationObserver(() => window.replacedAgentAnswers.push(el.innerText))
+      .observe(el, {childList:true, subtree:true, characterData:true});
+  });
+  await page.route('**' + detail, route => route.fulfill({json:stale}), {times:1});
+  await Promise.all([
+    page.waitForResponse(res => new URL(res.url()).pathname === detail),
+    page.locator('[data-id="ui-064"] .news-card-title').evaluate(node => node.click()),
+  ]);
+  await expect(page.locator('#agentStatus')).toHaveText('资料已更新，可新建会话读取最新内容');
+  await expect(reply).toHaveText(answer);
+  expect(await page.evaluate(() => window.replacedAgentAnswers)).toEqual([]);
+});
+
+test('reply completes in the background; old scroll position and opening the list do not acknowledge', async ({ page, request }) => {
   await start(page);
   const initial = await complete(request, { item_id: 'ui-064', answer: Array.from({ length: 35 }, (_, i) => `既有研究段落${i}。`).join('\n\n') });
   await openNotice(page, initial.job_id);

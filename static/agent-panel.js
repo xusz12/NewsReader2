@@ -15,6 +15,18 @@ import {
   bindAgentWindowSize,
 } from "./ui.js";
 const activeStatuses = ["queued", "pending", "running", "streaming", "stopping"];
+const unfinishedStatuses = ["failed", "stopped", "interrupted"];
+const phaseLabels = {
+  thinking: "正在分析原文…", searching: "正在检索来源…", fetching: "正在读取来源…",
+  tool: "正在核查资料…", retrying: "服务暂未响应，正在重试…",
+  summarizing: "正在汇总已有证据…", writing: "正在生成回答…",
+};
+const reconnecting = "连接暂时中断，正在重新获取任务状态…";
+
+function progressLabel(job) {
+  if (job.status === "stopping" || job.cancel_requested) return "正在停止…";
+  return phaseLabels[job.progress] || ({queued:"等待执行…", pending:"等待执行…", streaming:"正在生成回答…"}[job.status]) || "正在研究…";
+}
 export class AgentPanel {
   constructor({ onArchive, selects }) {
     this.onArchive = onArchive;
@@ -47,10 +59,10 @@ export class AgentPanel {
     const input = $("#agentPromptInput"), dock = $("#agentDock");
     dismissOnOutsidePress({
       panel: dock,
-      isOpen: () => this.open && !dock.hidden && !dock.closest('[inert]') &&
-        dock.getClientRects().length > 0 && getComputedStyle(dock).visibility === 'visible',
+      isOpen: () => this.conversationVisible,
       dismiss: () => this.collapse(),
-      contains: target => this.modelPicker?.contains(target) || dock.contains(selects.button) && selects.menu.contains(target),
+      contains: target => target.closest("#personalAssistantBtn, #personalAssistantPanel") ||
+        this.modelPicker?.contains(target) || dock.contains(selects.button) && selects.menu.contains(target),
     });
     this.dockHome = dock.parentElement;
     this.dockAnchor = document.createComment("Agent dock home");
@@ -78,13 +90,17 @@ export class AgentPanel {
       if (width !== this.inputWidth) { this.inputWidth = width; this.scheduleInputSize(); }
     });
     this.inputObserver.observe(input);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.clearStream();
+      else if (this.open && this.active()) this.startStream(this.active().id);
+    });
     $("#agentChatStream").addEventListener("click", (event) => {
       const button = event.target.closest("[data-retry-job]");
       if (button) busy(button, () => this.retry(button.dataset.retryJob));
     });
     this.modelPicker = new AgentModelPicker({host:$("#agentModelControls"), selects,
       context:() => ({item:this.item, session:this.payload.session, open:this.open, busy:!!this.active() || this.sending || this.archiving || this.initializing.has(this.item?.id) || this.preparing === this.sequence}),
-      onUpdate:data => {this.payload = data; this.message = "当前会话模型已切换，下一轮生效"; this.render();},
+      onUpdate:data => {this.applySnapshot(data); this.message = "当前会话模型已切换，下一轮生效"; this.render();},
       onBusy:() => this.render(),
     });
     this.render();
@@ -102,6 +118,11 @@ export class AgentPanel {
   get sending() {
     return this.pendingSends.has(this.item?.id);
   }
+  get conversationVisible() {
+    const dock = $("#agentDock");
+    return this.open && !dock.hidden && !dock.closest('[inert]') &&
+      dock.getClientRects().length > 0 && getComputedStyle(dock).visibility === 'visible';
+  }
   get archiveState() {
     const state = this.archives.get(this.item?.id);
     return state?.sessionId === (this.payload.session?.id || "") ? state : null;
@@ -118,7 +139,7 @@ export class AgentPanel {
   }
   syncPlacement() {
     const dock = $("#agentDock"), feed = $("#feedView");
-    const floating = matchMedia("(max-width: 920px)").matches && this.open && !dock.hidden &&
+    const floating = matchMedia("(max-width: 920px)").matches && this.open && !dock.hidden && !feed.inert &&
       this.dockHome.classList.contains("active") && feed.classList.contains("mobile-reader-active") &&
       !feed.classList.contains("settings-active");
     // A fixed child of the transformed reader is still reader-relative and
@@ -150,7 +171,7 @@ export class AgentPanel {
     const extra = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
     let limit = Math.max(line + extra, Math.min(line * (mobile ? 5 : 8) + extra, height / 3));
     if (mobile && this.open) {
-      const body = $(".agent-body");
+      const body = $(".agent-body", dock);
       const spacing = node => {
         if (!node.getClientRects().length) return 0;
         const css = getComputedStyle(node);
@@ -184,11 +205,32 @@ export class AgentPanel {
   hasHistory() {
     return !!(this.payload.messages?.length || this.payload.jobs?.length);
   }
+  applySnapshot(payload) {
+    const previous = this.payload;
+    this.payload = payload;
+    if (payload === previous || !payload.session?.id || payload.session.id !== previous.session?.id) return;
+    const lastId = Math.max(0, ...(payload.messages || []).map(message => Number(message.id) || 0));
+    const newer = previous.messages?.filter(message => message.id > lastId);
+    if (newer?.length) {
+      payload.messages = [...(payload.messages || []), ...newer];
+      const addedJobs = new Set(newer.map(message => message.job_id));
+      for (const job of payload.jobs || []) addedJobs.delete(job.id);
+      const missingJobs = (previous.jobs || []).filter(job => addedJobs.has(job.id));
+      payload.jobs = [...(payload.jobs || []), ...missingJobs];
+    }
+    const pending = this.active();
+    if (!pending) return;
+    const settled = previous.jobs?.find(job => job.id === pending.id && !activeStatuses.includes(job.status));
+    if (settled) {
+      Object.assign(pending, settled);
+      this.updateReply(pending);
+    }
+  }
   clearStream() {
     this.stream?.close();
     this.stream = null;
     clearTimeout(this.pollTimer);
-    this.streamJob = null;
+    this.subscription = null;
   }
   suspend() {
     this.clearStream();
@@ -227,9 +269,10 @@ export class AgentPanel {
       $("#agentPromptInput").value = draft.prompt || "";
       this.quoteText = draft.quote || "";
     }
-    if (payload && (!this.pinnedSessionId || payload.session?.id === this.pinnedSessionId)) this.payload = payload;
+    if (payload && (!this.pinnedSessionId || payload.session?.id === this.pinnedSessionId)) this.applySnapshot(payload);
     this.render();
     if (this.open && this.active()) this.startStream(this.active().id);
+    else this.clearStream();
     if (this.open && this.payload.context_available && (changed || !contextWasAvailable || !this.payload.session)) this.ensureSession();
   }
   toggle() {
@@ -240,7 +283,11 @@ export class AgentPanel {
     this.open = true;
     persist("newsreader_workbench_agent_collapsed", "false");
     const sequence = this.sequence;
-    await this.refresh();
+    const job = this.active();
+    if (job) {
+      this.render();
+      this.startStream(job.id);
+    } else await this.refresh();
     if (sequence === this.sequence && this.open && !matchMedia("(max-width: 920px)").matches)
       $("#agentPromptInput").focus({ preventScroll: true });
   }
@@ -263,10 +310,11 @@ export class AgentPanel {
         `/api/news/${encodeURIComponent(id)}/agent/session${this.pinnedSessionId ? `?${new URLSearchParams({ session_id: this.pinnedSessionId, db_scope: this.payload.session.db_scope })}` : ""}`,
       );
       if (sequence !== this.sequence) return;
-      this.payload = data.agent || data;
+      this.applySnapshot(data.agent || data);
       this.render();
       if (this.open && this.payload.context_available) await this.ensureSession();
       if (this.open && this.active()) this.startStream(this.active().id);
+      else this.clearStream();
     } catch (error) {
       if (sequence === this.sequence) {
         this.message = errorText(error);
@@ -291,7 +339,7 @@ export class AgentPanel {
     try {
       const data = await pending;
       if (sequence !== this.sequence) return;
-      this.payload = data.agent || data;
+      this.applySnapshot(data.agent || data);
       this.message = "";
       return this.payload.session;
     } catch (error) {
@@ -307,7 +355,7 @@ export class AgentPanel {
     this.modelPicker?.sync();
     dock.classList.toggle("minimized", !this.open);
     dock.classList.toggle("mobile-sheet-open", this.open);
-    $(".agent-body").inert = !this.open;
+    $(".agent-body", dock).inert = !this.open;
     $("#agentDockToggleBtn").setAttribute("aria-expanded", String(this.open));
     $("#agentDockToggleBtn").setAttribute(
       "aria-label",
@@ -345,78 +393,124 @@ export class AgentPanel {
       !(this.payload.messages || []).some(
         (message) => message.role === "assistant" && message.content,
       );
-    $("#agentStatus").textContent =
+    this.displayStatus(
       (initializing ? "正在准备会话…" : this.archiveState?.message || this.message) ||
       (active
-        ? (active.status === "stopping" ? "正在停止…" : ({ thinking: "正在分析原文…", searching: "正在检索来源…", fetching: "正在读取来源…", tool: "正在核查资料…", retrying: "服务暂未响应，正在重试…", summarizing: "正在汇总已有证据…", writing: "正在生成回答…" })[active.progress] || ({ queued: "等待执行…", pending: "等待执行…", running: "正在研究…", streaming: "正在生成回答…" })[active.status])
+        ? progressLabel(active)
         : this.payload.context_updated
           ? this.hasHistory() ? "资料已更新，可新建会话读取最新内容" : "资料已更新，首次发送将使用最新内容"
           : available
             ? ({ succeeded: "本轮已完成", failed: "本轮未完成 · 可重试", stopped: "已停止", interrupted: "任务已中断 · 可重试" })[latest?.status] || (titleOnly ? "就绪 · 仅引用新闻标题" : "就绪 · 围绕本文研究")
-            : "新闻资料尚不可用");
-    $("#agentStatus").title = $("#agentStatus").textContent;
+            : "新闻资料尚不可用"));
     $("#agentRuntimeBadge").title = $("#agentRuntimeBadge").textContent;
     $("#agentQuote").hidden = !this.quoteText;
     $("#agentQuote").textContent = this.quoteText
       ? `引用：${this.quoteText}`
       : "";
-    const stream = $("#agentChatStream"),
-      atBottom =
-        stream.scrollHeight - stream.scrollTop - stream.clientHeight < 60;
-    const jobs = new Map((this.payload.jobs || []).map((job) => [job.id, job]));
-    stream.innerHTML =
-      (this.payload.messages || [])
-        .map((message) => {
-          const job = jobs.get(message.job_id);
-          const failed =
-            message.role === "assistant" &&
-            job &&
-            ["failed", "stopped", "interrupted"].includes(job.status);
-          if (message.role === "assistant" && !message.content && !failed) return "";
-          return `<div data-message-id="${e(message.id)}" data-job-id="${e(message.job_id)}" data-role="${e(message.role)}" class="agent-msg ${message.role === "user" ? "user" : "assistant"}"><div class="agent-bubble">${message.quote_text ? `<blockquote class="agent-message-quote"><span class="agent-quote-label">引用文本</span>${e(message.quote_text)}</blockquote>` : ""}${markdown(message.content || "")}</div>${failed ? `<div class="agent-error">${e(job.status === "stopped" ? "已停止，保留已生成的内容" : job.status === "interrupted" ? "服务重启中断了任务" : errorText({ error: job.error || "request_failed" }))}<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button></div>` : ""}</div>`;
-        })
-        .join("") ||
-      `<p class="agent-empty-caption">${available ? titleOnly ? "输入你的问题，围绕标题开始临时聊天。" : "围绕本文提问，或选择原文引用提问。" : "选择新闻后即可开始研究。"}</p>`;
-    if (atBottom) stream.scrollTop = stream.scrollHeight;
+    this.renderMessages(active, available, titleOnly);
     document.dispatchEvent(new Event("agent:rendered"));
   }
-  mergeJob(job) {
-    const jobs = (this.payload.jobs ||= []);
-    const index = jobs.findIndex((x) => x.id === job.id);
-    if (index >= 0) jobs[index] = job;
-    else jobs.push(job);
-    const message = this.payload.messages?.find(
-      (x) => x.job_id === job.id && x.role === "assistant",
-    );
-    if (message) {
-      message.content = job.answer_text || "";
-      message.status = job.status;
-    }
-    this.render();
-    if (!activeStatuses.includes(job.status)) {
-      this.clearStream();
-      this.refresh();
+  displayStatus(text) {
+    const status = $("#agentStatus");
+    if (status.textContent !== text) {
+      status.textContent = text;
+      status.title = text;
     }
   }
+  renderMessages(active, available, titleOnly) {
+    const stream = $("#agentChatStream"), messages = this.payload.messages || [];
+    const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight <= 2;
+    if (!messages.length) {
+      const text = available ? titleOnly ? "输入你的问题，围绕标题开始临时聊天。" : "围绕本文提问，或选择原文引用提问。" : "选择新闻后即可开始研究。";
+      if (stream.firstElementChild?.className !== "agent-empty-caption" || stream.textContent !== text) {
+        const caption = document.createElement("p");
+        caption.className = "agent-empty-caption";
+        caption.textContent = text;
+        stream.replaceChildren(caption);
+      }
+      return;
+    }
+    stream.querySelector(".agent-empty-caption")?.remove();
+    const jobs = new Map((this.payload.jobs || []).map((job) => [job.id, job]));
+    const nodes = new Map(Array.from(stream.children, node => [node.dataset.messageId, node]));
+    let next = stream.firstElementChild;
+    for (const message of messages) {
+      const id = String(message.id ?? `${message.job_id}-${message.role}`);
+      const job = jobs.get(message.job_id);
+      const state = message.role === "assistant" ? job?.status || message.status : null;
+      const failed = unfinishedStatuses.includes(state);
+      const text = activeStatuses.includes(state) ? "正在整理资料…" : failed ? "本轮没有生成回复" : message.content || "";
+      const error = failed ? ({stopped:"已停止", interrupted:"服务重启中断了任务"}[state] || errorText({error:job?.error || "request_failed"})) : "";
+      const node = nodes.get(id) || document.createElement("div");
+      if (node.dataset.jobId !== (message.job_id || "") || node.dataset.role !== message.role) {
+        node.dataset.messageId = id;
+        node.dataset.jobId = message.job_id || "";
+        node.dataset.role = message.role;
+        node.className = `agent-msg ${message.role}`;
+      }
+      nodes.delete(id);
+      if (node !== next) stream.insertBefore(node, next);
+      next = node.nextElementSibling;
+      const fields = [text, message.quote_text, error, failed && !!active, job?.id];
+      if (node.renderedFields?.every((value, index) => value === fields[index])) continue;
+      const quote = message.quote_text ? `<blockquote class="agent-message-quote"><span class="agent-quote-label">引用文本</span>${e(message.quote_text)}</blockquote>` : "";
+      const retry = failed && job ? `<button class="btn-secondary" type="button" data-retry-job="${e(job.id)}" ${active ? "disabled" : ""}>重试</button>` : "";
+      node.innerHTML = `<div class="agent-bubble">${quote}${markdown(text)}</div>${error ? `<div class="agent-error">${e(error)}${retry}</div>` : ""}`;
+      node.renderedFields = fields;
+    }
+    for (const node of nodes.values()) node.remove();
+    if (atBottom) stream.scrollTop = stream.scrollHeight;
+  }
+  mergeJob(update) {
+    const job = this.payload.jobs?.find(entry => entry.id === update.id);
+    if (!job || !activeStatuses.includes(job.status) || (update.session_id && update.session_id !== this.payload.session?.id)) {
+      if (this.subscription?.jobId === update.id) this.clearStream();
+      return;
+    }
+    if (job.status === "stopping" && activeStatuses.includes(update.status) && update.status !== "stopping") return;
+    Object.assign(job, update);
+    job.answer_text = update.status === "succeeded" ? update.answer_text || "" : "";
+    if (this.message === reconnecting) this.message = "";
+    if (activeStatuses.includes(job.status)) {
+      this.displayStatus(this.archiveState?.message || this.message || progressLabel(job));
+      if (job.cancel_requested || job.status === "stopping") $("#agentSendBtn").disabled = true;
+      return;
+    }
+    if (this.subscription?.jobId === job.id) this.clearStream();
+    if (this.updateReply(job)) this.render();
+    else void this.refresh();
+  }
+  updateReply(job) {
+    const message = this.payload.messages?.find(row => row.job_id === job.id && row.role === "assistant");
+    if (message) {
+      message.content = job.status === "succeeded" ? job.answer_text || "" : "";
+      message.status = job.status;
+    }
+    return message;
+  }
   startStream(jobId) {
-    if (!this.open || !this.item || this.streamJob === jobId) return;
+    if (!this.open || !this.item || document.hidden || this.subscription?.jobId === jobId) return;
     this.clearStream();
-    this.streamJob = jobId;
+    const subscription = this.subscription = {jobId};
     const id = this.item.id,
-      sequence = this.sequence,
       path = `/api/news/${encodeURIComponent(id)}/agent/jobs/${encodeURIComponent(jobId)}`;
     const poll = async () => {
-      if (sequence !== this.sequence || !this.open) return;
+      if (this.subscription !== subscription) return;
       try {
-        const data = await api(path);
-        if (sequence !== this.sequence) return;
+        const data = await api(path + "?updates=1");
+        if (this.subscription !== subscription) return;
         this.mergeJob(data.job);
-        if (activeStatuses.includes(data.job.status))
-          this.pollTimer = setTimeout(poll, 1800);
+        if (this.subscription === subscription)
+          this.pollTimer = setTimeout(poll, 1100);
       } catch (error) {
-        if (sequence === this.sequence) {
-          this.message = "连接暂时中断，正在重新获取任务状态…";
-          this.render();
+        if (this.subscription === subscription) {
+          if (error.httpStatus === 404) {
+            this.clearStream();
+            await this.refresh();
+            return;
+          }
+          this.message = reconnecting;
+          this.displayStatus(reconnecting);
           this.pollTimer = setTimeout(poll, 3500);
         }
       }
@@ -428,17 +522,21 @@ export class AgentPanel {
     const stream = new EventSource(`${path}/stream`);
     this.stream = stream;
     stream.onmessage = (event) => {
-      if (sequence !== this.sequence) return;
+      if (this.subscription !== subscription) return;
       try {
         const data = JSON.parse(event.data);
         if (data.ok && data.job) this.mergeJob(data.job);
+        else if (data.error === "job_not_found") {
+          this.clearStream();
+          void this.refresh();
+        }
       } catch {
         /* Ignore incomplete frames. */
       }
     };
     stream.onerror = () => {
       stream.close();
-      if (sequence === this.sequence && this.open) {
+      if (this.subscription === subscription) {
         this.stream = null;
         poll();
       }
@@ -481,7 +579,7 @@ export class AgentPanel {
         },
       });
       if (sequence !== this.sequence) return;
-      this.payload = data.agent || data;
+      this.applySnapshot(data.agent || data);
       this.message = "";
       if (this.active()) this.startStream(this.active().id);
     } catch (error) {
@@ -522,7 +620,7 @@ export class AgentPanel {
     if (sequence !== this.sequence) return;
     this.pinnedSessionId = "";
     this.archives.delete(id);
-    this.payload = data.agent || data;
+    this.applySnapshot(data.agent || data);
     this.quoteText = "";
     this.message = "新会话已准备好，使用设置中的默认模型";
     this.render();
@@ -554,7 +652,7 @@ export class AgentPanel {
     );
     if (sequence !== this.sequence) return;
     this.archives.delete(this.item.id);
-    this.payload = data.agent || data;
+    this.applySnapshot(data.agent || data);
     this.message = "";
     this.render();
     if (this.active()) this.startStream(this.active().id);

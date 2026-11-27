@@ -52,6 +52,7 @@ GET /api/news/status api_news_status
 GET /api/personal-assistant/memory personal_assistant.memories
 GET /api/personal-assistant/memory/<path:name> personal_assistant.memory_file
 GET /api/personal-assistant/profile personal_assistant.profile
+GET /api/personal-assistant/reply-notice personal_assistant.reply_notice
 GET /api/personal-assistant/threads personal_assistant.threads
 GET /api/personal-assistant/threads/<thread_id> personal_assistant.thread
 GET /api/reading-checkpoint api_get_reading_checkpoint
@@ -122,6 +123,7 @@ POST /api/news/clear-read-later api_clear_read_later
 POST /api/news/mark-all-read api_mark_all_read
 POST /api/news/mark-read-by-ids api_mark_read_by_ids
 POST /api/personal-assistant/model-options personal_assistant.model_options
+POST /api/personal-assistant/reply-notice personal_assistant.reply_notice
 POST /api/personal-assistant/threads/<thread_id>/messages personal_assistant.send
 POST /api/personal-assistant/threads/<thread_id>/stop personal_assistant.stop
 POST /api/reports/<report_id>/read api_report_read

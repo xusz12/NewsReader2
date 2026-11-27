@@ -27,7 +27,7 @@ async function viewport(page, height, offsetTop = 0) {
 async function expectUsable(page, top, bottom) {
   await expect(page.locator('#agentDock')).not.toHaveClass(/minimized/);
   await expect(page.locator('#agentDockToggleBtn')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('.agent-body')).toHaveJSProperty('inert', false);
+  await expect(page.locator('#agentDock .agent-body')).toHaveJSProperty('inert', false);
   await expect.poll(() => page.locator('#agentDock').evaluate((node, { top, bottom }) => {
     const box = node.getBoundingClientRect();
     return box.top >= top && box.bottom <= bottom + 1;

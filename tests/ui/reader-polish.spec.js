@@ -330,7 +330,7 @@ for (const width of [320, 335, 336, 390, 1440]) test(`个人助手引文与选�
     if(width<921) await expect(page.locator('#personalAssistantInput')).not.toBeFocused();
     else await expect(page.locator('#personalAssistantInput')).toBeFocused();
     await page.locator('#personalAssistantInput').fill('还在写的问题');
-    await page.locator('#personalAssistantClose').click();
+    if (width <= 920) await page.locator('#personalAssistantBtn').click();
     await selection(page,'.digest-point-item:nth-child(2) > span:last-child');
     await bar.getByRole('button',{name:'递给个人助手'}).click();
     await expect(page.locator('#personalAssistantQuote')).toContainText('精读要点第 2 条');
@@ -338,7 +338,7 @@ for (const width of [320, 335, 336, 390, 1440]) test(`个人助手引文与选�
     await page.getByRole('button',{name:'移除引文'}).click();
     await expect(page.locator('#personalAssistantQuote')).toBeHidden();
     await expect(page.locator('#personalAssistantInput')).toHaveValue('还在写的问题');
-    await page.locator('#personalAssistantClose').click();
+    await page.locator('#personalAssistantBtn').click();
   }
   expect((await (await request.get('/api/personal-assistant/threads/main')).json()).thread).toBeNull();
   if(width===320) {
@@ -401,16 +401,16 @@ test('递引文断线重发复用请求号，换引文新建请求，生成中�
   await expect(input).toHaveValue('这是什么意思？');await expect(page.locator('#personalAssistantQuote')).toContainText('精读结论');
   await send.click();await expect(page.locator('#personalAssistantStatus')).toContainText('本轮已完成');
   expect(ids[1]).toBe(ids[0]);
-  await page.locator('#personalAssistantClose').click();
+  await page.locator('#personalAssistantBtn').click();
   await selection(page,'.digest-lead');await page.locator('#quotePersonalBtn').click();
   await input.fill('这是什么意思？');await send.click();await expect(page.locator('#personalAssistantReload')).toBeVisible();
-  await page.locator('#personalAssistantClose').click();
+  await page.locator('#personalAssistantBtn').click();
   await page.locator('[data-body-mode="bilingual"]').click();
   await selection(page,'#articleBodyContent [lang="en"] > p:nth-child(3)');await page.locator('#quotePersonalBtn').click();
   await request.post('/__test/personal-assistant',{data:{mode:'wait_empty'}});
   await send.click();await expect(send).toHaveAttribute('aria-label','停止回复');
   expect(ids[3]).not.toBe(ids[2]);
-  await input.fill('下一轮草稿');await page.locator('#personalAssistantClose').click();
+  await input.fill('下一轮草稿');await page.locator('#personalAssistantBtn').click();
   await selection(page,'.digest-lead');await page.locator('#quotePersonalBtn').click();
   await expect(input).toHaveValue('下一轮草稿');await expect(page.locator('#personalAssistantQuote')).toContainText('精读结论');
   await send.click();await expect(page.locator('#personalAssistantStatus')).toContainText('已停止');

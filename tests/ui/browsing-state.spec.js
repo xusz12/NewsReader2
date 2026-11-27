@@ -22,7 +22,7 @@ for (const width of [390, 1440]) test(`retired default and custom read shortcuts
   expect(preferences.bindings.favorite).toEqual(['v']);
   await openSettings(page);
   await openSettingsItem(page, 'shortcuts');
-  await expect(page.locator('#shortcutSettings .shortcut-setting-row')).toHaveCount(9);
+  await expect(page.locator('#shortcutSettings .shortcut-setting-row')).toHaveCount(10);
   await expect(page.locator('[data-shortcut-action="read"]')).toHaveCount(0);
   for (const selector of ['#keyboardBarKeys', '#shortcutHelpRows']) await expect(page.locator(selector)).not.toContainText('标为已读');
   await page.locator('#resetShortcutsBtn').click();

@@ -97,7 +97,13 @@ def test_stop_and_historical_jobs_do_not_notify_but_restart_does(fixture):
     assert module.runtime.sessions.mark_agent_jobs_interrupted() == 1
     assert listed(client)['notifications'] == []
     current = submit(fixture)
+    with module.runtime.db.agent_connect() as conn:
+        conn.execute("UPDATE agent_jobs SET status='streaming',answer_text='旧版草稿' WHERE id=?", (current["job_id"],))
+        conn.execute("UPDATE agent_messages SET status='streaming',content='旧版草稿' WHERE role='assistant' AND job_id=?", (current["job_id"],))
     assert module.runtime.sessions.mark_agent_jobs_interrupted() == 1
+    with module.runtime.db.agent_connect() as conn:
+        assert conn.execute("SELECT answer_text FROM agent_jobs WHERE id=?", (current["job_id"],)).fetchone()[0] == ""
+        assert conn.execute("SELECT content FROM agent_messages WHERE role='assistant' AND job_id=?", (current["job_id"],)).fetchone()[0] == ""
     row, = listed(client)['notifications']
     assert row['id'] == current['job_id'] and row['kind'] == 'failed'
     assert module.runtime.sessions.mark_agent_jobs_interrupted() == 0
@@ -118,6 +124,7 @@ def test_finishing_job_uses_original_library_and_same_id_other_library_is_isolat
     path = f"/api/news/{item['id']}/agent"
     assert client.get(path + '/session').json['session'] is None
     assert client.get(path + f"/jobs/{submitted['job_id']}").status_code == 404
+    assert client.get(path + f"/jobs/{submitted['job_id']}?updates=1").status_code == 404
     assert client.get(path + '/session', query_string={'session_id': submitted['session']['id']}).status_code == 410
     assert client.get(f"/api/agent/notifications/{submitted['job_id']}/target", query_string={'db_scope': scope_a}).status_code == 409
     assert client.post('/api/agent/notifications/read', json={'db_scope': scope_b, 'ids': [submitted['job_id']], 'dismiss': True}).status_code == 409

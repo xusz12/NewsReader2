@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -43,6 +44,21 @@ def wait_done(service, thread):
 
 def send(service, text="我更关注政策的长期影响", request_id=None, thread=None, quote=None):
     return service.send(thread or "main", text, request_id or str(uuid.uuid4()), quote=quote)["thread"]["id"]
+
+
+def test_reply_notice_survives_restart_and_acknowledges_only_the_seen_job(service):
+    service.runner = lambda **args: "完成"
+    first = wait_done(service, send(service))["job"]["id"]
+    second = wait_done(service, send(service))["job"]["id"]
+    restarted = Service(service.root, service.db_path, service.settings)
+    assert restarted.reply_notice() == second
+    assert restarted.reply_notice(first) == second
+    assert restarted.snapshot("main")["unread_job_id"] == second
+    assert restarted.reply_notice(second) is None
+    assert service.reply_notice(second) is None
+    service.runner = lambda **args: ""
+    assert wait_done(service, send(service))["job"]["status"] == "failed"
+    assert service.reply_notice() is None
 
 
 def test_unnamed_first_send_creates_main_and_preserves_identity(service, tmp_path, monkeypatch):
@@ -235,6 +251,7 @@ def test_busy_cancel_idempotency_and_config_guard(service):
     with pytest.raises(RuntimeError, match="assistant_busy"): service.edit_memory("MEMORY.md", service.memory.read("MEMORY.md"))
     service.stop(first)
     assert wait_done(service, first)["job"]["status"] == "stopped"
+    assert service.reply_notice() is None
     service.runner = lambda **args: "继续回复"
     send(service, "继续", thread=first)
     assert wait_done(service, first)["job"]["status"] == "done"
@@ -250,6 +267,7 @@ def test_failed_turn_is_not_replayed_as_authoritative(service):
     thread = send(service)
     result = wait_done(service, thread)
     assert result["job"]["error"] == "assistant_failed"
+    assert result["messages"][-1]["content"] == ""
     assert "DO_NOT_EXPOSE" not in json.dumps(result)
     assert not list((service.root / "runtime" / thread).glob("*/broken.json"))
     def succeed(**args):
@@ -259,6 +277,62 @@ def test_failed_turn_is_not_replayed_as_authoritative(service):
     service.runner = succeed
     send(service, "重试", thread=thread)
     assert wait_done(service, thread)["job"]["status"] == "done"
+
+
+@pytest.mark.parametrize("outcome", ["done", "failed", "stopped", "oversize"])
+def test_writing_only_commits_the_finished_reply(service, outcome):
+    writing, finish = threading.Event(), threading.Event()
+    with service.connect() as conn:
+        conn.executescript("""
+            CREATE TABLE phases (phase TEXT);
+            CREATE TRIGGER record_phase AFTER UPDATE OF progress ON jobs
+                BEGIN INSERT INTO phases VALUES (NEW.progress); END;
+            CREATE TABLE reply_writes (body TEXT);
+            CREATE TRIGGER record_body AFTER UPDATE OF content ON messages WHEN NEW.role='assistant'
+                BEGIN INSERT INTO reply_writes VALUES (NEW.content); END;
+        """)
+
+    def runner(emit, **kwargs):
+        emit({"type":"oar_progress", "phase":"compacting"})
+        for tool in ("webSearch", "webSearch", "mcp__nr_web__web_fetch", "nr_query"):
+            emit({"type":"oar_tool", "tool":tool})
+        for _ in range(128):
+            emit({"type":"text_delta", "delta":"半截"})
+        emit({"type":"text_delta", "delta":"替换的草稿", "replace":True})
+        writing.set()
+        assert finish.wait(5)
+        if outcome == "failed":
+            raise RuntimeError("assistant_failed")
+        if outcome == "oversize":
+            emit({"type":"text_delta", "delta":"字" * 500001})
+        return "完整的最终回复"
+
+    service.runner = runner
+    thread = send(service)
+    try:
+        assert writing.wait(3)
+        state = service.snapshot(thread, status_only=True)
+        assert (state["job"]["status"], state["job"]["progress"]) == ("running", "writing")
+        message = service.snapshot(thread)["messages"][-1]
+        assert message["content"] == service.snapshot(thread, after=message["id"])["messages"][0]["content"] == ""
+        with service.connect() as conn:
+            assert [r[0] for r in conn.execute("SELECT phase FROM phases")] == ["compacting", "searching", "fetching", "tool", "writing"]
+            assert conn.execute("SELECT content FROM messages WHERE id=?", (message["id"],)).fetchone()[0] == ""
+            assert conn.execute("SELECT count(*) FROM reply_writes").fetchone()[0] == 0
+        if outcome == "stopped":
+            service.stop(thread)
+            assert service.snapshot(thread, status_only=True)["job"]["stop_requested"]
+    finally:
+        finish.set()
+    final = wait_done(service, thread)
+    assert final["job"]["status"] == ("failed" if outcome == "oversize" else outcome)
+    expected = "完整的最终回复" if outcome == "done" else ""
+    delta = service.snapshot(thread, after=message["id"])
+    assert delta["messages"] == [final["messages"][-1]]
+    assert delta["messages"][0]["content"] == expected
+    assert delta["unread_job_id"] == (final["job"]["id"] if outcome == "done" else None)
+    with service.connect() as conn:
+        assert [r[0] for r in conn.execute("SELECT body FROM reply_writes")] == [expected]
 
 
 def test_restart_recovers_abandoned_job(service):
@@ -271,6 +345,8 @@ def test_restart_recovers_abandoned_job(service):
         conn.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,'old','assistant','partial','running','then')", (thread,))
     restarted = Service(service.root, service.db_path, service.settings)
     assert restarted.snapshot(thread)["job"]["error"] == "assistant_restarted"
+    with restarted.connect() as conn:
+        assert conn.execute("SELECT content FROM messages WHERE job_id='old'").fetchone()[0] == ""
     assert restarted.snapshot("main")["thread"]["id"] == thread
     assert restarted.profile()["id"] == profile["id"]
 
@@ -401,6 +477,48 @@ def test_blueprint_validation_and_independent_configuration(service, monkeypatch
     assert client.get("/api/personal-assistant/memory").json["files"][-1]["path"] == "notes/no.md"
 
 
+def test_thread_status_only_and_incremental_http_reads(service, monkeypatch):
+    monkeypatch.setenv("NEWS_READER_PERSONAL_ASSISTANT_DIR", str(service.root))
+    app = Flask(__name__)
+    assistant = register(app, service.db_path, service.settings)
+    assistant.runner = lambda **kwargs: "完整回复"
+    client = app.test_client()
+    base = "/api/personal-assistant/threads/"
+    assert client.get(base + "main?status_only=1").json == {"ok":True, "thread":None, "job":None, "unread_job_id":None}
+    thread = send(assistant)
+    wait_done(assistant, thread)
+    quote = {"item_id":"n1", "title":"新闻", "url":"", "quote_source":"original", "quote_text":"引文", "quote_paragraph":1}
+    send(assistant, "结合这段", quote=quote)
+    latest = wait_done(assistant, thread)
+    tables = set()
+    connect = assistant.connect
+
+    @contextmanager
+    def traced_connect():
+        with connect() as connection:
+            def record(action, table, column, db, trigger):
+                if action == sqlite3.SQLITE_READ:
+                    tables.add(table)
+                return sqlite3.SQLITE_OK
+            connection.set_authorizer(record)
+            yield connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(assistant, "connect", traced_connect)
+        status = client.get(base + thread + "?status_only=1&message=2&after=1").json
+    assert tables == {"assistant_main_thread", "threads", "thread_models", "jobs", "assistant_reply_notice"}
+    assert status == {"ok":True, **{key:latest[key] for key in ("thread", "job", "unread_job_id")}}
+    assert {"progress", "status", "stop_requested", "error_text"} <= status["job"].keys()
+    user, reply = latest["messages"][-2:]
+    delta = client.get(base + thread, query_string={"after":user["id"]}).json
+    assert delta["messages"] == [user, reply] and delta["messages"][0]["quote"] == quote
+    assert delta["job"] == latest["job"] and delta["unread_job_id"] == latest["job"]["id"]
+    assert not delta["reset"]
+    assert client.get(base + "main", query_string={"after":reply["id"]}).json["messages"] == [reply]
+    assert client.get(base + thread, query_string={"after":reply["id"] + 1}).json["messages"] == []
+    assert client.get(base + "missing?status_only=1").status_code == 404
+
+
 def test_simultaneous_first_sends_and_searchable_quote_survive_source_deletion(service):
     from concurrent.futures import ThreadPoolExecutor
     service = Service(service.root.parent / "cold-assistant", service.db_path, service.settings)
@@ -514,6 +632,7 @@ def test_rebuild_history_budget_includes_quotes_and_search_can_page_long_origina
 def test_upgrade_selects_latest_user_statement_and_paginates_old_notifications(service):
     with service.connect() as conn:
         conn.execute("DROP TABLE assistant_main_thread")
+        conn.execute("DROP TABLE assistant_reply_notice")
         conn.execute("DROP TABLE message_quotes")
         for thread, stamp in (("old","2026-10-01"), ("recent","2026-11-02"), ("empty","2026-11-03")):
             conn.execute("INSERT INTO threads VALUES(?,?,?,?,?)", (thread,thread,"fixture",stamp,stamp))
@@ -531,10 +650,25 @@ def test_upgrade_selects_latest_user_statement_and_paginates_old_notifications(s
         service = Service(service.root, service.db_path, service.settings)
         latest = service.snapshot("main")
         assert latest["thread"]["id"] == "recent" and latest["has_more"]
-        older = service.snapshot("recent", before=latest["messages"][0]["id"])
-        assert not older["has_more"] and len(older["messages"] + latest["messages"]) == 110
+        expected_ids = [row[0] for row in before if row[1] == "recent"]
+        page, ids = latest, []
+        for size in (30, 30, 30, 20):
+            assert len(page["messages"]) == size
+            ids = [row["id"] for row in page["messages"]] + ids
+            assert page["has_more"] == (len(ids) < 110)
+            if page["has_more"]:
+                page = service.snapshot("recent", before=ids[0])
+                assert page["has_newer"]
+        assert ids == expected_ids
+        for span in (1, 30, 31, 110):
+            delta = service.snapshot("recent", after=ids[-span])
+            assert delta["reset"] == (span > 30)
+            assert [row["id"] for row in delta["messages"]] == ids[-min(30, span):]
+            assert not delta["has_newer"]
         target = service.snapshot("old", message_id=4)
         assert not target["thread"]["is_main"] and target["messages"][-1]["id"] == 4
+        assert target["has_newer"] and not latest["has_newer"]
+        assert service.reply_notice() is None
         with pytest.raises(ValueError, match="返回主对话"):
             send(service, "不能发往旧讨论", thread="old")
         with service.connect() as conn:

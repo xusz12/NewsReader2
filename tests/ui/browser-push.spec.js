@@ -152,7 +152,11 @@ test("个人助手通知定位完整回复并回传本浏览器回执", async ({
   await page.route("**/api/personal-assistant/threads/main", route => route.fulfill({json:{ok:true, thread:{id:"main-fixture",is_main:true}, messages:[], job:null, has_more:false}}));
   await page.route(`**/api/personal-assistant/threads/${thread}?message=42`, route => route.fulfill({json:{ok:true,
     thread:{id:thread,title:"测试讨论",is_main:false}, messages:[{id:42,job_id:job,role:"assistant",status:"done",content:"通知对应的完整回复。"}],
-    job:{id:job,status:"done"},has_more:false,
+    job:{id:job,status:"done"},has_more:false,has_newer:true,
+  }}));
+  await page.route(`**/api/personal-assistant/threads/${thread}`, route => route.fulfill({json:{ok:true,
+    thread:{id:thread,title:"测试讨论",is_main:false}, messages:[{id:44,job_id:"later",role:"assistant",status:"done",content:"同一段历史对话的最新回复。"}],
+    job:{id:"later",status:"done"},has_more:true,has_newer:false,
   }}));
   await page.route("**/api/browser-push/seen", route => {
     receipts.push(...route.request().postDataJSON().replies);
@@ -162,6 +166,9 @@ test("个人助手通知定位完整回复并回传本浏览器回执", async ({
   await expect(page.locator("#personalAssistantMessages [data-message-id='42']")).toBeFocused();
   await expect.poll(() => receipts).toEqual([{kind:"personal_reply", id:job}]);
   await expect(page.locator("#personalAssistantInput")).toBeHidden();
+  await page.getByRole("button",{name:"回到底部"}).click();
+  await expect(page.locator("#personalAssistantMessages")).toContainText("同一段历史对话的最新回复。");
+  await expect(page.getByRole("button",{name:"回到底部"})).toBeHidden();
   await page.getByRole("button",{name:"返回主对话"}).click();
   await expect(page.locator("#personalAssistantInput")).toBeEnabled();
   await expect(page.locator("#personalAssistantMessages")).not.toContainText("通知对应的完整回复。");

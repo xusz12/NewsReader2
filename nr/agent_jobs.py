@@ -28,7 +28,7 @@ from settings import DEFAULT_PI_CHAT_MODEL, DEFAULT_PI_CHAT_PROVIDER
 
 
 AGENT_JOB_TIMEOUT_SECONDS = 300
-AGENT_STREAM_POLL_SECONDS = 0.5
+AGENT_STREAM_POLL_SECONDS = 1.1
 AGENT_WORKER_COUNT = 2
 
 
@@ -129,29 +129,6 @@ class AgentWorker:
         finally:
             conn.close()
 
-    def _update_agent_job_output(self, job_id: str, session_id: str, output: str, *, status: str = "streaming") -> None:
-        if not output:
-            return
-        conn = self.db.agent_connect()
-        try:
-            now = database.now_ts()
-            with conn:
-                conn.execute(
-                    "UPDATE agent_jobs SET answer_text=?, status=?, updated_at=? WHERE id=? AND cancel_requested=0 AND status IN ('running', 'streaming')",
-                    (output, status, now, job_id),
-                )
-                conn.execute(
-                    """
-                UPDATE agent_messages
-                SET content=?, status=?, updated_at=?
-                WHERE session_id=? AND job_id=? AND role='assistant'
-                  AND status IN ('streaming', 'running')
-                """,
-                    (output, status, now, session_id, job_id),
-                )
-        finally:
-            conn.close()
-
     def _agent_cancel_requested(self, job_id: str) -> bool:
         conn = self.db.agent_connect()
         try:
@@ -179,7 +156,8 @@ class AgentWorker:
         runtime_code = "codex_runtime_failed" if is_codex else "oar_runtime_failed"
         codex_config = None
         codex_parser = None
-        output = ""
+        draft_length = 0
+        progress = ""
         stderr = ""
         proc = None
         selector = None
@@ -240,7 +218,7 @@ class AgentWorker:
             buffers: dict[str, bytes] = {"stdout": b"", "stderr": b""}
 
             def handle_line(kind: str, raw_line: bytes) -> None:
-                nonlocal output, stderr, terminal, terminal_answer, protocol_error
+                nonlocal draft_length, progress, terminal, terminal_answer, protocol_error
                 if kind == "stderr":
                     # Runtime/extension diagnostics can contain credentials. Discard.
                     return
@@ -256,38 +234,41 @@ class AgentWorker:
                             terminal_answer = event["answer"]
                             if len(terminal_answer) > 2 * 1024 * 1024:
                                 raise RuntimeError("oar_protocol_error")
-                            # A terminal answer is authoritative for success. Keep any
-                            # earlier stream text visible when the terminal answer is
-                            # empty, but never use that text to promote the job.
-                            if terminal_answer.strip():
-                                output = terminal_answer
-                                self._update_agent_job_output(job["id"], session["id"], output)
+                        return
                     elif event["type"] == "oar_session":
-                        self._update_agent_progress(job["id"], "thinking")
+                        phase = "thinking"
                     elif event["type"] == "oar_progress":
-                        self._update_agent_progress(job["id"], event["phase"])
+                        phase = event["phase"]
                     elif event["type"] == "oar_tool":
                         tool = str(event.get("tool") or "").lower()
                         phase = "searching" if "search" in tool else "fetching" if "fetch" in tool or "browse" in tool else "tool"
-                        self._update_agent_progress(job["id"], phase)
                     elif event["type"] == "text_delta":
-                        self._update_agent_progress(job["id"], "writing")
-                        output = event["delta"] if is_codex and event.get("replace") else output + event["delta"]
-                        if len(output) > 2 * 1024 * 1024:
+                        size = len(event["delta"])
+                        draft_length = size if is_codex and event.get("replace") else draft_length + size
+                        if draft_length > 2 * 1024 * 1024:
                             raise RuntimeError("oar_protocol_error")
-                        self._update_agent_job_output(job["id"], session["id"], output)
+                        phase = "writing"
+                    else:
+                        return
+                    if phase != progress:
+                        self._update_agent_progress(job["id"], phase)
+                        progress = phase
                 except (RuntimeError, UnicodeError):
                     protocol_error = True
                     self._terminate_agent_process(job["id"])
 
+            next_cancel_check = 0
             while selector.get_map():
-                if time.monotonic() >= deadline:
+                now = time.monotonic()
+                if now >= deadline:
                     self._terminate_agent_process(job["id"])
                     timed_out = True
                     cancel_sent = True
-                if self._agent_cancel_requested(job["id"]) and not cancel_sent:
-                    self._terminate_agent_process(job["id"])
-                    cancel_sent = True
+                if not cancel_sent and now >= next_cancel_check:
+                    next_cancel_check = now + 0.25
+                    if self._agent_cancel_requested(job["id"]):
+                        self._terminate_agent_process(job["id"])
+                        cancel_sent = True
                 events = selector.select(0.25)
                 if not events:
                     if proc.poll() is not None:
@@ -365,7 +346,7 @@ class AgentWorker:
         try:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT cancel_requested, answer_text FROM agent_jobs WHERE id=?",
+                "SELECT cancel_requested FROM agent_jobs WHERE id=?",
                 (job["id"],),
             ).fetchone()
             if not row:
@@ -374,7 +355,6 @@ class AgentWorker:
                 if _runtime_dir and not isolated_retry:
                     self.store._remove_agent_runtime_dir(_runtime_dir.name)
                 return
-            output = output or (row["answer_text"] if row else "") or ""
             finished = database.now_ts()
             canceled = bool(row and row["cancel_requested"])
             if canceled:
@@ -405,6 +385,7 @@ class AgentWorker:
                     conn.execute("UPDATE agent_sessions SET executor_session_id='' WHERE id=?", (session["id"],))
                 elif status == "succeeded" and executor_session_id:
                     conn.execute("UPDATE agent_sessions SET executor_session_id=? WHERE id=?", (executor_session_id, session["id"]))
+                output = terminal_answer if status == "succeeded" else ""
                 conn.execute(
                     """
                 UPDATE agent_jobs
@@ -469,7 +450,7 @@ class AgentWorker:
             started = database.now_ts()
             conn.execute("UPDATE agent_jobs SET status='running', started_at=?, updated_at=? WHERE id=?", (started, started, job["id"]))
             conn.execute(
-                "UPDATE agent_messages SET status='streaming', updated_at=? WHERE session_id=? AND job_id=? AND role='assistant'",
+                "UPDATE agent_messages SET status='running', updated_at=? WHERE session_id=? AND job_id=? AND role='assistant'",
                 (started, session["id"], job["id"]),
             )
             conn.commit()
@@ -516,15 +497,14 @@ class AgentWorker:
         while True:
             conn = self.db.agent_connect()
             try:
-                job = self.store._agent_job_for_item(conn, item_id, job_id)
-                if not job:
-                    payload = {"ok": False, "error": "job_not_found"}
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    return
+                job = self.store._agent_job_for_item(conn, item_id, job_id, update=True)
                 serialized = agent_sessions._serialize_agent_job(job)
             finally:
                 conn.close()
-            signature = (serialized.get("status"), serialized.get("progress"), serialized.get("updated_at"), len(serialized.get("answer_text") or ""), serialized.get("error"))
+            if not serialized:
+                yield 'data: {"ok":false,"error":"job_not_found"}\n\n'
+                return
+            signature = (serialized["status"], serialized["progress"], serialized["cancel_requested"], serialized["error"])
             if signature != last_signature:
                 yield f"data: {json.dumps({'ok': True, 'job': serialized}, ensure_ascii=False)}\n\n"
                 last_signature = signature
@@ -540,8 +520,7 @@ class AgentWorker:
 def register(app, store, worker):
     @app.get("/api/news/<item_id>/agent/jobs/<job_id>/stream")
     def api_agent_job_stream(item_id: str, job_id: str):
-        item, _detail = store._load_visible_agent_article(item_id)
-        if not item:
+        if store._visible_agent_url(item_id) is None:
             return jsonify({"ok": False, "error": "item_not_found"}), 404
         return Response(
             stream_with_context(worker._agent_stream_generator(item_id, job_id)),

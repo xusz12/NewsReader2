@@ -1,6 +1,7 @@
 import { confirmAction } from "./confirm-dialog.js";
 import {
   singlePane,
+  mobileViewport,
   drawerNavigation,
   $,
   $$,
@@ -23,18 +24,18 @@ import {
 } from "./ui.js";
 import { SettingsPanel } from "./settings-panel.js?v=0.6.15";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.12";
-import { TopicPanel } from "./topic-panel.js?v=0.6.8";
-import { ReportPanel } from "./report-panel.js?v=0.6.15";
+import { TopicPanel } from "./topic-panel.js?v=0.6.16";
+import { ReportPanel } from "./report-panel.js?v=0.6.16";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
-import { AgentPanel } from "./agent-panel.js?v=0.6.15";
-import { PersonalAssistant } from "./personal-assistant.js?v=0.6.15";
+import { AgentPanel } from "./agent-panel.js?v=0.6.16";
+import { PersonalAssistant } from "./personal-assistant.js?v=0.6.16";
 import { AgentNotifications, replyIsVisible } from "./agent-notifications.js?v=browser-push-1";
 import { browserPush } from "./browser-push.js?v=0.6.11";
 import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
 import { TaskProgress } from "./task-progress.js?v=0.6.8";
 import { ResearchNotes } from "./research-notes.js?v=0.6.15";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
-import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.6.15";
+import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.6.16";
 import { UpstreamErrors } from "./upstream-errors.js?v=browser-push-1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
@@ -165,6 +166,7 @@ const settings = new SettingsPanel({
     await classification.refresh();
   },
   onOpen: () => {
+    if (mobileViewport.matches) personalAssistant.close();
     resetDetailSwipe();
     closeNav();
     $("#selectionPopover").classList.remove("show");
@@ -271,7 +273,13 @@ function updateResearchNotes(id, result) {
   renderFeed();
   refreshBadges();
 }
-const personalAssistant = new PersonalAssistant({onSettings: () => settings.show("personal-assistant")});
+const personalAssistant = new PersonalAssistant({
+  onLayoutChange: () => {
+    closeNav();
+    syncMobileLayers();
+    trackFeedReading();
+  },
+});
 const agent = new AgentPanel({
   selects,
   onArchive: (id, result) => {
@@ -282,7 +290,7 @@ const notifications = new AgentNotifications({
   agent,
   contextVersion: () => `${state.detailSequence}:${settings.open}`,
   readerVisible: () => {
-    if (settings.open || singlePane.matches && !mobileReaderOpen()) return false;
+    if (settings.open || $("#feedView").inert || singlePane.matches && !mobileReaderOpen()) return false;
     if (state.collection === "reports" && !reports.reading)
       return !!reports.details?.reader && !!$("#detailPanelReports").getClientRects().length;
     return !!state.detail && state.detail.item_id === state.selected?.id && readingArticle() &&
@@ -290,6 +298,7 @@ const notifications = new AgentNotifications({
   },
   onOpen: async (target, current) => {
     if (!current()) return false;
+    if (mobileViewport.matches) personalAssistant.close();
     if (target.item.report_id) {
       switchCollection("reports", {restoreReader:false});
       await reports.openRecord(target.item.report_id,target.item.report_kind);
@@ -314,7 +323,7 @@ const notifications = new AgentNotifications({
 
 function viewedPushReplies() {
   const receipts = [];
-  if (personalAssistant.popover.open && personalAssistant.snapshot?.thread) {
+  if (personalAssistant.open && personalAssistant.snapshot?.thread) {
     for (const message of personalAssistant.snapshot.messages.slice(-12)) {
       if (message.role === "assistant" && message.status === "done" && replyIsVisible($(`#personalAssistantMessages [data-message-id="${CSS.escape(String(message.id))}"]`)))
         receipts.push({kind:"personal_reply", id:message.job_id});
@@ -914,10 +923,14 @@ $("#retryCollectionTranslationBtn").onclick = event => busy(event.currentTarget,
   await api("/api/collection/retry-translation", {method:"POST"});
   await pollCollection();
 });
-setInterval(pollCollection, 5000);
+function refreshTopbar() {
+  void pollCollection();
+  void personalAssistant.refreshReplyNotice();
+}
+setInterval(refreshTopbar, 5000);
 document.addEventListener("collection:changed", pollCollection);
-window.addEventListener("focus", pollCollection);
-document.addEventListener("visibilitychange", pollCollection);
+window.addEventListener("focus", refreshTopbar);
+document.addEventListener("visibilitychange", refreshTopbar);
 let navSummary = null, totalScope = "", readCountsFrame;
 const filterCountScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query]);
 const countScope = () => JSON.stringify([state.collection, state.filter, state.source, state.query, state.collection === "feed" ? state.category : "all"]);
@@ -1133,6 +1146,7 @@ function renderSources() {
 }
 function switchCollection(collection, { restoreReader = true } = {}) {
   if (!labels[collection]) return;
+  if (mobileViewport.matches) personalAssistant.close();
   topics.deactivate();
   reports.deactivate();
   topics.reading = false;
@@ -1258,7 +1272,7 @@ async function selectNews(item, mobile = true, openedByUser = false, { skipRemem
     $("#detailScrollArea").scrollTop = view?.scroll || 0;
     renderFeed();
     if (completeOnOpen && collectionSequence === state.collectionSequence && state.collection === "read_later" &&
-        !settings.open && !document.hidden && !document.querySelector("dialog[open]") &&
+        !settings.open && !$("#feedView").inert && !document.hidden && !document.querySelector("dialog[open]") &&
         (!singlePane.matches || mobileReaderOpen()) && $("#detailPanelFeed").getClientRects().length &&
         item.read_later_at === readLaterAt && readLaterState(item).phase === "ready" &&
         (data.detail?.content?.trim() || data.ai?.body_zh?.trim()))
@@ -1566,7 +1580,7 @@ function pipelineLabel(payload) {
 const enteredCards = new Set();
 let lastFeedScroll = 0, feedEndTimer;
 function feedVisible() {
-  return state.collection === "feed" && !settings.open && !mobileReaderOpen() &&
+  return state.collection === "feed" && !settings.open && !$("#feedView").inert && !mobileReaderOpen() &&
     !document.hidden && !document.querySelector("dialog[open]") && $("#feedCardList").getBoundingClientRect().width > 0;
 }
 function markReadIds(ids) {
@@ -1899,6 +1913,19 @@ for (const panel of $$("#detailPanelFeed, #detailPanelIdeas, #detailPanelSummari
 }
 singlePane.addEventListener("change", () => {
   resetDetailSwipe();
+  if (singlePane.matches && !mobileViewport.matches && personalAssistant.open) {
+    if (settings.open) {
+      $("#feedView").classList.add("settings-detail-active");
+    } else {
+      const selected = readingArticle() ? state.selected : {
+        notes: state.idea,
+        reports: reports.selected,
+        summaries: summaries.selected,
+        topics: topics.selected || topics.page === "new",
+      }[state.collection];
+      if (selected) return enterReader();
+    }
+  }
   syncMobileLayers();
 });
 function openNav() {
@@ -2055,8 +2082,8 @@ $("#shortcutsModal").onclick = (event) => {
 };
 
 document.addEventListener("keydown", (event) => {
-  if (event.defaultPrevented || event.isComposing) return;
-  if (personalAssistant.popover.open || reports.popover.open || reports.share.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+  if (reports.popover.open || reports.share.open || document.querySelector("#appConfirmDialog[open]") || summaries.modal.open || upstreamErrors.open || !notifications.panel.hidden || !tasks.panel.hidden) return;
   if ($("#shortcutsModal").classList.contains("show")) {
     if (event.key === "Escape") shortcutsDialog(false);
     else focusTrap(event, $("#shortcutsModal"));
@@ -2076,7 +2103,13 @@ document.addEventListener("keydown", (event) => {
     closeNav();
     return;
   }
-  const action = keyboard.action(event);
+  const action = keyboard.action(event, event.target === personalAssistant.input);
+  if (action === "personalAssistant") {
+    event.preventDefault();
+    if (!event.repeat) personalAssistant.toggle();
+    return;
+  }
+  if (personalAssistant.open && (mobileViewport.matches || personalAssistant.panel.contains(event.target))) return;
   if (action === "help") {
     event.preventDefault();
     shortcutsDialog(true);
@@ -2088,8 +2121,9 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape") {
     closeNav();
+    const dismissingArticleChat = agent.conversationVisible;
     agent.collapse();
-    exitReader();
+    if (!dismissingArticleChat) exitReader();
     $("#selectionPopover").classList.remove("show");
     return;
   }
@@ -2191,7 +2225,7 @@ renderReader();
 // Give the visible page priority. Settings/model catalogs and research lists
 // are loaded by their own panels when opened.
 loadFeed().then(() => {
-  void pollCollection();
+  refreshTopbar();
   browserPush.start({open:openPushTarget, viewedReplies:viewedPushReplies,
     canOpen:() => !(standaloneIdeas.dirty || researchNotes.dirty || topics.dirty || settings.hasUnsavedChanges())});
 });
