@@ -78,8 +78,8 @@ export class PersonalAssistantSettings {
     this.host.innerHTML = `<section class="settings-section-card">
       <div class="section-card-title"><span>身份与工作区</span></div>
       <fieldset class="form-fieldset section-stack" ${this.saving ? "disabled" : ""}>
-      ${field("助手的名字", "name", d.name, 'maxlength="40" required placeholder="请输入你为助手取的名字"')}
-      <label class="field-item"><span class="field-label">助手职责</span><textarea class="field-input" data-personal-field="instructions" rows="3" maxlength="4000">${e(d.instructions)}</textarea></label>
+      ${field("助手的名字", "name", d.name, 'maxlength="40" placeholder="个人助手"')}
+      <label class="field-item"><span class="field-label">助手职责</span><textarea class="field-input" data-personal-field="instructions" rows="3" required maxlength="4000">${e(d.instructions)}</textarea></label>
       <div class="field-item"><span class="field-label">本地工作区</span><code class="storage-path">${e(d.workspace)}</code></div>
       <div class="section-card-title"><span>个人助手模型</span></div>
       <div class="form-group-grid">${selectField("Runtime", "personal.runtime", runtime, runtimeOptions, null)}
@@ -135,9 +135,9 @@ export class PersonalAssistantSettings {
     }
   }
   validate() {
-    const name = this.host.querySelector('[data-personal-field="name"]');
-    name.setCustomValidity(name.value.trim() ? "" : "请为助手取一个名字");
-    return name.reportValidity();
+    const instructions = this.host.querySelector('[data-personal-field="instructions"]');
+    instructions.setCustomValidity(instructions.value.trim() ? "" : "请输入助手职责");
+    return instructions.reportValidity();
   }
   async save(submitted) {
     this.saving = true; this.render();

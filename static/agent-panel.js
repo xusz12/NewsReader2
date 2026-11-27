@@ -311,7 +311,7 @@ export class AgentPanel {
     $("#agentDockToggleBtn").setAttribute("aria-expanded", String(this.open));
     $("#agentDockToggleBtn").setAttribute(
       "aria-label",
-      this.open ? "收起新闻研究 Agent" : "展开新闻研究 Agent",
+      this.open ? "收起文章问答" : "展开文章问答",
     );
     $("#agentRuntimeBadge").textContent = this.payload.session
       ? `${this.payload.session.runtime || "Agent"} · ${this.payload.session.model || "默认模型"}`

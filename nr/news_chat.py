@@ -413,7 +413,7 @@ class NewsChat:
             config_path.chmod(0o600)
         return {"provider": runtime, "session_id": session, "model": pi_model, "answer": answer, **agent_runtime_metadata(session)}
 
-    def run_pi_chat_archive(self, *, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, reasoning_effort: str = "", runtime: str = "pi", timeout: int = 90) -> dict:
+    def run_pi_chat_archive(self, *, title: str, source: str, published_at: str, messages: list[dict[str, str]], pi_provider: str, pi_model: str, reasoning_effort: str = "", runtime: str = "pi", timeout: int = 300) -> dict:
         prompt = build_chat_archive_prompt(
             title=title,
             source=source,

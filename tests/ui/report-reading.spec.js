@@ -67,6 +67,14 @@ for(const width of [390,1440]) test('日报保留高亮与引用 Agent、独立�
   await selectReportText(page);
   await expect(page.locator('#quoteNoteBtn')).toBeHidden();
   await expect(page.locator('#reportContent .research-notes, #reportNotesMount')).toHaveCount(0);
+  await page.getByRole('button',{name:'递给个人助手'}).click();
+  await expect(page.locator('#personalAssistantQuote')).toContainText(text);
+  await page.locator('#personalAssistantInput').fill('报告摘录');
+  await page.locator('#personalAssistantSend').click();
+  await expect(page.locator('#personalAssistantMessages .thought-quote').last()).toContainText(text);
+  const main = (await (await request.get('/api/personal-assistant/threads/main')).json());
+  expect(main.messages.at(-2).quote).toMatchObject({item_id:saved.item.id, title:saved.item.title, url:saved.item.url, quote_source:'original', quote_text:text});
+  await page.locator('#personalAssistantClose').click();
   await selectReportText(page); await page.locator('#quoteAgentBtn').click();
   await expect(page.locator('#agentQuote')).toContainText(text);
   await expect(page.locator('#archiveAgentBtn')).toBeHidden();

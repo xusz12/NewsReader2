@@ -3249,7 +3249,7 @@ button:disabled {
 .agent-error button {
   margin-left: 8px;
 }
-.agent-bubble blockquote,
+.agent-bubble blockquote:not(.thought-quote),
 #agentQuote {
   margin: var(--space-2) 0;
   padding: 0 0 0 var(--space-3);
@@ -3264,6 +3264,7 @@ button:disabled {
   margin: 0 0 var(--space-3);
   white-space: pre-wrap;
 }
+#personalAssistantQuote .draft-quote > div { max-height: min(90px, 16dvh); }
 .agent-quote-label {
   display: block;
   margin-bottom: var(--space-1);
@@ -4597,6 +4598,8 @@ button:disabled {
 
 /* Touch selection actions live away from the native text-selection menu. */
 .selection-popover.selection-toolbar {
+  --selection-safe-left: env(safe-area-inset-left, 0px);
+  --selection-safe-right: env(safe-area-inset-right, 0px);
   width: max-content;
   flex-wrap: wrap;
   justify-content: center;

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assistantContext, decodeSessionMapping } from './oar_assistant_context.mjs';
 import { toolEvents, classifiedFailure } from './oar_tool_events.mjs';
 import { validateReport, reportEvents, completedPiReport } from './oar_report.mjs';
 
@@ -220,9 +221,8 @@ export async function execute(request, runtime, installation, emit, signal, wait
   let historyReplayed = Boolean(request.history_replayed);
   if (!ephemeral) {
     try {
-      const saved = JSON.parse(await fs.readFile(mappingFile, 'utf8'));
-      if (!saved || typeof saved.id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/.test(saved.id) ||
-          (dsh ? saved.runtime !== mappingRuntime : saved.runtime && saved.runtime !== mappingRuntime && !(['news_chat', 'personal_assistant'].includes(request.task) && saved.runtime === 'cli'))) throw new Error('oar_invalid_session');
+      const saved = decodeSessionMapping(await fs.readFile(mappingFile, 'utf8'));
+      if (dsh ? saved.runtime !== mappingRuntime : saved.runtime && saved.runtime !== mappingRuntime && !(['news_chat', 'personal_assistant'].includes(request.task) && saved.runtime === 'cli')) throw new Error('oar_invalid_session');
       nativeId = saved.id;
       historyReplayed = Boolean(saved.history_replayed);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -254,6 +254,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
     if (nativeId) {
       try { session = await runtime.session(installation, { ...options, resume: nativeId }); resumed = true; }
       catch (error) {
+        if (request.task === 'personal_assistant' && ['SessionUnavailableError', 'SessionNotFoundError'].includes(error.name)) throw new Error('oar_invalid_session');
         if (error.name !== 'SessionNotFoundError') throw error;
         if (request.legacy_native_id) throw new Error('oar_legacy_session_missing');
         // Rebuilding is a new native session: pin the application's saved model,
@@ -269,6 +270,8 @@ export async function execute(request, runtime, installation, emit, signal, wait
     if (signal?.aborted) throw new Error('oar_stopped');
     if (dsh) await fs.access(path.join(request.agentDir, 'policy-' + session.id));
     emit({ type: 'oar_session', id: session.id, resumed, runtime: dsh ? 'oar-dsh' : 'oar-pi' });
+    const context = assistantContext(request, runtime, installation, session);
+    await context?.prepare(resumed, emit, signal);
     budget = researchBudget(session, request, emit);
     const reportObserver = reportEvents(session, request, emit);
     const forwardTool = toolEvents(emit, request.task === 'web_research');
@@ -319,6 +322,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
       emit({ type: 'oar_result', outcome: 'failed', error: 'oar_empty_answer' });
       return false;
     }
+    const compactNext = context?.due();
     await stopJobs();
     await session.dispose();
     if (signal?.aborted) throw new Error('oar_stopped');
@@ -346,7 +350,7 @@ export async function execute(request, runtime, installation, emit, signal, wait
       }
     }
     // Explicit terminal result is mandatory. Exit 0 alone is not success.
-    emit({ type: 'oar_result', outcome: 'completed', answer, ...reportObserver.metadata() });
+    emit({ type: 'oar_result', outcome: 'completed', answer, ...(context ? {compact_next: compactNext} : {}), ...reportObserver.metadata() });
     return true;
   } finally {
     closed = true;
@@ -440,7 +444,7 @@ async function main() {
       : error.failure === 'model_unavailable' ? 'oar_model_unavailable'
       : ['auth', 'unauthenticated'].includes(error.failure) ? 'oar_auth_required'
       : error.code === 'ERR_MODULE_NOT_FOUND' ? 'oar_dependency_missing'
-      : /^(oar_[a-z_]+|report_output_truncated)$/.test(error.message) ? error.message : 'oar_runtime_failed';
+      : /^(oar_[a-z_]+|report_output_truncated|assistant_compaction_failed)$/.test(error.message) ? error.message : 'oar_runtime_failed';
     emit({ type: 'oar_result', outcome: 'failed', error: request?.task === 'connection_test' ? classifiedFailure(error.failure) || code : code });
     process.exitCode = 1;
   } finally {

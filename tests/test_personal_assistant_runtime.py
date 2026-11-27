@@ -13,7 +13,7 @@ import personal_assistant_runtime as runtime
 NATIVE_ID = '0199a213-81c0-7800-8aa1-bbab2a035a53'
 
 
-@pytest.fixture(params=['pi', 'codex'])
+@pytest.fixture(params=['pi', 'dsh', 'codex'])
 def invocation(tmp_path, monkeypatch, request):
     mode = request.param
     state = tmp_path / 'state'
@@ -23,7 +23,7 @@ def invocation(tmp_path, monkeypatch, request):
     monkeypatch.setattr(runtime.oar_client, 'bridge_command', lambda _: [sys.executable, str(script)])
     monkeypatch.setattr(runtime, '_pi_subprocess_env', lambda: os.environ.copy())
     profile = {'runtime': mode, 'codex': {'model': '', 'reasoning_effort': '', 'sandbox': 'read-only'},
-               'pi': {'provider': 'fixture', 'model': 'fixture'}}
+               'pi': {'provider': 'fixture', 'model': 'fixture'}, 'dsh': {'provider': 'fixture', 'model': 'fixture'}}
     args = dict(profile=profile, prompt='private question', resume_prompt='follow-up', state_dir=state,
                 workspace=workspace, db=tmp_path / 'news.sqlite3', state_db=tmp_path / 'assistant.sqlite3',
                 emit=lambda value: None, stopped=lambda: False, job_id='job', timeout=3)
@@ -86,3 +86,44 @@ def test_assistant_commits_only_clean_completion(invocation):
     assert not list(args['state_dir'].glob('config-*'))
     if args['profile']['runtime'] == 'codex':
         assert json.loads((args['state_dir'] / 'codex-session.json').read_text())['thread_id'] == NATIVE_ID
+
+
+@pytest.mark.parametrize("outcome", ["rebuild", "stop", "second_failure", "separate_budget"])
+def test_compaction_budget_and_single_cancellable_rebuild(invocation, tmp_path, outcome):
+    script, prefix, result, args = invocation
+    state = args["state_dir"]
+    state.mkdir()
+    marker = state / "compact-next"
+    marker.touch()
+    if args["profile"]["runtime"] == "codex":
+        runtime.codex_client.write_thread(state, args["profile"]["codex"], NATIVE_ID)
+    else:
+        (state / "session.json").write_text(json.dumps({"id":NATIVE_ID}))
+    attempts = tmp_path / "attempts"
+    script.write_text(prefix + '''
+attempts=Path(''' + repr(str(attempts)) + ''')
+with attempts.open('a') as stream: stream.write(str(request.get("compact_before_turn", False))+"\\n")
+if request.get("compact_before_turn"):
+    print(json.dumps({"type":"oar_progress","phase":"compacting"}),flush=True)
+    time.sleep(.6)
+    print(json.dumps({"type":"oar_progress","phase":"thinking"}),flush=True)
+    if ''' + repr(outcome != "separate_budget") + ''':
+        print(json.dumps({"type":"oar_result","outcome":"failed","error":"assistant_compaction_failed"}),flush=True)
+        sys.exit(1)
+elif ''' + repr(outcome == "second_failure") + ''':
+    print(json.dumps({"type":"oar_result","outcome":"failed","error":"oar_invalid_session"}),flush=True)
+    sys.exit(1)
+elif ''' + repr(outcome == "stop") + ''':
+    time.sleep(20)
+print(''' + repr(result) + ''',flush=True)
+''')
+    args["timeout"] = .45 if outcome == "separate_budget" else 5
+    if outcome == "stop":
+        args["stopped"] = lambda: attempts.exists() and len(attempts.read_text().splitlines()) == 2
+    if outcome in ("rebuild", "separate_budget"):
+        assert runtime.run(**args) == "final answer"
+        assert not marker.exists()
+    else:
+        with pytest.raises(RuntimeError, match="assistant_stopped" if outcome == "stop" else "oar_invalid_session"):
+            runtime.run(**args)
+    assert attempts.read_text().splitlines() == (["True"] if outcome == "separate_budget" else ["True", "False"])

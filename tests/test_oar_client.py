@@ -115,6 +115,7 @@ def test_real_node_missing_dependencies_has_safe_error_and_cleans_config(tmp_pat
     shutil.copy2(oar_client.ROOT / 'scripts/oar_bridge.mjs',bridge)
     shutil.copy2(oar_client.ROOT / 'scripts/oar_tool_events.mjs', bridge.parent)
     shutil.copy2(oar_client.ROOT / 'scripts/oar_report.mjs', bridge.parent)
+    shutil.copy2(oar_client.ROOT / 'scripts/oar_assistant_context.mjs', bridge.parent)
     source = tmp_path / 'empty-agent';source.mkdir()
     state = tmp_path / 'state';state.mkdir()
     request = oar_client.bridge_request(prompt='fixture',resume_prompt='fixture',state_dir=state,provider='openai',model='gpt-4.1')

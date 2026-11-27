@@ -63,10 +63,12 @@ def test_installed_pi_report_agent_executes_private_mcp_and_finishes_workspace(p
 
 
 @pytest.mark.parametrize('workspace', [False, True])
-def test_installed_codex_reports_keep_model_tools_and_ephemeral_policy(native_runtime, monkeypatch, workspace):
+def test_installed_codex_reports_keep_model_tools_and_ephemeral_policy(native_runtime, monkeypatch, workspace, tmp_path):
     command, request, env, calls, native_home, selected = native_runtime
     for name, value in env.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("NEWS_READER_CODEX", raising=False)
+    monkeypatch.setenv("OAR_CODEX_BIN", str(tmp_path / "unselected-codex"))
     config = {'runtime': 'codex', 'codex': selected, '_delegation': False,
               'limits': {'input_tokens': 16000, 'output_tokens': 2048}}
     if workspace:

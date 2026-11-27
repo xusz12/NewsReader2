@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "v0.6.14"
+RELEASE_VERSION = "v0.6.15"
 ASSET_VERSION = RELEASE_VERSION.removeprefix("v")
 
 
@@ -21,7 +21,7 @@ def test_release_version_is_consistent_across_metadata_and_ui():
     for asset in ("app.js", "error_ui.js", "style.css", "tokens.css", "vendor/prosemirror.css"):
         assert f"/static/{asset}?v={ASSET_VERSION}" in index_source
     assert f"当前稳定版本：`{RELEASE_VERSION}`" in readme_source
-    assert f"### 2026-11-26 — {RELEASE_VERSION} " in changelog_source
+    assert f"### 2026-11-27 — {RELEASE_VERSION} " in changelog_source
 
 
 def test_independent_package_and_update_metadata():

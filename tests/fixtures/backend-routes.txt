@@ -122,7 +122,6 @@ POST /api/news/clear-read-later api_clear_read_later
 POST /api/news/mark-all-read api_mark_all_read
 POST /api/news/mark-read-by-ids api_mark_read_by_ids
 POST /api/personal-assistant/model-options personal_assistant.model_options
-POST /api/personal-assistant/threads personal_assistant.threads
 POST /api/personal-assistant/threads/<thread_id>/messages personal_assistant.send
 POST /api/personal-assistant/threads/<thread_id>/stop personal_assistant.stop
 POST /api/reports/<report_id>/read api_report_read

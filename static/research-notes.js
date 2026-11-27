@@ -1,8 +1,4 @@
-import { $, api, escapeHTML as e, icon, markdown, errorText, toast } from "./ui.js";
-
-const quoteLabel = (source, paragraph) =>
-  source === "conclusion" ? "引用精读结论" : source === "points" ? `引用精读要点${paragraph ? `第 ${paragraph} 条` : ""}` :
-    `引用${source === "translated" ? "译文" : "原文"}${paragraph ? `第 ${paragraph} 段` : ""}`;
+import { $, api, escapeHTML as e, icon, markdown, quoteSourceLabel, errorText, toast } from "./ui.js";
 
 export class ResearchNotes {
   constructor({ onUpdate }) {
@@ -114,7 +110,7 @@ export class ResearchNotes {
       <div class="research-note-composer" id="researchNoteComposer" ${draft.open ? "" : "hidden"}>
         <span class="thought-avatar" aria-hidden="true">我</span>
         <div class="research-note-form">
-          ${draft.quote ? `<div class="thought-quote draft-quote"><div><strong>${e(quoteLabel(draft.quote.source, draft.quote.paragraph))}</strong><p>${e(draft.quote.text)}</p></div><button class="note-delete-btn" type="button" data-note-action="remove-quote" aria-label="移除引用" title="移除引用">×</button></div>` : ""}
+          ${draft.quote ? `<div class="thought-quote draft-quote"><div><strong>${e(quoteSourceLabel(draft.quote.source, draft.quote.paragraph))}</strong><p>${e(draft.quote.text)}</p></div><button class="note-delete-btn" type="button" data-note-action="remove-quote" aria-label="移除引用" title="移除引用">×</button></div>` : ""}
           <textarea id="researchNoteInput" rows="3" maxlength="50000" aria-label="写下研读想法" placeholder="写下当前时间节点的研读想法…" aria-describedby="researchNoteHint">${e(draft.text)}</textarea>
           ${draft.error ? `<p class="research-note-error" role="alert">${e(draft.error)}</p>` : ""}
           <div class="research-note-actions"><span id="researchNoteHint">⌘ / Ctrl + Enter 发布 · Esc 取消</span><button class="thoughts-write-btn" type="button" data-note-action="cancel">取消</button><button class="thoughts-publish-btn" id="publishResearchNoteBtn" type="button" data-note-action="publish" ${pending || !draft.text.trim() ? "disabled" : ""} aria-busy="${pending}">${pending ? "发布中…" : "发布想法"}</button></div>
@@ -148,7 +144,7 @@ export class ResearchNotes {
       <article class="saved-note ${agent ? "agent-note" : ""}" data-note-id="${e(entry.id)}">
         <header class="saved-note-header"><div class="thought-author"><strong>${agent ? "新闻研究 Agent" : "我（研究员）"}</strong>${agent ? `<span class="thought-agent-badge">${icon("spark")} AI 研读归档</span>` : ""}</div><div class="saved-note-meta"><time datetime="${e(stamp.replace(" ", "T"))}" title="${e(stamp)}">${e(shortDate)}</time><button class="note-delete-btn" type="button" data-note-action="delete" data-delete-note="${e(entry.id)}" aria-label="删除想法" title="删除想法" ${this.deleting.has(entry.id) ? "disabled" : ""}>${icon("trash")}</button></div></header>
         <div class="saved-note-content">${markdown(agent ? entry.archive_summary || entry.note : entry.note)}</div>
-        ${entry.quote_text ? `<blockquote class="thought-quote"><strong>${e(quoteLabel(entry.quote_source, entry.quote_paragraph))}</strong><p>${e(entry.quote_text)}</p></blockquote>` : ""}
+        ${entry.quote_text ? `<blockquote class="thought-quote"><strong>${e(quoteSourceLabel(entry.quote_source, entry.quote_paragraph))}</strong><p>${e(entry.quote_text)}</p></blockquote>` : ""}
       </article>
     </li>`;
   }

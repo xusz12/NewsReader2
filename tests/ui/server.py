@@ -49,6 +49,12 @@ module.ensure_db()
 personal_mode = {"value": "success"}
 def fixture_personal(**kwargs):
     mode = personal_mode["value"]
+    if mode == "compacting":
+        kwargs["emit"]({"type":"oar_progress","phase":"compacting"})
+        while personal_mode["value"] == "compacting":
+            if kwargs["stopped"]():
+                raise RuntimeError("assistant_stopped")
+            time.sleep(.02)
     if mode == "web_search":
         for tool in ("web_search", "web_fetch"):
             kwargs["emit"]({"type":"oar_tool", "tool":"mcp__nr_web__" + tool})

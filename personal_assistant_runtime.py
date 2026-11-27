@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import selectors
+import shutil
 import subprocess
 import sys
 import time
@@ -23,6 +24,44 @@ def tool_config(db, workspace, state_db, job_id=None):
 
 
 def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, emit, stopped, job_id=None, timeout=300):
+    deadline = time.monotonic() + timeout
+    compact_start = None
+
+    def remaining():
+        return (compact_start + 45 if compact_start is not None else deadline) - time.monotonic()
+
+    def progress(event):
+        nonlocal compact_start, deadline
+        if event.get("type") == "oar_progress":
+            if event["phase"] == "compacting":
+                if compact_start is None:
+                    compact_start = time.monotonic()
+            elif compact_start is not None:
+                deadline += min(45, time.monotonic() - compact_start)
+                compact_start = None
+        emit(event)
+
+    mapping = state_dir / ("codex-session.json" if profile["runtime"] == "codex" else "session.json")
+    recoverable = {"assistant_compaction_failed", "oar_invalid_session", "oar_legacy_session_missing", "codex_session_invalid"}
+    for attempt in range(2):
+        if stopped():
+            raise RuntimeError("assistant_stopped")
+        had_mapping = mapping.exists()
+        try:
+            return _run_turn(profile, prompt, resume_prompt, state_dir, workspace, db, state_db, job_id,
+                             progress, stopped, remaining, lambda: compact_start is not None)
+        except RuntimeError as exc:
+            if stopped():
+                raise RuntimeError("assistant_stopped") from None
+            if attempt or not had_mapping or str(exc) not in recoverable:
+                raise
+            progress({"type": "oar_progress", "phase": "thinking"})
+            shutil.rmtree(state_dir)
+            if remaining() <= 0:
+                raise RuntimeError("assistant_timeout") from None
+
+
+def _run_turn(profile, prompt, resume_prompt, state_dir, workspace, db, state_db, job_id, emit, stopped, remaining, compacting):
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     config = tool_config(db, workspace, state_db, job_id)
     runtime = profile["runtime"]
@@ -41,6 +80,9 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
             runtime=runtime, task="personal_assistant", provider=choice["provider"], model=choice["model"], reasoning_effort=choice.get("reasoning_effort", ""))
         parse = oar_client.parse_event
     request.update(task="personal_assistant", cwd=str(workspace), nr_tools=config)
+    marker = state_dir / "compact-next"
+    if marker.exists():
+        request["compact_before_turn"] = True
     argv = oar_client.bridge_command(state_dir.parent.name)
     pending = json.dumps(request, ensure_ascii=False).encode()
     if len(pending) > MAX_BYTES:
@@ -58,7 +100,6 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
         selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
         selector.register(process.stdout, selectors.EVENT_READ, "stdout")
         selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-        deadline = time.monotonic() + timeout
 
         def event(raw):
             nonlocal terminal
@@ -70,11 +111,11 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
             else:
                 emit(value)
 
-        while selector.get_map():
+        while selector.get_map() or process.poll() is None:
             if stopped():
                 raise RuntimeError("assistant_stopped")
-            if time.monotonic() >= deadline:
-                raise RuntimeError("assistant_timeout")
+            if remaining() <= 0:
+                raise RuntimeError("assistant_compaction_failed" if compacting() else "assistant_timeout")
             for key, _ in selector.select(0.1):
                 if key.data == "stdin":
                     try:
@@ -103,16 +144,14 @@ def run(*, profile, prompt, resume_prompt, state_dir, workspace, db, state_db, e
             raise RuntimeError("assistant_stopped")
         if not terminal or terminal.get("outcome") != "completed" or not terminal.get("answer", "").strip():
             raise RuntimeError((terminal or {}).get("error") or ("codex_runtime_failed" if runtime == "codex" else "oar_protocol_error"))
-        try:
-            process.wait(timeout=max(.01, deadline-time.monotonic()))
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("assistant_timeout") from None
-        if stopped():
-            raise RuntimeError("assistant_stopped")
         if process.returncode:
             raise RuntimeError("oar_runtime_failed")
         if runtime == "codex":
             codex_client.write_thread(state_dir, profile["codex"], parser.thread_id)
+        if terminal.get("compact_next") is True:
+            marker.touch(mode=0o600)
+        else:
+            marker.unlink(missing_ok=True)
         return terminal["answer"]
     finally:
         if process:

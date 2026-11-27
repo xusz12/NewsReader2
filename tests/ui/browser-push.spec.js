@@ -149,9 +149,9 @@ test("个人助手通知定位完整回复并回传本浏览器回执", async ({
   const receipts = [];
   await page.addInitScript(() => localStorage.setItem("synthetic-notification-subscription", "yes"));
   await page.route("**/api/personal-assistant/profile", route => route.fulfill({json:{ok:true, profile:{name:"测试助手", runtime:"pi"}}}));
-  await page.route("**/api/personal-assistant/threads", route => route.fulfill({json:{ok:true, threads:[{id:thread, title:"测试讨论", current_library:true}]}}));
+  await page.route("**/api/personal-assistant/threads/main", route => route.fulfill({json:{ok:true, thread:{id:"main-fixture",is_main:true}, messages:[], job:null, has_more:false}}));
   await page.route(`**/api/personal-assistant/threads/${thread}?message=42`, route => route.fulfill({json:{ok:true,
-    thread:{id:thread,title:"测试讨论",current_library:true}, messages:[{id:42,job_id:job,role:"assistant",status:"done",content:"通知对应的完整回复。"}],
+    thread:{id:thread,title:"测试讨论",is_main:false}, messages:[{id:42,job_id:job,role:"assistant",status:"done",content:"通知对应的完整回复。"}],
     job:{id:job,status:"done"},has_more:false,
   }}));
   await page.route("**/api/browser-push/seen", route => {
@@ -161,6 +161,10 @@ test("个人助手通知定位完整回复并回传本浏览器回执", async ({
   await page.goto(`${httpsOrigin}/?nr_push=personal_reply&id=${thread}&message=42`);
   await expect(page.locator("#personalAssistantMessages [data-message-id='42']")).toBeFocused();
   await expect.poll(() => receipts).toEqual([{kind:"personal_reply", id:job}]);
+  await expect(page.locator("#personalAssistantInput")).toBeHidden();
+  await page.getByRole("button",{name:"返回主对话"}).click();
+  await expect(page.locator("#personalAssistantInput")).toBeEnabled();
+  await expect(page.locator("#personalAssistantMessages")).not.toContainText("通知对应的完整回复。");
 });
 
 test("文章问答通知定位指定会话的最终回复", async ({page, request}) => {

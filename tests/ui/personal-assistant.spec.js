@@ -28,13 +28,14 @@ async function settings(page) {
   await expect(page.locator('[data-personal-field="name"]')).toHaveValue("测试助手");
 }
 
-for (const width of [390,1440]) test(`首次名称留空，由用户命名后开始讨论 ${width}`, async ({page,request}) => {
+for (const width of [390,1440]) test(`首次未命名即可开始讨论，之后可以取名 ${width}`, async ({page,request}) => {
   await request.post("/__test/personal-assistant", {data:{reset:true}});
   await page.setViewportSize({width,height:900});await ready(page);await open(page,"个人助手");
-  await expect(page.locator("#personalAssistantInput")).toBeDisabled();
+  await expect(page.locator("#personalAssistantInput")).toBeEnabled();
   await expect(page.locator("#personalAssistantSend")).toBeDisabled();
   await page.screenshot({path:`.ui-artifacts/personal-unnamed-${width}.png`});
-  await page.getByRole("button",{name:"为助手命名",exact:true}).click();
+  await send(page,"未命名时的第一轮");
+  await page.locator("#personalAssistantSettingsBtn").click();
   const name=page.locator('[data-personal-field="name"]');
   await expect(name).toHaveValue("");
   await expect(page.locator("#personalSettingsStatus")).not.toContainText("名字不能为空");
@@ -54,8 +55,7 @@ test("独立讨论跨新闻、重载保留，自动记忆可查看修改删除",
   await send(page,"记住：我关注政策的长期影响，而不是只看当天价格");
   const listing=await (await request.get("/api/personal-assistant/threads")).json();
   const first=listing.threads[0];
-  await page.locator("#personalAssistantNew").click();
-  await expect(page.locator("#personalAssistantMessages")).not.toContainText("而不是只看");
+  await expect(page.locator("#personalAssistantNew, #personalThreadPicker")).toHaveCount(0);
   await send(page,"查看最近的新闻");
   await page.locator("#personalAssistantClose").click();
   await page.locator("#feedCardList .news-card-title").nth(1).click();
@@ -63,8 +63,6 @@ test("独立讨论跨新闻、重载保留，自动记忆可查看修改删除",
   await expect(page.locator("#personalAssistantMessages")).toContainText("查看最近的新闻");
   await page.reload();await open(page);
   await expect(page.locator("#personalAssistantMessages")).toContainText("查看最近的新闻");
-  await page.locator('#personalThreadPicker [role="combobox"]').click();
-  await page.getByRole("option", {name:first.title,exact:true}).click();
   await expect(page.locator("#personalAssistantMessages")).toContainText("而不是只看当天价格");
   await settings(page);
   await page.getByRole("combobox",{name:"记忆文件",exact:true}).click();
@@ -79,7 +77,7 @@ test("独立讨论跨新闻、重载保留，自动记忆可查看修改删除",
   await expect(page.locator("#personalMemoryEditor")).toContainText("记忆已删除");
   const memories=await (await request.get("/api/personal-assistant/memory")).json();
   expect(memories.files.map(f=>f.path)).not.toContain("notes/关注方向.md");
-  expect((await (await request.get("/api/personal-assistant/threads/"+first.id)).json()).messages).toHaveLength(2);
+  expect((await (await request.get("/api/personal-assistant/threads/"+first.id)).json()).messages).toHaveLength(4);
   expect(errors).toEqual([]);
 });
 
@@ -209,4 +207,15 @@ test("大字号、手机键盘缩小视口与输入法不触发误发送", async
   await page.getByRole("combobox",{name:"阅读字号",exact:true}).click();await page.getByRole("option",{name:"特大（130%）",exact:true}).click();
   await open(page);await send(page,"展示正文阅读字号");
   expect(await page.locator("#personalAssistantMessages .agent-bubble").first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(14);
+});
+
+test("整理上下文期间可继续写草稿并停止",async({page,request})=>{
+  await request.post("/__test/personal-assistant",{data:{mode:"compacting"}});
+  await ready(page);await open(page);
+  const input=page.locator("#personalAssistantInput");
+  await input.fill("继续讨论");await page.locator("#personalAssistantSend").click();
+  await expect(page.locator("#personalAssistantStatus")).toHaveText("正在整理上下文");
+  await input.fill("下一条草稿");await page.getByRole("button",{name:"停止回复"}).click();
+  await expect(page.locator("#personalAssistantStatus")).toContainText("已停止");
+  await expect(input).toHaveValue("下一条草稿");
 });

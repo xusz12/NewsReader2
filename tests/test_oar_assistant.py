@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -14,6 +15,7 @@ from test_personal_assistant import service, send
 from test_oar_codex_native import native_runtime
 from test_oar_codex import runtime as codex_transport
 from test_oar_pi_news import pi_runtime
+from test_dsh_web import external_dsh
 
 
 def finished(service, thread):
@@ -131,6 +133,7 @@ def test_installed_pi_assistant_has_only_nr_tools_and_migrates_mapping(service, 
     env = {'PATH': os.environ['PATH'], 'HOME': str(source.parent), 'PI_OFFLINE': '1',
            'NEWS_READER_PI_AGENT_DIR': str(source)}
     monkeypatch.setattr(personal_assistant_runtime, '_pi_subprocess_env', lambda: env)
+    monkeypatch.setenv('NEWS_READER_PI_AGENT_DIR', str(source))
     marker = source.parent / 'unexpected-extension'
     (source / 'extensions').mkdir()
     (source / 'extensions/unrelated.ts').write_text(
@@ -179,3 +182,74 @@ def test_installed_pi_assistant_has_only_nr_tools_and_migrates_mapping(service, 
         assert {n for n in names if not n.startswith('mcp__nr_assistant__')} == {'mcp__nr_web__web_search', 'mcp__nr_web__web_fetch'}
         assert len(names) == 8
     assert '已保存关注方向。' in json.dumps(calls[-1]['messages'], ensure_ascii=False)
+
+
+@pytest.mark.parametrize("mode", ["pi", "dsh", "codex"])
+def test_installed_context_with_quotes_compaction_and_corrupt_mapping(mode, service, monkeypatch, request, tmp_path):
+    if mode == "codex":
+        _, _, env, calls, native_home, _ = request.getfixturevalue("native_runtime")
+        isolated_home = tmp_path / "assistant-codex"
+        shutil.copytree(native_home, isolated_home)
+        config = isolated_home / "config.toml"
+        config.write_text('model_context_window = 65536\nmodel_auto_compact_token_limit = 65000\n' + config.read_text())
+        for name, value in (env | {"CODEX_HOME":str(isolated_home)}).items():
+            monkeypatch.setenv(name, value)
+        responses = calls.responses
+    elif mode == "pi":
+        source, _, _, _, calls, responses, _ = request.getfixturevalue("pi_runtime")
+        monkeypatch.setenv("NEWS_READER_PI_AGENT_DIR", str(source))
+        monkeypatch.setenv("PI_OFFLINE", "1")
+        (source / "settings.json").write_text(json.dumps({"compaction":{"enabled":True, "reserveTokens":1024, "keepRecentTokens":128}}))
+    else:
+        _, _, calls, responses, _ = request.getfixturevalue("external_dsh")
+    profile = service.profile()
+    if mode != "codex":
+        profile = service.save_profile(profile | {"runtime":mode, mode:{"provider":"nr-fixture","model":"fixture"}})
+    events = []
+    def runner(**args):
+        forward = args.pop("emit")
+        def capture(event):
+            events.append(event)
+            forward(event)
+        return personal_assistant_runtime.run(**args, emit=capture)
+    service.runner = runner
+    def ask(number, text="这是什么意思？"):
+        quote = {"quote_text":f"材料-{number}-原话","title":f"当时标题-{number}", "url":f"https://example.test/{number}",
+                 "item_id":f"n{number}","quote_source":"translated","quote_paragraph":number}
+        thread = send(service, text, quote=quote)
+        snapshot = finished(service, thread)
+        assert snapshot["job"]["status"] == "done", snapshot["job"]
+        assert snapshot["messages"][-2]["quote"] == quote
+        payload = calls[-1]
+        last_user = [m for m in payload.get("input", payload.get("messages", []))
+                     if m.get("role") == "user" and "本轮用户消息" in json.dumps(m, ensure_ascii=False)][-1]
+        wire = json.dumps(last_user, ensure_ascii=False)
+        for field in ("quote_text", "title", "url", "quote_source", "item_id"):
+            assert quote[field] in wire
+        return thread, wire
+    thread, first = ask(1)
+    assert "<memory>" in first
+    state = service.root / "runtime" / thread / str(profile["epoch"])
+    marker = state / "compact-next"
+    assert not marker.exists()
+    if mode == "codex":
+        calls.input_tokens = 54000
+    else:
+        responses.append({"text":"第二次回答", "input_tokens":27000 if mode == "pi" else 54000})
+    _, resumed = ask(2)
+    assert "<memory>" not in resumed and "材料-1-原话" not in resumed
+    assert marker.exists()
+    session_count = sum(event["type"] == "oar_session" for event in events)
+    if mode == "codex":
+        calls.input_tokens = 10
+    _, compacted = ask(3)
+    assert {"type":"oar_progress","phase":"compacting"} in events
+    assert sum(event["type"] == "oar_session" for event in events) == session_count + 1
+    assert not marker.exists()
+    (state / ("codex-session.json" if mode == "codex" else "session.json")).write_text("{bad")
+    _, rebuilt = ask(4)
+    assert "<memory>" in rebuilt and all(f"材料-{n}-原话" in rebuilt for n in (1, 2, 3))
+    service.edit_memory("MEMORY.md", {"content":"最新的手工修正", "revision":service.memory.read("MEMORY.md")["revision"]})
+    _, corrected = ask(5)
+    assert "最新的手工修正" in corrected and "材料-4-原话" in corrected
+    assert len(service.snapshot(thread)["messages"]) == 10

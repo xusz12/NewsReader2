@@ -1,4 +1,4 @@
-import { openSettingsItem, choosePicker } from './helpers.js';
+import { openSettingsItem, choosePicker, chooseTheme } from './helpers.js';
 import { test, expect } from '@playwright/test';
 
 const path = '/api/news/ui-064';
@@ -305,4 +305,116 @@ test('selection menu stays within a phone viewport and can save and quote a dige
   await page.locator('#quoteNoteBtn').click();
   await expect(page.locator('#researchNoteInput')).toBeFocused();
   await expect(page.locator('.draft-quote')).toContainText('引用精读要点第 1 条');
+});
+
+for (const width of [320, 335, 336, 390, 1440]) test(`个人助手引文与选区工具栏在各主题可用 ${width}`, async ({page,request}) => {
+  await request.post('/__test/personal-assistant',{data:{reset:true}});
+  await page.setViewportSize({width,height:900});
+  await page.goto('/');
+  await page.locator('[data-id="ui-064"] .news-card-title').click();
+  const paragraph = '#articleBodyContent > p:nth-child(2)';
+  for (const [theme,colorScheme] of [['light','light'],['dark','dark'],['system','light'],['system','dark'],['eink','light']]) {
+    await page.emulateMedia({colorScheme}); await chooseTheme(page,theme);
+    await selection(page,paragraph);
+    const bar = page.locator('#selectionPopover');
+    await expect(bar.getByRole('button')).toHaveCount(7);
+    if (width < 921) {
+      const box = await bar.boundingBox();
+      expect(box.width).toBe(320); expect(box.height).toBe(54);
+      expect(box.x).toBeCloseTo((width-320)/2, 1);
+      const targets=await bar.getByRole('button').evaluateAll(buttons=>buttons.map(button=>[button.offsetWidth,button.offsetHeight]));
+      expect(targets.every(([w,h])=>w>=44 && h>=44)).toBe(true);
+    }
+    await bar.getByRole('button',{name:'递给个人助手'}).click();
+    await expect(page.locator('#personalAssistantQuote')).toContainText('引用译文');
+    if(width<921) await expect(page.locator('#personalAssistantInput')).not.toBeFocused();
+    else await expect(page.locator('#personalAssistantInput')).toBeFocused();
+    await page.locator('#personalAssistantInput').fill('还在写的问题');
+    await page.locator('#personalAssistantClose').click();
+    await selection(page,'.digest-point-item:nth-child(2) > span:last-child');
+    await bar.getByRole('button',{name:'递给个人助手'}).click();
+    await expect(page.locator('#personalAssistantQuote')).toContainText('精读要点第 2 条');
+    await expect(page.locator('#personalAssistantInput')).toHaveValue('还在写的问题');
+    await page.getByRole('button',{name:'移除引文'}).click();
+    await expect(page.locator('#personalAssistantQuote')).toBeHidden();
+    await expect(page.locator('#personalAssistantInput')).toHaveValue('还在写的问题');
+    await page.locator('#personalAssistantClose').click();
+  }
+  expect((await (await request.get('/api/personal-assistant/threads/main')).json()).thread).toBeNull();
+  if(width===320) {
+    await selection(page,paragraph);
+    await page.locator('#selectionPopover').evaluate(el=>{el.style.setProperty('--selection-safe-left','10px');window.dispatchEvent(new Event('resize'));});
+    const box=await page.locator('#selectionPopover').boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(10);expect(box.height).toBeGreaterThan(54);
+    expect(box.x+box.width).toBeLessThanOrEqual(320);
+    await page.locator('#selectionPopover').evaluate(el => {
+      el.style.removeProperty('--selection-safe-left');
+      for (const button of el.querySelectorAll('button')) button.style.fontSize = '24px';
+      window.dispatchEvent(new Event('resize'));
+    });
+    const groups = await page.locator('#selectionPopover .selection-action-group').evaluateAll(nodes =>
+      nodes.map(group => [...group.querySelectorAll('button')].map(button => button.getBoundingClientRect().top)));
+    expect(groups.every(row => new Set(row).size === 1)).toBe(true);
+    expect(groups[1][0]).toBeGreaterThan(groups[0][0]);
+  }
+});
+
+test('从跨段高亮中递引文，保留两段原话和起始段号', async ({page}) => {
+  await page.goto('/');
+  await page.locator('[data-id="ui-064"] .news-card-title').click();
+  const body = page.locator('#articleBodyContent');
+  const paragraphs = body.locator('p');
+  const original = await paragraphs.evaluateAll(nodes => nodes.slice(0, 2).map(node => node.textContent).join('\n'));
+  const firstParagraph = await paragraphs.first().getAttribute('data-quote-paragraph');
+  await body.evaluate(element => {
+    const paragraphs = element.querySelectorAll('p');
+    const range = document.createRange();
+    range.setStart(paragraphs[0], 0);
+    range.setEnd(paragraphs[1], paragraphs[1].childNodes.length);
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup', {bubbles:true}));
+  });
+  await page.getByRole('button', {name:'黄色高亮',exact:true}).click();
+  await paragraphs.nth(1).locator('mark').first().click();
+  await page.getByRole('button', {name:'递给个人助手'}).click();
+  const card = page.locator('#personalAssistantQuote');
+  await expect(card).toContainText(`第 ${firstParagraph} 段`);
+  expect(await card.locator('p').textContent()).toBe(original);
+});
+
+test('递引文断线重发复用请求号，换引文新建请求，生成中能准备下一轮', async({page,request})=>{
+  await request.post('/__test/personal-assistant',{data:{reset:true}});
+  await ready(page);
+  await selection(page,'.digest-lead'); await page.locator('#quotePersonalBtn').click();
+  const input=page.locator('#personalAssistantInput'), send=page.locator('#personalAssistantSend');
+  const ids=[];
+  await page.route('**/threads/main/messages',async route=>{
+    ids.push(route.request().postDataJSON().request_id);
+    if(ids.length===1) { await route.fetch(); await route.abort(); }
+    else if(ids.length===3) await route.abort();
+    else await route.continue();
+  });
+  await input.fill('这是什么意思？');await send.click();
+  await expect(page.locator('#personalAssistantReload')).toBeVisible();
+  await expect(input).toHaveValue('这是什么意思？');await expect(page.locator('#personalAssistantQuote')).toContainText('精读结论');
+  await send.click();await expect(page.locator('#personalAssistantStatus')).toContainText('本轮已完成');
+  expect(ids[1]).toBe(ids[0]);
+  await page.locator('#personalAssistantClose').click();
+  await selection(page,'.digest-lead');await page.locator('#quotePersonalBtn').click();
+  await input.fill('这是什么意思？');await send.click();await expect(page.locator('#personalAssistantReload')).toBeVisible();
+  await page.locator('#personalAssistantClose').click();
+  await page.locator('[data-body-mode="bilingual"]').click();
+  await selection(page,'#articleBodyContent [lang="en"] > p:nth-child(3)');await page.locator('#quotePersonalBtn').click();
+  await request.post('/__test/personal-assistant',{data:{mode:'wait_empty'}});
+  await send.click();await expect(send).toHaveAttribute('aria-label','停止回复');
+  expect(ids[3]).not.toBe(ids[2]);
+  await input.fill('下一轮草稿');await page.locator('#personalAssistantClose').click();
+  await selection(page,'.digest-lead');await page.locator('#quotePersonalBtn').click();
+  await expect(input).toHaveValue('下一轮草稿');await expect(page.locator('#personalAssistantQuote')).toContainText('精读结论');
+  await send.click();await expect(page.locator('#personalAssistantStatus')).toContainText('已停止');
+  const main=(await (await request.get('/api/personal-assistant/threads/main')).json());
+  expect(main.messages).toHaveLength(4);
+  expect(main.messages.filter(m=>m.role==='user').map(m=>m.quote.quote_source)).toEqual(['conclusion','original']);
 });

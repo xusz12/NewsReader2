@@ -2,10 +2,10 @@ import { SettingsDirectory, settingsPages, settingsItems } from "./settings-dire
 import { selectField as select, runtimeOptions, timePickers } from "./form-controls.js?v=0.6.6";
 import { confirmAction } from "./confirm-dialog.js";
 import { Accordion, disclosureChevron } from "./accordion.js?v=0.6.4";
-import { settingsHelpHTML } from "./settings-help.js?v=0.6.10";
+import { settingsHelpHTML } from "./settings-help.js?v=0.6.15";
 import { CollectionEnvironment } from "./collection-environment.js?v=0.6.4";
 import { XAccountSettings } from "./x-account-settings.js?v=0.6.4";
-import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.6";
+import { PersonalAssistantSettings } from "./personal-assistant-settings.js?v=0.6.15";
 import { browserPush } from "./browser-push.js?v=0.6.11";
 import { AccessAddress } from "./access-address.js?v=0.6.10";
 import { $, $$, api, escapeHTML as e, errorText, toast, busy, singlePane, drawerNavigation, formatBytes, storage, persist, resizeAutoFields } from "./ui.js";

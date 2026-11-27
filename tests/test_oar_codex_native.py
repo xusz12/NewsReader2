@@ -50,7 +50,7 @@ def native_runtime(tmp_path):
                         item.update(namespace=namespace['name'], name=name[len(namespace['name']) + 2:])
             response = {'id': f'resp_{len(calls)}', 'object': 'response', 'status': 'completed',
                         'model': 'nr-fixture', 'output': [item],
-                        'usage': {'input_tokens': 10, 'output_tokens': 4, 'total_tokens': 14}}
+                        'usage': {'input_tokens': getattr(calls, 'input_tokens', 10), 'output_tokens': 4, 'total_tokens': getattr(calls, 'input_tokens', 10) + 4}}
             events = [
                 {'type': 'response.created', 'response': {**response, 'status': 'in_progress', 'output': []}},
                 {'type': 'response.output_item.added', 'output_index': 0,

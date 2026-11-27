@@ -83,6 +83,7 @@ export class ReaderHighlights {
       button.onclick = () => busy(null, () => this.save(button.dataset.highlightColor));
     }
     $("#quoteNoteBtn").onclick = () => this.quote("note");
+    $("#quotePersonalBtn").onclick = () => this.quote("personal");
     $("#quoteAgentBtn").onclick = () => this.quote("agent");
     this.root = $("#detailScrollArea");
     for (const area of [$("#detailScrollArea"), $("#reportScrollArea")]) {
@@ -132,14 +133,15 @@ export class ReaderHighlights {
     }
     this.popover.classList.remove("show");
   }
-  mount(id, bodies, surfaces = {}, root = $("#detailScrollArea"), { allowNotes = true } = {}) {
+  mount(item, bodies, surfaces = {}, root = $("#detailScrollArea"), { allowNotes = true } = {}) {
     this.root = root;
     this.allowNotes = allowNotes;
     $("#quoteNoteBtn").hidden = !allowNotes;
     this.hide();
     clearTimeout(this.timer);
     this.selection = null;
-    this.itemId = id;
+    this.item = item && {id:item.id, title:item.title, url:item.url};
+    this.itemId = item?.id;
     this.bodies = bodies;
     this.surfaces = surfaces;
     this.paint();
@@ -207,7 +209,7 @@ export class ReaderHighlights {
     const start = codePointOffset(raw, first.start), end = codePointOffset(raw, last.start + last.text.length);
     const existing = (this.surfaces[kind]?.highlights || []).find(row => row.status === "active" && row.resolved_start_offset <= start && row.resolved_end_offset >= end);
     this.selection = { itemId: this.itemId, kind, start, end, selected_text: raw.slice(first.start, last.start + last.text.length), existing: existing?.id,
-      quote: { text: text.trim().slice(0, 6000), source: sourceName(kind), paragraph: Number(first.block?.dataset.quoteParagraph) || null } };
+      quote: { text, source: sourceName(kind), paragraph: Number(first.block?.dataset.quoteParagraph) || null } };
     this.anchor = range.cloneRange();
     this.show(range.getBoundingClientRect());
   }
@@ -215,10 +217,15 @@ export class ReaderHighlights {
     const root = mark.closest("[data-highlight-kind]"), kind = root.dataset.highlightKind;
     const entry = (this.surfaces[kind]?.highlights || []).find(row => String(row.id) === mark.dataset.highlightId);
     if (!entry) return;
-    const text = $$(`[data-highlight-kind="${kind}"] [data-highlight-id="${entry.id}"]`, this.root)
-      .map(node => node.textContent).join("");
+    const marks = $$(`[data-highlight-kind="${kind}"] [data-highlight-id="${entry.id}"]`, this.root);
+    let text = "", previous;
+    for (const node of marks) {
+      const block = node.closest("[data-quote-paragraph]");
+      text += (previous && block !== previous ? "\n" : "") + node.textContent;
+      previous = block;
+    }
     this.selection = { itemId: this.itemId, kind, existing: entry.id,
-      quote: { text: text.slice(0, 6000), source: sourceName(kind), paragraph: Number(mark.closest("[data-quote-paragraph]")?.dataset.quoteParagraph) || null } };
+      quote: { text, source: sourceName(kind), paragraph: Number(marks[0]?.closest("[data-quote-paragraph]")?.dataset.quoteParagraph) || null } };
     this.anchor = mark;
     this.show(mark.getBoundingClientRect());
   }
@@ -248,19 +255,31 @@ export class ReaderHighlights {
     const viewport = window.visualViewport;
     const left = viewport?.offsetLeft || 0, top = viewport?.offsetTop || 0;
     const width = viewport?.width || innerWidth, bottom = top + (viewport?.height || innerHeight);
-    this.popover.style.maxWidth = `${Math.max(0, width - 16)}px`;
+    const style = getComputedStyle(this.popover);
+    const safeLeft = parseFloat(style.getPropertyValue("--selection-safe-left")) || 0;
+    const safeRight = parseFloat(style.getPropertyValue("--selection-safe-right")) || 0;
+    const available = width - safeLeft - safeRight;
+    const margin = docked && this.allowNotes ? Math.min(8, Math.max(0, (available - 320) / 2)) : 8;
+    const leftEdge = left + safeLeft + margin, rightEdge = left + width - safeRight - margin;
+    this.popover.style.maxWidth = `${Math.max(0, rightEdge - leftEdge)}px`;
     const nav = $(".mobile-bottom-nav");
     const navTop = nav?.getClientRects().length ? nav.getBoundingClientRect().top : bottom;
-    const x = docked ? left + (width - this.popover.offsetWidth) / 2 : rect.left;
+    const x = docked ? (leftEdge + rightEdge - this.popover.offsetWidth) / 2 : rect.left;
     const y = docked ? Math.min(bottom, navTop) - this.popover.offsetHeight - 8 : rect.top - this.popover.offsetHeight - 8;
-    this.popover.style.left = `${Math.max(left + 8, Math.min(left + width - this.popover.offsetWidth - 8, x))}px`;
+    this.popover.style.left = `${Math.max(leftEdge, Math.min(rightEdge - this.popover.offsetWidth, x))}px`;
     this.popover.style.top = `${Math.max(top + 8, Math.min(bottom - this.popover.offsetHeight - 8, y))}px`;
   }
   quote(target) {
     if (target === "note" && !this.allowNotes) return;
-    if (this.selection?.itemId === this.itemId) this.onQuote(target, this.selection.quote);
+    const selection = this.selection;
+    const item = this.item;
     getSelection()?.removeAllRanges();
     this.hide();
+    if (item && selection?.itemId === item.id) {
+      const quote = selection.quote;
+      const text = selection.start == null ? quote.text : quote.text.trim();
+      this.onQuote(target, target === "personal" ? quote : {...quote, text:text.slice(0, 6000)}, item);
+    }
   }
   async save(color) {
     const selected = this.selection;

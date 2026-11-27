@@ -151,7 +151,7 @@ Pi 模型目录／容量桥接在锁定版本的 SDK 中仅加载 `core/model-ru
 
 Pi 直接调用模型时传入由报告 ID 派生的 `sessionId`，同一报告的选材、成文、修复及重试共用，不同报告隔离。SDK 据此附加 OpenCode 所需的 `x-opencode-session` 请求头，避免 Go 返回缺少会话标识的 HTTP 400；独立传输调用没有报告 ID 时生成临时 UUID。此标识仅用于请求路由，不创建 Chat 会话，不改变已保存的模型配置。
 
-创建请求可附带 `model_override`（`runtime`、`model`、`reasoning_effort`，Pi 另含 `provider`）。服务端只允许这些字段，校验目录模型及推理能力，保留 Codex 的只读沙箱限制，拒绝 NR Profile／服务商覆盖，创建时写入该报告的不可变配置；Pi 的推理程度由 OAR 传入 Pi Agent，`off` 仍明确关闭推理。Codex 执行统一固定 `service_tier="default"` 并关闭 `features.fast_mode`，不继承本机 Fast；已创建报告及重试同样适用，推理程度不变。目录校验在 SQLite 写事务外完成。同一 UUID 的重放直接保留原绑定，不重新查询模型能力；五类日期报告均支持覆盖，快照共享规则不变。
+创建请求可附带 `model_override`（`runtime`、`model`、`reasoning_effort`，Pi 另含 `provider`）。服务端只允许这些字段，校验目录模型及推理能力，保留 Codex 的只读沙箱限制，拒绝 NR Profile／服务商覆盖，创建时写入该报告的不可变配置；Pi 在未指定推理强度时使用原生默认值，显式选择 `off` 时通过 OAR 关闭推理。Codex 执行统一固定 `service_tier="default"` 并关闭 `features.fast_mode`，不继承本机 Fast；已创建报告及重试同样适用，推理程度不变。目录校验在 SQLite 写事务外完成。同一 UUID 的重放直接保留原绑定，不重新查询模型能力；五类日期报告均支持覆盖，快照共享规则不变。
 
 `DELETE /api/reports/<id>` 接收数据库令牌，事务内验证运行状态、写入删除标识、删除报告与步骤。旧 `preview-options / previews / <id>/preview` 接口保留兼容旧前端；旧试生成仍使用 `trial:` 与 `is_preview`，新入口不再创建试生成。旧 `/api/daily-briefings` 仅保留兼容，不为新入口供稿。
 

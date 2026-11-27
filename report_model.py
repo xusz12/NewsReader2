@@ -255,7 +255,7 @@ def report_request(config, prompt, directory, bridge):
         request.update(codex=selected, web_search="disabled", report_launch_args=codex_restrictions(selected, bridge))
     else:
         request.update(provider=config["provider"], model=config["model"],
-                       reasoning_effort=config.get("reasoning_effort") or ("" if config["runtime"] == "dsh" else "off"),
+                       **({"reasoning_effort": config["reasoning_effort"]} if config.get("reasoning_effort") else {}),
                        report_session_id=config.get("session_id") or str(uuid.uuid4()))
     return request
 
@@ -277,9 +277,14 @@ def run(config: dict, prompt: str, *, timeout: int = 900) -> str:
             raise RuntimeError("report_input_too_large")
         try:
             command = oar_client.bridge_command(uuid.uuid4().hex)
+            env = None
+            if config["runtime"] == "pi":
+                env = _pi_subprocess_env()
+            elif config["runtime"] == "codex":
+                env = codex_client.oar_environment()
             proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     cwd=ROOT, start_new_session=True, bufsize=0,
-                                    **({"env": _pi_subprocess_env()} if config["runtime"] == "pi" else {}))
+                                    env=env)
             buffer, total = b"", 0
             deadline = time.monotonic() + (max(timeout, 3600) if workspace else timeout)
             if config.get("_deadline"):

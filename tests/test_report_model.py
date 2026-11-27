@@ -171,9 +171,10 @@ def test_pi_oar_agent_uses_configured_model_without_tools_and_rejects_truncation
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     (tmp_path / "auth.json").write_text("{}")
+    (tmp_path / "settings.json").write_text(json.dumps({"defaultThinkingLevel":"low"}))
     (tmp_path / "models.json").write_text(json.dumps({"providers":{provider:{
         "baseUrl":f"http://127.0.0.1:{server.server_port}/v1", "api":"openai-completions", "apiKey":"fixture-key",
-        "models":[{"id":"fixture", "name":"Fixture", "reasoning":bool(effort), "input":["text"],
+        "models":[{"id":"fixture", "name":"Fixture", "reasoning":True, "input":["text"],
                    "cost":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0}, "contextWindow":131072, "maxTokens":16384}]
     }}}))
     monkeypatch.setenv("NEWS_READER_PI_AGENT_DIR", str(tmp_path))
@@ -185,7 +186,7 @@ def test_pi_oar_agent_uses_configured_model_without_tools_and_rejects_truncation
         config = {"runtime":"pi", "provider":provider, "model":"fixture"}
         catalog = model.catalog({}, "pi")
         option = next(m for m in catalog["options"] if m["provider"] == provider and m["value"] == "fixture")
-        assert ("high" in option["reasoning_efforts"]) == bool(effort)
+        assert "high" in option["reasoning_efforts"]
         if effort:
             config["reasoning_effort"] = effort
             config["session_id"] = "newsreader-report-fixture"
@@ -200,7 +201,7 @@ def test_pi_oar_agent_uses_configured_model_without_tools_and_rejects_truncation
                 model.run(config, "isolated fixture", timeout=20)
         assert len(requests) == 1
         assert requests[0]["model"] == "fixture"
-        assert requests[0].get("reasoning_effort") == ("high" if effort == "high" else None)
+        assert requests[0].get("reasoning_effort") == (None if effort == "off" else effort or "low")
         assert not requests[0].get("tools")
         assert requests[0]["messages"][-1]["content"] == [{"type": "text", "text": "isolated fixture"}]
         assert (requests[0].get("max_tokens") or requests[0].get("max_completion_tokens")) == 4096
@@ -293,7 +294,7 @@ def test_pi_missing_dependencies_are_not_reported_as_unknown_capacity(tmp_path, 
         shutil.copyfile(model.ROOT / "scripts/report_model.mjs", scripts / "report_model.mjs")
         monkeypatch.setattr(model, "ROOT", tmp_path)
         monkeypatch.setattr(model.oar_client, "ROOT", tmp_path)
-        for name in ("oar_bridge.mjs", "oar_report.mjs", "oar_tool_events.mjs"):
+        for name in ("oar_bridge.mjs", "oar_report.mjs", "oar_tool_events.mjs", "oar_assistant_context.mjs"):
             shutil.copyfile(Path(__file__).resolve().parents[1] / "scripts" / name, scripts / name)
     config = {"runtime": "pi", "provider": "fixture", "model": "fixture"}
     with pytest.raises(RuntimeError, match="^report_model_dependencies_missing$"):

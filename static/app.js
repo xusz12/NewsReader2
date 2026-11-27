@@ -21,20 +21,20 @@ import {
   clipDateGroupHeaders,
   ListSearch,
 } from "./ui.js";
-import { SettingsPanel } from "./settings-panel.js?v=0.6.12";
+import { SettingsPanel } from "./settings-panel.js?v=0.6.15";
 import { SummaryPanel } from "./summary-panel.js?v=0.6.12";
 import { TopicPanel } from "./topic-panel.js?v=0.6.8";
-import { ReportPanel } from "./report-panel.js?v=0.6.12";
+import { ReportPanel } from "./report-panel.js?v=0.6.15";
 import { SelectControls } from "./select-control.js?v=report-layout-1";
-import { AgentPanel } from "./agent-panel.js?v=0.6.6";
-import { PersonalAssistant } from "./personal-assistant.js?v=browser-push-1";
+import { AgentPanel } from "./agent-panel.js?v=0.6.15";
+import { PersonalAssistant } from "./personal-assistant.js?v=0.6.15";
 import { AgentNotifications, replyIsVisible } from "./agent-notifications.js?v=browser-push-1";
 import { browserPush } from "./browser-push.js?v=0.6.11";
 import { ClassificationProgress } from "./classification-progress.js?v=0.6.4";
 import { TaskProgress } from "./task-progress.js?v=0.6.8";
-import { ResearchNotes } from "./research-notes.js";
+import { ResearchNotes } from "./research-notes.js?v=0.6.15";
 import { StandaloneIdeas, standaloneTitle } from "./standalone-ideas.js?v=0.5.5";
-import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.5.8";
+import { ReaderHighlights, readerInline, readerMarkdown, readerBilingual } from "./reader-highlights.js?v=0.6.15";
 import { UpstreamErrors } from "./upstream-errors.js?v=browser-push-1";
 import { ItemStateQueue, ReadBatchWriter } from "./item-state.js";
 import { readLaterPending, readLaterState } from "./read-later.js";
@@ -271,7 +271,7 @@ function updateResearchNotes(id, result) {
   renderFeed();
   refreshBadges();
 }
-const personalAssistant = new PersonalAssistant({selects, onSettings: () => settings.show("personal-assistant")});
+const personalAssistant = new PersonalAssistant({onSettings: () => settings.show("personal-assistant")});
 const agent = new AgentPanel({
   selects,
   onArchive: (id, result) => {
@@ -314,7 +314,7 @@ const notifications = new AgentNotifications({
 
 function viewedPushReplies() {
   const receipts = [];
-  if (personalAssistant.popover.open && personalAssistant.snapshot?.thread.current_library) {
+  if (personalAssistant.popover.open && personalAssistant.snapshot?.thread) {
     for (const message of personalAssistant.snapshot.messages.slice(-12)) {
       if (message.role === "assistant" && message.status === "done" && replyIsVisible($(`#personalAssistantMessages [data-message-id="${CSS.escape(String(message.id))}"]`)))
         receipts.push({kind:"personal_reply", id:message.job_id});
@@ -344,7 +344,14 @@ async function openPushTarget({kind, id, day, messageId}) {
   } catch (error) { toast(errorText(error)); }
 }
 const readerHighlights = new ReaderHighlights({
-  onQuote: (target, quote) => target === "note" ? researchNotes.open(quote) : agent.quote(quote.text),
+  onQuote: (target, quote, item) => {
+    if (target === "personal") return personalAssistant.attachQuote({
+      item_id:item.id, title:item.title || "", url:item.url || "", quote_text:quote.text,
+      quote_source:quote.source, quote_paragraph:quote.paragraph,
+    });
+    if (target === "note") researchNotes.open(quote);
+    else agent.quote(quote.text);
+  },
   onUpdate: (id, result) => {
     if (reports.details?.reader?.item.id === id) Object.assign(reports.details.reader,result);
     else if (state.selected?.id === id) state.detail = { ...state.detail, ...result };
@@ -422,7 +429,7 @@ function mountReportReader(report, rendered = false) {
   const changed = agent.item?.id !== reader.item.id;
   if (rendered || changed) {
     researchNotes.mount(null,null,[]);
-    readerHighlights.mount(reader.item.id,{original:reader.body},reader.highlight_surfaces,$("#reportScrollArea"),{allowNotes:false});
+    readerHighlights.mount(reader.item,{original:reader.body},reader.highlight_surfaces,$("#reportScrollArea"),{allowNotes:false});
     agent.select(reader.item,reader.agent);
     if (agent.open) void agent.refresh();
   }
@@ -1401,7 +1408,7 @@ function renderReader() {
     ${detail?.media_images?.length ? `<div class="article-media">${detail.media_images.map((image) => (safeURL(image.cached_url || image.url) ? `<img src="${e(safeURL(image.cached_url || image.url))}" alt="${e(image.alt || "新闻配图")}" loading="lazy">` : "")).join("")}</div>` : ""}
     ${pipelineError ? `<div class="inline-error">${e(errorText({ error: pipelineError }))}</div>` : ""}`;
   researchNotes.mount($("#researchNotesMount"), item.id, savedNotes, notesFocus);
-  readerHighlights.mount(item.id, { [originalKind]: detail?.content || "", ai_zh: ai?.body_zh || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
+  readerHighlights.mount(item, { [originalKind]: detail?.content || "", ai_zh: ai?.body_zh || "", ai_conclusion_zh: ai?.conclusion_zh || "", ai_points_zh: points.join("") }, payload?.highlight_surfaces);
   const writeThought = $("#writeArticleThoughtBtn");
   if (writeThought) {
     writeThought.setAttribute("aria-controls", "researchNoteComposer");

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {parseDocument, Document} from 'yaml';
+import {decodeSessionMapping} from './oar_assistant_context.mjs';
 import {dshRuntime} from '@botiverse/oar/runtimes/dsh';
 
 const installGuide = '未找到本机 DSH。macOS 可安装官方 DeepSeek Harness 桌面版，也可用 npm install -g @deepseek-ai/dsh 安装 CLI。已有安装可用 OAR_DSH_BIN 指定 dsh 可执行文件。';
@@ -90,8 +91,8 @@ export async function prepareDsh(request) {
     const sessions = path.join(home, 'sessions');
     if (['news_chat', 'personal_assistant'].includes(request.task)) {
       const saved = await optional(path.join(request.state_dir, 'session.json'), file => fs.readFile(file, 'utf8'));
-      if (saved) {
-        const mapping = JSON.parse(saved);
+      if (saved !== undefined) {
+        const mapping = decodeSessionMapping(saved);
         if (mapping.runtime !== 'oar-dsh' || (mapping.generation && !/^dsh-sessions-[a-f0-9-]{36}$/.test(mapping.generation))) {
           throw new Error('oar_invalid_session');
         }

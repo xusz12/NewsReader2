@@ -169,3 +169,5 @@ v0.6.7 起的界面更新器在停服前准备 npm 依赖。从 v0.6.10 升级�
 OAR／Pi 升级至少运行 `npm run test:oar`，以及 `python3 -m pytest tests/test_oar_client.py tests/test_oar_pi_news.py tests/test_oar_codex.py tests/test_oar_codex_native.py tests/test_pi_models.py tests/test_codex_client.py tests/test_model_settings.py tests/test_model_catalog_errors.py tests/test_model_catalog_cache.py tests/test_report_model.py tests/test_news_summaries.py tests/test_topic_tracking.py tests/test_personal_assistant.py tests/test_agent_model_picker.py tests/test_chat_archive.py tests/test_agent_conversation.py -q`；`npm ls @botiverse/oar @earendil-works/pi-coding-agent @earendil-works/pi-ai` 应确认共享的 Pi 版本符合依赖范围。真实安装依赖用例使用本地模拟模型验证工具与跨进程续接；原生 Codex 用例缺少可执行文件时会跳过，发布验收须在安装 Codex 的环境实际通过。它们不代表真实搜索、服务商认证或新增 runtime 已验收。迁移范围与未解决能力以[迁移清单](../runtime-migration.md)为准。
 
 手工回退使用独立旧版本 checkout，加上升级前备份恢复出的数据副本；验证后再切换服务路径。不要在共享工作区强制 reset，不要认为退回旧源码就能撤销数据库 DDL。
+
+个人助手引文升级还须保留已收到新引文的升级后副本，用 v0.6.14 验证续聊、新建讨论及旧记忆读取。[个人助手备份与回退](../personal-assistant.md#备份与回退)

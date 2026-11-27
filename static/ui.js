@@ -6,6 +6,9 @@ export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [
   ...root.querySelectorAll(selector),
 ];
+export const quoteSourceLabel = (source, paragraph) =>
+  source === "conclusion" ? "引用精读结论" : source === "points" ? `引用精读要点${paragraph ? `第 ${paragraph} 条` : ""}` :
+    `引用${source === "translated" ? "译文" : "原文"}${paragraph ? `第 ${paragraph} 段` : ""}`;
 export const formatBytes = value => Number(value) < 1024 * 1024
   ? `${(Number(value || 0) / 1024).toFixed(1)} KiB`
   : `${(Number(value) / 1024 / 1024).toFixed(2)} MiB`;

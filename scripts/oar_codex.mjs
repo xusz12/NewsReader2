@@ -1,3 +1,4 @@
+import {assistantContext} from './oar_assistant_context.mjs';
 /** Codex on the shared NR JSONL bridge; OAR owns the native app-server. */
 import path from 'node:path';
 import { toolEvents, classifiedFailure } from './oar_tool_events.mjs';
@@ -86,6 +87,7 @@ export function codexArchiveText(text) {
 }
 
 export function codexFailure(error) {
+  if (error?.message === 'assistant_compaction_failed') return error.message;
   if (error?.name === 'SessionNotFoundError' || error?.name === 'SessionUnavailableError') return 'codex_session_invalid';
   if (error?.code === 'ERR_MODULE_NOT_FOUND') return 'oar_dependency_missing';
   if (error?.message === 'oar_compatibility_mismatch') return error.message;
@@ -126,6 +128,8 @@ export async function executeCodex(request, runtime, installation, emit, signal,
     if (!UUID.test(session.id) || (request.resume && session.id !== request.resume)) throw new Error('codex_session_invalid');
     if (signal?.aborted) throw new Error('codex_stopped');
     emit({type: 'oar_session', id: session.id, resumed: Boolean(request.resume), runtime: 'oar-codex'});
+    const context = assistantContext(request, runtime, installation, session);
+    await context?.prepare(Boolean(request.resume), emit, signal);
     const reportObserver = reportEvents(session, request, emit);
     const forwardTool = toolEvents(emit, request.task === 'web_research');
     session.events(event => {
@@ -151,11 +155,12 @@ export async function executeCodex(request, runtime, installation, emit, signal,
     }
     const answer = request.task === 'chat_archive' ? codexArchiveText(finalText) : finalText;
     const nativeId = session.id;
+    const compactNext = context?.due();
     // The host commits the native id together with successful application state.
     await session.dispose();
     if (signal?.aborted) throw new Error('codex_stopped');
     session = undefined;
-    emit({type: 'oar_result', outcome: 'completed', answer, native_id: nativeId, ...reportObserver.metadata()});
+    emit({type: 'oar_result', outcome: 'completed', answer, native_id: nativeId, ...(context ? {compact_next: compactNext} : {}), ...reportObserver.metadata()});
     return true;
   } finally {
     if (session) { try { await session.dispose(); } catch {} }

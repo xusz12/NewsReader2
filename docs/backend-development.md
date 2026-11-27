@@ -19,7 +19,7 @@ NR 使用一个 Flask 服务进程。启动入口是 `python3 app.py` 或现有�
 | 应用设置、路径、更新、启动 | `preferences.py` 与 `configuration.py` 处理配置，`database.py` 打开主库和会话库，`updates.py` 对接现有启动器、更新器 | `test_preferences_api.py`、`test_data_compatibility.py`、`test_updater.py`、`test_launcher.py` |
 | 其他设备访问地址 | `updates.py` 的设置接口复用 `network_access.py` 的网络发现和实例核验，与启动终端共用地址排序 | `test_network_access.py`、`test_preferences_api.py`、`test_launcher_replacement.py` |
 
-个人助手有自己的持久化与运行周期，入口在根目录 `personal_assistant.py`，对应 `test_personal_assistant.py`。修改共享阅读行为时同时检查新闻和报告。修改任务停止行为时同时检查 HTTP 状态、SQLite 记录和执行线程。
+个人助手由 `personal_assistant.py` 管理独立锁与 SQLite 事务。`assistant_main_thread` 选定唯一主线，`message_quotes` 按用户消息 ID 保存引文快照。`thread_models` 保存最近一轮的执行选择，供原轮重试使用。首次有效发送在同一写事务内建立主线、任务与消息。主库按永久条目 ID 读取。`personal_assistant_tools.py` 检索正文、引文和标题，核验记忆所引用户消息。三种 runtime 的压缩能力及用量检查位于 `scripts/oar_assistant_context.mjs`，停止、超时与缓存重建由 `personal_assistant_runtime.py` 管理。回归入口为 `test_personal_assistant.py`、`test_oar_assistant.py`、`test_personal_assistant_runtime.py` 和 `test_agent_conversation.py`。迁移、备份与回退见[个人助手说明](personal-assistant.md)。修改共享阅读行为时同时检查新闻和报告。修改任务停止行为时同时检查 HTTP 状态、SQLite 记录和执行线程。
 
 ## 新增与拆分约定
 

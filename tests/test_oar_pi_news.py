@@ -26,6 +26,8 @@ def pi_runtime(tmp_path):
         def do_POST(self):
             calls.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             answer = responses.pop(0) if responses else 'fixture-answer'
+            if callable(answer):
+                answer = answer(calls[-1])
             if isinstance(answer, tuple):
                 name, args = answer
                 delta = {'role': 'assistant', 'tool_calls': [{'index': 0, 'id': f'call-{len(calls)}',
@@ -39,6 +41,8 @@ def pi_runtime(tmp_path):
             for content, finish in [(delta, None), ({}, finish_reason)]:
                 body = {'id': 'fixture', 'object': 'chat.completion.chunk', 'model': 'fixture',
                     'choices': [{'index': 0, 'delta': content, 'finish_reason': finish}]}
+                if finish and isinstance(answer, dict) and "input_tokens" in answer:
+                    body["usage"] = {"prompt_tokens": answer["input_tokens"], "completion_tokens": 5, "total_tokens": answer["input_tokens"] + 5}
                 self.wfile.write(('data: ' + json.dumps(body) + '\n\n').encode())
             self.wfile.write(b'data: [DONE]\n\n')
 

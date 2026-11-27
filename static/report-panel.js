@@ -1,5 +1,5 @@
 import { bindSourceGroups, readerSources, sourceURL, updateSourceState } from "./reader-sources.js?v=0.5.18";
-import { readerText } from "./reader-highlights.js?v=0.5.8";
+import { readerText } from "./reader-highlights.js?v=0.6.15";
 import { $, api, escapeHTML as e, downloadMarkdown, singlePane, errorText, toast, busy, copyText, icon } from "./ui.js";
 import { confirmAction } from "./confirm-dialog.js";
 import { AnchoredPopover } from "./anchored-popover.js";

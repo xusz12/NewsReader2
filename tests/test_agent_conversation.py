@@ -2,10 +2,13 @@
 
 from nr import news_chat
 import json
+import threading
+import uuid
 
 import pytest
 
 from api_fixtures import _setup_agent_api_fixture, _install_fake_oar
+from test_oar_pi_news import pi_runtime, managed_tools
 from test_codex_client import THREAD, fake_codex, select_codex
 
 
@@ -77,3 +80,68 @@ def test_legacy_chat_prompt_uses_material_without_answering_rules(tmp_path, monk
         '新闻标题：标题\n新闻来源：来源\n发布时间：2026-10-27\n原文链接：\n'
         f'{label}\n测试新闻资料\n\n本轮用户问题：我的问题'
     )
+
+
+def test_two_article_workers_and_web_assistant_can_archive_third_article(tmp_path, monkeypatch, pi_runtime):
+    import oar_client
+    from settings import resolve_app_settings_path
+    from test_oar_assistant import finished
+    source, _, _, _, _, responses, _ = pi_runtime
+    monkeypatch.setenv("NEWS_READER_PI_AGENT_DIR", str(source))
+    monkeypatch.setenv("PI_OFFLINE", "1")
+    app, client, third, *_ = _setup_agent_api_fixture(tmp_path, monkeypatch)
+    resolve_app_settings_path().write_text(json.dumps({"llm":{"pi_chat":{"provider":"nr-fixture","model":"fixture"}}}))
+    with app.runtime.db.connect() as conn:
+        for item in ("first", "second"):
+            conn.execute("""INSERT INTO items(id,source_file,item_order,published_at,date,title,summary,url,created_at,updated_at)
+                VALUES(?,'fixture',1,'2026-11-12','2026-11-12','双轨测试','第一段材料',?,'now','now')""",
+                (item, "https://example.test/" + item))
+        conn.commit()
+    path = "/api/news/" + third["id"]
+    archived_session = client.post(path + "/agent/jobs", json={"question":"提炼这篇材料的可比口径"}).json["session"]["id"]
+    responses.append("观察样本和分母")
+    assert app.runtime.agent.process_pending_agent_once()
+    release = threading.Event()
+    def hold(entered, answer):
+        def reply(body):
+            entered.set()
+            assert release.wait(30)
+            return answer
+        return reply
+    articles = [threading.Event(), threading.Event()]
+    searching = threading.Event()
+    original = oar_client.bridge_request
+    def local_search(**args):
+        payload = original(**args)
+        if args.get("task") == "personal_assistant":
+            payload["web_tools"] = managed_tools("--evidence", str(tmp_path / "search"))
+        return payload
+    monkeypatch.setattr(oar_client, "bridge_request", local_search)
+    agent = app.runtime.agent
+    agent.start_agent_worker()
+    try:
+        for item, entered in zip(("first","second"), articles):
+            responses.append(hold(entered, "文章完成"))
+            assert client.post(f"/api/news/{item}/agent/jobs", json={"question":"这篇文章有什么变化？"}).status_code == 202
+            assert entered.wait(12)
+        responses.extend([("mcp__nr_web__web_search", {"query":"合成报道"}), hold(searching, "个人讨论完成")])
+        sent = client.post("/api/personal-assistant/threads/main/messages", json={"text":"查询报道的新进展", "request_id":str(uuid.uuid4())})
+        assert sent.status_code == 200
+        assert searching.wait(16)
+        assert (tmp_path / "search").read_text().strip() == "web_search"
+        responses.append("核对样本和分母")
+        result = client.post(path + "/chat/archive", json={"agent_session_id":archived_session})
+        assert result.status_code == 200, result.json
+        assert result.json["notes"][0]["archive_summary"] == "核对样本和分母"
+        assert client.get("/api/personal-assistant/threads/main").json["job"]["status"] == "running"
+        for item in ("first","second"):
+            snapshot = client.get(f"/api/news/{item}/agent/session").json
+            assert snapshot["jobs"][0]["status"] in ("running","streaming")
+    finally:
+        release.set()
+        agent.stop_event.set()
+        for worker in agent.threads:
+            worker.join(10)
+    assert finished(app.app.extensions["personal_assistant"], "main")["job"]["status"] == "done"
+    for item in ("first","second"):
+        assert client.get(f"/api/news/{item}/agent/session").json["jobs"][0]["status"] == "succeeded"

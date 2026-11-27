@@ -509,3 +509,29 @@ test('DSH report metadata uses the selected route and only consults its installe
     assert.deepEqual(lookups, example.catalog ? [['llm-pi-ai', {provider: route.provider}]] : []);
   }
 });
+
+test('assistant compacts before input only with verified capabilities and actual 80 percent usage', async () => {
+  const {assistantContext} = await import('../scripts/oar_assistant_context.mjs');
+  const usage = {tokens:799,contextWindow:1000,percent:80}, events=[];
+  const session = {contextUsage:()=>({value:usage}),compact:async options=>{
+    assert.equal(options.timeoutMs,45000);
+    events.push('native compact');
+    return {kind:'completed'};
+  }};
+  const capabilities = {manualCompaction:{kind:'supported'},contextUsage:{tokens:true,contextWindow:true}};
+  const runtime = {sessionCapabilities:()=>capabilities};
+  const request = {task:'personal_assistant',compact_before_turn:true};
+  const context = assistantContext(request, runtime, {}, session);
+  assert.equal(context.due(),false);
+  usage.tokens=800;
+  assert.equal(context.due(),true);
+  usage.tokens=null;
+  assert.equal(context.due(),false);
+  await context.prepare(false, event=>events.push(event.phase));
+  assert.deepEqual(events,[]);
+  await context.prepare(true, event=>events.push(event.phase));
+  assert.deepEqual(events,['compacting','native compact','thinking']);
+  capabilities.contextUsage.contextWindow=false;
+  assert.equal(assistantContext(request,runtime,{},session),undefined);
+  assert.equal(assistantContext({...request,task:'news_chat'},runtime,{},session),undefined);
+});

@@ -41,25 +41,28 @@ def wait_done(service, thread):
     pytest.fail("personal assistant worker did not finish")
 
 
-def send(service, text="我更关注政策的长期影响", request_id=None, thread=None):
-    thread = thread or service.new_thread()["id"]
-    service.send(thread, text, request_id or str(uuid.uuid4()))
-    return thread
+def send(service, text="我更关注政策的长期影响", request_id=None, thread=None, quote=None):
+    return service.send(thread or "main", text, request_id or str(uuid.uuid4()), quote=quote)["thread"]["id"]
 
 
-def test_first_use_requires_user_name_and_preserves_identity(service, tmp_path, monkeypatch):
+def test_unnamed_first_send_creates_main_and_preserves_identity(service, tmp_path, monkeypatch):
     monkeypatch.setenv("NEWS_READER_PERSONAL_ASSISTANT_DIR", str(tmp_path / "unnamed"))
     app = Flask(__name__)
     assistant = register(app, service.db_path, service.settings)
     client = app.test_client()
     profile = client.get("/api/personal-assistant/profile").json["profile"]
     assert profile["name"] == ""
-    thread = assistant.new_thread()["id"]
-    response = client.post(f"/api/personal-assistant/threads/{thread}/messages", json={"text":"你好", "request_id":str(uuid.uuid4())})
-    assert response.status_code == 400
-    assert response.json["error"] == "assistant_name_required"
-    assert assistant.snapshot(thread)["messages"] == []
-    assert client.put("/api/personal-assistant/profile", json=profile | {"name":"  "}).status_code == 400
+    prompts = []
+    assistant.runner = lambda **args: prompts.append(args["prompt"]) or "你好"
+    assert client.get("/api/personal-assistant/threads/main").json["thread"] is None
+    assert client.post("/api/personal-assistant/threads/main/messages", json={"text":" ", "request_id":str(uuid.uuid4())}).status_code == 400
+    assert not assistant.list_threads()["threads"]
+    response = client.post("/api/personal-assistant/threads/main/messages", json={"text":"你好", "request_id":str(uuid.uuid4())})
+    assert response.status_code == 200
+    thread = response.json["thread"]["id"]
+    assert wait_done(assistant, thread)["job"]["status"] == "done"
+    assert "「个人助手」" in prompts[0]
+    profile = client.put("/api/personal-assistant/profile", json=profile | {"name":"  "}).json["profile"]
     monkeypatch.setattr("personal_assistant.model_catalogs.safe_catalog", lambda _: {"options":[]})
     assert client.post("/api/personal-assistant/model-options", json=profile).status_code == 200
     updated = client.put("/api/personal-assistant/profile", json=profile | {"name":"我的助手"}).json["profile"]
@@ -161,13 +164,13 @@ def test_persistent_identity_threads_memory_and_runtime_switch(service):
     assert restarted.profile()["id"] == profile["id"]
     assert restarted.profile()["name"] == "小秋"
     assert restarted.snapshot(first)["messages"] == result["messages"]
-    second = send(restarted, "另一条讨论")
+    second = send(restarted, "同一讨论的新模型")
     assert wait_done(restarted, second)["job"]["status"] == "done"
     assert "notes/偏好.md" in invocations[-1]["prompt"]
-    assert "我更关注政策的长期影响" not in invocations[-1]["prompt"]  # unrelated thread never replayed
+    assert "我更关注政策的长期影响" in invocations[-1]["prompt"]
     assert invocations[-1]["profile"]["runtime"] == "pi"
     assert invocations[-1]["state_dir"] != invocations[0]["state_dir"]
-    assert len(restarted.list_threads()["threads"]) == 2
+    assert first == second and len(restarted.list_threads()["threads"]) == 1
 
 
 def test_resumed_discussions_refresh_only_changed_memory(service):
@@ -188,20 +191,17 @@ def test_resumed_discussions_refresh_only_changed_memory(service):
         return received[-1]
 
     service.runner = runner
-    first = service.new_thread()["id"]
-    second = service.new_thread()["id"]
-    for thread in (first, second):
-        prompt = ask(thread)
-        assert "<memory>" in prompt and note in prompt
-        assert "最初的专题内容" not in prompt
+    first = "main"
+    prompt = ask(first)
+    assert "<memory>" in prompt and note in prompt
+    assert "最初的专题内容" not in prompt
 
     unchanged = ask(first, "修正关注方向")
     assert "<memory>" not in unchanged and note not in unchanged
     assert "本轮用户消息（ID " in unchanged and unchanged.endswith("修正关注方向")
-    for thread in (first, second):
-        refreshed = ask(thread)
-        assert "<memory>" in refreshed and note in refreshed
-        assert "修改后的专题内容" not in refreshed
+    refreshed = ask(first)
+    assert "<memory>" in refreshed and note in refreshed
+    assert "修改后的专题内容" not in refreshed
 
     service = Service(service.root, service.db_path, service.settings, runner)
     current = service.memory.read(note)
@@ -228,11 +228,10 @@ def test_busy_cancel_idempotency_and_config_guard(service):
     request_id = str(uuid.uuid4())
     first = send(service, request_id=request_id)
     assert started.wait(2)
-    service.send(first, "重复发送", request_id)
+    service.send(first, "我更关注政策的长期影响", request_id)
     assert len(service.snapshot(first)["messages"]) == 2
-    second = service.new_thread()["id"]
-    with pytest.raises(RuntimeError, match="assistant_busy"): service.send(second, "另一个问题", str(uuid.uuid4()))
-    with pytest.raises(RuntimeError, match="assistant_busy"): service.save_profile(service.profile() | {"name":"更名"})
+    with pytest.raises(RuntimeError, match="assistant_busy"): service.send("main", "另一个问题", str(uuid.uuid4()))
+    assert service.save_profile(service.profile() | {"name":"更名"})["name"] == "更名"
     with pytest.raises(RuntimeError, match="assistant_busy"): service.edit_memory("MEMORY.md", service.memory.read("MEMORY.md"))
     service.stop(first)
     assert wait_done(service, first)["job"]["status"] == "stopped"
@@ -262,18 +261,18 @@ def test_failed_turn_is_not_replayed_as_authoritative(service):
     assert wait_done(service, thread)["job"]["status"] == "done"
 
 
-def test_restart_recovers_abandoned_job_and_library_switch(service, tmp_path):
+def test_restart_recovers_abandoned_job(service):
     profile = service.profile()
-    thread = service.new_thread()["id"]
+    service.runner = lambda **args: "完成"
+    thread = send(service)
+    wait_done(service, thread)
     with service.connect() as conn:
         conn.execute("INSERT INTO jobs(id,thread_id,status,created_at,updated_at) VALUES('old',?,'running','then','then')", (thread,))
         conn.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,'old','assistant','partial','running','then')", (thread,))
     restarted = Service(service.root, service.db_path, service.settings)
     assert restarted.snapshot(thread)["job"]["error"] == "assistant_restarted"
-    restarted.db_path = lambda: tmp_path / "other.sqlite3"
-    assert not restarted.snapshot(thread)["thread"]["current_library"]
+    assert restarted.snapshot("main")["thread"]["id"] == thread
     assert restarted.profile()["id"] == profile["id"]
-    with pytest.raises(ValueError, match="另一新闻库"): send(restarted, thread=thread)
 
 
 def test_interrupted_runtime_cannot_write_memory_after_stop(service):
@@ -400,3 +399,143 @@ def test_blueprint_validation_and_independent_configuration(service, monkeypatch
     assert client.put("/api/personal-assistant/profile", json=[]).status_code == 400
     assert client.put("/api/personal-assistant/memory/notes/no.md", json={"content":"test","revision":""}).status_code == 200
     assert client.get("/api/personal-assistant/memory").json["files"][-1]["path"] == "notes/no.md"
+
+
+def test_simultaneous_first_sends_and_searchable_quote_survive_source_deletion(service):
+    from concurrent.futures import ThreadPoolExecutor
+    service = Service(service.root.parent / "cold-assistant", service.db_path, service.settings)
+    quote = {"item_id":"n1", "title":"原来的标题" + "甲" * 2100, "url":"https://example.test/n1", "quote_text":"作者提到了久期",
+             "quote_source":"conclusion", "quote_paragraph":1}
+    request_id = str(uuid.uuid4())
+    release = threading.Event()
+    calls = []
+    def runner(**kwargs):
+        calls.append(kwargs)
+        assert release.wait(5)
+        return "回复"
+    service.runner = runner
+    other = Service(service.root, service.db_path, service.settings, runner)
+    gate = threading.Barrier(2)
+    def submit(instance):
+        gate.wait(timeout=5)
+        return instance.send("main", "这是什么意思？", request_id, quote=quote)["thread"]["id"]
+    try:
+        with ThreadPoolExecutor(2) as workers:
+            ids = list(workers.map(submit, (service, other)))
+        assert len(set(ids)) == 1 and len(service.list_threads()["threads"]) == 1
+        with pytest.raises(RuntimeError, match="assistant_busy"):
+            send(other, "另一个标签页的问题", quote=quote)
+        with pytest.raises(ValueError, match="不同内容"):
+            other.send("main", "这是什么意思？", request_id, quote=quote | {"quote_source":"points"})
+    finally:
+        release.set()
+    wait_done(service, ids[0])
+    assert len(calls) == 1
+    with sqlite3.connect(service.db_path()) as db:
+        db.execute("DELETE FROM items WHERE id='n1'")
+    second = quote | {"quote_source":"translated", "quote_text":"另一份材料"}
+    send(other, "这是什么意思？", quote=second)
+    snapshot = wait_done(other, ids[0])
+    assert [m["quote"] for m in snapshot["messages"] if m["role"] == "user"] == [quote,second]
+    tools = ToolServer(service.db_path(), service.workspace, service.state_db)
+    for term in ("久期", "原来的标题", "这是什么意思"):
+        results = tools.call("discussion_search", {"text":term})
+        row = dict(zip(results["columns"], results["rows"][-1]))
+        assert row["id"] == snapshot["messages"][0]["id"]
+        assert row["quote_text"] == quote["quote_text"] and row["content"] == "这是什么意思？"
+
+
+def test_retry_snapshot_and_edit_during_execution(service):
+    seen, release, started = [], threading.Event(), threading.Event()
+    original = {"item_id":"n1", "title":"标题", "url":"", "quote_text":"用户递入的材料",
+                "quote_source":"points", "quote_paragraph":None}
+    def runner(**args):
+        seen.append(args)
+        if len(seen) == 1:
+            started.set()
+            assert release.wait(4)
+            raise RuntimeError("assistant_timeout")
+        return "完成"
+    service.runner = runner
+    thread = send(service, "原来的问题", quote=original)
+    assert started.wait(3)
+    service.save_profile(service.profile() | {"runtime":"pi","pi":{"provider":"fixture","model":"other"}})
+    release.set()
+    failed = wait_done(service, thread)
+    service.send(thread, None, str(uuid.uuid4()), failed["job"]["id"])
+    retry = wait_done(service, thread)
+    assert [m["id"] for m in retry["messages"]] == [m["id"] for m in failed["messages"]]
+    assert retry["messages"][0]["quote"] == original
+    assert "用户递入的材料" in seen[1]["prompt"] and "原来的问题" in seen[1]["resume_prompt"]
+    send(service, "新模型的新轮")
+    assert wait_done(service, thread)["job"]["status"] == "done"
+    assert [call["profile"]["runtime"] for call in seen] == ["codex","codex","pi"]
+    assert seen[0]["state_dir"] == seen[1]["state_dir"] != seen[2]["state_dir"]
+
+
+def test_pi_profile_validates_explicit_effort_and_accepts_default(service, monkeypatch):
+    monkeypatch.setattr("pi_models.metadata", lambda _: {"reasoning_efforts":["off", "low"]})
+    base = service.profile() | {"runtime":"pi", "pi":{"provider":"local","model":"sample"}}
+    with pytest.raises(ValueError, match="invalid_pi_reasoning_effort"):
+        service.save_profile(base | {"pi":base["pi"] | {"reasoning_effort":"high"}})
+    assert "reasoning_effort" not in service.save_profile(base)["pi"]
+
+
+def test_rebuild_history_budget_includes_quotes_and_search_can_page_long_originals(service):
+    prompts = []
+    def runner(**args):
+        prompts.append(args["prompt"])
+        return "答" * 30000 if len(prompts) == 3 else "完成"
+    service.runner = runner
+    quote = {"item_id":"n1","title":"历史标题","url":"","quote_source":"original","quote_paragraph":None,"quote_text":"第一篇" + "甲" * 15000}
+    thread = send(service, "最早问题", quote=quote)
+    wait_done(service, thread)
+    send(service, "第二问", quote=quote | {"quote_text":"新引文" + "乙" * 15000})
+    wait_done(service, thread)
+    send(service, "第三问")
+    wait_done(service, thread)
+    send(service, "第四问")
+    wait_done(service, thread)
+    def history_json(prompt):
+        data = prompt.split("同一讨论最近消息（更早的内容按需查 discussion_search）：\n", 1)[1].split("\n本轮用户消息", 1)[0]
+        assert len(data) <= 24000
+        return json.loads(data)
+    history = history_json(prompts[2])
+    assert any(m.get("quote", {}).get("quote_text", "").startswith("新引文") for m in history)
+    assert all("最早问题" != m["content"] for m in history)
+    last, = history_json(prompts[3])
+    assert last["truncated"] and len(last["content"]) > 23000
+    tools = ToolServer(service.db_path(), service.workspace, service.state_db)
+    result = tools.call("discussion_search", {"message_id":1,"offset":12000})
+    record = dict(zip(result["columns"], result["rows"][0]))
+    assert record["quote_text"] == quote["quote_text"][12000:] and record["quote_length"] == len(quote["quote_text"])
+
+
+def test_upgrade_selects_latest_user_statement_and_paginates_old_notifications(service):
+    with service.connect() as conn:
+        conn.execute("DROP TABLE assistant_main_thread")
+        conn.execute("DROP TABLE message_quotes")
+        for thread, stamp in (("old","2026-10-01"), ("recent","2026-11-02"), ("empty","2026-11-03")):
+            conn.execute("INSERT INTO threads VALUES(?,?,?,?,?)", (thread,thread,"fixture",stamp,stamp))
+            if thread == "empty":
+                continue
+            for i in range(55):
+                job = f"{thread}-{i}"
+                conn.execute("INSERT INTO jobs(id,thread_id,status,created_at,updated_at) VALUES(?,?,'done',?,?)",(job,thread,stamp,stamp))
+                for role in ("user","assistant"):
+                    conn.execute("INSERT INTO messages(thread_id,job_id,role,content,status,created_at) VALUES(?,?,?,?,'done',?)",
+                                 (thread,job,role,f"{thread}-{role}-{i}",stamp))
+        conn.execute("UPDATE threads SET updated_at='2026-11-04' WHERE id='old'")
+        before = [tuple(row) for row in conn.execute("SELECT * FROM messages ORDER BY id")]
+    for _ in range(2):
+        service = Service(service.root, service.db_path, service.settings)
+        latest = service.snapshot("main")
+        assert latest["thread"]["id"] == "recent" and latest["has_more"]
+        older = service.snapshot("recent", before=latest["messages"][0]["id"])
+        assert not older["has_more"] and len(older["messages"] + latest["messages"]) == 110
+        target = service.snapshot("old", message_id=4)
+        assert not target["thread"]["is_main"] and target["messages"][-1]["id"] == 4
+        with pytest.raises(ValueError, match="返回主对话"):
+            send(service, "不能发往旧讨论", thread="old")
+        with service.connect() as conn:
+            assert before == [tuple(row) for row in conn.execute("SELECT * FROM messages ORDER BY id")]
